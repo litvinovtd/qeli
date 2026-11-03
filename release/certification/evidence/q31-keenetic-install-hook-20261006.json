@@ -1,0 +1,485 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F320_F321_FIXTURES_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T14:28:52.222244+00:00",
+  "base_commit": "46e2750cf66cc0f7ed66b1277f7fa04a45811b2d",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-keenetic-install-hook-20261006",
+  "raw_seal_sha256": "81abc5d6c03694fb72b9a169f180d59cb6823f1583ea1bead1e1aabb61c039a9",
+  "checks": [
+    {
+      "id": "native-recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "native-recipes.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "diff.log"
+    },
+    {
+      "id": "busybox-shell",
+      "command": "cd /var/tmp/qeli-q31-keenetic-install-hook-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p test_keenetic_templates.py -v",
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "busybox-shell-verified.log"
+    },
+    {
+      "id": "busybox-retry",
+      "command": "cd /var/tmp/qeli-q31-keenetic-install-hook-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' python3 retry-reproduce.py",
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "busybox-retry-verified.log"
+    },
+    {
+      "id": "dash-shell",
+      "command": "cd /var/tmp/qeli-q31-keenetic-install-hook-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' python3 -m unittest discover -s scripts -p test_keenetic_templates.py -v",
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "dash-shell-verified.log"
+    },
+    {
+      "id": "dash-retry",
+      "command": "cd /var/tmp/qeli-q31-keenetic-install-hook-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' python3 retry-reproduce.py",
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "dash-retry-verified.log"
+    }
+  ],
+  "source_review": {
+    "findings": [
+      "F320 canonical artifact names, checked mandatory packages, prepared sibling publication and private INI modes",
+      "F321 checked ndm mutations, pending retry checkpoint, strict marker and single NetworkPlan snapshot"
+    ],
+    "shell_tests_per_interpreter": 20,
+    "shell_breakdown": {
+      "installer": 11,
+      "hook": 9
+    },
+    "new_shell_cases": 20,
+    "interpreters": [
+      "BusyBox ash",
+      "dash"
+    ],
+    "native_recipe_checks": 37,
+    "baseline_reproductions": {
+      "busybox": [
+        {
+          "source": "baseline",
+          "scenario": "canonical-name",
+          "exit_code": 1,
+          "reported_success": false,
+          "installed_binary": null
+        },
+        {
+          "source": "baseline",
+          "scenario": "required-package-error",
+          "exit_code": 0,
+          "reported_success": true,
+          "installed_binary": "legacy artifact"
+        },
+        {
+          "source": "baseline",
+          "scenario": "ndm-error",
+          "exit_code": 0,
+          "reported_up": true,
+          "calls": [
+            "show interface OpkgTun0",
+            "interface OpkgTun0",
+            "show interface OpkgTun0",
+            "interface OpkgTun0 description qeli-VPN",
+            "interface OpkgTun0 ip global auto",
+            "interface OpkgTun0 ip address 10.8.0.2 255.255.255.255",
+            "interface OpkgTun0 ipv6 address fd00::2/128",
+            "interface OpkgTun0 ip mtu 1400",
+            "interface OpkgTun0 ip tcp adjust-mss pmtu",
+            "interface OpkgTun0 security-level public",
+            "interface OpkgTun0 up",
+            "system configuration save"
+          ]
+        },
+        {
+          "source": "baseline",
+          "scenario": "invalid-marker",
+          "exit_code": 0,
+          "reported_up": true,
+          "calls": [
+            "show interface OpkgTun0garbage",
+            "interface OpkgTun0garbage",
+            "show interface OpkgTun0garbage",
+            "interface OpkgTun0garbage description qeli-VPN",
+            "interface OpkgTun0garbage ip global auto",
+            "interface OpkgTun0garbage ip address 10.8.0.2 255.255.255.255",
+            "interface OpkgTun0garbage ipv6 address fd00::2/128",
+            "interface OpkgTun0garbage ip mtu 1400",
+            "interface OpkgTun0garbage ip tcp adjust-mss pmtu",
+            "interface OpkgTun0garbage security-level public",
+            "interface OpkgTun0garbage up",
+            "system configuration save"
+          ]
+        },
+        {
+          "source": "baseline",
+          "scenario": "plan-replacement",
+          "exit_code": 0,
+          "reported_up": true,
+          "calls": [
+            "show interface OpkgTun0",
+            "interface OpkgTun0",
+            "show interface OpkgTun0",
+            "interface OpkgTun0 description qeli-VPN",
+            "interface OpkgTun0 ip global auto",
+            "interface OpkgTun0 ip address 10.8.0.2 255.255.255.255",
+            "interface OpkgTun0 ipv6 address fd00::9/128",
+            "interface OpkgTun0 ip mtu 1280",
+            "interface OpkgTun0 ip tcp adjust-mss pmtu",
+            "interface OpkgTun0 security-level public",
+            "interface OpkgTun0 up",
+            "system configuration save"
+          ]
+        },
+        {
+          "source": "current",
+          "scenario": "canonical-name",
+          "exit_code": 0,
+          "reported_success": true,
+          "installed_binary": "canonical-aarch64"
+        },
+        {
+          "source": "current",
+          "scenario": "required-package-error",
+          "exit_code": 1,
+          "reported_success": false,
+          "installed_binary": "old binary"
+        },
+        {
+          "source": "current",
+          "scenario": "ndm-error",
+          "exit_code": 1,
+          "reported_up": false,
+          "calls": [
+            "show interface OpkgTun0",
+            "interface OpkgTun0",
+            "show interface OpkgTun0",
+            "interface OpkgTun0 description qeli-VPN",
+            "interface OpkgTun0 ip global auto"
+          ]
+        },
+        {
+          "source": "current",
+          "scenario": "invalid-marker",
+          "exit_code": 1,
+          "reported_up": false,
+          "calls": []
+        },
+        {
+          "source": "current",
+          "scenario": "plan-replacement",
+          "exit_code": 0,
+          "reported_up": true,
+          "calls": [
+            "show interface OpkgTun0",
+            "interface OpkgTun0",
+            "show interface OpkgTun0",
+            "interface OpkgTun0 description qeli-VPN",
+            "interface OpkgTun0 ip global auto",
+            "interface OpkgTun0 ip address 10.8.0.2 255.255.255.255",
+            "interface OpkgTun0 ipv6 address fd00::2/128",
+            "interface OpkgTun0 ip mtu 1400",
+            "interface OpkgTun0 ip tcp adjust-mss pmtu",
+            "interface OpkgTun0 security-level public",
+            "interface OpkgTun0 up",
+            "system configuration save"
+          ]
+        }
+      ],
+      "dash": [
+        {
+          "source": "baseline",
+          "scenario": "canonical-name",
+          "exit_code": 1,
+          "reported_success": false,
+          "installed_binary": null
+        },
+        {
+          "source": "baseline",
+          "scenario": "required-package-error",
+          "exit_code": 0,
+          "reported_success": true,
+          "installed_binary": "legacy artifact"
+        },
+        {
+          "source": "baseline",
+          "scenario": "ndm-error",
+          "exit_code": 0,
+          "reported_up": true,
+          "calls": [
+            "show interface OpkgTun0",
+            "interface OpkgTun0",
+            "show interface OpkgTun0",
+            "interface OpkgTun0 description qeli-VPN",
+            "interface OpkgTun0 ip global auto",
+            "interface OpkgTun0 ip address 10.8.0.2 255.255.255.255",
+            "interface OpkgTun0 ipv6 address fd00::2/128",
+            "interface OpkgTun0 ip mtu 1400",
+            "interface OpkgTun0 ip tcp adjust-mss pmtu",
+            "interface OpkgTun0 security-level public",
+            "interface OpkgTun0 up",
+            "system configuration save"
+          ]
+        },
+        {
+          "source": "baseline",
+          "scenario": "invalid-marker",
+          "exit_code": 0,
+          "reported_up": true,
+          "calls": [
+            "show interface OpkgTun0garbage",
+            "interface OpkgTun0garbage",
+            "show interface OpkgTun0garbage",
+            "interface OpkgTun0garbage description qeli-VPN",
+            "interface OpkgTun0garbage ip global auto",
+            "interface OpkgTun0garbage ip address 10.8.0.2 255.255.255.255",
+            "interface OpkgTun0garbage ipv6 address fd00::2/128",
+            "interface OpkgTun0garbage ip mtu 1400",
+            "interface OpkgTun0garbage ip tcp adjust-mss pmtu",
+            "interface OpkgTun0garbage security-level public",
+            "interface OpkgTun0garbage up",
+            "system configuration save"
+          ]
+        },
+        {
+          "source": "baseline",
+          "scenario": "plan-replacement",
+          "exit_code": 0,
+          "reported_up": true,
+          "calls": [
+            "show interface OpkgTun0",
+            "interface OpkgTun0",
+            "show interface OpkgTun0",
+            "interface OpkgTun0 description qeli-VPN",
+            "interface OpkgTun0 ip global auto",
+            "interface OpkgTun0 ip address 10.8.0.2 255.255.255.255",
+            "interface OpkgTun0 ipv6 address fd00::9/128",
+            "interface OpkgTun0 ip mtu 1280",
+            "interface OpkgTun0 ip tcp adjust-mss pmtu",
+            "interface OpkgTun0 security-level public",
+            "interface OpkgTun0 up",
+            "system configuration save"
+          ]
+        },
+        {
+          "source": "current",
+          "scenario": "canonical-name",
+          "exit_code": 0,
+          "reported_success": true,
+          "installed_binary": "canonical-aarch64"
+        },
+        {
+          "source": "current",
+          "scenario": "required-package-error",
+          "exit_code": 1,
+          "reported_success": false,
+          "installed_binary": "old binary"
+        },
+        {
+          "source": "current",
+          "scenario": "ndm-error",
+          "exit_code": 1,
+          "reported_up": false,
+          "calls": [
+            "show interface OpkgTun0",
+            "interface OpkgTun0",
+            "show interface OpkgTun0",
+            "interface OpkgTun0 description qeli-VPN",
+            "interface OpkgTun0 ip global auto"
+          ]
+        },
+        {
+          "source": "current",
+          "scenario": "invalid-marker",
+          "exit_code": 1,
+          "reported_up": false,
+          "calls": []
+        },
+        {
+          "source": "current",
+          "scenario": "plan-replacement",
+          "exit_code": 0,
+          "reported_up": true,
+          "calls": [
+            "show interface OpkgTun0",
+            "interface OpkgTun0",
+            "show interface OpkgTun0",
+            "interface OpkgTun0 description qeli-VPN",
+            "interface OpkgTun0 ip global auto",
+            "interface OpkgTun0 ip address 10.8.0.2 255.255.255.255",
+            "interface OpkgTun0 ipv6 address fd00::2/128",
+            "interface OpkgTun0 ip mtu 1400",
+            "interface OpkgTun0 ip tcp adjust-mss pmtu",
+            "interface OpkgTun0 security-level public",
+            "interface OpkgTun0 up",
+            "system configuration save"
+          ]
+        }
+      ]
+    },
+    "retry_reproductions": {
+      "busybox": [
+        {
+          "source": "pre-checkpoint",
+          "basis": "intermediate F321 checked-apply source without checkpoint, not Git baseline",
+          "first_exit": 1,
+          "retry_exit": 0,
+          "retry_calls": [
+            "show interface OpkgTun0"
+          ]
+        },
+        {
+          "source": "current",
+          "basis": "current",
+          "first_exit": 1,
+          "retry_exit": 0,
+          "retry_calls": [
+            "show interface OpkgTun0",
+            "interface OpkgTun0",
+            "show interface OpkgTun0",
+            "interface OpkgTun0 description qeli-VPN",
+            "interface OpkgTun0 ip global auto",
+            "interface OpkgTun0 ip address 10.8.0.2 255.255.255.255",
+            "interface OpkgTun0 ipv6 address fd00::2/128",
+            "interface OpkgTun0 ip mtu 1400",
+            "interface OpkgTun0 ip tcp adjust-mss pmtu",
+            "interface OpkgTun0 security-level public",
+            "interface OpkgTun0 up",
+            "system configuration save"
+          ]
+        }
+      ],
+      "dash": [
+        {
+          "source": "pre-checkpoint",
+          "basis": "intermediate F321 checked-apply source without checkpoint, not Git baseline",
+          "first_exit": 1,
+          "retry_exit": 0,
+          "retry_calls": [
+            "show interface OpkgTun0"
+          ]
+        },
+        {
+          "source": "current",
+          "basis": "current",
+          "first_exit": 1,
+          "retry_exit": 0,
+          "retry_calls": [
+            "show interface OpkgTun0",
+            "interface OpkgTun0",
+            "show interface OpkgTun0",
+            "interface OpkgTun0 description qeli-VPN",
+            "interface OpkgTun0 ip global auto",
+            "interface OpkgTun0 ip address 10.8.0.2 255.255.255.255",
+            "interface OpkgTun0 ipv6 address fd00::2/128",
+            "interface OpkgTun0 ip mtu 1400",
+            "interface OpkgTun0 ip tcp adjust-mss pmtu",
+            "interface OpkgTun0 security-level public",
+            "interface OpkgTun0 up",
+            "system configuration save"
+          ]
+        }
+      ]
+    },
+    "retained_initial_baseline_harness": "FAIL ambient PATH mismatch; final both-source PATH restriction and no actual lab opkg confirmed",
+    "source_proof": {
+      "base_commit": "46e2750cf66cc0f7ed66b1277f7fa04a45811b2d",
+      "changed_paths": [
+        "docs/eng/manuals/KEENETIC-DEPLOY.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "docs/ru/manuals/KEENETIC-DEPLOY.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "release/keenetic/README.md",
+        "release/keenetic/install-keenetic.sh",
+        "release/keenetic/opkgtun/010-qeli.sh",
+        "release/keenetic/opkgtun/README.md",
+        "scripts/test_keenetic_templates.py"
+      ],
+      "unchanged_implementation_git_inputs": 853,
+      "scopes": [
+        "native-libs",
+        "qeli",
+        "qeli-android",
+        "qeli-ios",
+        "qeli-mac",
+        "qeli-openwrt",
+        "qeli-win",
+        "qeli-shared",
+        "release/keenetic"
+      ],
+      "scope": "Exact staged allowlist; Rust/native/client/OpenWrt code and router build/source/artifact helpers unchanged. Keenetic templates changed. Remote executed inputs equal canonical staged blobs; no binary rebuild claim."
+    }
+  },
+  "real_qualification": {
+    "actual_opkg_ndmc_firmware": "NOT_RUN",
+    "architecture_ELF_execution": "NOT_RUN",
+    "ndm_event_recursion_concurrency_rollback": "NOT_RUN",
+    "cross_build": "NOT_RUN",
+    "real_router_runtime": "USER_EXCLUDED"
+  },
+  "remaining": [
+    "address/status optimism and MTU-only updates",
+    "process identity/join and legacy NAT/sysctl recovery",
+    "wan.d concurrency/generation ownership",
+    "full package upgrade rollback and build provenance"
+  ],
+  "retained_observations": [
+    "Q29 SIGKILL FAIL",
+    "Q29 auto/null DnsResolver ENONET",
+    "Q30 OS callback drain OPEN; Apple runtime excluded",
+    "D06 ACCEPTED_LIMITATION"
+  ],
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "q31": "IN_PROGRESS"
+  }
+}

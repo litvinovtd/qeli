@@ -39,7 +39,8 @@ internal static class EncryptedEnvelope
         ReadOnlySpan<byte> blob,
         ReadOnlySpan<byte> key,
         bool allowLegacyArray,
-        out bool needsMigration)
+        out bool needsMigration,
+        bool allowLegacyPlaintext = true)
     {
         if (HasMagic(blob))
         {
@@ -72,13 +73,13 @@ internal static class EncryptedEnvelope
                 needsMigration = true;
                 return plaintext;
             }
-            catch (CryptographicException) when (LooksLikeLegacyJson(blob, allowLegacyArray))
+            catch (CryptographicException) when (allowLegacyPlaintext && LooksLikeLegacyJson(blob, allowLegacyArray))
             {
                 // A pre-encryption JSON store. The caller performs strict model parsing
                 // before it is ever used and immediately rewrites it in the current format.
             }
         }
-        else if (!LooksLikeLegacyJson(blob, allowLegacyArray))
+        else if (!allowLegacyPlaintext || !LooksLikeLegacyJson(blob, allowLegacyArray))
         {
             throw new CryptographicException("data is neither JSON nor a complete encrypted envelope");
         }

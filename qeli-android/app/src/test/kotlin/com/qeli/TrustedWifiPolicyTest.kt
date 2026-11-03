@@ -160,4 +160,32 @@ class TrustedWifiPolicyTest {
             ),
         )
     }
+    @Test fun onlyAnEligibleTrustedPauseSuppressesCarrierHandover() {
+        for ((requested, lockdown) in listOf(false to false, true to false, false to true, true to true)) {
+            val pause = TrustedWifiPolicy.shouldPause(
+                TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI, requested, lockdown)
+            assertEquals("killSwitch=$requested systemLockdown=$lockdown", !requested && !lockdown, pause)
+            assertEquals(
+                if (pause) AndroidRoamingPolicy.AvailableNetworkAction.KEEP else AndroidRoamingPolicy.AvailableNetworkAction.ROAM,
+                AndroidRoamingPolicy.availableNetworkAction(true, false, true, pause),
+            )
+        }
+    }
+
+    @Test fun blockedTrustedPauseStillHandlesLateCarrierReplacement() {
+        for ((requested, lockdown) in listOf(true to false, false to true, true to true)) {
+            val pause = TrustedWifiPolicy.shouldPause(
+                TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI, requested, lockdown)
+            assertEquals(AndroidRoamingPolicy.AvailableNetworkAction.ROAM,
+                AndroidRoamingPolicy.availableNetworkAction(false, true, true, pause))
+        }
+    }
+
+    @Test fun unknownOrNonWifiNetworksNeverTakeOwnershipOfHandover() {
+        for (kind in listOf(TrustedWifiPolicy.NetworkKind.OTHER_NETWORK,
+            TrustedWifiPolicy.NetworkKind.UNKNOWN_WIFI, TrustedWifiPolicy.NetworkKind.NO_NETWORK)) {
+            assertFalse(TrustedWifiPolicy.shouldPause(kind, false, false))
+        }
+    }
+
 }

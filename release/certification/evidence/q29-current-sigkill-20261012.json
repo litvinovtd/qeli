@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-12",
+  "qualification": {
+    "status": "CURRENT_SIGKILL_OUTCOME_AND_PLATFORM_CONTROL_QUALIFIED",
+    "runtime_status": "FAIL",
+    "whole_runtime_error": null,
+    "source_identity": "16ebe7b21464985288fc8bc67ed65bf34018f39a\nc007d4c9d12f294e901c5f6ddc2c4bfcfb9aad24\n",
+    "source_dirty": false,
+    "product_SIGKILL": {
+      "status": "FAIL",
+      "old_pid": "3392",
+      "new_pid": "",
+      "error": "OS did not restore authenticated VPN after SIGKILL"
+    },
+    "plain_and_TUN_controls": {
+      "cells": [
+        {
+          "mode": "plain",
+          "old_pid": "1889",
+          "new_pid": "2329",
+          "elapsed_seconds": 18.95,
+          "status": "RESTART_OBSERVED",
+          "policy": {
+            "always_on_vpn_app": "com.qeli.audit.restartcontrol",
+            "always_on_vpn_lockdown": "0"
+          },
+          "ready_lines": [
+            "10-12 12:59:21.427  2329  2329 I Q29Control: READY mode=plain pid=2329 flags=1 startId=1 action=android.net.VpnService result=3"
+          ],
+          "tun_after": false
+        },
+        {
+          "mode": "vpn",
+          "old_pid": "2494",
+          "new_pid": "",
+          "elapsed_seconds": 45.49,
+          "status": "NO_RESTART_OBSERVED",
+          "policy": {
+            "always_on_vpn_app": "com.qeli.audit.restartcontrol",
+            "always_on_vpn_lockdown": "1"
+          },
+          "ready_lines": [],
+          "tun_after": false,
+          "error": "OS did not redeliver vpn control within 45s"
+        }
+      ],
+      "observation_window_seconds": 45,
+      "cleanup": "PASS"
+    },
+    "framework_observations": {
+      "plain": {
+        "old_pid": "1889",
+        "new_pid": "2329",
+        "death_line": "10-12 12:59:03.214   509   698 I ActivityManager: Process com.qeli.audit.restartcontrol (pid 1889) has died: prcp FGS ",
+        "preceding_unbind_exception": [],
+        "unbind_before_death_observed": false,
+        "restart_scheduling_lines": [
+          "10-12 12:59:03.216   509   698 W ActivityManager: Scheduling restart of crashed service com.qeli.audit.restartcontrol/.ControlService in 17444ms for start-requested"
+        ],
+        "after_service_app_null": false,
+        "service_before_sha256": "e7ec71f93153ea1f402f7dd370e8b064323389c584f95946728b996155a76b18",
+        "service_after_sha256": "b08d5da6d738f2bac2cebf2bffd4e4078b263b13cea4d0fcc9f37593389fda10",
+        "system_log_sha256": "a59e250264921c8f5972475faa2583f5f852f258ce5898625894d6a9984002b6",
+        "exit_info_sha256": "ff625f2a0e96ccde46a04c403100949e9b1cd3beae17e25beed0e4c40e9c9866"
+      },
+      "vpn": {
+        "old_pid": "2494",
+        "new_pid": "",
+        "death_line": "10-12 12:59:52.795   509  1068 I ActivityManager: Process com.qeli.audit.restartcontrol (pid 2494) has died: prcp FGS ",
+        "preceding_unbind_exception": [
+          "10-12 12:59:52.794   509   536 W ActivityManager: Exception when unbinding service com.qeli.audit.restartcontrol/.ControlService",
+          "10-12 12:59:52.794   509   536 W ActivityManager: android.os.DeadObjectException",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat android.os.BinderProxy.transactNative(Native Method)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat android.os.BinderProxy.transact(BinderProxy.java:584)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat android.app.IApplicationThread$Stub$Proxy.scheduleUnbindService(IApplicationThread.java:1419)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.am.ActiveServices.removeConnectionLocked(ActiveServices.java:5896)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.am.ActiveServices.unbindServiceLocked(ActiveServices.java:3970)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.am.ActivityManagerService.unbindService(ActivityManagerService.java:13426)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat android.app.ContextImpl.unbindService(ContextImpl.java:2171)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.connectivity.Vpn$1.interfaceRemoved(Vpn.java:2302)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService.lambda$notifyInterfaceRemoved$3(NetworkManagementService.java:352)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService.$r8$lambda$hVm3bQaIEYWthKxfd7oL9u5O8zg(NetworkManagementService.java:0)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService$$ExternalSyntheticLambda10.sendCallback(R8$$SyntheticClass:0)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService.invokeForAllObservers(NetworkManagementService.java:313)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService.notifyInterfaceRemoved(NetworkManagementService.java:352)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService.-$$Nest$mnotifyInterfaceRemoved(NetworkManagementService.java:0)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService$NetdUnsolicitedEventListener.lambda$onInterfaceRemoved$6(NetworkManagementService.java:619)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService$NetdUnsolicitedEventListener.$r8$lambda$piup9FgGLVmuqEVHCUukqqP2cGU(NetworkManagementService.java:0)",
+          "10-12 12:59:52.794   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService$NetdUnsolicitedEventListener$$ExternalSyntheticLambda3.run(R8$$SyntheticClass:0)"
+        ],
+        "unbind_before_death_observed": true,
+        "restart_scheduling_lines": [],
+        "after_service_app_null": true,
+        "service_before_sha256": "6c7f449ed3c9f7bc0e2d10a75db01fd5975813129e284b75fbc34c39a30af576",
+        "service_after_sha256": "276603b9a36748110471030ba57ad33109827b66319524b29c567f303564ad64",
+        "system_log_sha256": "357b746a1137d75693015df4690052719ee9d8756258a214ca51594cd30e2892",
+        "exit_info_sha256": "8b00707eaa8b0315e4865e7cd3ea6c48bae341227a305cc5fa8453a6a8ca6d44"
+      },
+      "Qeli": {
+        "old_pid": "3392",
+        "new_pid": "",
+        "death_line": "10-12 13:01:58.870   509   621 I ActivityManager: Process com.qeli (pid 3392) has died: prcp FGS ",
+        "preceding_unbind_exception": [
+          "10-12 13:01:58.840   509   536 W ActivityManager: Exception when unbinding service com.qeli/.VpnServiceImpl",
+          "10-12 13:01:58.840   509   536 W ActivityManager: android.os.DeadObjectException",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat android.os.BinderProxy.transactNative(Native Method)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat android.os.BinderProxy.transact(BinderProxy.java:584)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat android.app.IApplicationThread$Stub$Proxy.scheduleUnbindService(IApplicationThread.java:1419)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.am.ActiveServices.removeConnectionLocked(ActiveServices.java:5896)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.am.ActiveServices.unbindServiceLocked(ActiveServices.java:3970)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.am.ActivityManagerService.unbindService(ActivityManagerService.java:13426)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat android.app.ContextImpl.unbindService(ContextImpl.java:2171)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.connectivity.Vpn$1.interfaceRemoved(Vpn.java:2302)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService.lambda$notifyInterfaceRemoved$3(NetworkManagementService.java:352)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService.$r8$lambda$hVm3bQaIEYWthKxfd7oL9u5O8zg(NetworkManagementService.java:0)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService$$ExternalSyntheticLambda10.sendCallback(R8$$SyntheticClass:0)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService.invokeForAllObservers(NetworkManagementService.java:313)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService.notifyInterfaceRemoved(NetworkManagementService.java:352)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService.-$$Nest$mnotifyInterfaceRemoved(NetworkManagementService.java:0)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService$NetdUnsolicitedEventListener.lambda$onInterfaceRemoved$6(NetworkManagementService.java:619)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService$NetdUnsolicitedEventListener.$r8$lambda$piup9FgGLVmuqEVHCUukqqP2cGU(NetworkManagementService.java:0)",
+          "10-12 13:01:58.840   509   536 W ActivityManager: \tat com.android.server.net.NetworkManagementService$NetdUnsolicitedEventListener$$ExternalSyntheticLambda3.run(R8$$SyntheticClass:0)"
+        ],
+        "unbind_before_death_observed": true,
+        "restart_scheduling_lines": [],
+        "after_service_app_null": true,
+        "service_before_sha256": "aa8f0dc15e51533eba27d473f4ed49b107134a60e2c45c91d890ed6af0dcb4d2",
+        "service_after_sha256": "9d7a6c6fb90278a00c5e43d0a5af61269a645cc1633f0a154f97600744ecff94",
+        "system_log_sha256": "afa9573a5887e22de52a2831eea0f6395e3594cde68ab3c52690f9eae95fe320",
+        "exit_info_sha256": "ae3eca7849e121c8dbbd7fa4c61b7bf1dbcda3888e2cea3d6f194dd32ea911ec"
+      }
+    },
+    "platform_TUN_teardown_localization": true,
+    "whole_SIGKILL_recovery_PASS": false,
+    "observed_window_seconds": 45,
+    "absence_not_universal_never_restarts_claim": true,
+    "source_restart_policy_byte_identical_to_historical_run": true,
+    "policy_sha256": "f2187f429077a25e6df38e8a60d3e4d6216d6621f3ad09ea149dc72a44522e23",
+    "manual_recovery_and_revoke": "PASS",
+    "lockdown_dead_and_force_stopped_sender_receipts": 0,
+    "separate_probe_uids": {
+      "com.qeli": "10149",
+      "com.qeli.test": "10150"
+    },
+    "emulator_memory": {
+      "requested_mb": 1536,
+      "actual_guest_total_kib": 1505648,
+      "explicit_lowram_override": true
+    },
+    "elapsed_seconds": 401.05,
+    "host_service_userdata_preserved": true,
+    "canonical_Android_inputs": 126,
+    "APKs_and_CLI": {
+      "fixed/app.apk": {
+        "bytes": 12192812,
+        "sha256": "3d8496b42251fd90109a4b87532acf8a1c8b16a1a07d85267ce6c08b2db7f2a7"
+      },
+      "fixed/test.apk": {
+        "bytes": 772485,
+        "sha256": "4d6f5107a37da728ec74a0a3b1719b9c6daee7a02331d09dc2ee2c6cd3935396"
+      },
+      "qeli": {
+        "bytes": 14454184,
+        "sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069"
+      },
+      "control/restart-control.apk": {
+        "bytes": 12691,
+        "sha256": "674032ea3bc13d627879b1b07d1e6045d7912e7b206330f9139c24f344c81173"
+      },
+      "control/manifest.json": {
+        "bytes": 3506,
+        "sha256": "5c1698ea2b93cbbe89de23e9a5d0a61f623299a9989645aca41b1b14dd74949b"
+      },
+      "audit_android_restart_control.py": {
+        "bytes": 5409,
+        "sha256": "ca15f406a105c5de0939ad45bd7c102efd0b5c27c622997e8e5c8982b64813bf"
+      },
+      "audit_android_data_plane_lab.py": {
+        "bytes": 53440,
+        "sha256": "cd0f5c40671f5304a4e5a8b9a83b7ad44f54038539e62123fe02349448e3946f"
+      },
+      "android_lab_ui.py": {
+        "bytes": 7817,
+        "sha256": "c5d2bd815240ab3c7003a638416fd1bc4a30951a3f7fa79cb02a38889f41eb37"
+      },
+      "audit_udp_handshake_contracts.py": {
+        "bytes": 19012,
+        "sha256": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      "audit_android_network_handover.py": {
+        "bytes": 9275,
+        "sha256": "4397909b4f528165a869c9a69bfb7d092d4fa4a29b35771988bde13f32550bfc"
+      },
+      "audit_android_release_ui.py": {
+        "bytes": 7602,
+        "sha256": "56ac0b2d249bd3599fc8c999c5ad6f0cbeb8d3b2d91825ce3d1fbb031e347309"
+      },
+      "audit_android_nat64.py": {
+        "bytes": 11650,
+        "sha256": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78"
+      },
+      "audit_android_leak_bursts.py": {
+        "bytes": 7317,
+        "sha256": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3"
+      },
+      "audit_android_startup_dns.py": {
+        "bytes": 9424,
+        "sha256": "53d7a6d9852c3d9ad8fa7388462f9c3f3ab84ad9266bb6491b1a4c729d069765"
+      },
+      "audit_android_dns_fixture.py": {
+        "bytes": 1421,
+        "sha256": "02fa34c1ee922d32756455411c6f24acee39b51b0126412b3a453c33a3a5b2ce"
+      }
+    },
+    "staging_failure_no_runtime_started": true,
+    "staging_exact_payload_resumed_without_reupload": true,
+    "no_new_product_native_Gradle_JVM_builds": true,
+    "physical_devices_qualified": false,
+    "reference_AOSP_exact_image_revision_not_asserted": true,
+    "automatic_recovery_failure_retained": true,
+    "whole_audit_complete": false,
+    "official_done": 32,
+    "total": 37,
+    "no_push_deploy_release": true
+  },
+  "cleanup": {
+    "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+    "root": "/var/tmp/qeli-q29-data-current-961e0ab134c7423b95c081c9fc9cf442",
+    "owned_file_bytes": 48540296,
+    "free_before": 7593607168,
+    "free_after": 7642849280
+  },
+  "whole_audit_complete": false,
+  "full_release_preflight_qualified": false
+}

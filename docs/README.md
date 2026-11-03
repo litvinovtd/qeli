@@ -34,6 +34,17 @@ layout live in the root [README.md](../README.md).
 Актуальная безопасность: [RU](ru/reports/AUDIT.md) · [EN](eng/reports/AUDIT.md).
 Настройка recordizer: [RU](ru/manuals/OBFUSCATION.md) · [EN](eng/manuals/OBFUSCATION.md).
 
+## Технологии и измерения · Technologies and measurements
+
+Каталог механизмов и инженерных проверок: [RU](ru/reference/TECHNOLOGIES.md) ·
+[EN](eng/reference/TECHNOLOGIES.md). Recordizer: [RU](ru/reference/RECORDIZER.md) ·
+[EN](eng/reference/RECORDIZER.md).
+
+Сравнение required/off на 12 профилях от 20 октября 2026:
+[RU](ru/reports/benchmarks/recordizer_required_off_2026-10-20.md) ·
+[EN](eng/reports/benchmarks/recordizer_required_off_2026-10-20.md). Это инженерный n=1 прогон,
+не публичный бенчмарк релиза. Engineering n=1 run, not a public release benchmark.
+
 ## Бенчмарки · Benchmarks
 
 Датированные полные лабораторные отчёты хранятся зеркально в обеих локалях. Dated full

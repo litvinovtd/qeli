@@ -1,0 +1,27 @@
+<Project>
+  <PropertyGroup>
+    <!-- Resolve after project properties: QeliWin sets its RID in the csproj. -->
+    <QeliDependencyLockRid Condition="'$(RuntimeIdentifier)' == ''">portable</QeliDependencyLockRid>
+    <!-- dotnet restore -r sets the plural property; build/publish -r sets the
+         singular property. Both must choose the same single-RID lock. -->
+    <QeliDependencyLockRid Condition="'$(RuntimeIdentifier)' == '' and '$(RuntimeIdentifiers)' != ''">$(RuntimeIdentifiers.Replace(';', '+'))</QeliDependencyLockRid>
+    <QeliDependencyLockRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</QeliDependencyLockRid>
+    <!-- Single-file packaging enables the SDK's ILLink analysis package in
+         this project and its references, even without PublishTrimmed. -->
+    <QeliDependencyLockPackaging Condition="'$(PublishSingleFile)' == 'true'">.singlefile</QeliDependencyLockPackaging>
+    <NuGetLockFilePath>$(MSBuildProjectDirectory)/packages.$(QeliDependencyLockRid)$(QeliDependencyLockPackaging).lock.json</NuGetLockFilePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'QeliMac'">
+    <!-- Debug diagnostics, optional headless tools and Linux host Skia assets
+         have different package graphs. Keep their hashes in separate locks. -->
+    <QeliDependencyLockTools Condition="'$(QeliBuildTools)' == 'true'">.tools</QeliDependencyLockTools>
+    <QeliDependencyLockHost Condition="$([MSBuild]::IsOSPlatform('Linux'))">.linux</QeliDependencyLockHost>
+    <NuGetLockFilePath>$(MSBuildProjectDirectory)/packages.$(Configuration).$(QeliDependencyLockRid)$(QeliDependencyLockTools)$(QeliDependencyLockHost)$(QeliDependencyLockPackaging).lock.json</NuGetLockFilePath>
+  </PropertyGroup>
+  <!-- NuGet can create an absent lock even with RestoreLockedMode=true.
+       Refuse before collecting each project graph, including project references. -->
+  <Target Name="QeliRequireDependencyLock" BeforeTargets="Restore;_GenerateRestoreGraphProjectEntry"
+          Condition="'$(RestoreLockedMode)' == 'true' and !Exists('$(NuGetLockFilePath)')">
+    <Error Code="QELI1001" Text="Missing reviewed dependency lock: $(NuGetLockFilePath). Update intentionally with -p:QeliUpdateDependencyLocks=true --force-evaluate." />
+  </Target>
+</Project>

@@ -1,9 +1,10 @@
 [package]
 name = "qeli"
-version = "0.8.1"
+version = "0.8.3"
 edition = "2021"
 description = "Quick Easy Link IP"
 authors = ["qeli"]
+license = "AGPL-3.0-only"
 
 [lib]
 # Keep the Rust library target distinct from the `qeli` executable: MSVC emits one PDB per
@@ -47,12 +48,14 @@ path = "src/packet_bench_main.rs"
 required-features = ["packet-bench"]
 
 [features]
+# Test-only parser entry points; excluded from all shipping build recipes.
+fuzzing = []
 default = ["server", "client"]
 # Server side pulls the only MIPS-incompatible deps (rustls/ring via rcgen) plus
 # the web stack. A client-only build (`--no-default-features --features client-bin`)
 # excludes all of these and cross-compiles to mipsel/aarch64.
 # Every server build includes session roaming: shipped profiles and Quick Start enable it.
-server = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots", "dep:rcgen", "dep:axum", "dep:axum-server", "dep:tower", "dep:qrcode", "dep:rustls-pemfile", "experimental-roaming"]
+server = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots", "dep:rcgen", "dep:axum", "dep:axum-server", "dep:qrcode", "experimental-roaming"]
 client = []
 # Standard standalone and FFI clients carry the same roaming state machine. Runtime
 # capability negotiation still falls back safely on unsupported platforms and peers.
@@ -82,7 +85,7 @@ ffi-cdylib = []
 # Experimental whole-client control-plane ABI. It deliberately implies the existing
 # ffi-cdylib panic contract: every exported entry point catches unwinds, so a release
 # build with panic=abort must fail at compile time instead of making those guards inert.
-transport-core-ffi = ["ffi-cdylib", "client", "experimental-roaming"]
+transport-core-ffi = ["ffi-cdylib", "client", "experimental-roaming", "dep:jni"]
 # Internal compile-time gate retained for minimal/core experiments. All supported server,
 # standalone-client and FFI build entry points above include it. Handover is authenticated and
 # still requires the platform adapter and peer to negotiate the complete ROAMING_PATH contract.
@@ -93,6 +96,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_ignored = "0.1"
 rand = "0.10"
 x25519-dalek = { version = "3", features = ["static_secrets", "getrandom", "zeroize"] }
 chacha20poly1305 = "0.11"
@@ -109,7 +113,7 @@ aes-gcm = { version = "0.10", features = ["zeroize"] }
 # in the ClientHello — fingerprint parity with current Chrome. No C deps (unlike
 # aws-lc-rs), so it cross-compiles to the Android/Windows/macOS FFI clients.
 # `getrandom` enables `generate_keypair()` (OS RNG) — no rand_core version coupling.
-ml-kem = { version = "0.3", features = ["getrandom"] }
+ml-kem = { version = "0.3", features = ["getrandom", "zeroize"] }
 sha2 = "0.11"
 hkdf = "0.13"
 hmac = "0.13"
@@ -134,9 +138,8 @@ portable-atomic = "1"
 # decay, keeping RSS bounded (~40-60 MB). Optional so non-server targets never build
 # jemalloc-sys (no Windows/MSVC backend). Linux-only in practice (the binary is too).
 tikv-jemallocator = { version = "0.7", optional = true }
-mio = { version = "1", features = ["os-poll", "os-ext"] }
 # SO_REUSEPORT UDP sockets for the multi-worker UDP data plane (safe sockaddr
-# handling vs hand-rolled libc). Already in the dep tree via tokio/mio.
+# handling vs hand-rolled libc). Already in the dep tree via tokio.
 socket2 = { version = "0.6", features = ["all"] }
 
 # Web admin stack — server-only (feature = "server"). `ring` (pulled via rcgen/
@@ -146,9 +149,6 @@ axum = { version = "0.8", features = ["macros"], optional = true }
 # so it does NOT pull aws-lc-rs (needs cmake — the lab has none); we supply the
 # `ring` provider ourselves via the existing rustls `ring` feature.
 axum-server = { version = "0.8", features = ["tls-rustls-no-provider"], optional = true }
-tower = { version = "0.5", optional = true }
-# Load PEM cert/key (operator-provided or persisted self-signed) for the panel TLS.
-rustls-pemfile = { version = "2", optional = true }
 # CIDR parsing is part of the base config validation surface: even no-feature parser/fuzz
 # builds validate client LAN CIDRs, while server builds also use it for panel allowlists.
 ipnet = "2"
@@ -160,21 +160,21 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"], optio
 # (the lab has no cmake for aws-lc-rs). The client side is hand-rolled (no rustls),
 # so these are server-only (feature = "server") — `ring` is the lone MIPS blocker
 # and it lives entirely behind this gate.
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"], optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"], optional = true }
 # Mozilla root bundle for verifying outbound TLS (Telegram API / webhook notify).
 # Data-only crate; server-side (notifications) only.
-webpki-roots = { version = "1.0", optional = true }
+webpki-roots = { version = "1.0.10", optional = true }
 rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"], optional = true }
+
+jni = { version = "0.21", default-features = false, optional = true }
 
 [dev-dependencies]
 # ServiceExt::oneshot for driving real requests through a Router in tests (tower's
 # default feature set omits `util`). Test-only — never in the release binary.
 tower = { version = "0.5", features = ["util"] }
 
-[target.'cfg(target_os = "android")'.dependencies]
-# JNI bridge for the Android client (A4). Host/Windows use the plain C ABI (ffi.rs).
-jni = { version = "0.21", default-features = false }
+
 
 [profile.release]
 lto = "fat"

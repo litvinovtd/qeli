@@ -711,6 +711,18 @@
                     app:cornerRadius="12dp" />
             </LinearLayout>
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnLogReport"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="40dp"
+                android:text="@string/diagnostic_report"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"
+                app:strokeColor="@color/outline"
+                app:cornerRadius="12dp" />
+
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="0dp"

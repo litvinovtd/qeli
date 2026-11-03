@@ -24,6 +24,7 @@ public partial class AboutWindow : Window
     }
 
     private void OnOk(object sender, RoutedEventArgs e) => Close();
+    private void OnLicenses(object sender, RoutedEventArgs e) => new LicensesWindow(this).ShowDialog();
 
     /// <summary>Manual, user-initiated update check. Privacy: only runs while the tunnel is
     /// up (so it travels inside the tunnel); when disconnected we ask the user to connect

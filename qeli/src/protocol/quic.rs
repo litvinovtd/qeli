@@ -71,7 +71,7 @@ pub fn wrap_quic_long_into(
     packet_number: u32,
     packet: &mut Vec<u8>,
 ) {
-    // RFC 9000 §17.2 long header + RFC 9001 §17.2.2 Initial fields. The long
+    // RFC 9000 §17.2 long header + RFC 9000 §17.2.2 Initial fields. The long
     // packet type lives in bits 4-5; the low 2 bits are the packet-number
     // length minus one. We always emit a 4-byte packet number (0b11), a zero
     // Token Length, and a Length varint so the datagram parses as a well-formed
@@ -192,7 +192,7 @@ fn unwrap_quic_ref(packet: &[u8]) -> Result<QuicPacketRef<'_>, QuicError> {
             return Err(QuicError::InvalidHeader);
         }
 
-        // RFC 9001 §17.2.2: an Initial long header carries a Token Length varint,
+        // RFC 9000 §17.2.2: an Initial long header carries a Token Length varint,
         // the token, then a Length varint (packet number + payload). qeli emits no token,
         // and one envelope occupies the whole UDP datagram; enforce both invariants.
         let token_len = read_varint(packet, &mut offset).ok_or(QuicError::TooShort)?;

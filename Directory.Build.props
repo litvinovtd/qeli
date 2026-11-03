@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <!-- Include transitive packages and refuse both vulnerabilities and unavailable
+         advisory data. Applies to application and conformance restores. -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1900;NU1901;NU1902;NU1903;NU1904;NU1905</WarningsAsErrors>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- Updating a graph is an explicit reviewed operation; normal builds refuse drift. -->
+    <RestoreLockedMode Condition="'$(QeliUpdateDependencyLocks)' != 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+</Project>

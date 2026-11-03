@@ -118,7 +118,7 @@ def assert_quiet(st, where):
 
 
 def versioned_result_path(version, stem):
-    """Build `release/<stem>_v<version>_<date>.json`, never overwriting.
+    """Build `docs/data/benchmarks/<stem>_v<version>_<date>.json`, never overwriting.
 
     Result files used to carry a HARD-CODED version in their name (e.g.
     `download_bonding_0.7.12.json`), so every later run silently relabelled its
@@ -131,7 +131,8 @@ def versioned_result_path(version, stem):
     import os as _os
     import time as _time
     ver = (version or "unknown").replace("qeli ", "v").strip() or "unknown"
-    rel = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "release")
+    rel = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "docs", "data", "benchmarks")
+    _os.makedirs(rel, exist_ok=True)
     base = _os.path.join(rel, f"{stem}_{ver}_{_time.strftime('%Y-%m-%d')}")
     path, n = base + ".json", 1
     while _os.path.exists(path):

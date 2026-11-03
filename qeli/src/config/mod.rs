@@ -4,6 +4,7 @@ pub mod server;
 #[allow(dead_code)]
 pub mod client;
 pub mod format;
+pub mod notify;
 mod server_ini;
 #[allow(dead_code)]
 pub mod share;
@@ -11,12 +12,45 @@ pub mod users;
 
 use serde::{Deserialize, Serialize};
 
+/// Validate a stored verifier before config admission or a live auth swap.
+/// A malformed PHC string would leave an enabled panel permanently unloggable.
+pub fn validate_argon2_hash(hash: &str) -> Result<(), String> {
+    if !hash.starts_with("$argon2id$")
+        && !hash.starts_with("$argon2i$")
+        && !hash.starts_with("$argon2d$")
+    {
+        return Err("password_hash must be an Argon2 PHC string ($argon2id$…)".into());
+    }
+    argon2::PasswordHash::new(hash)
+        .map(|_| ())
+        .map_err(|e| format!("invalid Argon2 hash: {}", e))
+}
+
 /// Parse a server config. The one and only on-disk format is flat INI
 /// (`[auth]` / `[web]` / `[logging]` singletons + `[profile:<name>]` sections);
 /// see [`server::ServerConfig::from_ini`].
 pub fn parse_server_config(s: &str) -> anyhow::Result<server::ServerConfig> {
-    let doc = format::IniDoc::parse(s)?;
-    server::ServerConfig::from_ini(&doc)
+    let (config, findings) = parse_server_config_reporting(s)?;
+    if !findings.is_empty() {
+        anyhow::bail!("invalid server config:\n  {}", findings.join("\n  "));
+    }
+    Ok(config)
+}
+
+/// Decode internal panel form data with strict field checking at this API boundary.
+/// Persisted and imported configuration remains INI; shared wire deserializers keep
+/// their forward-compatible handling of extensions.
+pub fn decode_server_form(value: serde_json::Value) -> Result<server::ServerConfig, String> {
+    let mut unknown = Vec::new();
+    let config = serde_ignored::deserialize(value, |path| unknown.push(path.to_string()))
+        .map_err(|error| format!("invalid form data: {error}"))?;
+    if !unknown.is_empty() {
+        return Err(format!(
+            "unknown configuration field(s): {}",
+            unknown.join(", ")
+        ));
+    }
+    Ok(config)
 }
 
 /// Known platform/lifecycle keys that the Rust connection parser deliberately does not own.
@@ -24,6 +58,7 @@ pub fn parse_server_config(s: &str) -> anyhow::Result<server::ServerConfig> {
 /// them. Reporting them as unknown would train operators to ignore a real misspelling report.
 pub const GUI_ONLY_CLIENT_KEYS: &[&str] = &[
     "dev_node",
+    "windows_disable_sharing",
     "metric",
     "persist_tun",
     "route_file",
@@ -35,14 +70,10 @@ pub const GUI_ONLY_CLIENT_KEYS: &[&str] = &[
     "allow_lan",
     "apps",
     "apps_mode",
-    // Display metadata and GUI reconnect policy remain outside the Rust connection attempt.
+    // Display metadata remains outside the Rust connection attempt; reconnect is parsed there.
     // Transport-owned timeout/padding/heartbeat/shaping keys used to be listed here too; the
     // shared core now parses and applies them, so exempting them would hide parser drift.
     "name",
-    "reconnect",
-    "reconnect_retries",
-    "reconnect_base_delay",
-    "reconnect_max_delay",
 ];
 
 /// Keys that USED to exist. A config carrying one is stale rather than misspelled, and the
@@ -117,37 +148,18 @@ pub fn unknown_keys(doc: &format::IniDoc, client: bool) -> Vec<String> {
         .collect()
 }
 
-/// Parse a client config and REFUSE anything the runtime would silently reinterpret.
-///
-/// Two independent ways a config can lie about itself, and both used to fail OPEN on the real
-/// start while only `check-config` reported them:
-///   * a misspelled key NAME (`kill_swtich`) — never read, so the field keeps its default;
-///   * a value PRESENT but not understood (`kill_switch = ture`) — `bool_or` records it and
-///     substitutes the default.
-///
-/// Either one silently disables a security setting, so the process about to ACT on the config
-/// is exactly where they must be fatal. `check-config` keeps its own flow: it reports every
-/// problem at once rather than stopping at the first. (Audit 2026-08-01, §4/§5.)
-/// Parse a SERVER config, returning it together with the values that were present but not
-/// understood.
-///
-/// The server deliberately WARNS rather than refuses on these — aborting a start over a
-/// long-standing typo would take a working server down on upgrade, and the operator sees the
-/// line in the journal at boot. What changed is only where the findings come from: they belong
-/// to this parse rather than to a process-global that any other thread could drain.
-/// (Audit 2026-08-01, §2.)
+/// Parse a server config and collect malformed values, duplicate scalar/map keys
+/// and unknown keys. Startup, reload and panel validation reject non-empty findings;
+/// diagnostic callers can display all findings together. Section-shape errors are
+/// returned directly. Findings belong to this document, never to shared global state.
 pub fn parse_server_config_reporting(
     s: &str,
 ) -> anyhow::Result<(server::ServerConfig, Vec<String>)> {
     let doc = format::IniDoc::parse(s)?;
     let cfg = server::ServerConfig::from_ini(&doc)?;
     let mut findings = doc.bad_values();
-    // Misspelled key NAMES, which this path did not look at AT ALL. Only the value-level
-    // findings were surfaced, so `kill_switch = ture` warned while `kill_swtich = true` — the
-    // same setting, silently off, one letter away — produced nothing anywhere but
-    // `check-config`, a command nobody runs on an already-working server. The client has
-    // refused both since §4; the server reports both and still starts, for the reason above.
-    // (Audit 2026-08-01, §1.)
+    // Report unknown names as well as invalid values: an unread setting otherwise
+    // retains its default and can disappear on the next serialized save.
     let unknown = unknown_keys(&doc, false);
     if !unknown.is_empty() {
         findings.push(format!(
@@ -159,36 +171,15 @@ pub fn parse_server_config_reporting(
     Ok((cfg, findings))
 }
 
+/// Parse a client config and reject unknown keys and malformed values.
 pub fn parse_client_config_strict(s: &str) -> anyhow::Result<client::ClientConfig> {
-    let doc = format::IniDoc::parse(s)?;
-    let cfg = client::ClientConfig::from_ini(&doc)?;
-    let unknown = unknown_keys(&doc, true);
-    let bad = doc.bad_values();
-    if unknown.is_empty() && bad.is_empty() {
-        return Ok(cfg);
-    }
-    let mut why: Vec<String> = Vec::new();
-    if !unknown.is_empty() {
-        why.push(format!(
-            "unknown key(s), likely misspelled: {}",
-            unknown.join(", ")
-        ));
-    }
-    why.extend(bad.iter().cloned());
-    anyhow::bail!(
-        "refusing to start: {} config problem(s) whose defaults would otherwise be substituted silently
-  {}",
-        unknown.len() + bad.len(),
-        why.join("
-  ")
-    )
+    editor::parse_runtime(s)
 }
 
 /// Parse a client config. The one and only format is flat INI with a `[qeli]`
 /// section; see [`client::ClientConfig::from_ini`].
 pub fn parse_client_config(s: &str) -> anyhow::Result<client::ClientConfig> {
-    let doc = format::IniDoc::parse(s)?;
-    client::ClientConfig::from_ini(&doc)
+    editor::parse_runtime(s)
 }
 
 /// Upsert `key = value` pairs inside a singleton `[section]` of a flat-INI
@@ -207,17 +198,23 @@ pub fn parse_client_config(s: &str) -> anyhow::Result<client::ClientConfig> {
 /// on every platform.
 pub fn set_section_keys(original: &str, section: &str, updates: &[(&str, String)]) -> String {
     let header = format!("[{}]", section);
+    // Client sections/keys are case-insensitive in the shared document service.
+    // Keep the server INI's existing case-sensitive contract for all other sections.
+    let client_section = section == "qeli";
 
     // Does `line_trimmed` start an active `key = ...` / `key=...` assignment?
     // Comment lines (`#` / `;`) never match, so a commented-out key is left alone.
-    fn is_active_key(line_trimmed: &str, key: &str) -> bool {
+    fn is_active_key(line_trimmed: &str, key: &str, client_section: bool) -> bool {
         if line_trimmed.starts_with('#') || line_trimmed.starts_with(';') {
             return false;
         }
-        match line_trimmed.strip_prefix(key) {
-            Some(rest) => rest.trim_start().starts_with('='),
-            None => false,
-        }
+        line_trimmed.split_once('=').is_some_and(|(name, _)| {
+            if client_section {
+                name.trim_end().eq_ignore_ascii_case(key)
+            } else {
+                name.trim_end() == key
+            }
+        })
     }
 
     let mut out: Vec<String> = Vec::new();
@@ -226,7 +223,12 @@ pub fn set_section_keys(original: &str, section: &str, updates: &[(&str, String)
     let mut written: Vec<String> = Vec::new();
 
     for line in original.lines() {
-        let t = line.trim_start();
+        let t = if client_section {
+            line.trim_start_matches(['\u{feff}', ' ', '\t'])
+                .trim_start()
+        } else {
+            line.trim_start()
+        };
         let is_header = t.starts_with('[') && t.trim_end().ends_with(']');
         if is_header {
             // Leaving the target section: emit any keys we haven't placed yet.
@@ -237,7 +239,16 @@ pub fn set_section_keys(original: &str, section: &str, updates: &[(&str, String)
                     }
                 }
             }
-            in_section = t.trim_end() == header;
+            in_section = format::IniDoc::parse(t)
+                .ok()
+                .and_then(|doc| doc.sections.into_iter().next())
+                .is_some_and(|sec| {
+                    (if client_section {
+                        sec.kind.eq_ignore_ascii_case(section)
+                    } else {
+                        sec.kind == section
+                    }) && sec.instance.is_none()
+                });
             if in_section {
                 section_seen = true;
                 written.clear();
@@ -248,7 +259,7 @@ pub fn set_section_keys(original: &str, section: &str, updates: &[(&str, String)
         if in_section {
             let mut replaced = false;
             for u in updates {
-                if !written.iter().any(|w| w == u.0) && is_active_key(t, u.0) {
+                if !written.iter().any(|w| w == u.0) && is_active_key(t, u.0, client_section) {
                     out.push(format!("{} = {}", u.0, format::quote_if_needed(&u.1)));
                     written.push(u.0.to_string());
                     replaced = true;
@@ -329,6 +340,11 @@ impl PushedObf {
     /// and the client AuthOK parser from silently accepting different value domains.
     pub fn validate(&self, label: &str) -> anyhow::Result<()> {
         let padding = &self.padding;
+        // Disabled tuning still crosses AuthOK/service JSON. Nonfinite floats become
+        // null on serialization and cannot deserialize back into f64.
+        if !padding.probability.is_finite() {
+            anyhow::bail!("{label}.padding.probability must be finite even when disabled");
+        }
         if padding.enabled {
             if padding.min_bytes > padding.max_bytes {
                 anyhow::bail!("{label}.padding.min_bytes must be <= max_bytes");
@@ -378,38 +394,8 @@ impl PushedObf {
             anyhow::bail!("{label}.traffic_normalization.round_sizes must be strictly increasing");
         }
 
-        let shaping = &self.traffic_shaping;
-        if shaping.enabled {
-            if shaping.idle_gap_mean_ms == 0
-                || shaping.idle_gap_min_ms == 0
-                || shaping.idle_gap_max_ms == 0
-                || shaping.budget_bytes_per_sec == 0
-                || shaping.min_size == 0
-                || shaping.max_size == 0
-                || shaping.stealth_rate_mbps == 0
-            {
-                anyhow::bail!(
-                    "{label}.traffic_shaping durations, sizes, budget and stealth rate must be positive"
-                );
-            }
-            if shaping.idle_gap_min_ms > shaping.idle_gap_max_ms {
-                anyhow::bail!("{label}.traffic_shaping.idle_gap_min_ms must be <= idle_gap_max_ms");
-            }
-            if shaping.min_size > shaping.max_size {
-                anyhow::bail!("{label}.traffic_shaping.min_size must be <= max_size");
-            }
-            if usize::from(shaping.max_size) > crate::protocol::packet::MAX_TUNNEL_MTU {
-                anyhow::bail!(
-                    "{label}.traffic_shaping.max_size must be <= {}",
-                    crate::protocol::packet::MAX_TUNNEL_MTU
-                );
-            }
-            if shaping.budget_bytes_per_sec < u32::from(shaping.max_size) {
-                anyhow::bail!(
-                    "{label}.traffic_shaping.budget_bytes_per_sec must be at least max_size"
-                );
-            }
-        }
+        self.traffic_shaping
+            .validate(&format!("{label}.traffic_shaping"))?;
 
         if let Some(recordizer) = &self.recordizer {
             recordizer.validate(&format!("{label}.recordizer"))?;
@@ -534,6 +520,18 @@ impl RecordizerConfig {
         ) {
             anyhow::bail!("{label}.policy must be off, prefer or required");
         }
+        // `policy = off` selects the legacy packet-per-record path. Keep the dormant
+        // tuning losslessly in the config so an operator can switch back later, but do
+        // not let values hidden by every editor block an unrelated save/startup.
+        if !self.record.small_min_ratio.is_finite()
+            || !self.record.small_max_ratio.is_finite()
+            || !self.record.full_probability.is_finite()
+        {
+            anyhow::bail!("{label}.record ratios and probability must be finite even when off");
+        }
+        if self.is_off() {
+            return Ok(());
+        }
         if self.batch.delay_min_ms > self.batch.delay_max_ms {
             anyhow::bail!("{label}.batch.delay_min_ms must be <= delay_max_ms");
         }
@@ -642,7 +640,7 @@ pub struct TrafficShapingConfig {
     pub idle_gap_min_ms: u64,
     #[serde(default = "default_shaping_gap_max")]
     pub idle_gap_max_ms: u64,
-    /// Cover-traffic ceiling (bytes/sec); 0 disables cover even when `enabled`.
+    /// Positive cover-traffic ceiling (bytes/sec) while shaping is enabled.
     #[serde(default = "default_shaping_budget")]
     pub budget_bytes_per_sec: u32,
     #[serde(default = "default_shaping_min_size")]
@@ -680,6 +678,44 @@ impl Default for TrafficShapingConfig {
 }
 
 impl TrafficShapingConfig {
+    /// Shared active shaping contract for local INI and authenticated peer settings.
+    pub fn validate(&self, label: &str) -> anyhow::Result<()> {
+        let shaping = self;
+        if shaping.enabled {
+            if shaping.idle_gap_mean_ms == 0
+                || shaping.idle_gap_min_ms == 0
+                || shaping.idle_gap_max_ms == 0
+                || shaping.budget_bytes_per_sec == 0
+                || shaping.min_size == 0
+                || shaping.max_size == 0
+            {
+                anyhow::bail!("{label} durations, sizes and budget must be positive");
+            }
+            if shaping.stealth && shaping.stealth_rate_mbps == 0 {
+                anyhow::bail!(
+                    "{label}.stealth_rate_mbps must be positive when stealth mode is enabled"
+                );
+            }
+            if shaping.idle_gap_min_ms > shaping.idle_gap_max_ms {
+                anyhow::bail!("{label}.idle_gap_min_ms must be <= idle_gap_max_ms");
+            }
+            if shaping.min_size > shaping.max_size {
+                anyhow::bail!("{label}.min_size must be <= max_size");
+            }
+            if usize::from(shaping.max_size) > crate::protocol::packet::MAX_TUNNEL_MTU {
+                anyhow::bail!(
+                    "{label}.max_size must be <= {}",
+                    crate::protocol::packet::MAX_TUNNEL_MTU
+                );
+            }
+            if shaping.budget_bytes_per_sec < u32::from(shaping.max_size) {
+                anyhow::bail!("{label}.budget_bytes_per_sec must be at least max_size");
+            }
+        }
+
+        Ok(())
+    }
+
     /// Resolve to the protocol-layer [`crate::protocol::ShapingConfig`].
     pub fn to_shaping(&self) -> crate::protocol::ShapingConfig {
         crate::protocol::ShapingConfig {
@@ -696,22 +732,92 @@ impl TrafficShapingConfig {
     }
 }
 
-#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TcpConfig {
     #[serde(default = "default_true")]
     pub nodelay: bool,
     #[serde(default = "default_keepalive")]
     pub keepalive_secs: u64,
-    #[serde(default = "default_buffer_size")]
+    #[serde(default)]
     pub send_buffer_size: u32,
-    #[serde(default = "default_buffer_size")]
+    #[serde(default)]
     pub recv_buffer_size: u32,
+}
+
+impl Default for TcpConfig {
+    fn default() -> Self {
+        Self {
+            nodelay: default_true(),
+            keepalive_secs: default_keepalive(),
+            send_buffer_size: 0,
+            recv_buffer_size: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tcp_autotuning_default_tests {
+    use super::*;
+    use crate::config::format::IniDoc;
+    use crate::config::server::{ProfileConfig, ServerConfig};
+
+    #[test]
+    fn constructors_sparse_ini_and_api_use_the_same_tcp_defaults() {
+        let doc = IniDoc::parse("[profile:edge]\n").unwrap();
+        let ini = ServerConfig::from_ini(&doc).unwrap();
+        let values = [
+            TcpConfig::default(),
+            serde_json::from_str::<TcpConfig>("{}").unwrap(),
+            ProfileConfig::baseline().performance.tcp,
+            ProfileConfig::new_profile().performance.tcp,
+            ini.profiles[0].performance.tcp.clone(),
+        ];
+        for tcp in values {
+            assert_eq!(
+                (
+                    tcp.nodelay,
+                    tcp.keepalive_secs,
+                    tcp.send_buffer_size,
+                    tcp.recv_buffer_size
+                ),
+                (true, 60, 0, 0)
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_manual_and_zero_values_survive_ini_and_api_roundtrips() {
+        for (send, receive) in [(0, 0), (262144, 131072), (1048576, 4194304)] {
+            let text=format!("[profile:edge]\nperf.tcp.send_buffer_size = {send}\nperf.tcp.recv_buffer_size = {receive}\n");
+            let cfg = ServerConfig::from_ini(&IniDoc::parse(&text).unwrap()).unwrap();
+            let encoded = cfg.to_ini_string();
+            let again = ServerConfig::from_ini(&IniDoc::parse(&encoded).unwrap()).unwrap();
+            let api: ServerConfig =
+                serde_json::from_value(serde_json::to_value(&again).unwrap()).unwrap();
+            let tcp = &api.profiles[0].performance.tcp;
+            assert_eq!(
+                (tcp.send_buffer_size, tcp.recv_buffer_size),
+                (send, receive)
+            );
+            assert!(encoded.contains(&format!("perf.tcp.send_buffer_size = {send}")));
+            assert!(encoded.contains(&format!("perf.tcp.recv_buffer_size = {receive}")));
+        }
+    }
+
+    #[test]
+    fn one_manual_override_does_not_pin_the_other_direction() {
+        let doc = IniDoc::parse("[profile:edge]\nperf.tcp.recv_buffer_size = 262144\n").unwrap();
+        let cfg = ServerConfig::from_ini(&doc).unwrap();
+        let tcp = &cfg.profiles[0].performance.tcp;
+        assert_eq!((tcp.send_buffer_size, tcp.recv_buffer_size), (0, 262144));
+    }
 }
 
 /// Socket buffers for a UDP listener. Separate from [`TcpConfig`] because the two need
 /// opposite defaults, not because the knobs differ.
 ///
-/// TCP autotunes between the `tcp_rmem` bounds, so a fixed size is a hint at most. **UDP has
+/// TCP defaults to leaving socket buffers to the OS. A non-zero operator override sets
+/// SO_SNDBUF/SO_RCVBUF and disables the corresponding Linux autotuning. **UDP has
 /// no autotuning at all**: the socket keeps whatever `net.core.rmem_default` was at creation
 /// — 208 KB on a stock kernel, only tens of milliseconds of traffic at tunnel speeds. One
 /// scheduling stall and the kernel drops datagrams, and every dropped datagram is a lost TCP
@@ -797,12 +903,9 @@ mod tests {
         let gui_only = [
             // profile metadata / desktop-side connection knobs
             "name",
-            "reconnect",
-            "reconnect_retries",
-            "reconnect_base_delay",
-            "reconnect_max_delay",
             // platform-specific interface handling
             "dev_node",
+            "windows_disable_sharing",
             "metric",
             "persist_tun",
             "route_file",
@@ -1021,6 +1124,74 @@ enabled = true
         // Input had no trailing newline → output has none either.
         assert!(!out.ends_with('\n'));
     }
+
+    #[test]
+    fn disabled_obfuscation_rejects_nonfinite_json_values_but_keeps_finite_tuning() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut pushed = super::PushedObf::default();
+            pushed.padding.enabled = false;
+            pushed.padding.probability = value;
+            assert!(pushed.validate("obf").is_err());
+            for field in 0..3 {
+                let mut cfg = super::RecordizerConfig::default();
+                match field {
+                    0 => cfg.record.small_min_ratio = value,
+                    1 => cfg.record.small_max_ratio = value,
+                    _ => cfg.record.full_probability = value,
+                }
+                assert!(cfg.validate("recordizer").is_err());
+            }
+        }
+        let mut pushed = super::PushedObf::default();
+        pushed.padding.enabled = false;
+        pushed.padding.probability = -10.0;
+        let mut recordizer = super::RecordizerConfig::default();
+        recordizer.record.small_min_ratio = -10.0;
+        recordizer.record.small_max_ratio = 42.0;
+        recordizer.record.full_probability = 3.0;
+        pushed.recordizer = Some(recordizer);
+        pushed.validate("obf").unwrap();
+        let wire = serde_json::to_string(&pushed).unwrap();
+        let restored: super::PushedObf = serde_json::from_str(&wire).unwrap();
+        assert_eq!(restored.padding.probability, -10.0);
+        assert_eq!(restored.recordizer.unwrap().record.small_max_ratio, 42.0);
+    }
+
+    #[test]
+    fn disabled_recordizer_ignores_dormant_tuning_until_reenabled() {
+        let mut recordizer = super::RecordizerConfig {
+            policy: "off".into(),
+            ..Default::default()
+        };
+        recordizer.batch.delay_min_ms = 10;
+        recordizer.batch.delay_max_ms = 1;
+        recordizer.batch.max_packets = 0;
+        recordizer.fragment.reassembly_timeout_ms = 0;
+        recordizer
+            .validate("recordizer")
+            .expect("policy=off must ignore dormant tuning");
+
+        recordizer.policy = "prefer".into();
+        assert!(
+            recordizer.validate("recordizer").is_err(),
+            "reenabling the feature must validate the retained tuning"
+        );
+    }
+
+    #[test]
+    fn shaping_stealth_rate_is_required_only_when_stealth_is_active() {
+        let mut pushed = super::PushedObf::default();
+        pushed.traffic_shaping.enabled = true;
+        pushed.traffic_shaping.stealth = false;
+        pushed.traffic_shaping.stealth_rate_mbps = 0;
+        pushed
+            .validate("obf")
+            .expect("inactive stealth rate is dormant");
+
+        pushed.traffic_shaping.stealth = true;
+        let error = pushed.validate("obf").unwrap_err().to_string();
+        assert!(error.contains("stealth_rate_mbps"), "wrong error: {error}");
+    }
 }
 fn default_log_format() -> String {
     "plain".into()
@@ -1130,9 +1301,6 @@ fn default_stealth_rate() -> u32 {
 fn default_keepalive() -> u64 {
     60
 }
-fn default_buffer_size() -> u32 {
-    262144
-}
 fn default_tun_buf() -> usize {
     65535
 }
@@ -1240,3 +1408,8 @@ fn default_awg_jmin() -> u16 {
 fn default_awg_jmax() -> u16 {
     300
 }
+
+pub mod editor;
+pub mod policy;
+
+pub mod route_file;

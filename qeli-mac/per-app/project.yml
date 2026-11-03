@@ -11,8 +11,8 @@ settings:
   base:
     SWIFT_VERSION: 5.0
     MACOSX_DEPLOYMENT_TARGET: 13.0
-    MARKETING_VERSION: 0.8.1
-    CURRENT_PROJECT_VERSION: 801
+    MARKETING_VERSION: 0.8.3
+    CURRENT_PROJECT_VERSION: 803
     CODE_SIGN_STYLE: Manual
     ENABLE_HARDENED_RUNTIME: YES
 targets:
@@ -47,6 +47,8 @@ targets:
     platform: macOS
     sources:
       - path: Common/RoutingState.swift
+      - path: Common/RelayRegistry.swift
+      - path: Common/RelayWork.swift
       - path: Tests
     settings:
       base:

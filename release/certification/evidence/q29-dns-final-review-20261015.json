@@ -1,0 +1,84 @@
+{
+  "status": "Q29_COMPLETE_IN_AGREED_SCOPE_WITH_ACCEPTED_API34_DNS_LIMITATION",
+  "observed_unix": 1792077707.5744786,
+  "source_commit": "2c0cfb4914af90dc962b4277d4365785a8533109",
+  "source_facts": {
+    "main_Java_Kotlin_files": 33,
+    "allowBypass_calls": 0,
+    "DnsResolver_calls": 0,
+    "explicit_server_hostname_network": true,
+    "service_git_sha256": "74648f746c5b66905e51c17cc847fdbab48155b5364ef6b1f6f6f3a7ed1158cf"
+  },
+  "retained_inputs": {
+    "q29-supported-network-knobs-20261014/review.json": "e5a4dc4fc56557f673e6d75c8ea820f4761f17abcbfca61b03862896a7bbb6c8",
+    "q29-dns-framework-review-20261015/routing-candidate-review.json": "a93b24cc46d9241a0a0ad9116559bf9c8fe7b2618c144705faab2971fba23e3f",
+    "q29-dns-framework-review-20261015/dns-selection-origin.json": "fec766ea794256dbbb897b726cf1893e981dca70aa063cc64d97c52435aa7259",
+    "q29-dns-native-selection-20261014/review.json": "b994f4e0664a6424a887446dfbef249e429f6ed6fdcc25e8ec748bc375f637bd",
+    "q29-bypass-lockdown-r3-20261014/api-candidate-review.json": "3ac4b96e7013805e1583156dcea4f033c712394e6107357f04f607dbdcb001cf",
+    "q29-bypass-lockdown-r3-20261014/qualification.json": "8e01d64be40f8d000c2ebe1cdc2f2e4287810f05097d7eb5123bf19e2d0352aa",
+    "q29-dns-selection-control-r2-20261012/qualification-partial.json": "44a82039288f69a910060961b8d8ac35f1c22c91fa3ae53d79bf4d79d6df68c3",
+    "q29-dns-selection-control-r3-20261012/qualification.json": "be7bc1195072a91efcb8ca2524f149b2b419472dbb206fef7db0a6a870f4820f"
+  },
+  "observed_image": "Android14/API34/x86_64 UE1A.230829.036.A1/11228894",
+  "observed_failure": "Generic automatic-family DnsResolver.query(network=null) fails ENONET before issuing DNS; selected app netId physical while active Network VPN, selected bind EPERM",
+  "independent_control_reproduces_failure": true,
+  "typed_null_and_explicit_VPN_answers_qualified": true,
+  "ordinary_DNS_has_positive_retained_evidence": true,
+  "candidate_families_reviewed": [
+    "allowFamily/address/routes",
+    "DNS server address",
+    "underlying networks",
+    "HTTP proxy metadata",
+    "caller process binding/native resolver binding",
+    "global physical default",
+    "foreign UID protect/permissions",
+    "tunnel DNS interception",
+    "allowBypass with and without system lockdown"
+  ],
+  "policy": "Secure VpnService plus Android system kill switch; user cancelled bypass; no bypass implementation or privileged OS changes admitted",
+  "conclusion": "No new actionable transparent Qeli workaround preserving this policy identified in the bounded retained source/API/runtime review. Not proof for every Android/OEM or possible implementation.",
+  "upstream_draft_prepared": true,
+  "external_issue_posted": false,
+  "new_runtime_runs": 0,
+  "new_Qeli_builds": 0,
+  "product_code_changed": false,
+  "Q29_closed": true,
+  "user_limitation_accepted": true,
+  "formal_done": 37,
+  "formal_total": 37,
+  "references": [
+    "https://developer.android.com/reference/android/net/DnsResolver",
+    "https://developer.android.com/reference/android/net/VpnService.Builder#allowBypass()",
+    "https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/heads/android14-release/framework/src/android/net/DnsResolver.java"
+  ],
+  "upstream_draft": {
+    "path": "q29-dns-final-disposition-20261015/REPORT.txt",
+    "sha256": "13ffd7e365476ad02453b98e5e3a11652aaccb761c5a030da3f4f8dd5ce38e8f",
+    "submitted": false
+  },
+  "user_decision": {
+    "answer": "Принять ограничение и закрыть Q29",
+    "recorded_utc": "2026-10-15T15:29:48.720602+00:00",
+    "scope": "Observed generic automatic-family DnsResolver network=null ENONET on Android14/API34 x86_64 UE1A.230829.036.A1/11228894",
+    "disposition": "Accepted documented limitation of the measured image; Q29 complete within agreed audit scope",
+    "observed_failure_fixed": false,
+    "original_FAIL_preserved": true,
+    "protection": "Secure VpnService and Android system kill switch retained; no bypass",
+    "no_new_execution": true
+  },
+  "criteria": {
+    "review_and_dead_code": "33 current source files, retained source/lifetime review and targeted recovery/settings fixes",
+    "normal_boundary_negative": "Retained INI/Keystore/migration/backup/permissions/NetworkPlan/protect/publication and Android29/35 hosted checks",
+    "failures_and_concurrency": "Retained stale owner/observer, teardown, storage failures and current SIGKILL recovery; original failures preserved",
+    "integration_and_platform": "Bounded API34 ordinary-UID VPN/R8, IPv4/IPv6/NAT64/per-app/DoT/power and current ABI/JNI/INI; physical/OEM limits retained",
+    "fixes_rechecks_evidence": "Published fixes and scoped runtime/source receipts; the only remaining generic/null API34 failure explicitly accepted, not relabelled PASS"
+  },
+  "criterion_reports": [
+    "AUDIT-Q29-ANDROID-SOURCE.md",
+    "AUDIT-Q29-ANDROID-STORAGE-PACKAGE.md",
+    "AUDIT-Q29-ANDROID-CURRENT-VPN.md",
+    "AUDIT-Q29-ANDROID-RECOVERY.md",
+    "AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md"
+  ],
+  "overall_audit": "37/37 complete within agreed scope; existing D06 acceptance and physical evidence limits unchanged"
+}

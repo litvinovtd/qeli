@@ -95,9 +95,6 @@ pub struct ServerConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ProfileConfig {
-    // NB: scalar fields are declared BEFORE sub-table fields so TOML
-    // serialization (web "save config") stays valid — TOML requires all values
-    // to precede any table within the same table.
     #[serde(default = "default_profile_name")]
     pub name: String,
     /// Path to this profile's server identity (static X25519) private key.
@@ -276,8 +273,8 @@ pub struct TunConfig {
     pub device_type: String,
     /// Number of TUN queues (Linux `IFF_MULTI_QUEUE`) for the data-plane pump.
     /// `0` = auto (= CPU count). `>1` lets the kernel RSS-spread packets so the
-    /// server reads/writes the interface — and runs the per-queue encrypt — on
-    /// multiple cores. `1` = single queue (legacy single-pump behaviour).
+    /// server reads/writes the interface and forwards plaintext on multiple cores.
+    /// The selected stream writer encrypts it. `1` = single TUN queue.
     #[serde(default = "default_tun_queues")]
     pub queues: usize,
 }
@@ -487,15 +484,6 @@ pub fn validate_ipv6_profile(profile: &ProfileConfig) -> Result<Option<Ipv6PoolS
     use std::net::Ipv6Addr;
 
     let carries_ipv6 = profile.tun.ip_mode != IpMode::Ipv4;
-    let has_any_ipv6_addressing = profile
-        .tun
-        .ipv6_address
-        .as_deref()
-        .is_some_and(|value| !value.trim().is_empty())
-        || !profile.pool.ipv6.cidr.trim().is_empty()
-        || !profile.pool.ipv6.exclude.is_empty()
-        || !profile.pool.ipv6.static_reservations.is_empty();
-
     if !carries_ipv6
         && (profile.routing.ipv6.mode != Ipv6RoutingMode::Off
             || profile.routing.ipv6.ndp_proxy != Ipv6NdpProxyMode::Off)
@@ -506,15 +494,21 @@ pub fn validate_ipv6_profile(profile: &ProfileConfig) -> Result<Option<Ipv6PoolS
         ));
     }
     if profile.routing.ipv6.ndp_proxy != Ipv6NdpProxyMode::Off
-        && profile.routing.ipv6.mode != Ipv6RoutingMode::Route
+        && !matches!(
+            profile.routing.ipv6.mode,
+            Ipv6RoutingMode::Route | Ipv6RoutingMode::Manual
+        )
     {
         return Err(format!(
-            "routing.ipv6.ndp_proxy = {} requires routing.ipv6.mode = route; NDP proxy publishes source-preserving IPv6 addresses and must not be combined with off or NAT66",
+            "routing.ipv6.ndp_proxy = {} requires routing.ipv6.mode = route or manual; NDP proxy publishes source-preserving IPv6 addresses and must not be combined with off or NAT66",
             profile.routing.ipv6.ndp_proxy
         ));
     }
 
-    if !carries_ipv6 && !has_any_ipv6_addressing {
+    // IPv4-only profiles deliberately retain dormant IPv6 addressing values so a panel
+    // mode switch is lossless. Active IPv6 routing/NDP was rejected above; the hidden
+    // address/pool subtree must not block an unrelated save or IPv4-only startup.
+    if !carries_ipv6 {
         return Ok(None);
     }
 
@@ -847,15 +841,37 @@ mod ipv6_config_tests {
     }
 
     #[test]
-    fn ndp_proxy_requires_source_preserving_ipv6_route_mode() {
-        let mut profile = dual_profile();
-        profile.routing.ipv6.ndp_proxy = Ipv6NdpProxyMode::Required;
-        assert!(validate_ipv6_profile(&profile)
-            .unwrap_err()
-            .contains("requires routing.ipv6.mode = route"));
+    fn ndp_proxy_accepts_route_or_manual_but_not_off_nat66_or_ipv4() {
+        for ndp in [Ipv6NdpProxyMode::Auto, Ipv6NdpProxyMode::Required] {
+            let mut profile = dual_profile();
+            profile.routing.ipv6.ndp_proxy = ndp;
+            for mode in [Ipv6RoutingMode::Off, Ipv6RoutingMode::Nat66] {
+                profile.routing.ipv6.mode = mode;
+                assert!(validate_ipv6_profile(&profile)
+                    .unwrap_err()
+                    .contains("requires routing.ipv6.mode = route or manual"));
+            }
+            for mode in [Ipv6RoutingMode::Route, Ipv6RoutingMode::Manual] {
+                profile.routing.ipv6.mode = mode;
+                assert!(validate_ipv6_profile(&profile).is_ok());
+            }
+            profile.tun.ip_mode = IpMode::Ipv4;
+            assert!(validate_ipv6_profile(&profile)
+                .unwrap_err()
+                .contains("requires tun.ip_mode"));
+        }
+    }
 
-        profile.routing.ipv6.mode = Ipv6RoutingMode::Route;
+    #[test]
+    fn manual_ipv6_still_validates_tunnel_address_and_mtu() {
+        let mut profile = dual_profile();
+        profile.routing.ipv6.mode = Ipv6RoutingMode::Manual;
         assert!(validate_ipv6_profile(&profile).is_ok());
+        profile.tun.mtu = 1200;
+        assert!(validate_ipv6_profile(&profile).is_err());
+        profile.tun.mtu = 1400;
+        profile.tun.ipv6_address = Some("not-an-address".into());
+        assert!(validate_ipv6_profile(&profile).is_err());
     }
 }
 
@@ -1116,6 +1132,9 @@ pub struct NatConfig {
 pub enum Ipv6RoutingMode {
     #[default]
     Off,
+    /// Administrator owns IPv6 firewall, forwarding and uplink routing. Qeli still owns
+    /// the tunnel, authenticated client routes and any explicitly enabled NDP responder.
+    Manual,
     Route,
     Nat66,
 }
@@ -1124,6 +1143,7 @@ impl std::fmt::Display for Ipv6RoutingMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Off => "off",
+            Self::Manual => "manual",
             Self::Route => "route",
             Self::Nat66 => "nat66",
         })
@@ -1136,9 +1156,12 @@ impl std::str::FromStr for Ipv6RoutingMode {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.trim().to_ascii_lowercase().as_str() {
             "off" => Ok(Self::Off),
+            "manual" => Ok(Self::Manual),
             "route" => Ok(Self::Route),
             "nat66" => Ok(Self::Nat66),
-            _ => Err(format!("expected one of off, route, nat66; got '{value}'")),
+            _ => Err(format!(
+                "expected one of off, manual, route, nat66; got '{value}'"
+            )),
         }
     }
 }
@@ -1248,26 +1271,28 @@ pub struct DnsConfig {
     pub upstream: Vec<String>,
     #[serde(default = "default_upstream_proto")]
     pub upstream_protocol: String,
+    /// Maximum cached exchanges (0 disables caching). The shared per-profile store
+    /// independently caps retained query and response bytes at 16 MiB.
     #[serde(default = "default_dns_cache")]
     pub cache_size: usize,
     #[serde(default = "default_dns_timeout")]
     pub timeout_secs: u64,
     #[serde(default)]
     pub blocklist: Vec<String>,
-    /// Resolver IP(s) pushed to clients — the client applies the FIRST entry in its
-    /// `tunnel` DNS mode, INDEPENDENTLY of the in-tunnel proxy. Set this to hand
-    /// clients a specific resolver (a LAN / AdGuard / NextDNS box) without running
-    /// the full `dns.enabled` proxy. Empty = fall back to the proxy's listen IP when
-    /// `enabled`, else push nothing. Must be a bare IP (the client strict-IP-validates
-    /// the pushed value before applying platform DNS).
+    /// Resolver IPs pushed independently of the in-tunnel proxy. Typed plans carry
+    /// the list filtered to negotiated inner families; the legacy field carries
+    /// its first address. If no compatible entries remain, an enabled proxy supplies
+    /// its active listeners; otherwise no resolver is pushed. Entries must be bare
+    /// IPs. In `dns = tunnel` mode an explicit client `dns_servers` list takes priority
+    /// over the push; client planning validates addresses against active families.
     #[serde(default)]
     pub push_servers: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct ServerObfuscationConfig {
-    /// Wire mode: "fake-tls" (default, TLS-1.3-mimicking handshake) or "obfs"
-    /// (ChaCha20 stream obfuscation, structure-free). TCP only.
+    /// Wire mode: fake-tls (default), obfs, plain or reality-tls.
+    /// plain and reality-tls require TCP; fake-tls and obfs also support UDP.
     #[serde(default = "default_wire_mode")]
     pub mode: String,
     /// Pre-shared key for "obfs" mode. Must match the client.
@@ -1275,7 +1300,7 @@ pub struct ServerObfuscationConfig {
     pub obfs_key: String,
     /// `obfs` anti-FET fronting: "websocket" (default) wraps the nonce exchange in
     /// a WebSocket Upgrade handshake so the connection's first bytes are printable
-    /// HTTP text (defeats GFW/TSPU "fully encrypted traffic" heuristics); "none"
+    /// HTTP text (changes the initial wire signature); "none"
     /// is the legacy raw nonce. Must match the client.
     #[serde(default = "default_obfs_fronting")]
     pub fronting: String,
@@ -1315,6 +1340,8 @@ pub struct ServerObfuscationConfig {
 /// `min(its desired, max_streams)`. Mode-agnostic, but only useful for TCP modes
 /// (UDP has no head-of-line blocking) — leave disabled / max_streams=1 on UDP
 /// profiles. `max_clients * max_streams` bounds the server's total connections.
+pub const MULTIPATH_MAX_STREAMS: u32 = 16;
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MultipathConfig {
     #[serde(default)]
@@ -1392,6 +1419,8 @@ pub struct RealityProxyConfig {
     pub peek_timeout_ms: u64,
 }
 
+pub const REALITY_MIN_PEEK_TIMEOUT_MS: u64 = 300;
+
 fn default_peek_timeout_ms() -> u64 {
     1500
 }
@@ -1428,8 +1457,8 @@ pub struct WebConfig {
     pub username: String,
     /// The admin argon2 hash — never sent over the JSON API (`/api/config`). Written to
     /// disk by the hand-rolled INI codec (not serde), so skipping serialization is safe.
-    /// NB: `/api/config/raw` still returns the file verbatim incl. this hash — a separate
-    /// masking fix is needed there, taking care of the raw-editor save round-trip.
+    /// The raw INI editor masks this hash on GET and restores it from the current
+    /// trusted file when saving an unchanged placeholder.
     #[serde(default, skip_serializing)]
     pub password_hash: String,
     /// Add the `Secure` attribute to the session cookie. Enable when the panel is
@@ -1514,8 +1543,9 @@ pub struct WebConfig {
     /// `false` disables the Origin/Referer check entirely — only acceptable on a
     /// loopback-only bind reached via an SSH forward, NEVER on a public/LAN bind (any
     /// site you open in the same browser could then drive your logged-in panel).
-    /// Loopback origins are already trusted on any port, so a normal SSH forward works
-    /// WITHOUT disabling this. See docs/*/manuals/CONFIG.md.
+    /// Loopback origins are trusted on the panel's port. For an SSH forward on a
+    /// different local port, list that origin in allowed_origins instead of
+    /// disabling CSRF. See docs/*/manuals/CONFIG.md.
     #[serde(default = "default_true")]
     pub csrf: bool,
     /// Panel login-session lifetime in seconds — governs BOTH the session cookie's
@@ -1530,6 +1560,240 @@ pub struct WebConfig {
     /// turn panel-login rate-limiting off entirely. See docs/*/manuals/CONFIG.md.
     #[serde(default)]
     pub brute_force: BruteForceConfig,
+}
+
+pub const WEB_SESSION_TTL_MIN_SECS: i64 = 60;
+pub const WEB_SESSION_TTL_MAX_SECS: i64 = 30 * 24 * 3600;
+
+impl WebConfig {
+    /// An enabled panel needs an admin password unless no-auth is explicitly requested.
+    /// Keep this separate from validate_active so dormant syntax checks stay independent.
+    pub fn validate_auth_admission(&self) -> Result<(), String> {
+        if self.enabled && self.password_hash.is_empty() && !self.insecure_no_auth {
+            return Err(
+                "web.enabled = true requires web.password_hash or explicit web.insecure_no_auth = true; set a password with `qeli set-web-password` before enabling the panel"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+
+    /// Validate only settings consumed while the panel is enabled. Hidden dormant values
+    /// are preserved losslessly and checked when the operator enables their parent feature.
+    pub fn validate_active(&self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        if !self.password_hash.is_empty() {
+            crate::config::validate_argon2_hash(&self.password_hash)
+                .map_err(|error| format!("web.password_hash: {error}"))?;
+        }
+
+        if self.port == 0 {
+            return Err(
+                "web.port = 0 would bind an ephemeral port while the log reports 0; set a port in 1..=65535"
+                    .into(),
+            );
+        }
+
+        let bind = self.bind.trim();
+        let unbracketed = bind
+            .strip_prefix('[')
+            .and_then(|value| value.strip_suffix(']'))
+            .unwrap_or(bind);
+        if unbracketed != "localhost" && unbracketed.parse::<std::net::IpAddr>().is_err() {
+            return Err(format!(
+                "web.bind = {:?} is not a bare IPv4/IPv6 address or localhost; configure the port separately",
+                self.bind
+            ));
+        }
+
+        if !self.public_host.trim().is_empty() {
+            crate::config::share::supported_public_endpoint(&self.public_host, 443)?;
+        }
+
+        validate_web_network_list("web.allowed_ips", &self.allowed_ips)?;
+        validate_web_network_list("web.trusted_proxies", &self.trusted_proxies)?;
+
+        for raw in &self.allowed_origins {
+            validate_web_origin(raw)?;
+        }
+
+        let normalized_base = {
+            let value = self.base_path.trim().trim_end_matches('/');
+            if value.is_empty() {
+                String::new()
+            } else {
+                format!("/{}", value.trim_start_matches('/'))
+            }
+        };
+        if normalized_base.len() > 128
+            || !normalized_base.chars().all(|character| {
+                character.is_ascii_alphanumeric()
+                    || matches!(character, '/' | '-' | '_' | '.' | '~' | '%')
+            })
+        {
+            return Err(format!(
+                "web.base_path = {:?} is not a plain URL path (example: /qeli)",
+                self.base_path
+            ));
+        }
+
+        if !(WEB_SESSION_TTL_MIN_SECS..=WEB_SESSION_TTL_MAX_SECS).contains(&self.session_ttl_secs) {
+            return Err(format!(
+                "web.session_ttl_secs must be in {}..={} (60 seconds to 30 days)",
+                WEB_SESSION_TTL_MIN_SECS, WEB_SESSION_TTL_MAX_SECS
+            ));
+        }
+
+        if self.tls && self.tls_cert.is_empty() != self.tls_key.is_empty() {
+            return Err(
+                "web.tls_cert and web.tls_key must either both be empty (auto self-signed) or both be set"
+                    .into(),
+            );
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_web_network_list(label: &str, values: &[String]) -> Result<(), String> {
+    for raw in values {
+        let value = raw.trim();
+        if value.is_empty()
+            || (value.parse::<ipnet::IpNet>().is_err()
+                && value.parse::<std::net::IpAddr>().is_err())
+        {
+            return Err(format!(
+                "{label} entry {:?} is not a valid IP address or CIDR",
+                raw
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_web_origin(raw: &str) -> Result<(), String> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Err("web.allowed_origins contains an empty entry".into());
+    }
+    let host_port = if let Some((scheme, rest)) = value.split_once("://") {
+        if !matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https") {
+            return Err(format!(
+                "web.allowed_origins entry {:?} uses an unsupported scheme; use http or https",
+                raw
+            ));
+        }
+        rest.split('/').next().unwrap_or("")
+    } else {
+        if value
+            .chars()
+            .any(|character| matches!(character, '/' | '?' | '#'))
+        {
+            return Err(format!(
+                "web.allowed_origins entry {:?} must be host or host:port (a path requires a full http/https URL)",
+                raw
+            ));
+        }
+        value
+    };
+    crate::config::share::supported_public_endpoint(host_port, 443)
+        .map(|_| ())
+        .map_err(|error| format!("web.allowed_origins entry {:?}: {error}", raw))
+}
+
+#[cfg(test)]
+mod web_validation_tests {
+    use super::WebConfig;
+
+    fn active_web() -> WebConfig {
+        let mut web: WebConfig =
+            serde_json::from_str("{}").expect("serde defaults must build WebConfig");
+        web.enabled = true;
+        web
+    }
+
+    fn assert_rejected(web: &WebConfig, expected: &str) {
+        let error = web.validate_active().expect_err("configuration must fail");
+        assert!(error.contains(expected), "wrong error: {error}");
+    }
+
+    #[test]
+    fn disabled_panel_preserves_dormant_invalid_settings() {
+        let mut web = active_web();
+        web.enabled = false;
+        web.bind = "not a bind address".into();
+        web.port = 0;
+        web.allowed_ips = vec!["not-a-network".into()];
+        web.allowed_origins = vec!["ftp://bad.example".into()];
+        web.base_path = "# not a path".into();
+        web.session_ttl_secs = 0;
+        web.tls = true;
+        web.tls_cert = "/etc/qeli/cert.pem".into();
+        web.tls_key.clear();
+        web.validate_active()
+            .expect("a disabled panel must not validate hidden dormant settings");
+    }
+
+    #[test]
+    fn active_panel_rejects_unusable_admin_hash() {
+        let mut web = active_web();
+        web.password_hash = "stored-verifier".into();
+        assert_rejected(&web, "web.password_hash");
+
+        web.enabled = false;
+        web.validate_active()
+            .expect("disabled panel keeps its dormant hash untouched");
+
+        web.enabled = true;
+        web.password_hash = crate::crypto::hash_password(b"test-admin").unwrap();
+        web.validate_active().expect("valid Argon2 hash");
+    }
+
+    #[test]
+    fn active_panel_validates_every_runtime_sensitive_field() {
+        active_web()
+            .validate_active()
+            .expect("serde defaults are a valid enabled panel");
+
+        let mut web = active_web();
+        web.bind = "panel.example.com".into();
+        assert_rejected(&web, "web.bind");
+
+        let mut web = active_web();
+        web.allowed_ips = vec!["10.0.0.0/8".into(), "broken".into()];
+        assert_rejected(&web, "web.allowed_ips");
+
+        let mut web = active_web();
+        web.trusted_proxies = vec!["300.1.1.1".into()];
+        assert_rejected(&web, "web.trusted_proxies");
+
+        let mut web = active_web();
+        web.allowed_origins = vec!["file://panel.example.com".into()];
+        assert_rejected(&web, "unsupported scheme");
+
+        let mut web = active_web();
+        web.base_path = "/panel?admin=1".into();
+        assert_rejected(&web, "web.base_path");
+
+        let mut web = active_web();
+        web.session_ttl_secs = 59;
+        assert_rejected(&web, "session_ttl_secs");
+
+        let mut web = active_web();
+        web.tls = true;
+        web.tls_cert = "/etc/qeli/cert.pem".into();
+        web.tls_key.clear();
+        assert_rejected(&web, "web.tls_cert");
+
+        let mut web = active_web();
+        web.bind = "[::1]".into();
+        web.allowed_origins = vec!["https://[2001:db8::1]:8443/panel".into()];
+        web.validate_active()
+            .expect("bracketed IPv6 bind and origin must validate");
+    }
 }
 
 fn default_session_ttl() -> i64 {
@@ -1567,8 +1831,9 @@ fn default_tun_queues() -> usize {
     0 // auto: resolved to CPU count at profile start
 }
 fn default_users_file() -> String {
-    "/etc/qeli/users.conf".into()
+    DEFAULT_USERS_FILE.into()
 }
+pub const DEFAULT_USERS_FILE: &str = "/etc/qeli/users.conf";
 /// Paired with [`default_tun_addr`] — same reasoning, see there.
 fn default_cidr() -> String {
     "10.9.0.0/24".into()

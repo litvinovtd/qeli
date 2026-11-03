@@ -309,31 +309,23 @@ pub mod ws {
     /// Accepting only the status line allowed an HTTP endpoint (or active interceptor) to
     /// return an arbitrary 101 and move the client into the binary tunnel handshake.
     pub(super) fn validate_response(head: &[u8], expected_accept: &str) -> bool {
-        let text = String::from_utf8_lossy(head);
-        let mut status = text.split("\r\n").next().unwrap_or("").split_whitespace();
-        if status.next() != Some("HTTP/1.1") || status.next() != Some("101") {
+        let Some(head) = HttpHead::parse(head) else {
+            return false;
+        };
+        let Ok(status) = std::str::from_utf8(head.start) else {
+            return false;
+        };
+        if !status.starts_with("HTTP/1.1 101 ")
+            || !head.bodyless()
+            || head.has("sec-websocket-extensions")
+            || head.has("sec-websocket-protocol")
+        {
             return false;
         }
-        let upgrade_ok = header_value(head, "upgrade")
-            .map(|v| v.trim().eq_ignore_ascii_case("websocket"))
-            .unwrap_or(false);
-        let connection_ok = header_value(head, "connection")
-            .map(|v| {
-                v.split(',')
-                    .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
-            })
-            .unwrap_or(false);
-        let accept_ok = header_value(head, "sec-websocket-accept")
-            .map(|value| {
-                value
-                    .trim()
-                    .as_bytes()
-                    .ct_eq(expected_accept.as_bytes())
-                    .unwrap_u8()
-                    == 1
-            })
-            .unwrap_or(false);
-        upgrade_ok && connection_ok && accept_ok
+        head.upgrade()
+            && head
+                .single("sec-websocket-accept")
+                .is_some_and(|v| v.as_bytes().ct_eq(expected_accept.as_bytes()).unwrap_u8() == 1)
     }
 
     /// Build the `101 Switching Protocols` response for a received request head, or
@@ -351,38 +343,26 @@ pub mod ws {
     /// base64. Anything else must get an ordinary error, not an upgrade.
     /// (Audit 2026-07-27, E1.)
     pub fn build_response(req_head: &[u8], key: &[u8; 32]) -> Option<Vec<u8>> {
-        let text = String::from_utf8_lossy(req_head);
-        let request_line = text.split("\r\n").next().unwrap_or("");
-        if !request_line.starts_with("GET ") {
+        let head = HttpHead::parse(req_head)?;
+        let request_line = std::str::from_utf8(head.start).ok()?;
+        let mut parts = request_line.split(' ');
+        if parts.next()? != "GET" {
             return None;
         }
-        // The request-target must be OUR endpoint. Until this check existed the target was
-        // never looked at, so a correct Upgrade to any random path came back `101` — which
-        // a server claiming to be nginx would never do for a location nobody configured.
-        // Constant-time compare: the path is PSK-derived material, so do not leak a prefix
-        // match through timing. (Audit 2026-08-04, M-06.)
-        let target = request_line
-            .strip_prefix("GET ")
-            .and_then(|r| r.split_whitespace().next())
-            .unwrap_or("");
+        let target = parts.next()?;
+        if parts.next()? != "HTTP/1.1" || parts.next().is_some() {
+            return None;
+        }
         let expected = derive_path(key);
-        if target.as_bytes().ct_eq(expected.as_bytes()).unwrap_u8() != 1 {
+        if target.as_bytes().ct_eq(expected.as_bytes()).unwrap_u8() != 1
+            || !head.upgrade()
+            || !head.bodyless()
+            || head.single("host").is_none_or(str::is_empty)
+            || head.single("sec-websocket-version") != Some("13")
+        {
             return None;
         }
-        let upgrade_ok = header_value(req_head, "upgrade")
-            .map(|v| v.trim().eq_ignore_ascii_case("websocket"))
-            .unwrap_or(false);
-        // `Connection` may be a comma-separated list (`keep-alive, Upgrade`).
-        let connection_ok = header_value(req_head, "connection")
-            .map(|v| {
-                v.split(',')
-                    .any(|t| t.trim().eq_ignore_ascii_case("upgrade"))
-            })
-            .unwrap_or(false);
-        if !upgrade_ok || !connection_ok {
-            return None;
-        }
-        let ws_key = header_value(req_head, "sec-websocket-key")?;
+        let ws_key = head.single("sec-websocket-key")?;
         // RFC 6455: the key is exactly 16 random bytes, base64-encoded.
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(ws_key.trim())
@@ -470,17 +450,79 @@ pub mod ws {
         .into_bytes()
     }
 
-    /// Case-insensitive lookup of a header value in a raw HTTP head.
-    fn header_value(head: &[u8], name_lower: &str) -> Option<String> {
-        let text = String::from_utf8_lossy(head);
-        for line in text.split("\r\n") {
-            if let Some((k, v)) = line.split_once(':') {
-                if k.trim().eq_ignore_ascii_case(name_lower) {
-                    return Some(v.trim().to_string());
-                }
+    /// One bounded HTTP/1.1 head, parsed as bytes so opaque unused field values
+    /// may contain obs-text. Critical fields must be ASCII and unambiguous.
+    struct HttpHead<'a> {
+        start: &'a [u8],
+        fields: Vec<(&'a [u8], &'a [u8])>,
+    }
+    impl<'a> HttpHead<'a> {
+        fn parse(bytes: &'a [u8]) -> Option<Self> {
+            if bytes.len() > MAX_HEAD || !bytes.ends_with(b"\r\n\r\n") {
+                return None;
             }
+            let mut lines = bytes[..bytes.len() - 2].split_inclusive(|&b| b == b'\n');
+            let start = lines.next()?.strip_suffix(b"\r\n")?;
+            if start.is_empty() || start.iter().any(|&b| !(b' '..=b'~').contains(&b)) {
+                return None;
+            }
+            let mut fields = Vec::new();
+            for line in lines {
+                let line = line.strip_suffix(b"\r\n")?;
+                let colon = line.iter().position(|&b| b == b':')?;
+                let name = &line[..colon];
+                if name.is_empty()
+                    || !name
+                        .iter()
+                        .all(|&b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+                {
+                    return None;
+                }
+                let value = &line[colon + 1..];
+                if value.iter().any(|&b| (b < b' ' && b != b'\t') || b == 0x7f) {
+                    return None;
+                }
+                let value = value.trim_ascii();
+                fields.push((name, value));
+            }
+            Some(Self { start, fields })
         }
-        None
+        fn has(&self, name: &str) -> bool {
+            self.fields
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case(name.as_bytes()))
+        }
+        fn single(&self, name: &str) -> Option<&'a str> {
+            let mut matches = self
+                .fields
+                .iter()
+                .filter(|(k, _)| k.eq_ignore_ascii_case(name.as_bytes()));
+            let (_, value) = matches.next()?;
+            if matches.next().is_some() || !value.is_ascii() {
+                return None;
+            }
+            std::str::from_utf8(value).ok()
+        }
+        fn upgrade(&self) -> bool {
+            self.single("upgrade")
+                .is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
+                && self
+                    .fields
+                    .iter()
+                    .filter(|(k, _)| k.eq_ignore_ascii_case(b"connection"))
+                    .any(|(_, v)| {
+                        v.is_ascii()
+                            && v.split(|&b| b == b',')
+                                .any(|token| token.trim_ascii().eq_ignore_ascii_case(b"upgrade"))
+                    })
+        }
+        fn bodyless(&self) -> bool {
+            !self.has("transfer-encoding")
+                && (!self.has("content-length")
+                    || self
+                        .single("content-length")
+                        .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b == b'0')))
+        }
     }
 
     /// Read an HTTP head (up to and including `\r\n\r\n`) from `inner`, bounded to
@@ -492,11 +534,11 @@ pub mod ws {
         loop {
             inner.read_exact(&mut byte).await?;
             buf.push(byte[0]);
-            if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
-                return Ok(buf);
-            }
             if buf.len() > MAX_HEAD {
                 return Err(io::Error::other("obfs ws: handshake head too large"));
+            }
+            if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
+                return Ok(buf);
             }
         }
     }
@@ -543,7 +585,29 @@ fn ws_frame_header(len: usize, mask: Option<[u8; 4]>) -> Vec<u8> {
 /// Control frames owed to the peer, shared between the read half (which detects the
 /// Ping/Close) and the write half (which is the only side able to send). See
 /// `WsReframer::control_out`. (Audit 2026-07-27, E3.)
-type ControlQueue = std::sync::Arc<std::sync::Mutex<Vec<(u8, Vec<u8>)>>>;
+#[derive(Default)]
+struct WsControls {
+    replies: Vec<(u8, Vec<u8>)>,
+    closing: bool,
+    sent: bool,
+    failed: bool,
+    reader: Option<std::task::Waker>,
+    writer: Option<std::task::Waker>,
+}
+type ControlQueue = std::sync::Arc<std::sync::Mutex<WsControls>>;
+
+fn valid_ws_close(payload: &[u8]) -> bool {
+    if payload.is_empty() {
+        return true;
+    }
+    if payload.len() < 2 {
+        return false;
+    }
+    let code = u16::from_be_bytes([payload[0], payload[1]]);
+    // RFC6455 + IANA registered protocol codes; application/private ranges.
+    matches!(code, 1000..=1003 | 1007..=1014 | 3000..=4999)
+        && std::str::from_utf8(&payload[2..]).is_ok()
+}
 
 /// Encode ONE control frame (FIN set, opcode `op`, payload verbatim). Control frames
 /// are never fragmented and carry at most 125 bytes (RFC 6455 §5.5), so the extended
@@ -602,26 +666,20 @@ struct WsReframer {
     expected_masked: Option<bool>,
     /// Whether a fragmented binary message is awaiting continuation frames.
     fragment_open: bool,
+    /// Terminal parser/transport failure, reported after earlier payload drains.
+    error: Option<(io::ErrorKind, String)>,
     /// Raw wire bytes read but not yet parsed into completed frames.
     buf: Vec<u8>,
     /// Delivered (binary) payload bytes ready to hand to the caller.
     pending: Vec<u8>,
     /// Read cursor into `pending` (bytes before it were already returned).
     pending_off: usize,
-    /// Control frames owed to the peer as `(opcode, payload)`, emitted by the write path.
-    ///
-    /// RFC 6455 §5.5.2 requires a `Pong` in response to every `Ping`, and §5.5.1 requires
-    /// a `Close` to be answered with a `Close`. This reframer used to consume and discard
-    /// every non-binary opcode, so a WebSocket-aware middlebox or an active prober that
-    /// sent a Ping got silence — a plain giveaway from an endpoint whose whole purpose is
-    /// to pass for a WebSocket, and grounds for a proxy to tear the session down. The
-    /// reply is queued rather than sent inline because the parser runs on the READ path,
-    /// which holds no writer; the write path drains this before its own data, and the
-    /// tunnel writes continuously (heartbeat / cover traffic), so the delay is bounded.
-    /// (Audit 2026-07-27, E3.)
+    /// Bounded replies shared with the writer. A control event wakes the existing
+    /// writer; unsplit and pre-auth readers drive replies themselves. Close is
+    /// prioritized, and readers wait for its flush before reporting EOF.
     control_out: ControlQueue,
-    /// Set once a `Close` has been seen and answered, so it is answered only once.
-    close_echoed: bool,
+    /// Terminal peer Close; frames after it are never parsed or delivered.
+    close_received: bool,
 }
 
 impl WsReframer {
@@ -643,7 +701,7 @@ impl WsReframer {
     /// can distinguish "consumed a binary frame" (even a zero-length one) from
     /// "consumed a control frame" and from "need more bytes".
     fn parse_one_frame(&mut self) -> io::Result<FrameParse> {
-        if self.buf.len() < 2 {
+        if self.close_received || self.buf.len() < 2 {
             return Ok(FrameParse::NeedMore);
         }
         let b0 = self.buf[0];
@@ -686,6 +744,12 @@ impl WsReframer {
             }
             let l = u16::from_be_bytes([self.buf[off], self.buf[off + 1]]) as usize;
             off += 2;
+            if l < 126 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "obfs ws: nonminimal payload length",
+                ));
+            }
             l
         } else if len7 == 127 {
             if self.buf.len() < off + 8 {
@@ -702,6 +766,12 @@ impl WsReframer {
             // header travels in the clear over ChaCha20, so an on-path party can craft it.
             // (Audit 2026-07-27, F4.)
             let declared = u64::from_be_bytes(a);
+            if declared < 65536 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "obfs ws: nonminimal payload length",
+                ));
+            }
             if declared > WS_FRAME_MAX as u64 {
                 return Err(io::Error::other("obfs ws: frame payload exceeds cap"));
             }
@@ -757,30 +827,43 @@ impl WsReframer {
             }
         } else if opcode == 0x9 || opcode == 0x8 {
             // Ping -> Pong (echo the payload), Close -> Close (echo the status code).
-            // Both are answered exactly as RFC 6455 §5.5 requires; see `control_out`.
+            // The shared writer/handshake path emits these bounded responses.
             let payload: Vec<u8> = self.buf[off..off + payload_len]
                 .iter()
                 .enumerate()
                 .map(|(i, &b)| if masked { b ^ mask[i % 4] } else { b })
                 .collect();
-            if let Ok(mut q) = self.control_out.lock() {
-                // Cap the owed-reply queue. The PEER decides how many Pings to send and
-                // the queue only drains when WE write — and during `read_ws_nonce` the
-                // write half does not exist yet, so nothing drains it at all. Unbounded,
-                // that is a pre-auth memory-growth primitive with ~16x amplification: a
-                // 2-byte Ping (`89 00`; the parser does not require the MASK bit) buys a
-                // ~32-byte queue entry. A real endpoint under a Ping flood would not keep
-                // up either, so past the cap we simply stop owing replies.
-                // (Audit 2026-08-04, H-03.)
-                if q.len() >= MAX_CONTROL_OUT {
-                    // fall through: frame is still consumed below, just not answered
-                } else if opcode == 0x9 {
-                    q.push((0xA, payload));
-                } else if !self.close_echoed {
-                    self.close_echoed = true;
-                    q.push((0x8, payload));
-                }
+            if opcode == 0x8 && !valid_ws_close(&payload) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "obfs ws: invalid Close payload",
+                ));
             }
+            let wake = {
+                let mut q = self.control_out.lock().unwrap_or_else(|e| e.into_inner());
+                if opcode == 0x8 {
+                    self.close_received = true;
+                    self.fragment_open = false;
+                    q.closing = true;
+                    // Close cannot be dropped behind outstanding Pongs.
+                    q.replies.clear();
+                    q.replies.push((0x8, payload));
+                } else if !q.closing {
+                    if q.replies.len() < MAX_CONTROL_OUT {
+                        q.replies.push((0xA, payload));
+                    } else {
+                        *q.replies.last_mut().expect("nonempty capped queue") = (0xA, payload);
+                    }
+                }
+                q.writer.take()
+            };
+            if let Some(waker) = wake {
+                waker.wake();
+            }
+        }
+        if self.close_received {
+            self.buf.clear(); // Bytes after Close never become application data.
+            return Ok(FrameParse::Control);
         }
         self.buf.drain(..off + payload_len);
         Ok(if deliver {
@@ -792,13 +875,31 @@ impl WsReframer {
 
     /// Parse as many complete frames as are fully buffered.
     fn drain_frames(&mut self) -> io::Result<()> {
-        while !matches!(self.parse_one_frame()?, FrameParse::NeedMore) {}
+        if self.error.is_none() {
+            loop {
+                match self.parse_one_frame() {
+                    Ok(FrameParse::NeedMore) => break,
+                    Ok(_) => {}
+                    Err(e) => {
+                        self.error = Some((e.kind(), e.to_string()));
+                        break;
+                    }
+                }
+            }
+        }
+        // A malformed later frame cannot erase earlier complete payloads. The
+        // inner PacketCodec still authenticates each delivered tunnel packet.
+        if self.available() == 0 {
+            if let Some((kind, message)) = &self.error {
+                return Err(io::Error::new(*kind, message.clone()));
+            }
+        }
         Ok(())
     }
 
     /// True when EOF would truncate a header, mask key or payload already started on wire.
     fn has_incomplete_frame(&self) -> bool {
-        !self.buf.is_empty()
+        !self.buf.is_empty() || self.fragment_open
     }
 
     /// Number of delivered payload bytes available to read.
@@ -835,6 +936,38 @@ impl WsReframer {
                 FrameParse::Control => continue, // skip, keep looking
                 FrameParse::NeedMore => return Ok(false),
             }
+        }
+    }
+}
+
+/// Dedicated parser harness; absent from shipping builds and ABI.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn fuzz_websocket_frames(data: &[u8]) {
+    let Some((&flags, wire)) = data.split_first() else {
+        return;
+    };
+    let mut r = WsReframer::with_expected_mask(flags & 1 != 0);
+    let chunk = 1 + usize::from(flags >> 1);
+    for bytes in wire.chunks(chunk) {
+        r.feed(bytes);
+        if r.drain_frames().is_err() {
+            break;
+        }
+        let mut sink = [0; 512];
+        while r.available() > 0 {
+            r.read_pending(&mut sink);
+        }
+        assert!(
+            r.control_out
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .replies
+                .len()
+                <= MAX_CONTROL_OUT
+        );
+        if r.close_received {
+            break;
         }
     }
 }
@@ -933,10 +1066,54 @@ async fn send_junk_ws<S: AsyncWrite + Unpin>(
 /// bytes read past the `jc`-th junk frame stay inside `reframer.buf` for the
 /// caller's subsequent nonce / data reads (TCP may coalesce the last junk frame
 /// with the following nonce/data frames — nothing is over-consumed).
-async fn recv_junk_ws<S: AsyncRead + Unpin>(
+/// Handshake reads have no independent writer yet. Bound and flush the same
+/// control queue while waiting for junk/nonce bytes, including a Close reply.
+async fn ws_handshake_controls<S: AsyncWrite + Unpin>(
+    inner: &mut S,
+    rf: &mut WsReframer,
+    masked: bool,
+) -> io::Result<()> {
+    let owed = {
+        let mut q = rf.control_out.lock().unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut q.replies)
+    };
+    if owed.is_empty() {
+        return Ok(());
+    }
+    let close = owed.iter().any(|(op, _)| *op == 8);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        for (op, payload) in owed {
+            inner
+                .write_all(&ws_encode_control(op, &payload, masked))
+                .await?;
+        }
+        inner.flush().await?;
+        if close {
+            inner.shutdown().await?;
+        }
+        Ok::<(), io::Error>(())
+    })
+    .await
+    .map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            "obfs ws: handshake control timeout",
+        )
+    })??;
+    if close {
+        rf.control_out
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sent = true;
+    }
+    Ok(())
+}
+
+async fn recv_junk_ws<S: AsyncRead + AsyncWrite + Unpin>(
     inner: &mut S,
     jc: u32,
     reframer: &mut WsReframer,
+    masked: bool,
 ) -> io::Result<()> {
     // This runs BEFORE the nonce exchange / auth, and the server's accept path has no
     // outer timeout around the handshake — so bound what an unauthenticated peer can
@@ -963,6 +1140,13 @@ async fn recv_junk_ws<S: AsyncRead + Unpin>(
         // Consume any whole junk frames already buffered before reading more.
         while discarded < jc && reframer.try_discard_one_binary_frame()? {
             discarded += 1;
+        }
+        tokio::select! {
+            _ = &mut deadline => return Err(io::Error::new(io::ErrorKind::TimedOut,"obfs ws junk: handshake timed out")),
+            result = ws_handshake_controls(inner,reframer,masked) => result?,
+        }
+        if reframer.close_received {
+            return Err(io::ErrorKind::UnexpectedEof.into());
         }
         if discarded >= jc {
             break;
@@ -1054,13 +1238,66 @@ fn obfs_datagram_open_in_place(key: &[u8; 32], datagram: &mut [u8]) -> Option<us
 /// socket API the handlers use (`send_to`/`recv_from` on the server, the
 /// connected `send`/`recv` on the client).
 pub struct ObfsUdp {
-    sock: tokio::net::UdpSocket,
+    sock: std::sync::Arc<tokio::net::UdpSocket>,
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    source: Option<crate::transport_core::udp_source::LocalAddress>,
     key: Option<[u8; 32]>,
 }
 
 impl ObfsUdp {
     pub fn new(sock: tokio::net::UdpSocket, key: Option<[u8; 32]>) -> Self {
-        Self { sock, key }
+        Self {
+            sock: std::sync::Arc::new(sock),
+            key,
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            source: None,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[allow(dead_code)] // Server admission must fail if packet info cannot be enabled.
+    pub(crate) fn server(sock: tokio::net::UdpSocket, key: Option<[u8; 32]>) -> io::Result<Self> {
+        crate::transport_core::udp_source::enable(&sock)?;
+        Ok(Self::new(sock, key))
+    }
+
+    #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
+    pub(crate) fn reply_from(
+        &self,
+        source: crate::transport_core::udp_source::LocalAddress,
+    ) -> Self {
+        Self {
+            sock: self.sock.clone(),
+            key: self.key,
+            source: Some(source),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
+    pub(crate) fn has_source(
+        &self,
+        source: crate::transport_core::udp_source::LocalAddress,
+    ) -> bool {
+        self.source == Some(source)
+    }
+
+    /// Two immutable views may refer to the same socket and local endpoint.
+    #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
+    pub(crate) fn same_path(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.sock, &other.sock) && self.source == other.source
+    }
+
+    #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
+    pub(crate) fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
+        let bound = self.sock.local_addr()?;
+        Ok(self
+            .source
+            .map(|source| source.socket_addr(bound.port()))
+            .unwrap_or(bound))
     }
 
     /// Borrow the underlying socket for getsockopt/setsockopt telemetry only.
@@ -1120,10 +1357,24 @@ impl ObfsUdp {
     }
 
     pub async fn send_to(&self, data: &[u8], addr: std::net::SocketAddr) -> io::Result<usize> {
-        match &self.key {
-            Some(k) => self.sock.send_to(&obfs_datagram_seal(k, data), addr).await,
-            None => self.sock.send_to(data, addr).await,
+        let sealed;
+        let wire = match &self.key {
+            Some(key) => {
+                sealed = obfs_datagram_seal(key, data);
+                sealed.as_slice()
+            }
+            None => data,
+        };
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if let Some(source) = self.source {
+            return self
+                .sock
+                .async_io(tokio::io::Interest::WRITABLE, || {
+                    crate::transport_core::udp_source::send(&self.sock, wire, addr, source)
+                })
+                .await;
         }
+        self.sock.send_to(wire, addr).await
     }
 
     /// Non-blocking datagram send used by atomic control-path publication. Success means the
@@ -1138,7 +1389,16 @@ impl ObfsUdp {
             }
             None => data,
         };
-        match self.sock.try_send_to(wire, addr) {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let sent = match self.source {
+            Some(source) => self.sock.try_io(tokio::io::Interest::WRITABLE, || {
+                crate::transport_core::udp_source::send(&self.sock, wire, addr, source)
+            }),
+            None => self.sock.try_send_to(wire, addr),
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let sent = self.sock.try_send_to(wire, addr);
+        match sent {
             Ok(sent) if sent == wire.len() => Ok(()),
             Ok(_) => Err(io::Error::new(
                 io::ErrorKind::WriteZero,
@@ -1194,6 +1454,7 @@ impl ObfsUdp {
     /// `slots` must be empty and hold spare capacity. On return the first `n` carry opened
     /// plaintext; a slot left empty is a malformed obfs frame the caller must skip, exactly as
     /// `n == 0` means today on the single-datagram path.
+    #[cfg(any(feature = "client", test))]
     pub(crate) async fn recv_batch(
         &self,
         slots: &mut [BytesMut],
@@ -1211,6 +1472,11 @@ impl ObfsUdp {
                 )
             })
             .await?;
+        self.open_batch(slots, received);
+        Ok(received)
+    }
+
+    fn open_batch(&self, slots: &mut [BytesMut], received: usize) {
         if let Some(key) = &self.key {
             for slot in slots.iter_mut().take(received) {
                 match obfs_datagram_open_in_place(key, &mut slot[..]) {
@@ -1219,6 +1485,25 @@ impl ObfsUdp {
                 }
             }
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[allow(dead_code)] // Server receives an exact local endpoint for every datagram.
+    pub(crate) async fn recv_batch_local(
+        &self,
+        slots: &mut [BytesMut],
+        addrs: &mut [std::net::SocketAddr],
+        scratch: &mut crate::transport_core::udp_batch::BatchScratch,
+    ) -> io::Result<usize> {
+        let received = self
+            .sock
+            .async_io(tokio::io::Interest::READABLE, || {
+                crate::transport_core::udp_batch::recv_batch_local(
+                    &self.sock, slots, addrs, scratch,
+                )
+            })
+            .await?;
+        self.open_batch(slots, received);
         Ok(received)
     }
 
@@ -1227,6 +1512,7 @@ impl ObfsUdp {
     /// Returns how many datagrams the kernel accepted; a short count is normal under pressure
     /// and the caller must retry the remainder. Sealing still happens per datagram, so keyed
     /// `obfs` behaves exactly as on the single-datagram path.
+    #[cfg(any(feature = "client", test))]
     pub(crate) async fn send_batch(
         &self,
         datagrams: &[&[u8]],
@@ -1270,6 +1556,12 @@ impl ObfsUdp {
         };
         self.sock
             .async_io(tokio::io::Interest::WRITABLE, || {
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                if let Some(source) = self.source {
+                    return crate::transport_core::udp_batch::send_batch_from(
+                        &self.sock, &wire, peer, source, scratch,
+                    );
+                }
                 crate::transport_core::udp_batch::send_batch_to(&self.sock, &wire, peer, scratch)
             })
             .await
@@ -1299,9 +1591,10 @@ fn seek_err(e: impl std::fmt::Debug) -> io::Error {
 /// the raw nonce as a single WS binary frame (NOT ChaCha20-encrypted — no
 /// keystream exists yet). Consumes only the nonce frame; any coalesced post-nonce
 /// wire bytes remain buffered in `reframer` for the data phase.
-async fn read_ws_nonce<S: AsyncRead + Unpin>(
+async fn read_ws_nonce<S: AsyncRead + AsyncWrite + Unpin>(
     inner: &mut S,
     reframer: &mut WsReframer,
+    masked: bool,
 ) -> io::Result<[u8; NONCE_LEN]> {
     // Bound what an unauthenticated peer can impose here, exactly as `recv_junk_ws` does.
     // The nonce is ONE 12-byte binary frame, but control frames are consumed without
@@ -1313,6 +1606,10 @@ async fn read_ws_nonce<S: AsyncRead + Unpin>(
     let mut buf = [0u8; 512];
     loop {
         reframer.drain_frames()?;
+        ws_handshake_controls(inner, reframer, masked).await?;
+        if reframer.close_received {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
         if reframer.available() >= NONCE_LEN {
             let mut nonce = [0u8; NONCE_LEN];
             let n = reframer.read_pending(&mut nonce);
@@ -1349,27 +1646,27 @@ pub struct ObfsStream<S> {
 /// `reframer` holds cross-read parsing state seeded with any bytes buffered
 /// during the handshake.
 struct WsState {
-    masked: bool,
-    reframer: WsReframer,
-    /// Outbound framed bytes not yet fully written to the socket.
-    out_buf: Vec<u8>,
-    /// Write cursor into `out_buf`.
-    out_off: usize,
-    /// Plaintext byte count to report once `out_buf` is fully flushed.
-    pending_plain: usize,
-    /// Scratch buffer for socket reads before reframing.
-    read_scratch: Vec<u8>,
+    read: WsReadState,
+    write: WsWriteState,
 }
 
 impl WsState {
     fn new(masked: bool, reframer: WsReframer) -> Self {
+        let control_out = reframer.control_out.clone();
         Self {
-            masked,
-            reframer,
-            out_buf: Vec::new(),
-            out_off: 0,
-            pending_plain: 0,
-            read_scratch: vec![0u8; WS_FRAME_MAX + 32],
+            read: WsReadState {
+                reframer,
+                read_scratch: vec![0u8; WS_FRAME_MAX + 32],
+            },
+            write: WsWriteState {
+                masked,
+                out_buf: Vec::new(),
+                out_off: 0,
+                error: None,
+                sending_close: false,
+                control_flushing: false,
+                control_out,
+            },
         }
     }
 }
@@ -1424,7 +1721,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
         if jc > 0 {
             if fronting {
                 send_junk_ws(&mut inner, jc, jmin, jmax, true).await?;
-                recv_junk_ws(&mut inner, jc, &mut reframer).await?;
+                recv_junk_ws(&mut inner, jc, &mut reframer, true).await?;
             } else {
                 send_junk_raw(&mut inner, jc, jmin, jmax).await?;
                 recv_junk_raw(&mut inner, jc).await?;
@@ -1437,7 +1734,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
             // Nonce carried as a WS binary frame (masked: client→server).
             inner.write_all(&ws_encode_frames(&local, true)).await?;
             inner.flush().await?;
-            read_ws_nonce(&mut inner, &mut reframer).await?
+            read_ws_nonce(&mut inner, &mut reframer, true).await?
         } else {
             inner.write_all(&local).await?;
             inner.flush().await?;
@@ -1517,7 +1814,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
         // F2: server is the receiver first — discard jc junk, then emit jc junk.
         if jc > 0 {
             if fronting {
-                recv_junk_ws(&mut inner, jc, &mut reframer).await?;
+                recv_junk_ws(&mut inner, jc, &mut reframer, false).await?;
                 send_junk_ws(&mut inner, jc, jmin, jmax, false).await?;
             } else {
                 recv_junk_raw(&mut inner, jc).await?;
@@ -1529,7 +1826,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
         let mut local = [0u8; NONCE_LEN];
         rand::Rng::fill_bytes(&mut rand::rng(), &mut local);
         if fronting {
-            peer = read_ws_nonce(&mut inner, &mut reframer).await?;
+            peer = read_ws_nonce(&mut inner, &mut reframer, false).await?;
             // Nonce carried as a WS binary frame (unmasked: server→client).
             inner.write_all(&ws_encode_frames(&local, false)).await?;
             inner.flush().await?;
@@ -1556,24 +1853,7 @@ impl ObfsStream<TcpStream> {
         // Partition the single WS state into read-side (reframer) and write-side
         // (mask + outbound buffer). Present only on the ws-fronting path.
         let (ws_read, ws_write) = match self.ws {
-            Some(st) => {
-                // Clone the handle BEFORE the reframer moves into the read half, so both
-                // sides keep pointing at the same queue. (E3)
-                let control_q = st.reframer.control_out.clone();
-                (
-                    Some(WsReadState {
-                        reframer: st.reframer,
-                        read_scratch: st.read_scratch,
-                    }),
-                    Some(WsWriteState {
-                        masked: st.masked,
-                        out_buf: st.out_buf,
-                        out_off: st.out_off,
-                        pending_plain: st.pending_plain,
-                        control_out: control_q,
-                    }),
-                )
-            }
+            Some(st) => (Some(st.read), Some(st.write)),
             None => (None, None),
         };
         (
@@ -1583,7 +1863,7 @@ impl ObfsStream<TcpStream> {
                 ws: ws_read,
             },
             ObfsWriteHalf {
-                inner: w,
+                inner: crate::protocol::stream_io::StallGuard::new(w),
                 cipher: self.write_cipher,
                 ws: ws_write,
             },
@@ -1591,13 +1871,55 @@ impl ObfsStream<TcpStream> {
     }
 }
 
-/// A duplex stream that can be split into owned read/write halves. Lets the
-/// TCP data-plane code be generic over the plain (`fake-tls`) and `obfs` wire
-/// modes without boxing.
+/// Idle writer hook for carrier control traffic; application bytes stay in the
+/// existing writer. Pending is cancellation-safe: only owned wire bytes drain.
+pub trait CarrierWriteControl: AsyncWrite + Unpin {
+    /// Optional lower-I/O progress for buffered adapters; never a delivery ACK.
+    fn write_progress(&self) -> Option<crate::protocol::stream_io::WriteProgress> {
+        None
+    }
+    fn poll_control(&mut self, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Pending
+    }
+}
+impl CarrierWriteControl for OwnedWriteHalf {}
+impl<T: AsyncRead + AsyncWrite + Unpin> CarrierWriteControl for tokio::io::WriteHalf<T> {}
+impl CarrierWriteControl for tokio::io::DuplexStream {}
+impl<W: CarrierWriteControl> CarrierWriteControl for crate::protocol::stream_io::StallGuard<W> {
+    fn write_progress(&self) -> Option<crate::protocol::stream_io::WriteProgress> {
+        Some(self.progress())
+    }
+    fn poll_control(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.inner_mut().poll_control(cx)
+    }
+}
+
+/// A duplex carrier with owned halves used by the common TCP data plane.
 pub trait SplitStream {
     type R: AsyncRead + Unpin + Send + 'static;
-    type W: AsyncWrite + Unpin + Send + 'static;
+    type W: CarrierWriteControl + Unpin + Send + 'static;
+    fn write_progress(&self) -> Option<crate::protocol::stream_io::WriteProgress> {
+        None
+    }
     fn split_io(self) -> (Self::R, Self::W);
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> SplitStream
+    for crate::protocol::stream_io::StallGuard<S>
+{
+    type R = tokio::io::ReadHalf<Self>;
+    type W = crate::protocol::stream_io::StallGuard<tokio::io::WriteHalf<Self>>;
+    fn write_progress(&self) -> Option<crate::protocol::stream_io::WriteProgress> {
+        Some(self.progress())
+    }
+    fn split_io(self) -> (Self::R, Self::W) {
+        let progress = self.progress();
+        let (read, write) = tokio::io::split(self);
+        (
+            read,
+            crate::protocol::stream_io::StallGuard::observing(write, Some(progress)),
+        )
+    }
 }
 
 impl SplitStream for TcpStream {
@@ -1695,7 +2017,10 @@ struct WsWriteState {
     masked: bool,
     out_buf: Vec<u8>,
     out_off: usize,
-    pending_plain: usize,
+    error: Option<(io::ErrorKind, String)>,
+    sending_close: bool,
+    // Retain a cancelled Pending flush after the owned frame buffer drains.
+    control_flushing: bool,
     /// Shared with the read half — see `WsReframer::control_out`.
     control_out: ControlQueue,
 }
@@ -1711,6 +2036,9 @@ fn ws_read<R: AsyncRead + Unpin>(
     cx: &mut Context<'_>,
     buf: &mut ReadBuf<'_>,
 ) -> Poll<io::Result<()>> {
+    if buf.remaining() == 0 {
+        return Poll::Ready(Ok(()));
+    }
     loop {
         ws.reframer.drain_frames()?;
         if ws.reframer.available() > 0 && buf.remaining() > 0 {
@@ -1727,16 +2055,38 @@ fn ws_read<R: AsyncRead + Unpin>(
             buf.put_slice(&tmp[..n]);
             return Poll::Ready(Ok(()));
         }
+        {
+            let mut q = ws
+                .reframer
+                .control_out
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if q.failed {
+                return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+            }
+            if q.closing {
+                if q.sent {
+                    return Poll::Ready(Ok(()));
+                }
+                q.reader = Some(cx.waker().clone());
+                return Poll::Pending;
+            }
+        }
         // Need more wire bytes.
         let mut rb = ReadBuf::new(&mut ws.read_scratch);
-        ready!(Pin::new(&mut *inner).poll_read(cx, &mut rb))?;
+        if let Err(e) = ready!(Pin::new(&mut *inner).poll_read(cx, &mut rb)) {
+            ws.reframer.error = Some((e.kind(), e.to_string()));
+            return Poll::Ready(Err(e));
+        }
         let filled = rb.filled().len();
         if filled == 0 {
             if ws.reframer.has_incomplete_frame() {
-                return Poll::Ready(Err(io::Error::new(
+                let e = io::Error::new(
                     io::ErrorKind::UnexpectedEof,
-                    "obfs ws: EOF in the middle of a frame",
-                )));
+                    "obfs ws: EOF in the middle of a frame or fragmented message",
+                );
+                ws.reframer.error = Some((e.kind(), e.to_string()));
+                return Poll::Ready(Err(e));
             }
             // Clean EOF at a frame boundary.
             return Poll::Ready(Ok(()));
@@ -1746,10 +2096,93 @@ fn ws_read<R: AsyncRead + Unpin>(
     }
 }
 
-/// WS-framed write (F3): ChaCha20-encrypt `buf`, wrap into binary frames, and
-/// stream them to the socket. Only accepts new plaintext when the previous
-/// frame batch has been fully flushed, so the keystream advances exactly once
-/// per accepted plaintext (no rewind needed).
+/// Drain only previously accepted bytes. A Pending result never accepts new plaintext.
+fn ws_drain<W: AsyncWrite + Unpin>(
+    inner: &mut W,
+    ws: &mut WsWriteState,
+    cx: &mut Context<'_>,
+) -> Poll<io::Result<()>> {
+    if let Some((kind, message)) = &ws.error {
+        return Poll::Ready(Err(io::Error::new(*kind, message.clone())));
+    }
+    while ws.out_off < ws.out_buf.len() {
+        match Pin::new(&mut *inner).poll_write(cx, &ws.out_buf[ws.out_off..]) {
+            Poll::Ready(Ok(0)) => {
+                let e = io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "obfs ws: socket write returned zero",
+                );
+                ws_failed(ws, &e);
+                return Poll::Ready(Err(e));
+            }
+            Poll::Ready(Ok(n)) => ws.out_off += n,
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(Err(e)) => {
+                ws_failed(ws, &e);
+                return Poll::Ready(Err(e));
+            }
+        }
+    }
+    ws.out_buf.clear();
+    ws.out_off = 0;
+    Poll::Ready(Ok(()))
+}
+
+fn ws_queue_controls(ws: &mut WsWriteState) {
+    let owed = {
+        let mut q = ws.control_out.lock().unwrap_or_else(|e| e.into_inner());
+        let owed = std::mem::take(&mut q.replies);
+        if owed.iter().any(|(op, _)| *op == 8) {
+            q.closing = true;
+            ws.sending_close = true;
+        }
+        owed
+    };
+    ws.control_flushing |= !owed.is_empty();
+    for (op, payload) in owed {
+        ws.out_buf
+            .extend_from_slice(&ws_encode_control(op, &payload, ws.masked));
+    }
+}
+
+fn ws_failed(ws: &mut WsWriteState, e: &io::Error) {
+    ws.error = Some((e.kind(), e.to_string()));
+    let wake = {
+        let mut q = ws.control_out.lock().unwrap_or_else(|e| e.into_inner());
+        q.failed = true;
+        q.reader.take()
+    };
+    if let Some(waker) = wake {
+        waker.wake();
+    }
+}
+
+fn ws_control<W: AsyncWrite + Unpin>(
+    inner: &mut W,
+    ws: &mut WsWriteState,
+    cx: &mut Context<'_>,
+) -> Poll<io::Result<()>> {
+    if let Some((kind, message)) = &ws.error {
+        return Poll::Ready(Err(io::Error::new(*kind, message.clone())));
+    }
+    let pending = {
+        let mut q = ws.control_out.lock().unwrap_or_else(|e| e.into_inner());
+        q.writer = Some(cx.waker().clone());
+        !q.replies.is_empty()
+            || (!q.sent && ws.sending_close)
+            || ws.control_flushing
+            || !ws.out_buf.is_empty()
+    };
+    if !pending {
+        return Poll::Pending;
+    }
+    ws.control_flushing = true;
+    ws_flush(inner, ws, cx)
+}
+
+/// Own at most one data frame. Report accepted plaintext immediately, including
+/// under socket backpressure; callers may cancel a later Pending operation and
+/// retry with a different slice. Flush/shutdown finish sending the owned bytes.
 fn ws_write<W: AsyncWrite + Unpin>(
     inner: &mut W,
     cipher: &mut ChaCha20,
@@ -1757,90 +2190,76 @@ fn ws_write<W: AsyncWrite + Unpin>(
     cx: &mut Context<'_>,
     buf: &[u8],
 ) -> Poll<io::Result<usize>> {
-    // If nothing is buffered from a previous call, cipher+frame the new plaintext
-    // (commit the keystream advance exactly once). If a batch is still buffered, we
-    // drain it and ignore `buf` this call (the caller retries with it next poll).
-    // Owed control frames go out FIRST, ahead of any tunnel data. They are queued by the
-    // read half (which cannot write) when the peer sends a Ping or a Close; emitting them
-    // here is what makes this endpoint answer like a real WebSocket instead of ignoring
-    // control frames outright. They carry no ChaCha20 keystream — a control frame is
-    // protocol scaffolding, not tunnel payload, so mixing it into the cipher would
-    // desynchronise the peer's stream. (Audit 2026-07-27, E3.)
-    if ws.out_off >= ws.out_buf.len() {
-        // ONE batch: owed control frames first, then this call's plaintext behind them.
-        //
-        // These used to be two batches. Queuing the control frames set `pending_plain = 0`
-        // and left `out_buf` non-empty, so the plaintext branch below was skipped and the
-        // function returned `Ok(0)` for a NON-EMPTY `buf`. The only caller is
-        // `AsyncWriteExt::write_all`, which by contract turns `Ok(0)` on a non-empty buffer
-        // into `ErrorKind::WriteZero` — it does not retry. Every writer loop treats that as
-        // fatal (`if write_all(..).await.is_err() { break }`), so ANY WebSocket Ping reaching
-        // the stream killed the tunnel on the next write. The comment claiming "the caller
-        // retries with its data on the next poll" described a contract `write_all` does not
-        // have.
-        //
-        // Two ways to hit it: an on-path attacker splices 2 bytes (`89 00`) into the TCP
-        // stream — control frames are outside the ChaCha20 keystream, so the injection is
-        // transparent to the cipher and the session dies looking like a clean close; or a
-        // perfectly honest WebSocket-aware proxy sends a keepalive Ping, which is exactly
-        // the middlebox `fronting=websocket` exists to survive. (Audit 2026-08-04, M-07.)
-        let owed: Vec<(u8, Vec<u8>)> = ws
-            .control_out
-            .lock()
-            .map(|mut q| std::mem::take(&mut *q))
-            .unwrap_or_default();
-        let mut frames = Vec::new();
-        for (op, payload) in owed {
-            frames.extend_from_slice(&ws_encode_control(op, &payload, ws.masked));
-        }
-        if buf.is_empty() {
-            // Nothing to commit. Flush any owed control frames on their own; an empty write
-            // with nothing owed stays a no-op.
-            if frames.is_empty() {
-                return Poll::Ready(Ok(0));
-            }
-            ws.out_buf = frames;
-            ws.out_off = 0;
-            ws.pending_plain = 0;
-        } else {
-            let mut cipher_bytes = buf.to_vec();
-            // Guard keystream exhaustion — clean io::Error → reconnect, not a panic=abort
-            // crash (see the ws_read note). The raw path guards the same way via
-            // write_xor's try_apply_keystream.
-            cipher
-                .try_apply_keystream(&mut cipher_bytes)
-                .map_err(seek_err)?;
-            frames.extend_from_slice(&ws_encode_frames(&cipher_bytes, ws.masked));
-            ws.out_buf = frames;
-            ws.out_off = 0;
-            ws.pending_plain = buf.len();
-        }
+    if buf.is_empty() {
+        return Poll::Ready(Ok(0));
     }
-
-    // Drain the framed buffer, LOOPING over partial writes. Critical: an inner
-    // `Ready(Ok(n))` does not arm a write-readiness waker, so returning `Pending`
-    // after a partial write would park the writer forever and stall the tunnel
-    // (only `Pending` from the inner arms a waker). Keep polling until the buffer
-    // empties, the inner is genuinely `Pending`, or it errors — mirroring the raw
-    // `write_xor` / `flush_out` paths.
-    while ws.out_off < ws.out_buf.len() {
-        match Pin::new(&mut *inner).poll_write(cx, &ws.out_buf[ws.out_off..]) {
-            Poll::Ready(Ok(0)) => return Poll::Ready(Err(io::ErrorKind::WriteZero.into())),
-            Poll::Ready(Ok(n)) => ws.out_off += n,
-            Poll::Pending => return Poll::Pending,
-            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-        }
+    ready!(ws_drain(inner, ws, cx))?;
+    ws_queue_controls(ws);
+    if ws
+        .control_out
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .closing
+    {
+        ready!(ws_flush(inner, ws, cx))?;
+        return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
     }
-
-    // Fully flushed — report the plaintext bytes committed for this batch.
-    ws.out_buf.clear();
-    ws.out_off = 0;
-    let done = ws.pending_plain;
-    ws.pending_plain = 0;
-    Poll::Ready(Ok(done))
+    let accepted = buf.len().min(WS_FRAME_MAX);
+    let mut cipher_bytes = buf[..accepted].to_vec();
+    if let Err(e) = cipher.try_apply_keystream(&mut cipher_bytes) {
+        let e = seek_err(e);
+        ws_failed(ws, &e);
+        return Poll::Ready(Err(e));
+    }
+    ws.out_buf
+        .extend_from_slice(&ws_encode_frames(&cipher_bytes, ws.masked));
+    match ws_drain(inner, ws, cx) {
+        Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+        // The adapter now owns all `accepted` bytes, even if the socket parks.
+        Poll::Ready(Ok(())) | Poll::Pending => Poll::Ready(Ok(accepted)),
+    }
 }
 
-impl<S: AsyncRead + Unpin> AsyncRead for ObfsStream<S> {
+fn ws_flush<W: AsyncWrite + Unpin>(
+    inner: &mut W,
+    ws: &mut WsWriteState,
+    cx: &mut Context<'_>,
+) -> Poll<io::Result<()>> {
+    ready!(ws_drain(inner, ws, cx))?;
+    ws_queue_controls(ws);
+    ready!(ws_drain(inner, ws, cx))?;
+    if let Err(e) = ready!(Pin::new(&mut *inner).poll_flush(cx)) {
+        ws_failed(ws, &e);
+        return Poll::Ready(Err(e));
+    }
+    if ws.sending_close {
+        if let Err(e) = ready!(Pin::new(&mut *inner).poll_shutdown(cx)) {
+            ws_failed(ws, &e);
+            return Poll::Ready(Err(e));
+        }
+        let wake = {
+            let mut q = ws.control_out.lock().unwrap_or_else(|e| e.into_inner());
+            q.sent = true;
+            q.reader.take()
+        };
+        if let Some(waker) = wake {
+            waker.wake();
+        }
+    }
+    ws.control_flushing = false;
+    Poll::Ready(Ok(()))
+}
+
+fn ws_shutdown<W: AsyncWrite + Unpin>(
+    inner: &mut W,
+    ws: &mut WsWriteState,
+    cx: &mut Context<'_>,
+) -> Poll<io::Result<()>> {
+    ready!(ws_flush(inner, ws, cx))?;
+    Pin::new(inner).poll_shutdown(cx)
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for ObfsStream<S> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -1849,14 +2268,29 @@ impl<S: AsyncRead + Unpin> AsyncRead for ObfsStream<S> {
         let this = self.get_mut();
         match &mut this.ws {
             Some(st) => {
-                let mut rs = WsReadState {
-                    reframer: std::mem::take(&mut st.reframer),
-                    read_scratch: std::mem::take(&mut st.read_scratch),
-                };
-                let r = ws_read(&mut this.inner, &mut this.read_cipher, &mut rs, cx, buf);
-                st.reframer = rs.reframer;
-                st.read_scratch = rs.read_scratch;
-                r
+                if buf.remaining() == 0 {
+                    return Poll::Ready(Ok(()));
+                }
+                loop {
+                    let before = buf.filled().len();
+                    let result = ws_read(
+                        &mut this.inner,
+                        &mut this.read_cipher,
+                        &mut st.read,
+                        cx,
+                        buf,
+                    );
+                    match ws_control(&mut this.inner, &mut st.write, cx) {
+                        Poll::Ready(Err(e)) => {
+                            if buf.filled().len() > before {
+                                return result;
+                            }
+                            return Poll::Ready(Err(e));
+                        }
+                        Poll::Ready(Ok(())) if result.is_pending() => continue,
+                        _ => return result,
+                    }
+                }
             }
             None => read_xor(&mut this.inner, &mut this.read_cipher, cx, buf),
         }
@@ -1871,29 +2305,29 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for ObfsStream<S> {
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
         match &mut this.ws {
-            Some(st) => {
-                let mut ws = WsWriteState {
-                    masked: st.masked,
-                    out_buf: std::mem::take(&mut st.out_buf),
-                    out_off: st.out_off,
-                    pending_plain: st.pending_plain,
-                    // Unsplit stream: the reframer this half owns IS the read side. (E3)
-                    control_out: st.reframer.control_out.clone(),
-                };
-                let r = ws_write(&mut this.inner, &mut this.write_cipher, &mut ws, cx, buf);
-                st.out_buf = ws.out_buf;
-                st.out_off = ws.out_off;
-                st.pending_plain = ws.pending_plain;
-                r
-            }
+            Some(st) => ws_write(
+                &mut this.inner,
+                &mut this.write_cipher,
+                &mut st.write,
+                cx,
+                buf,
+            ),
             None => write_xor(&mut this.inner, &mut this.write_cipher, cx, buf),
         }
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+        let this = self.get_mut();
+        match &mut this.ws {
+            Some(st) => ws_flush(&mut this.inner, &mut st.write, cx),
+            None => Pin::new(&mut this.inner).poll_flush(cx),
+        }
     }
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+        let this = self.get_mut();
+        match &mut this.ws {
+            Some(st) => ws_shutdown(&mut this.inner, &mut st.write, cx),
+            None => Pin::new(&mut this.inner).poll_shutdown(cx),
+        }
     }
 }
 
@@ -1920,9 +2354,38 @@ impl AsyncRead for ObfsReadHalf {
 
 /// Write half of a split [`ObfsStream`].
 pub struct ObfsWriteHalf {
-    inner: OwnedWriteHalf,
+    inner: crate::protocol::stream_io::StallGuard<OwnedWriteHalf>,
     cipher: ChaCha20,
     ws: Option<WsWriteState>,
+}
+
+impl CarrierWriteControl for ObfsWriteHalf {
+    fn write_progress(&self) -> Option<crate::protocol::stream_io::WriteProgress> {
+        Some(self.inner.progress())
+    }
+    fn poll_control(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let Some(ws) = &mut self.ws else {
+            return Poll::Pending;
+        };
+        if ws
+            .control_out
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sent
+        {
+            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        }
+        ready!(ws_control(&mut self.inner, ws, cx))?;
+        if ws
+            .control_out
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sent
+        {
+            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        }
+        Poll::Ready(Ok(()))
+    }
 }
 
 impl AsyncWrite for ObfsWriteHalf {
@@ -1938,16 +2401,830 @@ impl AsyncWrite for ObfsWriteHalf {
         }
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+        let this = self.get_mut();
+        match &mut this.ws {
+            Some(st) => ws_flush(&mut this.inner, st, cx),
+            None => Pin::new(&mut this.inner).poll_flush(cx),
+        }
     }
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+        let this = self.get_mut();
+        match &mut this.ws {
+            Some(st) => ws_shutdown(&mut this.inner, st, cx),
+            None => Pin::new(&mut this.inner).poll_shutdown(cx),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn q12r_request() -> (Vec<u8>, [u8; 32]) {
+        let key = [0x5a; 32];
+        (ws::build_request(Some("example.com"), &key), key)
+    }
+    fn q12r_response() -> (Vec<u8>, String) {
+        let (request, key) = q12r_request();
+        let response = ws::build_response(&request, &key).unwrap();
+        let accept = String::from_utf8(response.clone())
+            .unwrap()
+            .lines()
+            .find_map(|line| line.strip_prefix("Sec-WebSocket-Accept: "))
+            .unwrap()
+            .to_owned();
+        (response, accept)
+    }
+    fn q12r_insert(head: &[u8], field: &str) -> Vec<u8> {
+        let mut out = head[..head.len() - 2].to_vec();
+        out.extend_from_slice(field.as_bytes());
+        out.extend_from_slice(b"\r\n");
+        out
+    }
+    #[test]
+    fn q12r_request_critical_fields() {
+        let (request, key) = q12r_request();
+        let text = String::from_utf8(request).unwrap();
+        for bad in [
+            text.replace("Host: example.com\r\n", ""),
+            text.replace("Sec-WebSocket-Version: 13\r\n", ""),
+            text.replace("Sec-WebSocket-Version: 13", "Sec-WebSocket-Version: 12"),
+            String::from_utf8(q12r_insert(text.as_bytes(), "Host: other\r\n")).unwrap(),
+            String::from_utf8(q12r_insert(
+                text.as_bytes(),
+                "Sec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\n",
+            ))
+            .unwrap(),
+        ] {
+            assert!(
+                ws::build_response(bad.as_bytes(), &key).is_none(),
+                "accepted {bad:?}"
+            );
+        }
+    }
+    #[test]
+    fn q12r_request_grammar_and_body() {
+        let (request, key) = q12r_request();
+        let text = String::from_utf8(request).unwrap();
+        for bad in [
+            text.replace("HTTP/1.1", "HTTP/1.0"),
+            text.replace("HTTP/1.1", "HTTP/1.1 extra"),
+            text.replace("Upgrade:", "Upgrade :"),
+            text.replace("Host:", " Host:"),
+            text.replace("example.com", "example\0.com"),
+            String::from_utf8(q12r_insert(text.as_bytes(), "Content-Length: 1\r\n")).unwrap(),
+            String::from_utf8(q12r_insert(
+                text.as_bytes(),
+                "Transfer-Encoding: chunked\r\n",
+            ))
+            .unwrap(),
+            text[..text.len() - 2].to_owned(),
+        ] {
+            assert!(
+                ws::build_response(bad.as_bytes(), &key).is_none(),
+                "accepted {bad:?}"
+            );
+        }
+    }
+    #[test]
+    fn q12r_response_critical_fields() {
+        let (response, accept) = q12r_response();
+        for field in [
+            format!("Sec-WebSocket-Accept: {accept}\r\n"),
+            "Upgrade: other\r\n".into(),
+            "Sec-WebSocket-Extensions: permessage-deflate\r\n".into(),
+            "Sec-WebSocket-Protocol: unexpected\r\n".into(),
+            "Content-Length: 1\r\n".into(),
+            "Transfer-Encoding: chunked\r\n".into(),
+        ] {
+            assert!(
+                !ws::validate_response(&q12r_insert(&response, &field), &accept),
+                "accepted {field:?}"
+            );
+        }
+    }
+    #[test]
+    fn q12r_response_grammar() {
+        let (response, accept) = q12r_response();
+        let text = String::from_utf8(response).unwrap();
+        for bad in [
+            text.replace("HTTP/1.1 101", "HTTP/1.1\t101"),
+            text.replace("Upgrade:", "Upgrade :"),
+            text.replace("Switching", "Switch\0ing"),
+            text[..text.len() - 2].to_owned(),
+        ] {
+            assert!(
+                !ws::validate_response(bad.as_bytes(), &accept),
+                "accepted {bad:?}"
+            );
+        }
+    }
+    #[tokio::test]
+    async fn q12r_head_cap_includes_terminator() {
+        for length in [4096usize, 4097] {
+            let mut wire = vec![b'x'; length - 4];
+            wire.extend_from_slice(b"\r\n\r\n");
+            let result = ws::read_head(&mut wire.as_slice()).await;
+            assert_eq!(result.is_ok(), length == 4096, "head length {length}");
+        }
+    }
+    #[test]
+    fn q12r_rejects_nonminimal_u16_length() {
+        let mut r = WsReframer::default();
+        r.feed(&[0x82, 126, 0, 1, 7]);
+        assert!(r.drain_frames().is_err());
+    }
+    #[test]
+    fn q12r_rejects_nonminimal_u64_length() {
+        let mut r = WsReframer::default();
+        r.feed(&[0x82, 127, 0, 0, 0, 0, 0, 0, 0, 1, 7]);
+        assert!(r.drain_frames().is_err());
+    }
+    #[test]
+    fn q12r_preserves_payload_before_sticky_frame_error() {
+        let mut r = WsReframer::default();
+        r.feed(&[0x82, 3, 1, 2, 3, 0xf2, 0]);
+        r.drain_frames()
+            .expect("earlier completed payload must be delivered first");
+        let mut got = [0; 2];
+        assert_eq!(r.read_pending(&mut got), 2);
+        assert_eq!(got, [1, 2]);
+        r.drain_frames().unwrap();
+        let mut tail = [0];
+        r.read_pending(&mut tail);
+        assert_eq!(tail, [3]);
+        assert_eq!(
+            r.drain_frames().unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        r.buf.clear();
+        r.feed(&[0x82, 1, 4]);
+        assert_eq!(
+            r.drain_frames().unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(r.available(), 0);
+    }
+    #[tokio::test]
+    async fn q12r_fragment_boundary_eof_is_error() {
+        let mut inner = &[0x02, 1, 7][..];
+        let mut state = WsReadState {
+            reframer: WsReframer::default(),
+            read_scratch: vec![0; 128],
+        };
+        let mut cipher = cipher_from(&[7; 32], &[9; NONCE_LEN]);
+        let waker = q12_context();
+        let mut cx = Context::from_waker(&waker);
+        let mut dst = [0; 8];
+        let mut out = ReadBuf::new(&mut dst);
+        assert!(matches!(
+            ws_read(&mut inner, &mut cipher, &mut state, &mut cx, &mut out),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(out.filled().len(), 1);
+        for _ in 0..2 {
+            let mut out = ReadBuf::new(&mut dst);
+            assert!(
+                matches!(ws_read(&mut inner, &mut cipher, &mut state, &mut cx, &mut out), Poll::Ready(Err(e)) if e.kind()==io::ErrorKind::UnexpectedEof)
+            );
+        }
+    }
+
+    #[test]
+    fn q12r_valid_http_lists_obs_text_and_zero_body() {
+        let (request, key) = q12r_request();
+        let text = String::from_utf8(request).unwrap().replace(
+            "Connection: Upgrade",
+            "connection: keep-alive\r\nConnection: UpGrAdE",
+        );
+        let request = q12r_insert(text.as_bytes(), "Content-Length: 000\r\n");
+        let mut request = request[..request.len() - 2].to_vec();
+        request.extend_from_slice(b"X-Opaque: \xff\r\n\r\n");
+        let response = ws::build_response(&request, &key).unwrap();
+        let (_, accept) = q12r_response();
+        // A new random client key has a new accept token; extract this response's token.
+        let actual = String::from_utf8(response.clone())
+            .unwrap()
+            .lines()
+            .find_map(|line| line.strip_prefix("Sec-WebSocket-Accept: "))
+            .unwrap()
+            .to_owned();
+        assert!(ws::validate_response(&response, &actual));
+        assert!(!ws::validate_response(&response, &format!("{accept}wrong")));
+        assert!(ws::validate_response(
+            &q12r_insert(&response, "Content-Length: 0\r\n"),
+            &actual
+        ));
+        assert!(ws::build_response(
+            &q12r_insert(&request, "Sec-WebSocket-Version: 13\r\n"),
+            &key
+        )
+        .is_none());
+        assert!(
+            ws::build_response(&q12r_insert(&request, "Bad-Name:\r\n\nX-Test: x\r\n"), &key)
+                .is_none()
+        );
+    }
+    #[test]
+    fn q12r_valid_fragmented_message_with_ping() {
+        let mut r = WsReframer::default();
+        for byte in [0x02, 1, 7, 0x89, 1, 9, 0x80, 1, 8] {
+            r.feed(&[byte]);
+            r.drain_frames().unwrap();
+        }
+        assert!(!r.has_incomplete_frame());
+        let mut got = [0; 2];
+        assert_eq!(r.read_pending(&mut got), 2);
+        assert_eq!(got, [7, 8]);
+        assert_eq!(r.control_out.lock().unwrap().replies, vec![(0xA, vec![9])]);
+    }
+
+    #[test]
+    fn q12c_close_single_byte_rejected() {
+        let mut r = WsReframer::default();
+        r.feed(&[0x88, 1, 7]);
+        assert!(r.drain_frames().is_err());
+    }
+    #[test]
+    fn q12c_close_reserved_status_rejected() {
+        for code in [
+            0u16,
+            999,
+            1004,
+            1005,
+            1006,
+            1015,
+            1016,
+            2999,
+            5000,
+            u16::MAX,
+        ] {
+            let mut r = WsReframer::default();
+            let mut frame = vec![0x88, 2];
+            frame.extend_from_slice(&code.to_be_bytes());
+            r.feed(&frame);
+            assert!(r.drain_frames().is_err(), "code {code}");
+        }
+    }
+    #[test]
+    fn q12c_close_invalid_utf8_rejected() {
+        let mut r = WsReframer::default();
+        r.feed(&[0x88, 3, 3, 232, 255]);
+        assert!(r.drain_frames().is_err());
+    }
+    #[test]
+    fn q12c_no_data_after_peer_close() {
+        let mut r = WsReframer::default();
+        r.feed(&[0x88, 0, 0x82, 1, 7]);
+        r.drain_frames().unwrap();
+        assert_eq!(r.available(), 0);
+    }
+    #[test]
+    fn q12c_close_survives_full_pong_queue() {
+        let mut r = WsReframer::default();
+        for _ in 0..MAX_CONTROL_OUT {
+            r.feed(&[0x89, 0]);
+            r.drain_frames().unwrap();
+        }
+        r.feed(&[0x88, 0]);
+        r.drain_frames().unwrap();
+        assert!(r
+            .control_out
+            .lock()
+            .unwrap()
+            .replies
+            .iter()
+            .any(|(op, _)| *op == 8));
+    }
+    #[test]
+    fn q12c_new_write_after_peer_close_rejected() {
+        let waker = q12_context();
+        let mut cx = Context::from_waker(&waker);
+        let mut s = q12_stream(usize::MAX);
+        s.ws.as_mut().unwrap().read.reframer.feed(&[0x88, 0]);
+        s.ws.as_mut().unwrap().read.reframer.drain_frames().unwrap();
+        assert!(matches!(
+            Pin::new(&mut s).poll_write(&mut cx, b"forbidden"),
+            Poll::Ready(Err(_))
+        ));
+        assert_eq!(s.inner.wire, vec![0x88, 0]);
+    }
+    async fn q12c_idle_control(op: u8) {
+        let (inner, mut peer) = tokio::io::duplex(128);
+        let mut s = ObfsStream {
+            inner,
+            read_cipher: cipher_from(&[7; 32], &[9; NONCE_LEN]),
+            write_cipher: cipher_from(&[7; 32], &[9; NONCE_LEN]),
+            ws: Some(WsState::new(false, WsReframer::default())),
+        };
+        let task = tokio::spawn(async move {
+            let mut data = [0; 1];
+            s.read(&mut data).await
+        });
+        peer.write_all(&[0x80 | op, 0]).await.unwrap();
+        let mut reply = [0; 2];
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(300),
+            peer.read_exact(&mut reply),
+        )
+        .await;
+        task.abort();
+        let _ = task.await;
+        assert!(result.is_ok(), "idle control response timed out");
+        assert_eq!(reply, [if op == 9 { 0x8a } else { 0x88 }, 0]);
+    }
+    #[tokio::test]
+    async fn q12c_idle_ping_answered_without_application_write() {
+        q12c_idle_control(9).await;
+    }
+    #[tokio::test]
+    async fn q12c_idle_close_answered_without_application_write() {
+        q12c_idle_control(8).await;
+    }
+
+    #[test]
+    fn q12c_valid_close_codes_and_reasons() {
+        assert!(valid_ws_close(&[]));
+        for code in [
+            1000u16, 1001, 1002, 1003, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 3000, 3999,
+            4000, 4999,
+        ] {
+            let mut body = code.to_be_bytes().to_vec();
+            body.extend_from_slice("reason: завершено".as_bytes());
+            assert!(valid_ws_close(&body), "{code}");
+        }
+    }
+    #[test]
+    fn q12c_prior_data_drains_before_close_eof() {
+        let waker = q12_context();
+        let mut cx = Context::from_waker(&waker);
+        let mut s = q12_stream(usize::MAX);
+        s.ws.as_mut()
+            .unwrap()
+            .read
+            .reframer
+            .feed(&[0x82, 1, 7, 0x88, 0, 0x82, 1, 8]);
+        let mut data = [0; 8];
+        let mut buf = ReadBuf::new(&mut data);
+        assert!(matches!(
+            Pin::new(&mut s).poll_read(&mut cx, &mut buf),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(buf.filled().len(), 1);
+        assert_eq!(s.inner.wire, vec![0x88, 0]);
+        assert!(s.inner.shutdown);
+        for _ in 0..2 {
+            let mut buf = ReadBuf::new(&mut data);
+            assert!(matches!(
+                Pin::new(&mut s).poll_read(&mut cx, &mut buf),
+                Poll::Ready(Ok(()))
+            ));
+            assert_eq!(buf.filled().len(), 0);
+        }
+    }
+    #[test]
+    fn q12c_close_backpressure_never_accepts_new_plaintext() {
+        let waker = q12_context();
+        let mut cx = Context::from_waker(&waker);
+        let mut s = q12_stream(1);
+        s.ws.as_mut().unwrap().read.reframer.feed(&[0x88, 0]);
+        s.ws.as_mut().unwrap().read.reframer.drain_frames().unwrap();
+        assert!(Pin::new(&mut s)
+            .poll_write(&mut cx, b"cancel-this")
+            .is_pending());
+        s.inner.allowance = usize::MAX;
+        assert!(
+            matches!(Pin::new(&mut s).poll_write(&mut cx,b"changed-buffer"),Poll::Ready(Err(e)) if e.kind()==io::ErrorKind::BrokenPipe)
+        );
+        assert_eq!(s.inner.wire, vec![0x88, 0]);
+        assert!(s.inner.shutdown);
+    }
+    async fn q12c_read_control<S: AsyncRead + Unpin>(peer: &mut S, masked: bool) -> (u8, Vec<u8>) {
+        let mut head = [0; 2];
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            peer.read_exact(&mut head),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(head[1] & 128 != 0, masked);
+        let n = usize::from(head[1] & 127);
+        assert!(n <= 125);
+        let mut mask = [0; 4];
+        if masked {
+            peer.read_exact(&mut mask).await.unwrap();
+        }
+        let mut body = vec![0; n];
+        peer.read_exact(&mut body).await.unwrap();
+        if masked {
+            for (i, b) in body.iter_mut().enumerate() {
+                *b ^= mask[i % 4];
+            }
+        }
+        (head[0] & 15, body)
+    }
+    #[tokio::test]
+    async fn q12c_split_idle_pong_close_and_eof() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (peer, accepted) = tokio::join!(
+            TcpStream::connect(listener.local_addr().unwrap()),
+            listener.accept()
+        );
+        let mut peer = peer.unwrap();
+        let inner = accepted.unwrap().0;
+        let s = ObfsStream {
+            inner,
+            read_cipher: cipher_from(&[7; 32], &[9; NONCE_LEN]),
+            write_cipher: cipher_from(&[7; 32], &[9; NONCE_LEN]),
+            ws: Some(WsState::new(false, WsReframer::with_expected_mask(true))),
+        };
+        let (mut r, mut w) = s.into_split();
+        let reader = tokio::spawn(async move {
+            let mut b = [0; 1];
+            r.read(&mut b).await
+        });
+        let writer = tokio::spawn(async move {
+            while std::future::poll_fn(|cx| w.poll_control(cx)).await.is_ok() {}
+        });
+        peer.write_all(&ws_encode_control(9, b"ping", true))
+            .await
+            .unwrap();
+        assert_eq!(
+            q12c_read_control(&mut peer, false).await,
+            (10, b"ping".to_vec())
+        );
+        let close = b"\x03\xe8bye";
+        peer.write_all(&ws_encode_control(8, close, true))
+            .await
+            .unwrap();
+        assert_eq!(
+            q12c_read_control(&mut peer, false).await,
+            (8, close.to_vec())
+        );
+        let mut b = [0; 1];
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), peer.read(&mut b))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), reader)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            0
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(1), writer)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    #[test]
+    fn q12c_failed_close_wakes_waiting_reader() {
+        struct Counter(std::sync::atomic::AtomicUsize);
+        impl std::task::Wake for Counter {
+            fn wake(self: std::sync::Arc<Self>) {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        let wake = std::sync::Arc::new(Counter(std::sync::atomic::AtomicUsize::new(0)));
+        let waker = std::task::Waker::from(wake.clone());
+        let mut cx = Context::from_waker(&waker);
+        let mut s = q12_stream(usize::MAX);
+        let st = s.ws.as_mut().unwrap();
+        st.read.reframer.feed(&[0x88, 0]);
+        let mut data = [0; 1];
+        let mut buf = ReadBuf::new(&mut data);
+        assert!(ws_read(
+            &mut s.inner,
+            &mut s.read_cipher,
+            &mut st.read,
+            &mut cx,
+            &mut buf
+        )
+        .is_pending());
+        s.inner.failure = Some(io::ErrorKind::BrokenPipe);
+        assert!(matches!(
+            ws_control(&mut s.inner, &mut st.write, &mut cx),
+            Poll::Ready(Err(_))
+        ));
+        assert!(wake.0.load(std::sync::atomic::Ordering::Relaxed) > 0);
+        assert!(
+            matches!(ws_read(&mut s.inner,&mut s.read_cipher,&mut st.read,&mut cx,&mut buf),Poll::Ready(Err(e)) if e.kind()==io::ErrorKind::BrokenPipe)
+        );
+    }
+    #[tokio::test]
+    async fn q12c_nonce_phase_answers_ping_in_both_directions() {
+        for masked in [false, true] {
+            let (mut inner, mut peer) = tokio::io::duplex(512);
+            let task = tokio::spawn(async move {
+                let mut r = WsReframer::with_expected_mask(!masked);
+                read_ws_nonce(&mut inner, &mut r, masked).await
+            });
+            peer.write_all(&ws_encode_control(9, b"nonce-ping", !masked))
+                .await
+                .unwrap();
+            assert_eq!(
+                q12c_read_control(&mut peer, masked).await,
+                (10, b"nonce-ping".to_vec())
+            );
+            peer.write_all(&ws_encode_frames(&[6; NONCE_LEN], !masked))
+                .await
+                .unwrap();
+            assert_eq!(
+                tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap(),
+                [6; NONCE_LEN]
+            );
+        }
+    }
+    #[tokio::test]
+    async fn q12c_junk_phase_answers_close_before_error() {
+        let (mut inner, mut peer) = tokio::io::duplex(512);
+        let task = tokio::spawn(async move {
+            let mut r = WsReframer::with_expected_mask(true);
+            recv_junk_ws(&mut inner, 2, &mut r, false).await
+        });
+        peer.write_all(&ws_encode_control(8, b"", true))
+            .await
+            .unwrap();
+        assert_eq!(q12c_read_control(&mut peer, false).await, (8, Vec::new()));
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+    }
+    #[test]
+    fn q12c_bounded_pongs_retain_latest_payload() {
+        let mut r = WsReframer::default();
+        for i in 0..20 {
+            r.feed(&ws_encode_control(9, &[i], false));
+            r.drain_frames().unwrap();
+        }
+        let q = r.control_out.lock().unwrap();
+        assert_eq!(q.replies.len(), MAX_CONTROL_OUT);
+        assert_eq!(q.replies.last().unwrap(), &(10, vec![19]));
+    }
+
+    #[test]
+    fn q12c_idle_control_retains_cancelled_flush() {
+        let mut s = q12_stream(100);
+        s.inner.flush_pending = true;
+        s.ws.as_mut().unwrap().read.reframer.feed(&[0x89, 1, 7]);
+        s.ws.as_mut().unwrap().read.reframer.drain_frames().unwrap();
+        let waker = std::task::Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        assert!(ws_control(&mut s.inner, &mut s.ws.as_mut().unwrap().write, &mut cx).is_pending());
+        assert_eq!(s.inner.wire, [0x8a, 1, 7]);
+        assert_eq!(s.inner.flush_calls, 1);
+        s.inner.flush_pending = false;
+        assert!(matches!(
+            ws_control(&mut s.inner, &mut s.ws.as_mut().unwrap().write, &mut cx),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(s.inner.flush_calls, 2);
+        assert_eq!(s.inner.wire, [0x8a, 1, 7]);
+        assert!(ws_control(&mut s.inner, &mut s.ws.as_mut().unwrap().write, &mut cx).is_pending());
+    }
+
+    // Deterministic backpressure: a short prefix may reach the socket before it parks.
+    #[derive(Default)]
+    struct Q12Socket {
+        wire: Vec<u8>,
+        allowance: usize,
+        shutdown: bool,
+        failure: Option<io::ErrorKind>,
+        flush_pending: bool,
+        flush_calls: usize,
+    }
+    impl AsyncRead for Q12Socket {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Pending
+        }
+    }
+    impl AsyncWrite for Q12Socket {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            let s = self.get_mut();
+            if let Some(kind) = s.failure {
+                return Poll::Ready(Err(kind.into()));
+            }
+            if s.allowance == 0 {
+                return Poll::Pending;
+            }
+            let n = bytes.len().min(s.allowance);
+            s.wire.extend_from_slice(&bytes[..n]);
+            s.allowance -= n;
+            Poll::Ready(Ok(n))
+        }
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            let s = self.get_mut();
+            s.flush_calls += 1;
+            if s.flush_pending {
+                Poll::Pending
+            } else {
+                Poll::Ready(Ok(()))
+            }
+        }
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            self.get_mut().shutdown = true;
+            Poll::Ready(Ok(()))
+        }
+    }
+    fn q12_stream(allowance: usize) -> ObfsStream<Q12Socket> {
+        ObfsStream {
+            inner: Q12Socket {
+                allowance,
+                ..Q12Socket::default()
+            },
+            read_cipher: cipher_from(&[7; 32], &[9; NONCE_LEN]),
+            write_cipher: cipher_from(&[7; 32], &[9; NONCE_LEN]),
+            ws: Some(WsState::new(false, WsReframer::default())),
+        }
+    }
+    fn q12_context() -> std::task::Waker {
+        std::task::Waker::noop().clone()
+    }
+    fn q12_plaintext(wire: &[u8]) -> Vec<u8> {
+        let mut rf = WsReframer::default();
+        rf.feed(wire);
+        rf.drain_frames().unwrap();
+        let mut plain = vec![0; rf.available()];
+        rf.read_pending(&mut plain);
+        cipher_from(&[7; 32], &[9; NONCE_LEN])
+            .try_apply_keystream(&mut plain)
+            .unwrap();
+        plain
+    }
+    #[test]
+    fn q12_ws_backpressure_accepts_once_and_preserves_changed_buffer() {
+        let waker = q12_context();
+        let mut cx = Context::from_waker(&waker);
+        let mut s = q12_stream(2);
+        assert!(matches!(
+            Pin::new(&mut s).poll_write(&mut cx, b"first-buffer"),
+            Poll::Ready(Ok(12))
+        ));
+        // A cancelled Pending write has accepted none of this second buffer.
+        assert!(Pin::new(&mut s)
+            .poll_write(&mut cx, b"cancelled")
+            .is_pending());
+        s.inner.allowance = usize::MAX;
+        assert!(matches!(
+            Pin::new(&mut s).poll_write(&mut cx, b"B"),
+            Poll::Ready(Ok(1))
+        ));
+        assert!(matches!(
+            Pin::new(&mut s).poll_flush(&mut cx),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(q12_plaintext(&s.inner.wire), b"first-bufferB");
+    }
+    #[test]
+    fn q12_ws_write_memory_is_bounded() {
+        let waker = q12_context();
+        let mut cx = Context::from_waker(&waker);
+        let mut s = q12_stream(0);
+        assert!(matches!(
+            Pin::new(&mut s).poll_write(&mut cx, &vec![42; WS_FRAME_MAX * 4]),
+            Poll::Ready(Ok(WS_FRAME_MAX))
+        ));
+        assert!(s.ws.as_ref().unwrap().write.out_buf.len() <= WS_FRAME_MAX + 14);
+    }
+    #[test]
+    fn q12_ws_flush_sends_owed_pong_without_application_write() {
+        let waker = q12_context();
+        let mut cx = Context::from_waker(&waker);
+        let mut s = q12_stream(2);
+        s.ws.as_mut()
+            .unwrap()
+            .read
+            .reframer
+            .control_out
+            .lock()
+            .unwrap()
+            .replies
+            .push((0xA, b"ping".to_vec()));
+        assert!(Pin::new(&mut s).poll_flush(&mut cx).is_pending());
+        s.inner.allowance = usize::MAX;
+        assert!(matches!(
+            Pin::new(&mut s).poll_flush(&mut cx),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(s.inner.wire, ws_encode_control(0xA, b"ping", false));
+    }
+    #[test]
+    fn q12_ws_shutdown_sends_owed_control_before_socket_shutdown() {
+        let waker = q12_context();
+        let mut cx = Context::from_waker(&waker);
+        let mut s = q12_stream(0);
+        s.ws.as_mut()
+            .unwrap()
+            .read
+            .reframer
+            .control_out
+            .lock()
+            .unwrap()
+            .replies
+            .push((8, Vec::new()));
+        assert!(Pin::new(&mut s).poll_shutdown(&mut cx).is_pending());
+        assert!(!s.inner.shutdown);
+        s.inner.allowance = usize::MAX;
+        assert!(matches!(
+            Pin::new(&mut s).poll_shutdown(&mut cx),
+            Poll::Ready(Ok(()))
+        ));
+        assert!(s.inner.shutdown);
+        assert_eq!(s.inner.wire, ws_encode_control(8, b"", false));
+    }
+    #[test]
+    fn q12_ws_empty_read_never_waits_for_network() {
+        let waker = q12_context();
+        let mut cx = Context::from_waker(&waker);
+        let mut s = q12_stream(0);
+        let mut rb = ReadBuf::new(&mut []);
+        assert!(matches!(
+            Pin::new(&mut s).poll_read(&mut cx, &mut rb),
+            Poll::Ready(Ok(()))
+        ));
+    }
+
+    #[test]
+    fn q12_ws_partial_socket_failure_is_terminal() {
+        let waker = q12_context();
+        let mut cx = Context::from_waker(&waker);
+        let mut s = q12_stream(2);
+        assert!(matches!(
+            Pin::new(&mut s).poll_write(&mut cx, b"accepted"),
+            Poll::Ready(Ok(8))
+        ));
+        s.inner.failure = Some(io::ErrorKind::BrokenPipe);
+        assert!(
+            matches!(Pin::new(&mut s).poll_flush(&mut cx), Poll::Ready(Err(e)) if e.kind() == io::ErrorKind::BrokenPipe)
+        );
+        let before = s.inner.wire.clone();
+        s.inner.failure = None;
+        s.inner.allowance = usize::MAX;
+        assert!(
+            matches!(Pin::new(&mut s).poll_write(&mut cx, b"later"), Poll::Ready(Err(e)) if e.kind() == io::ErrorKind::BrokenPipe)
+        );
+        assert!(
+            matches!(Pin::new(&mut s).poll_shutdown(&mut cx), Poll::Ready(Err(e)) if e.kind() == io::ErrorKind::BrokenPipe)
+        );
+        assert_eq!(s.inner.wire, before);
+        assert!(!s.inner.shutdown);
+    }
+    #[tokio::test]
+    async fn q12_ws_record_roundtrip_under_backpressure() {
+        use crate::protocol::stream_io::WriteAllFlush;
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let (a, b) = tokio::io::duplex(7);
+            let key = derive_obfs_key("q12-backpressure");
+            let payload: Vec<u8> = (0..WS_FRAME_MAX * 2 + 777)
+                .map(|i| (i % 251) as u8)
+                .collect();
+            let expected = payload.clone();
+            let server = tokio::spawn(async move {
+                let mut s = ObfsStream::accept(b, &key, true, AwgParams::default())
+                    .await
+                    .unwrap();
+                let mut got = vec![0; expected.len()];
+                s.read_exact(&mut got).await.unwrap();
+                assert_eq!(got, expected);
+                s.write_all_flush(b"reply").await.unwrap();
+                s.shutdown().await.unwrap();
+            });
+            let mut client = ObfsStream::connect(a, &key, true, AwgParams::default())
+                .await
+                .unwrap();
+            client.write_all_flush(&payload).await.unwrap();
+            let mut reply = [0; 5];
+            client.read_exact(&mut reply).await.unwrap();
+            assert_eq!(&reply, b"reply");
+            server.await.unwrap();
+        })
+        .await
+        .expect("both directions must progress on a seven-byte socket buffer");
+    }
 
     #[test]
     fn derive_key_is_deterministic_and_psk_sensitive() {
@@ -2303,7 +3580,8 @@ mod tests {
         rf.drain_frames()
             .expect("a Ping flood must parse, not error");
 
-        let owed = rf.control_out.lock().unwrap();
+        let guard = rf.control_out.lock().unwrap();
+        let owed = &guard.replies;
         assert!(
             owed.len() <= MAX_CONTROL_OUT,
             "owed replies must stay capped, got {}",
@@ -2340,10 +3618,12 @@ mod tests {
         // Owe a Pong, exactly as an inbound Ping would: the read half queues it and only
         // the write half can drain it.
         if let Some(ws) = cli.ws.as_mut() {
-            ws.reframer
+            ws.read
+                .reframer
                 .control_out
                 .lock()
                 .unwrap()
+                .replies
                 .push((0xA, b"keepalive".to_vec()));
         }
 
@@ -2423,7 +3703,7 @@ mod tests {
         rf.feed(&ping);
         rf.drain_frames().expect("control frame parses");
 
-        let owed = std::mem::take(&mut *rf.control_out.lock().unwrap());
+        let owed = std::mem::take(&mut rf.control_out.lock().unwrap().replies);
         assert_eq!(owed.len(), 1, "a Ping must queue exactly one reply");
         assert_eq!(owed[0].0, 0xA, "reply opcode must be Pong");
         assert_eq!(owed[0].1, payload, "Pong must echo the Ping payload");
@@ -2440,7 +3720,7 @@ mod tests {
         rf2.feed(&close);
         rf2.feed(&close);
         rf2.drain_frames().unwrap();
-        let owed2 = std::mem::take(&mut *rf2.control_out.lock().unwrap());
+        let owed2 = std::mem::take(&mut rf2.control_out.lock().unwrap().replies);
         assert_eq!(owed2.len(), 1, "Close must be answered exactly once");
         assert_eq!(owed2[0].0, 0x8);
     }

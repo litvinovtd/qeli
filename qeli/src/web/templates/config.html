@@ -5,25 +5,23 @@
     <div class="flex flex-wrap items-center gap-3">
       <!-- View toggle -->
       <div class="segmented" role="group" aria-label="Configuration editor view">
-        <button type="button" :aria-pressed="view==='form'"
+        <button type="button" :disabled="action || loading || saving || restarting" :aria-pressed="view==='form'"
           @click="switchView('form')">Form</button>
-        <button type="button" :aria-pressed="view==='json'"
-          @click="switchView('json')">JSON</button>
-        <button type="button" :aria-pressed="view==='raw'"
-          @click="switchView('raw')">Raw INI</button>
+        <button type="button" :disabled="action || loading || saving || restarting" :aria-pressed="view==='raw'"
+          @click="switchView('raw')">INI</button>
       </div>
       <div x-show="dirty" class="badge" style="background:#422006;color:#fbbf24">● Unsaved changes</div>
       <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
     </div>
     <div class="flex flex-wrap items-center gap-2">
-      <button class="btn btn-ghost" @click="reloadCurrent()" :disabled="loading" title="Reload the config from disk (discards unsaved edits)">Reload</button>
-      <button class="btn btn-ghost" @click="openHistory()" :disabled="dirty || loading" title="Restore a private snapshot created before a panel save">History</button>
-      <button class="btn btn-ghost" @click="view==='raw' ? saveRaw() : save()" :disabled="!dirty || saving || restarting">
+      <button class="btn btn-ghost" @click="reloadCurrent()" :disabled="action || loading || saving || restarting" title="Reload the config from disk (discards unsaved edits)">Reload</button>
+      <button class="btn btn-ghost" @click="openHistory()" :disabled="action || dirty || loading || saving || restarting" title="Restore a private snapshot created before a panel save">History</button>
+      <button class="btn btn-ghost" @click="view==='raw' ? saveRaw() : save()" :disabled="action || !loaded || loading || !dirty || saving || restarting">
         <div x-show="saving" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
         <svg x-show="!saving" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
         Save
       </button>
-      <button class="btn btn-primary" @click="applyRestart()" :disabled="saving || restarting"
+      <button class="btn btn-primary" @click="applyRestart()" :disabled="action || !loaded || loading || saving || restarting"
         title="Save and do a full systemctl restart — applies everything, including panel-socket changes (web.bind/port/tls/enabled). Your login survives if web.persist_session_key is on (default).">
         <div x-show="restarting" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
         <svg x-show="!restarting" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -32,6 +30,9 @@
     </div>
   </div>
 
+  <div x-show="loadError" x-cloak class="card p-4 mb-5 text-red-300" role="alert" x-text="loadError"></div>
+  <div x-show="loaded && defaultsError" x-cloak class="card p-4 mb-5 text-red-300" role="alert" x-text="defaultsError"></div>
+
   <!-- Restart hint -->
   <div class="flex items-start gap-3 p-4 rounded-xl mb-5 text-sm" style="background:linear-gradient(180deg,rgba(74,158,255,.06),transparent),var(--bg-2);border:1px solid rgba(74,158,255,.22)">
     <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -39,7 +40,7 @@
   </div>
 
   <!-- ═══ FORM VIEW ═══ -->
-  <div x-show="view === 'form'" x-cloak>
+  <div x-show="view === 'form' && loaded" x-cloak>
 
     <!-- Profile tabs (top level only — each profile's settings live on one page) -->
     <div class="config-profile-nav">
@@ -48,7 +49,7 @@
           <span class="config-profile-nav-title">Profiles</span>
           <span class="config-profile-nav-count" x-text="(cfg.profiles || []).length"></span>
         </div>
-        <button type="button" class="config-profile-add" @click="addProfile()" title="Add profile">
+        <button type="button" class="config-profile-add" @click="addProfile()" :disabled="action || !defaultProfile || loading || saving || restarting" title="Add profile">
           <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
           <span>Add profile</span>
         </button>
@@ -184,7 +185,7 @@
             <div>
               <label class="field-label">Bind address</label>
               <p class="field-desc">Interface to listen on (0.0.0.0 = all)</p>
-              <input class="inp" type="text" x-model="cfg.web.bind" @input="markDirty()">
+              <input class="inp" type="text" required x-model="cfg.web.bind" @input="markDirty()">
             </div>
             <div>
               <label class="field-label">Port</label>
@@ -231,7 +232,7 @@
               <p class="field-desc">Enter a plaintext password to hash (argon2id) into the field above. <strong class="text-amber-400">Required</strong> for a non-loopback bind — without it the panel refuses to start.</p>
               <div class="flex gap-2">
                 <input class="inp flex-1" type="password" x-model="adminPw" placeholder="new admin password" autocomplete="new-password">
-                <button class="btn btn-primary flex-shrink-0" @click="hashAdminPw()" :disabled="adminPwHashing || !adminPw">
+                <button class="btn btn-primary flex-shrink-0" @click="hashAdminPw()" :disabled="action || adminPwHashing || !adminPw">
                   <div x-show="adminPwHashing" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
                   Hash &amp; set
                 </button>
@@ -323,8 +324,8 @@
             <div class="col-span-3 grid grid-cols-2 gap-4">
               <div>
                 <label class="field-label">Session lifetime (seconds)</label>
-                <p class="field-desc">How long an admin login stays valid before re-auth. Capped at 30 days. Default 86400 (1 day).</p>
-                <input class="inp" type="number" min="60" x-model.number="cfg.web.session_ttl_secs" @input="markDirty()" placeholder="86400">
+                <p class="field-desc">How long an admin login stays valid before re-auth. Valid range: 60 seconds to 30 days. Default 86400 (1 day).</p>
+                <input class="inp" type="number" min="60" max="2592000" x-model.number="cfg.web.session_ttl_secs" @input="markDirty()" placeholder="86400">
               </div>
               <div>
                 <label class="field-label">Reverse-proxy base path</label>
@@ -430,19 +431,15 @@
           </div>
           <div>
             <label class="field-label">Log format</label>
-            <p class="field-desc">Shape of the line itself — not implemented yet, the line is always plain</p>
+            <p class="field-desc">Line format for server logs: readable text or one JSON object per line</p>
             <select class="inp" x-model="cfg.logging.format" @change="markDirty()">
               <option value="plain">plain (human-readable)</option>
-              <!-- DISABLED until the logger actually emits JSON. The key parses and
-                   survives a restart, so leaving it selectable let an operator switch to
-                   "json", see it stick, and build log shipping around a format that is
-                   never produced. (Audit 2026-07-27, P6.) -->
-              <option value="json" disabled>json (structured) — not implemented yet</option>
+              <option value="json">json (structured)</option>
             </select>
           </div>
           <div>
             <label class="field-label">Log file path</label>
-            <p class="field-desc">Leave empty to use stderr / journald</p>
+            <p class="field-desc">Leave empty to use stderr / journald. Files rotate at 10 MiB with 3 archives.</p>
             <input class="inp" type="text" x-model="cfg.logging.file" @input="markDirty()" placeholder="/var/log/qeli/server.log">
           </div>
         </div>
@@ -455,13 +452,15 @@
           Server identity keys
         </h3>
         <p class="text-xs text-slate-500 mb-4">Each profile has its own pinned public key. Set it as <span class="font-mono">auth.server_public_key</span> on that profile's clients (anti-MITM). Replaces the old "SSH in and run <span class="font-mono">qeli show-identity</span>" step.</p>
+        <div x-show="identityError" role="alert" class="text-xs text-red-300 mb-3" x-text="identityError"></div>
+        <button x-show="identityError" class="btn btn-ghost btn-sm mb-3" @click="loadIdentity()" :disabled="action || identityLoading">Reload</button>
         <div x-show="identityLoading" class="text-xs text-slate-500">Loading keys…</div>
         <div class="space-y-2" x-show="!identityLoading">
           <template x-for="id in identity" :key="id.name">
             <div class="identity-card">
               <div class="identity-card-head">
                 <div class="identity-card-profile" x-text="id.name"></div>
-                <button class="btn btn-warn btn-sm flex-shrink-0" @click="rotateIdentity(id.name)" :disabled="identityRotating === id.name">
+                <button class="btn btn-warn btn-sm flex-shrink-0" @click="rotateIdentity(id.name)" :disabled="action || identityLoading || identityError">
                   <div x-show="identityRotating === id.name" class="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
                   Rotate
                 </button>
@@ -484,7 +483,7 @@
               </div>
             </div>
           </template>
-          <div x-show="identity.length === 0" class="text-xs text-slate-600">No profiles yet.</div>
+          <div x-show="identityLoaded && !identityError && identity.length === 0" class="text-xs text-slate-600">No profiles yet.</div>
         </div>
       </div>
 
@@ -510,11 +509,11 @@
             </label>
           </div>
           <div class="flex items-center gap-2">
-            <button class="btn btn-ghost btn-sm" @click="cloneProfile()" title="Duplicate this profile with a fresh port/subnet">
+            <button class="btn btn-ghost btn-sm" @click="cloneProfile()" :disabled="action || loading || saving || restarting" title="Duplicate this profile with a fresh port/subnet">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
               Duplicate
             </button>
-            <button class="btn btn-danger btn-sm" @click="removeProfile(activeTab)" x-show="cfg.profiles.length > 1">
+            <button class="btn btn-danger btn-sm" @click="removeProfile(activeTab)" :disabled="action || loading || saving || restarting" x-show="cfg.profiles.length > 1">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
               Remove Profile
             </button>
@@ -540,7 +539,7 @@
             <div>
               <label class="field-label">Protocol</label>
               <p class="field-desc">TCP — reliable, easier to route. UDP — lower latency, better for mobile.</p>
-              <select class="inp" x-model="cfg.profiles[activeTab].bind.transport" @change="markDirty()">
+              <select class="inp" x-model="cfg.profiles[activeTab].bind.transport" @change="onTransportChange(activeTab)">
                 <option value="tcp">TCP</option>
                 <option value="udp">UDP</option>
               </select>
@@ -624,7 +623,7 @@
             <div>
               <label class="field-label">Inner IP mode</label>
               <p class="field-desc">Address families carried inside the tunnel; independent of the outer listener address.</p>
-              <select class="inp" x-model="cfg.profiles[activeTab].tun.ip_mode" @change="markDirty()">
+              <select class="inp" x-model="cfg.profiles[activeTab].tun.ip_mode" @change="onIpModeChange(activeTab)">
                 <option value="ipv4">IPv4 only</option>
                 <option value="dual">IPv4 + IPv6</option>
                 <option value="ipv6">IPv6 only</option>
@@ -665,8 +664,8 @@
             </div>
             <div>
               <label class="field-label">TUN queues (multi-queue)</label>
-              <p class="field-desc">IFF_MULTI_QUEUE: 0 = auto (CPU count) so the kernel RSS-spreads packets across cores. 1 = single queue.</p>
-              <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].tun.queues" @input="markDirty()">
+              <p class="field-desc">IFF_MULTI_QUEUE: 0 = auto (CPU count), 1 = single queue, up to 256 explicitly.</p>
+              <input class="inp" type="number" min="0" max="256" x-model.number="cfg.profiles[activeTab].tun.queues" @input="markDirty()">
             </div>
           </div>
         </div>
@@ -778,14 +777,13 @@
             <div class="field-toggle" x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4'">
               <div class="flex-1">
                 <div class="text-sm font-medium text-white">IPv6 forwarding / NAT66</div>
-                <div class="text-xs text-slate-500">route preserves client source addresses; nat66 masquerades them on the selected IPv6 uplink</div>
+                <div class="text-xs text-slate-500">off blocks IPv6 transit; manual leaves the IPv6 firewall and forwarding to you; route preserves client addresses; nat66 masquerades them</div>
               </div>
               <select class="inp inp-compact inp-fit flex-shrink-0"
                 x-model="cfg.profiles[activeTab].routing.ipv6.mode"
-                @change="[cfg.profiles[activeTab].routing.ipv6.mode !== 'route' && (cfg.profiles[activeTab].routing.ipv6.ndp_proxy = 'off'),
-                          cfg.profiles[activeTab].routing.ipv6.mode !== 'route' && (cfg.profiles[activeTab].routing.ipv6.ndp_proxy_interface = ''),
-                          markDirty()]">
+                @change="onIpv6RoutingModeChange(activeTab)"">
                 <option value="off">off</option>
+                <option value="manual">manual</option>
                 <option value="route">route</option>
                 <option value="nat66">nat66</option>
               </select>
@@ -793,8 +791,9 @@
                 class="inp font-mono text-xs h-8 flex-shrink-0" style="width:8rem" type="text"
                 x-model="cfg.profiles[activeTab].routing.ipv6.interface" @input="markDirty()" placeholder="auto / ens18">
             </div>
+            <p class="field-desc" x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4' && cfg.profiles[activeTab].routing.ipv6.mode === 'manual'">Manual IPv6 also leaves DNS firewall access and port 53 redirection to you. IPv4 settings are independent.</p>
             <div class="field-toggle"
-              x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4' && cfg.profiles[activeTab].routing.ipv6.mode === 'route'">
+              x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4' && ['route', 'manual'].includes(cfg.profiles[activeTab].routing.ipv6.mode)">
               <div class="flex-1">
                 <div class="text-sm font-medium text-white">Upstream IPv6 NDP proxy</div>
                 <div class="text-xs text-slate-500">Answer only for active client IPv6 addresses and client_subnet prefixes; needed when the provider treats the delegated prefix as on-link</div>
@@ -820,7 +819,7 @@
                 <div class="text-xs text-slate-500">Route traffic to 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 through VPN</div>
               </div>
             </div>
-            <div class="field-toggle">
+            <div class="field-toggle" x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv6'">
               <div class="toggle-wrap" @click="[cfg.profiles[activeTab].routing.nat = cfg.profiles[activeTab].routing.nat || {}, cfg.profiles[activeTab].routing.nat.enabled = !cfg.profiles[activeTab].routing.nat.enabled, markDirty()]">
                 <div class="toggle" :class="cfg.profiles[activeTab].routing.nat.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].routing.nat.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
@@ -938,8 +937,8 @@
               </div>
               <div>
                 <label class="field-label">Cache size</label>
-                <p class="field-desc">Number of DNS entries to cache</p>
-                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].dns.cache_size" @input="markDirty()">
+                <p class="field-desc">0 disables caching; up to 10000 entries and 16 MiB of cached packets per profile</p>
+                <input class="inp" type="number" min="0" max="10000" x-model.number="cfg.profiles[activeTab].dns.cache_size" @input="markDirty()">
               </div>
               <div>
                 <label class="field-label">Timeout (seconds)</label>
@@ -985,7 +984,7 @@
         </div>
 
         <!-- ── DHCP ── -->
-        <div id="sec-dhcp" class="card p-5 space-y-4 cfg-anchor">
+        <div id="sec-dhcp" class="card p-5 space-y-4 cfg-anchor" x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv6'">
           <div class="section-hdr">DHCP Server <span class="text-xs font-normal text-slate-500 ml-2">(for a local server-side TAP segment)</span></div>
           <div class="flex items-start gap-3 p-3 rounded-lg text-xs" style="background:var(--bg-2);border:1px solid var(--line);color:var(--txt-mut)">
             <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -1041,10 +1040,12 @@
             <div class="grid grid-cols-3 gap-4">
               <div>
                 <label class="field-label">Mode</label>
-                <p class="field-desc">fake-tls = mimic a TLS 1.3 handshake. obfs = ChaCha20 stream (structure-free). Must match the client.</p>
-                <select class="inp" x-model="cfg.profiles[activeTab].obfuscation.mode" @change="markDirty()">
+                <p class="field-desc">reality-tls = genuine browser-shaped TLS/HTTP/2; fake-tls = TLS-shaped compatibility framing; obfs = structure-free stream. Must match the client.</p>
+                <select class="inp" x-model="cfg.profiles[activeTab].obfuscation.mode" @change="onWireModeChange(activeTab)">
+                  <option value="reality-tls" :disabled="action || cfg.profiles[activeTab].bind.transport === 'udp'">reality-tls (genuine TLS/HTTP/2)</option>
                   <option value="fake-tls">fake-tls (mimic TLS)</option>
                   <option value="obfs">obfs (random stream)</option>
+                  <option value="plain" :disabled="action || cfg.profiles[activeTab].bind.transport === 'udp'">plain (raw TCP, no masking)</option>
                 </select>
               </div>
               <div>
@@ -1073,8 +1074,8 @@
               </div>
             </div>
 
-            <!-- AmneziaWG junk (obfs only) -->
-            <div x-show="cfg.profiles[activeTab].obfuscation.mode === 'obfs'" class="mt-4 pt-3 border-t border-[#21314e]">
+            <!-- AmneziaWG junk: TCP obfs, or any UDP wire mode -->
+            <div x-show="cfg.profiles[activeTab].obfuscation.mode === 'obfs' || cfg.profiles[activeTab].bind.transport === 'udp'" class="mt-4 pt-3 border-t border-[#21314e]">
               <div class="field-toggle">
                 <div class="toggle-wrap" @click="[cfg.profiles[activeTab].obfuscation.awg.enabled = !cfg.profiles[activeTab].obfuscation.awg.enabled, markDirty()]">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.awg.enabled ? 'bg-blue-600' : 'bg-slate-700'">
@@ -1083,7 +1084,7 @@
                 </div>
                 <div>
                   <div class="text-sm font-medium text-white">AmneziaWG junk</div>
-                  <div class="text-xs text-slate-500">Prepend <span class="font-mono">jc</span> junk packets of random length (<span class="font-mono">jmin</span>…<span class="font-mono">jmax</span> bytes) before the handshake, mimicking AmneziaWG. The client must set the <strong>same jc</strong> or the tunnel will not come up.</div>
+                  <div class="text-xs text-slate-500">Prepend <span class="font-mono">jc</span> junk packets of random length (<span class="font-mono">jmin</span>…<span class="font-mono">jmax</span> bytes) before the handshake, mimicking AmneziaWG. TCP obfs requires the same <strong>jc</strong> on both ends; on UDP jc is sender-only and does not need to match.</div>
                 </div>
               </div>
               <div x-show="cfg.profiles[activeTab].obfuscation.awg.enabled" class="grid grid-cols-3 gap-4 mt-3">
@@ -1112,7 +1113,7 @@
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="field-label">SNI (Server Name)</label>
-                <p class="field-desc">Domain in the fake TLS ClientHello — should be a real CDN/HTTPS site</p>
+                <p class="field-desc">SNI in generated fake-TLS share links. REALITY links use the proxy target automatically.</p>
                 <input class="inp" type="text" x-model="cfg.profiles[activeTab].obfuscation.tls.server_name" @input="markDirty()" placeholder="www.cloudflare.com">
               </div>
             </div>
@@ -1122,9 +1123,9 @@
               <p class="field-desc">Candidate camouflage hostnames. <strong>Not applied yet</strong> — SNI rotation currently draws from the built-in list in the code, so editing this pool changes nothing at runtime; it is stored for the follow-up that will consume it.</p>
             </div>
             <!-- REALITY — TCP-only TLS-shaped outer transport; hidden on UDP profiles (#11) -->
-            <div class="mt-4 p-3.5 rounded-lg" x-show="(cfg.profiles[activeTab].bind.transport || 'tcp') !== 'udp'" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
+            <div class="mt-4 p-3.5 rounded-lg" x-show="(cfg.profiles[activeTab].bind.transport || 'tcp') === 'tcp' && ['fake-tls', 'reality-tls'].includes(cfg.profiles[activeTab].obfuscation.mode)" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
               <div class="field-toggle mb-2">
-                <div class="toggle-wrap" @click="[ensureReality(activeTab), cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled, markDirty()]">
+                <div class="toggle-wrap" @click="toggleReality(activeTab)">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled ? 'bg-emerald-500' : 'bg-slate-700'">
                     <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                   </div>
@@ -1144,12 +1145,12 @@
                   <div>
                     <label class="field-label">Target port</label>
                     <p class="field-desc">usually 443</p>
-                    <input class="inp" type="number" x-model.number="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.target_port" @input="markDirty()">
+                    <input class="inp" type="number" min="1" max="65535" x-model.number="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.target_port" @input="markDirty()">
                   </div>
                   <div>
                     <label class="field-label">Peek timeout (ms)</label>
                     <p class="field-desc">How long to read the ClientHello before classifying client vs probe (high-latency safe). Default 1500.</p>
-                    <input class="inp" type="number" min="100" x-model.number="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.peek_timeout_ms" @input="markDirty()">
+                    <input class="inp" type="number" min="300" x-model.number="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.peek_timeout_ms" @input="markDirty()">
                   </div>
                 </div>
 
@@ -1374,12 +1375,12 @@
               </div>
               <div>
                 <label class="field-label">Cover budget (bytes/sec)</label>
-                <p class="field-desc">Max cover traffic; 0 = none</p>
-                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.budget_bytes_per_sec" @input="markDirty()">
+                <p class="field-desc">Maximum positive cover-traffic budget while shaping is enabled</p>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.budget_bytes_per_sec" @input="markDirty()">
               </div>
               <div>
                 <label class="field-label">Idle gap min (ms)</label>
-                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.idle_gap_min_ms" @input="markDirty()">
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.idle_gap_min_ms" @input="markDirty()">
               </div>
               <div>
                 <label class="field-label">Idle gap max (ms)</label>
@@ -1562,7 +1563,7 @@
               <div>
                 <label class="field-label">Max streams</label>
                 <p class="field-desc">Server-enforced ceiling on parallel streams per session</p>
-                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.multipath.max_streams" @input="markDirty()">
+                <input class="inp" type="number" min="1" max="16" x-model.number="cfg.profiles[activeTab].obfuscation.multipath.max_streams" @input="markDirty()">
               </div>
               <div class="flex items-start gap-3 pt-1">
                 <div class="toggle-wrap mt-0.5" @click="[cfg.profiles[activeTab].obfuscation.multipath.adaptive = !cfg.profiles[activeTab].obfuscation.multipath.adaptive, markDirty()]">
@@ -1635,13 +1636,13 @@
               </div>
               <div>
                 <label class="field-label">Send buffer (bytes)</label>
-                <p class="field-desc">SO_SNDBUF for client sockets</p>
-                <input class="inp" type="number" min="4096" x-model.number="cfg.profiles[activeTab].performance.tcp.send_buffer_size" @input="markDirty()">
+                <p class="field-desc">0 = OS autotuning; non-zero = fixed send buffer</p>
+                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].performance.tcp.send_buffer_size" @input="markDirty()">
               </div>
               <div>
                 <label class="field-label">Recv buffer (bytes)</label>
-                <p class="field-desc">SO_RCVBUF for client sockets</p>
-                <input class="inp" type="number" min="4096" x-model.number="cfg.profiles[activeTab].performance.tcp.recv_buffer_size" @input="markDirty()">
+                <p class="field-desc">0 = OS autotuning; non-zero = fixed receive buffer</p>
+                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].performance.tcp.recv_buffer_size" @input="markDirty()">
               </div>
             </div>
           </div>
@@ -1663,24 +1664,6 @@
 
   </div> <!-- /form view -->
 
-  <!-- ═══ JSON VIEW ═══ -->
-  <div x-show="view === 'json'" x-cloak class="card overflow-hidden">
-    <div class="flex items-center justify-between px-5 py-3 border-b border-[#21314e]">
-      <span class="text-xs font-medium text-slate-400 font-mono">server config (saved as INI)</span>
-      <div class="flex items-center gap-3">
-        <span class="text-xs text-slate-600" x-text="jsonText.split('\n').length + ' lines'"></span>
-        <button class="btn btn-ghost btn-sm" @click="formatJson()">Format</button>
-      </div>
-    </div>
-    <div x-show="jsonError" class="px-4 py-2 bg-red-900/30 border-b border-red-700 text-xs text-red-300" x-text="jsonError"></div>
-    <textarea
-      class="code-editor"
-      x-model="jsonText"
-      @input="onJsonEdit()"
-      spellcheck="false"
-    ></textarea>
-  </div>
-
   <!-- ═══ RAW INI VIEW ═══ -->
   <div x-show="view === 'raw'" x-cloak class="card overflow-hidden">
     <div class="flex items-center justify-between px-5 py-3 border-b border-[#21314e]">
@@ -1693,6 +1676,7 @@
     <div x-show="rawError" class="px-4 py-2 bg-red-900/30 border-b border-red-700 text-xs text-red-300 font-mono" x-text="rawError"></div>
     <textarea
       class="code-editor"
+      :disabled="action || !loaded || loading"
       x-model="rawText"
       @input="dirty = true"
       spellcheck="false"
@@ -1700,18 +1684,20 @@
   </div>
 
   <!-- Private, bounded pre-save config history. -->
-  <div x-cloak x-show="historyOpen" class="modal-bg" @click.self="historyOpen=false" @keydown.escape.window="historyOpen=false">
+  <div x-cloak x-show="historyOpen" class="modal-bg" @click.self="closeHistory()" @keydown.escape.window="closeHistory()">
     <div class="modal" @click.stop style="max-width:680px" role="dialog" aria-modal="true" aria-labelledby="config-history-title">
       <div class="flex items-center justify-between px-6 pt-5 pb-4" style="border-bottom:1px solid var(--line)">
         <div>
           <h3 id="config-history-title" class="text-base font-semibold text-white">Configuration history</h3>
           <p class="text-xs mt-1" style="color:var(--txt-dim)">Private snapshots created before panel writes; newest ten are retained.</p>
         </div>
-        <button class="btn btn-ghost btn-sm" @click="historyOpen=false" aria-label="Close">Close</button>
+        <button class="btn btn-ghost btn-sm" @click="closeHistory()" :disabled="action" aria-label="Close">Close</button>
       </div>
       <div class="p-6 max-h-[70vh] overflow-y-auto">
+        <div x-show="historyError" role="alert" class="text-sm text-red-300 mb-3" x-text="historyError"></div>
+        <button x-show="historyError" class="btn btn-ghost btn-sm mb-3" @click="openHistory()" :disabled="action || historyLoading">Reload</button>
         <div x-show="historyLoading" class="text-sm" style="color:var(--txt-mut)">Loading history…</div>
-        <div x-show="!historyLoading && history.length===0" class="text-sm py-8 text-center" style="color:var(--txt-dim)">No snapshots yet.</div>
+        <div x-show="historyLoaded && !historyLoading && !historyError && history.length===0" class="text-sm py-8 text-center" style="color:var(--txt-dim)">No snapshots yet.</div>
         <div class="space-y-2" x-show="!historyLoading && history.length">
           <template x-for="entry in history" :key="entry.id">
             <div class="flex items-center justify-between gap-4 p-3 rounded-lg" style="background:var(--bg-2);border:1px solid var(--line)">
@@ -1719,7 +1705,7 @@
                 <div class="text-sm text-white" x-text="historyTime(entry.created)"></div>
                 <div class="text-[11px] font-mono truncate" style="color:var(--txt-dim)" x-text="entry.revision.slice(0,12) + ' · ' + fmt(entry.bytes)"></div>
               </div>
-              <button class="btn btn-warn btn-sm" @click="restoreHistory(entry)" :disabled="historyRestoring===entry.id">
+              <button class="btn btn-warn btn-sm" @click="restoreHistory(entry)" :disabled="action || historyRestoring===entry.id">
                 <span x-text="qeliT(historyRestoring===entry.id ? 'Restoring…' : 'Restore')"></span>
               </button>
             </div>
@@ -1736,8 +1722,9 @@ function configPage() {
   return {
     cfg: { profiles: [], auth: { brute_force: {} }, logging: {}, web: { brute_force: {} } },
     defaultProfile: null,   // canonical new-profile template from /api/config/defaults
-    jsonText: '',
-    jsonError: '',
+    defaultsError: '',
+    loaded: false,
+    loadError: '',
     loading: false,
     saving: false,
     restarting: false,
@@ -1763,6 +1750,8 @@ function configPage() {
     historyRestoring: null,
     history: [],
     _beforeUnload: null,
+    destroyed: false, action: null, readSequence: 0, identitySequence: 0, historySequence: 0,
+    identityLoaded: false, identityError: '', historyLoaded: false, historyError: '',
     jumps: [
       { id: 'bind', label: 'Bind' }, { id: 'roaming', label: 'Roaming' },
       { id: 'tun', label: 'TUN' }, { id: 'pool', label: 'Pool' }, { id: 'routing', label: 'Routing' },
@@ -1814,136 +1803,243 @@ function configPage() {
     },
 
     destroy() {
+      this.destroyed = true; this.readSequence++; this.identitySequence++; this.historySequence++;
       if (this._beforeUnload) window.removeEventListener('beforeunload', this._beforeUnload);
+      this._beforeUnload = null;
     },
-
-    async reloadCurrent() {
-      if (this.dirty && !await qeliConfirm('Discard unsaved changes',
-          'Reload the configuration from disk and discard every unsaved edit?',
-          { danger: true, label: 'Discard and reload' })) return;
-      if (this.view === 'raw') await this.loadRaw(); else await this.load();
+    beginAction(name) {
+      if (this.destroyed || this.action || this.loading || this.saving || this.restarting) return false;
+      this.action = name; return true;
     },
-
-    async switchView(next) {
-      if (next === this.view) return;
-      const crossesRaw = (this.view === 'raw') !== (next === 'raw');
-      if (crossesRaw && this.dirty && !await qeliConfirm('Discard unsaved changes',
-          'Switching between the structured and raw editors reloads the configuration from disk. Discard the unsaved edits?',
-          { danger: true, label: 'Discard and switch' })) return;
-      this.view = next;
-      if (crossesRaw) {
-        if (next === 'raw') await this.loadRaw(); else await this.load();
-      } else if (next === 'json') {
-        this.jsonText = JSON.stringify(this.cfg, null, 2);
-      }
-    },
-
-    async load() {
-      this.loading = true;
+    editorStamp() { return JSON.stringify([this.view, this.revision, this.cfg, this.rawText, this.dirty]); },
+    async changeEditor(next, reload = false) {
+      if (!['form', 'raw'].includes(next) || (!reload && next === this.view) || !this.beginAction('view')) return false;
+      const stamp = this.editorStamp();
       try {
-        const [d, def] = await Promise.all([
-          apiFetch('api/config'),
-          fetch('api/config/defaults').then(r => r.json()).catch(() => null),
-        ]);
-        if (def && def.ok) this.defaultProfile = def.profile;
-        if (d.ok) {
-          this.cfg = d.config;
-          this.revision = d.revision || '';
-          this.dirty = false;
-          if (!this.cfg.auth) this.cfg.auth = {};
-          if (!this.cfg.auth.brute_force) this.cfg.auth.brute_force = {};
-          this.cfg.auth.brute_force = Object.assign({ enabled: true, max_attempts: 5, window_secs: 300, lockout_secs: 900 }, this.cfg.auth.brute_force);
-          if (!this.cfg.web) this.cfg.web = {};
-          // Panel-login brute-force policy — independent of the VPN-auth one above.
-          if (!this.cfg.web.brute_force) this.cfg.web.brute_force = {};
-          this.cfg.web.brute_force = Object.assign({ enabled: true, max_attempts: 5, window_secs: 300, lockout_secs: 900 }, this.cfg.web.brute_force);
-          this.normalizeProfiles();
-          this._original = JSON.stringify(this.cfg);
-          this.jsonText = JSON.stringify(this.cfg, null, 2);
+        if (this.dirty && !await qeliConfirm('Discard unsaved changes', reload
+            ? 'Reload the configuration from disk and discard every unsaved edit?'
+            : 'Switching between the structured and raw editors reloads the configuration from disk. Discard the unsaved edits?',
+            { danger: true, label: reload ? 'Discard and reload' : 'Discard and switch' })) return false;
+        if (this.destroyed || this.editorStamp() !== stamp) return false;
+        this.view = next;
+        return await this.readConfig(next, true);
+      } finally { this.action = null; }
+    },
+    reloadCurrent() { return this.changeEditor(this.view, true); },
+    switchView(next) { return this.changeEditor(next); },
+    load() { return this.readConfig('form'); },
+    loadRaw() { return this.readConfig('raw'); },
+
+    async readConfig(kind, internal = false) {
+      if (this.destroyed || this.loading || this.saving || this.restarting || (!internal && (this.action || this.dirty))) return false;
+      const sequence = ++this.readSequence, stamp = this.editorStamp();
+      this.loading = true; this.loaded = false; this.loadError = ''; this.rawError = '';
+      this.defaultProfile = null; this.defaultsError = '';
+      let success = false;
+      try {
+        const [d, def] = kind === 'raw' ? [await apiFetch('api/config/raw', {cache:'no-store'}), null]
+          : await Promise.all([apiFetch('api/config', {cache:'no-store'}),
+              apiFetch('api/config/defaults', {cache:'no-store'}).catch(error => ({ok:false,error:error.message}))]);
+        if (this.destroyed || sequence !== this.readSequence) return false;
+        if (this.editorStamp() !== stamp) throw new Error('Settings changed while loading. Retry to reload.');
+        if (!d || d.ok !== true) throw new Error(d?.error || 'Failed to load config');
+        if (typeof d.revision !== 'string' || !d.revision.trim()) throw new Error('Settings revision unavailable. Reload before saving.');
+        if (kind === 'raw') {
+          if (typeof d.raw !== 'string') throw new Error('Invalid configuration response');
+          this.rawText = d.raw; this.rawOriginal = d.raw; this.rawPath = d.path || '';
+        } else {
+          const cfg = d.config;
+          if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg) || !Array.isArray(cfg.profiles)
+              || cfg.profiles.some(p => !p || typeof p !== 'object' || Array.isArray(p))
+              || ['auth','web','logging'].some(key => cfg[key] != null && (typeof cfg[key] !== 'object' || Array.isArray(cfg[key])))) throw new Error('Invalid configuration response');
+          const next = JSON.parse(JSON.stringify(cfg));
+          next.auth ||= {}; next.web ||= {}; next.logging ||= {};
+          next.auth.brute_force = Object.assign({enabled:true,max_attempts:5,window_secs:300,lockout_secs:900}, next.auth.brute_force);
+          next.web.brute_force = Object.assign({enabled:true,max_attempts:5,window_secs:300,lockout_secs:900}, next.web.brute_force);
+          this.normalizeProfiles(next);
+          this.cfg = next; this._original = JSON.stringify(next);
+          if (def?.ok === true && def.profile && typeof def.profile === 'object' && !Array.isArray(def.profile)) this.defaultProfile = JSON.parse(JSON.stringify(def.profile));
+          else this.defaultsError = qeliT('New profile defaults were not loaded. Reload before adding a profile.');
         }
+        this.view = kind; this.revision = d.revision; this.needsFullRestart = !!d.needs_full_restart;
+        this.loaded = true; this.dirty = false; success = true;
       } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Failed to load config: ') + e.message, type: 'error' });
-      } finally {
-        this.loading = false;
-      }
-      this.loadIdentity();
+        if (!this.destroyed && sequence === this.readSequence) {
+          this.loaded = false; this.loadError = qeliT('Failed to load config: ') + qeliT(e.message);
+          if (kind === 'raw') this.rawError = this.loadError;
+          this.$dispatch('notify', {msg:this.loadError,type:'error'});
+        }
+      } finally { if (sequence === this.readSequence) this.loading = false; }
+      if (success && kind === 'form') this.loadIdentity();
+      return success;
     },
 
     async loadIdentity() {
+      if (this.destroyed) return false;
+      const sequence = ++this.identitySequence;
       this.identityLoading = true;
       try {
-        const d = await apiFetch('api/identity');
-        if (d.ok) this.identity = d.profiles || [];
-      } catch {} finally {
-        this.identityLoading = false;
-      }
+        const d = await apiFetch('api/identity', {cache:'no-store'});
+        if (this.destroyed || sequence !== this.identitySequence) return false;
+        if (!d || d.ok !== true) throw new Error(d?.error || 'Load failed');
+        if (!Array.isArray(d.profiles) || d.profiles.some(p => !p || typeof p.name !== 'string')) throw new Error('Invalid configuration response');
+        // Identity responses contain public information only; retain that explicit contract.
+        this.identity = d.profiles.map(p => ({name:p.name,bind:p.bind || '',public_key:p.public_key || '',error:p.error || ''}));
+        this.identityLoaded = true; this.identityError = ''; return true;
+      } catch (e) {
+        if (!this.destroyed && sequence === this.identitySequence) this.identityError = qeliT(e.message);
+        return false;
+      } finally { if (sequence === this.identitySequence) this.identityLoading = false; }
     },
 
     async rotateIdentity(name) {
-      if (!await qeliConfirm('Rotate identity key',
-            qeliTf('Rotate the identity key for "{}"?', name) + '\n\n'
+      if (this.identityLoading || this.identityError || !this.identity.some(p => p.name === name) || !this.beginAction('identity')) return false;
+      const owner = this.identity.find(p => p.name === name);
+      try {
+        if (!await qeliConfirm('Rotate identity key', qeliTf('Rotate the identity key for "{}"?', name) + '\n\n'
               + qeliT('Every client of this profile must update its pinned server key, and a restart is needed for it to take effect.'),
-            { danger: true, label: 'Rotate' })) return;
-      this.identityRotating = name;
-      try {
-        const r = await apiFetch('api/identity/' + encodeURIComponent(name) + '/rotate', { method: 'POST' });
-        if (r.ok) {
-          this.$dispatch('notify', { msg: r.message || 'Identity rotated', type: 'warn' });
-          await this.loadIdentity();
-        } else {
-          this.$dispatch('notify', { msg: r.error || 'Rotate failed', type: 'error' });
-        }
+              {danger:true,label:'Rotate'})) return false;
+        if (this.destroyed || !this.identity.includes(owner)) return false;
+        this.identityRotating = name;
+        const r = await apiFetch('api/identity/' + encodeURIComponent(name) + '/rotate', {method:'POST'});
+        if (this.destroyed) return false;
+        if (!r || r.ok !== true) throw new Error(r?.error || 'Rotate failed');
+        this.$dispatch('notify', {msg:r.message || 'Identity rotated',type:'warn'});
+        await this.loadIdentity(); return true;
       } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Network error: ') + e.message, type: 'error' });
-      } finally {
-        this.identityRotating = null;
-      }
+        if (!this.destroyed) this.$dispatch('notify', {msg:qeliT(e.message),type:'error'});
+        return false;
+      } finally { this.identityRotating = null; this.action = null; }
     },
 
-    copyText(t) {
-      navigator.clipboard?.writeText(t).then(
-        () => this.$dispatch('notify', { msg: 'Copied', type: 'success' }),
-        () => this.$dispatch('notify', { msg: 'Copy failed', type: 'error' }),
-      );
+    async copyText(text) {
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(text);
+        if (!this.destroyed) this.$dispatch('notify', {msg:'Copied',type:'success'});
+      } catch { if (!this.destroyed) this.$dispatch('notify', {msg:'Copy failed',type:'error'}); }
     },
 
-    // Hash a plaintext admin password (argon2id) into cfg.web.password_hash.
     async hashAdminPw() {
-      if (!this.adminPw) return;
-      this.adminPwHashing = true; this.adminPwStatus = '';
+      if (!this.loaded || !this.adminPw || !this.beginAction('hash')) return false;
+      const owner = this.cfg, password = this.adminPw;
+      this.adminPwHashing = true; this.adminPwStatus = ''; this.adminPwError = '';
       try {
-        const r = await apiFetch('api/hash-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: this.adminPw }),
-        });
-        if (r.ok) {
-          this.cfg.web.password_hash = r.hash;
-          this.adminPw = '';
-          this.adminPwStatus = 'ok';
-          this.markDirty();
-        } else {
-          this.adminPwStatus = 'err'; this.adminPwError = r.error || 'Hash failed';
-        }
+        const r = await apiFetch('api/hash-password', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});
+        if (this.destroyed || this.cfg !== owner) return false;
+        if (this.adminPw !== password) { this.adminPwStatus = 'err'; this.adminPwError = qeliT('Password changed while hashing. Run Hash again.'); return false; }
+        if (!r || r.ok !== true || typeof r.hash !== 'string' || !r.hash) throw new Error(r?.error || 'Hash failed');
+        this.cfg.web.password_hash = r.hash; this.adminPw = ''; this.adminPwStatus = 'ok'; this.markDirty(); return true;
       } catch (e) {
-        this.adminPwStatus = 'err'; this.adminPwError = 'Network error: ' + e.message;
-      } finally {
-        this.adminPwHashing = false;
-      }
+        if (!this.destroyed && this.cfg === owner) { this.adminPwStatus = 'err'; this.adminPwError = e.message; }
+        return false;
+      } finally { this.adminPwHashing = false; this.action = null; }
     },
 
     markDirty() {
       this.dirty = true;
-      this.jsonText = JSON.stringify(this.cfg, null, 2);
     },
 
-    normalizeProfiles() {
+    onIpv6RoutingModeChange(pi) {
+      const p = this.cfg.profiles?.[pi];
+      if (!p) return;
+      if (!['route', 'manual'].includes(p.routing.ipv6.mode)) {
+        p.routing.ipv6.ndp_proxy = 'off';
+        p.routing.ipv6.ndp_proxy_interface = '';
+      }
+      this.markDirty();
+    },
+
+    onIpModeChange(pi) {
+      const p = this.cfg.profiles?.[pi];
+      if (!p) return;
+      const mode = p.tun.ip_mode;
+      if (mode === 'ipv4') {
+        p.routing.ipv6 = p.routing.ipv6 || {};
+        p.routing.ipv6.mode = 'off';
+        p.routing.ipv6.ndp_proxy = 'off';
+        p.routing.ipv6.ndp_proxy_interface = '';
+      } else if (mode === 'ipv6') {
+        p.routing.nat = p.routing.nat || {};
+        p.routing.nat.enabled = false;
+        p.dhcp.enabled = false;
+      }
+      this.markDirty();
+    },
+
+    onTransportChange(pi) {
+      const p = this.cfg.profiles?.[pi];
+      if (!p) return;
+      const obf = p.obfuscation;
+      const transport = p.bind.transport || 'tcp';
+      this.ensureReality(pi);
+      if (transport === 'udp') {
+        if (obf.mode === 'plain' || obf.mode === 'reality-tls') obf.mode = 'fake-tls';
+        obf.tls.reality_proxy.enabled = false;
+        obf.multipath.enabled = false;
+      } else {
+        obf.quic.enabled = false;
+        if (obf.mode !== 'obfs') obf.awg.enabled = false;
+      }
+      this.markDirty();
+    },
+
+    onWireModeChange(pi) {
+      const p = this.cfg.profiles?.[pi];
+      if (!p) return;
+      const obf = p.obfuscation;
+      this.ensureReality(pi);
+      const rp = obf.tls.reality_proxy;
+      if (obf.mode === 'reality-tls') {
+        p.bind.transport = 'tcp';
+        obf.quic.enabled = false;
+        obf.awg.enabled = false;
+        rp.enabled = true;
+        rp.real_tls = true;
+        rp.handrolled = true;
+        if (!rp.short_ids.some(value => String(value).trim())) {
+          rp.short_ids = [this.randomHex(16)];
+        }
+      } else if (obf.mode === 'obfs' || obf.mode === 'plain') {
+        rp.enabled = false;
+        if (obf.mode === 'plain') {
+          p.bind.transport = 'tcp';
+          obf.quic.enabled = false;
+          obf.awg.enabled = false;
+        }
+      } else if (p.bind.transport === 'tcp') {
+        obf.awg.enabled = false;
+      }
+      this.markDirty();
+    },
+
+    toggleReality(pi) {
+      const p = this.cfg.profiles?.[pi];
+      if (!p) return;
+      this.ensureReality(pi);
+      const obf = p.obfuscation;
+      const rp = obf.tls.reality_proxy;
+      if (rp.enabled) {
+        rp.enabled = false;
+        if (obf.mode === 'reality-tls') obf.mode = 'fake-tls';
+      } else {
+        p.bind.transport = 'tcp';
+        obf.quic.enabled = false;
+        obf.awg.enabled = false;
+        if (obf.mode !== 'fake-tls' && obf.mode !== 'reality-tls') obf.mode = 'fake-tls';
+        rp.enabled = true;
+        if (!rp.short_ids.some(value => String(value).trim())) {
+          rp.short_ids = [this.randomHex(16)];
+        }
+      }
+      this.markDirty();
+    },
+
+    normalizeProfiles(cfg = this.cfg) {
       // Every profile must carry the sub-blocks the form binds with x-model. This is
       // NOT cosmetic: `x-show` does not protect its children (a hidden x-model on an
       // undefined object still evaluates), and several bindings — `heartbeat` most of
-      // all — are read from `:class`, which runs on EVERY render. So deleting a section
-      // in the JSON editor and switching back to the form used to throw a TypeError and
-      // leave the form unusable until reload.
+      // all — are read from `:class`, which runs on every render, even during loading.
       //
       // Backfill against the canonical skeleton instead of patching one field at a
       // time. Only MISSING keys are added, so a user's values are never overwritten.
@@ -1977,118 +2073,48 @@ function configPage() {
           }
         }
       };
-      for (const p of (this.cfg.profiles || [])) fill(p, skel);
+      for (const p of (cfg.profiles || [])) fill(p, skel);
     },
 
-    onJsonEdit() {
+    save() { return this.writeConfig('form'); },
+    saveRaw() { return this.writeConfig('raw'); },
+    async writeConfig(kind, forRestart = false) {
+      if (!this.loaded || this.destroyed || this.loading || this.saving || kind !== this.view) return false;
+      if (forRestart ? this.action !== 'restart' : !this.beginAction('save')) return false;
+      const revision = this.revision, owner = this.cfg;
+      const submitted = kind === 'raw' ? this.rawText : JSON.stringify(owner);
+      const changes = kind === 'raw' ? this.rawChangedLines() : this.changedPaths();
       try {
-        this.cfg = JSON.parse(this.jsonText);
-        this.normalizeProfiles();
-        this.jsonError = '';
-        this.dirty = JSON.stringify(this.cfg) !== this._original;
-      } catch (e) {
-        this.jsonError = 'JSON error: ' + e.message;
-      }
-    },
-
-    formatJson() {
-      try {
-        this.cfg = JSON.parse(this.jsonText);
-        this.jsonText = JSON.stringify(this.cfg, null, 2);
-        this.jsonError = '';
-      } catch (e) {
-        this.jsonError = 'Cannot format: ' + e.message;
-      }
-    },
-
-    async save() {
-      if (this.view === 'json') {
-        try { this.cfg = JSON.parse(this.jsonText); } catch { return; }
-      }
-      const changes = this.changedPaths();
-      if (!changes.length) { this.dirty = false; return true; }
-      const shown = changes.slice(0, 12).map(path => '• ' + path).join('\n');
-      const more = changes.length > 12 ? '\n' + qeliTf('… and {} more', changes.length - 12) : '';
-      if (!await qeliConfirm('Review configuration changes',
-          qeliTf('{} setting(s) will change:\n\n{}{}\n\nA private rollback snapshot will be created before the write.', changes.length, shown, more),
-          { label: 'Save changes' })) return false;
-      this.saving = true;
-      try {
-        const r = await apiFetch('api/config', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config: this.cfg, expected_revision: this.revision }),
-        });
-        if (r.ok) {
-          this._original = JSON.stringify(this.cfg);
-          this.dirty = false;
-          this.revision = r.revision || this.revision;
-          this.needsFullRestart = !!r.needs_full_restart;
-          this.$dispatch('notify', {
-            msg: r.message || 'Saved — restart server to apply',
-            type: this.needsFullRestart ? 'warn' : 'warn',
-          });
-        } else {
-          this.$dispatch('notify', { msg: qeliT(r.error || 'Save failed'), type: r.kind === 'config_conflict' ? 'warn' : 'error' });
+        if (typeof revision !== 'string' || !revision.trim()) throw new Error('Settings revision unavailable. Reload before saving.');
+        if (!changes.length) { this.dirty = false; return true; }
+        const shown = changes.slice(0,12).map(value => '• ' + (kind === 'raw' ? qeliTf('line {}',value) : value)).join('\n');
+        const more = changes.length > 12 ? '\n' + qeliTf('… and {} more',changes.length-12) : '';
+        if (!await qeliConfirm(kind === 'raw' ? 'Review raw configuration changes' : 'Review configuration changes',
+            qeliTf(kind === 'raw'
+              ? '{} line(s) differ:\n\n{}{}\n\nA private rollback snapshot will be created before the write.'
+              : '{} setting(s) will change:\n\n{}{}\n\nA private rollback snapshot will be created before the write.',changes.length,shown,more),
+            {label:kind === 'raw' ? 'Save raw config' : 'Save changes'})) return false;
+        if (this.destroyed || this.view !== kind || this.revision !== revision || this.cfg !== owner) return false;
+        this.saving = true; this.rawError = '';
+        const body = kind === 'raw' ? {raw:submitted,expected_revision:revision} : {config:JSON.parse(submitted),expected_revision:revision};
+        const r = await apiFetch(kind === 'raw' ? 'api/config/raw' : 'api/config', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        if (this.destroyed || this.view !== kind || this.revision !== revision || this.cfg !== owner) return false;
+        if (!r || r.ok !== true) throw new Error(r?.error || 'Save failed');
+        if (typeof r.revision !== 'string' || !r.revision.trim()) {
+          this.loaded = false; this.loadError = qeliT('Settings revision unavailable. Reload before saving.');
+          throw new Error('Settings revision unavailable. Reload before saving.');
         }
+        if (kind === 'raw') { this.rawOriginal = submitted; this.dirty = this.rawText !== submitted; }
+        else { this._original = submitted; this.dirty = JSON.stringify(this.cfg) !== submitted; }
+        this.revision = r.revision; this.needsFullRestart = !!r.needs_full_restart;
+        this.$dispatch('notify', {msg:r.message || 'Saved — restart server to apply',type:'warn'}); return true;
       } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Network error: ') + e.message, type: 'error' });
-      } finally {
-        this.saving = false;
-      }
-    },
-
-    async loadRaw() {
-      this.loading = true;
-      this.rawError = '';
-      try {
-        const d = await apiFetch('api/config/raw');
-        if (d.ok) {
-          this.rawText = d.raw;
-          this.rawOriginal = d.raw;
-          this.rawPath = d.path || '';
-          this.revision = d.revision || '';
-          this.dirty = false;
-        } else {
-          this.rawError = d.error || 'Failed to load raw config';
+        if (!this.destroyed) {
+          if (kind === 'raw') this.rawError = e.message;
+          this.$dispatch('notify', {msg:qeliT(e.message),type:'error'});
         }
-      } catch (e) {
-        this.rawError = 'Network error: ' + e.message;
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    async saveRaw() {
-      const changedLines = this.rawChangedLines();
-      if (!changedLines.length) { this.dirty = false; return true; }
-      const shown = changedLines.slice(0, 12).map(line => '• ' + qeliTf('line {}', line)).join('\n');
-      const more = changedLines.length > 12 ? '\n' + qeliTf('… and {} more', changedLines.length - 12) : '';
-      if (!await qeliConfirm('Review raw configuration changes',
-          qeliTf('{} line(s) differ:\n\n{}{}\n\nA private rollback snapshot will be created before the write.', changedLines.length, shown, more),
-          { label: 'Save raw config' })) return false;
-      this.saving = true;
-      this.rawError = '';
-      try {
-        const r = await apiFetch('api/config/raw', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ raw: this.rawText, expected_revision: this.revision }),
-        });
-        if (r.ok) {
-          this.dirty = false;
-          this.rawOriginal = this.rawText;
-          this.revision = r.revision || this.revision;
-          this.$dispatch('notify', { msg: r.message || 'Saved — restart server to apply', type: 'warn' });
-        } else {
-          this.rawError = r.error || 'Save failed';
-          this.$dispatch('notify', { msg: qeliT(r.error || 'Save failed'), type: r.kind === 'config_conflict' ? 'warn' : 'error' });
-        }
-      } catch (e) {
-        this.rawError = 'Network error: ' + e.message;
-      } finally {
-        this.saving = false;
-      }
+        return false;
+      } finally { this.saving = false; if (!forRestart) this.action = null; }
     },
 
     changedPaths() {
@@ -2124,90 +2150,77 @@ function configPage() {
     },
 
     async openHistory() {
-      this.historyOpen = true;
-      this.historyLoading = true;
+      if (this.destroyed || !this.loaded || this.dirty || this.action || this.loading || this.historyLoading) return false;
+      const sequence = ++this.historySequence;
+      this.historyOpen = true; this.historyLoading = true;
       try {
-        const response = await apiFetch('api/config/history');
-        this.history = response.ok ? (response.entries || []) : [];
-        if (!response.ok) this.$dispatch('notify', { msg: qeliT(response.error || 'Failed to load history'), type: 'error' });
-      } catch (error) {
-        this.history = [];
-        this.$dispatch('notify', { msg: qeliT('Network error: ') + error.message, type: 'error' });
-      } finally { this.historyLoading = false; }
+        const r = await apiFetch('api/config/history', {cache:'no-store'});
+        if (this.destroyed || sequence !== this.historySequence || !this.historyOpen) return false;
+        if (!r || r.ok !== true) throw new Error(r?.error || 'Failed to load history');
+        if (!Array.isArray(r.entries) || r.entries.some(e => !e || typeof e.id !== 'string' || typeof e.revision !== 'string')) throw new Error('Invalid configuration response');
+        this.history = r.entries; this.historyLoaded = true; this.historyError = ''; return true;
+      } catch (e) {
+        if (!this.destroyed && sequence === this.historySequence) this.historyError = qeliT(e.message);
+        return false;
+      } finally { if (sequence === this.historySequence) this.historyLoading = false; }
     },
-
+    closeHistory() {
+      if (this.action === 'restore') return;
+      this.historyOpen = false; this.historySequence++; this.historyLoading = false;
+    },
     historyTime(seconds) {
       if (!seconds) return qeliT('Unknown time');
-      return new Date(seconds * 1000).toLocaleString(qeliLang()==='ru' ? 'ru-RU' : 'en-US');
+      return new Date(seconds*1000).toLocaleString(window.qeliLang?.()==='ru' ? 'ru-RU' : 'en-US');
     },
-
     async restoreHistory(entry) {
-      if (!await qeliConfirm('Restore configuration snapshot',
-          qeliTf('Restore the snapshot from {}?\n\nThe current config will be snapshotted first. A restart is required to apply the restored version.', this.historyTime(entry.created)),
-          { danger: true, label: 'Restore snapshot' })) return;
-      this.historyRestoring = entry.id;
+      if (!this.loaded || this.dirty || this.historyError || !this.historyOpen || !this.history.includes(entry) || !this.beginAction('restore')) return false;
+      const stamp = this.editorStamp(), revision = this.revision, sequence = this.historySequence, id = entry.id;
       try {
-        const response = await apiFetch(`api/config/history/${encodeURIComponent(entry.id)}/restore`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ expected_revision: this.revision }),
-        });
-        if (!response.ok) {
-          this.$dispatch('notify', { msg: qeliT(response.error || 'Restore failed'), type: response.kind === 'config_conflict' ? 'warn' : 'error' });
-          return;
+        if (typeof revision !== 'string' || !revision.trim()) throw new Error('Settings revision unavailable. Reload before saving.');
+        if (!await qeliConfirm('Restore configuration snapshot',
+            qeliTf('Restore the snapshot from {}?\n\nThe current config will be snapshotted first. A restart is required to apply the restored version.',this.historyTime(entry.created)),
+            {danger:true,label:'Restore snapshot'})) return false;
+        if (this.destroyed || this.editorStamp() !== stamp || sequence !== this.historySequence || entry.id !== id) return false;
+        this.historyRestoring = id;
+        const r = await apiFetch(`api/config/history/${encodeURIComponent(id)}/restore`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expected_revision:revision})});
+        if (this.destroyed) return false;
+        if (!r || r.ok !== true) throw new Error(r?.error || 'Restore failed');
+        if (this.editorStamp() !== stamp || typeof r.revision !== 'string' || !r.revision.trim()) {
+          this.loaded = false; this.loadError = qeliT('Settings changed while loading. Retry to reload.'); return false;
         }
-        this.historyOpen = false;
-        this.revision = response.revision || this.revision;
-        this.$dispatch('notify', { msg: qeliT(response.message || 'Snapshot restored'), type: 'warn' });
-        if (this.view === 'raw') await this.loadRaw(); else await this.load();
-      } catch (error) {
-        this.$dispatch('notify', { msg: qeliT('Network error: ') + error.message, type: 'error' });
-      } finally { this.historyRestoring = null; }
+        this.historyOpen = false; this.revision = r.revision;
+        this.$dispatch('notify', {msg:r.message || 'Snapshot restored',type:'warn'});
+        return await this.readConfig(this.view,true);
+      } catch (e) {
+        if (!this.destroyed) this.$dispatch('notify', {msg:qeliT(e.message),type:'error'});
+        return false;
+      } finally { this.historyRestoring = null; this.action = null; }
     },
 
-    // Save (respecting the current view) and then restart the server so the
-    // change goes live immediately.
-    // Save (if dirty) then a FULL systemd restart (systemctl restart qeli). One button for
-    // all changes — including panel-socket ones (web.bind/port/tls/enabled) a worker-only
-    // restart couldn't apply. The login session survives when web.persist_session_key is on.
     async applyRestart() {
-      if (this.dirty) {
-        if (this.view === 'raw') await this.saveRaw(); else await this.save();
-        if (this.dirty) return; // save failed — error already shown
-      }
-      this.restarting = true;
+      if (!this.loaded || !this.beginAction('restart')) return false;
       try {
+        if (this.dirty && !await this.writeConfig(this.view,true)) return false;
+        if (this.destroyed || this.dirty || !this.loaded) return false;
+        this.restarting = true;
         const res = await fullRestartServer();
-        if (res.ok) {
-          this.needsFullRestart = false;
-          this.$dispatch('notify', {
-            msg: res.cameBack
-              ? qeliT('Applied — server + panel restarted')
-              : qeliT('Restart sent; panel did not come back in time — check `systemctl status qeli`'),
-            type: res.cameBack ? 'success' : 'warn',
-          });
-          return;
+        if (this.destroyed) return false;
+        if (res?.ok === true) {
+          if (res.cameBack) this.needsFullRestart = false;
+          this.$dispatch('notify', {msg:res.cameBack ? qeliT('Applied — server + panel restarted')
+            : qeliT('Restart sent; panel did not come back in time — check `systemctl status qeli`'),type:res.cameBack?'success':'warn'}); return !!res.cameBack;
         }
-        // The server pre-flight says a full systemctl restart cannot run here.
-        // In a container systemctl is unavailable, but a change that does NOT touch the
-        // panel socket applies fine via the in-process worker restart (works anywhere).
-        if (res.kind === 'no_systemd' && res.container && !this.needsFullRestart) {
+        if (res?.kind === 'no_systemd' && res.container && !this.needsFullRestart) {
           const back = await restartServer();
-          this.$dispatch('notify', {
-            msg: back
-              ? qeliT('Applied via worker restart (container — systemctl not available)')
-              : qeliT('Restart sent; panel did not come back in time — check `systemctl status qeli`'),
-            type: back ? 'success' : 'warn',
-          });
-          return;
+          if (this.destroyed) return false;
+          this.$dispatch('notify', {msg:back ? qeliT('Applied via worker restart (container — systemctl not available)')
+            : qeliT('Restart sent; panel did not come back in time — check `systemctl status qeli`'),type:back?'success':'warn'}); return !!back;
         }
-        // missing polkit rule / socket change in a container / no systemctl — show the
-        // server's actionable reason verbatim (it names the exact command to run).
-        this.$dispatch('notify', { msg: res.error || qeliT('Restart failed'), type: 'error', timeout: 15000 });
+        this.$dispatch('notify', {msg:res?.error || qeliT('Restart failed'),type:'error',timeout:15000}); return false;
       } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Restart failed: ') + e.message, type: 'error' });
-      } finally {
-        this.restarting = false;
-      }
+        if (!this.destroyed) this.$dispatch('notify', {msg:qeliT('Restart failed: ')+e.message,type:'error'});
+        return false;
+      } finally { this.restarting = false; this.action = null; }
     },
 
     parseIpv4Cidr(value) {
@@ -2284,15 +2297,14 @@ function configPage() {
     // Build a new profile from the server's canonical defaults (single source of
     // truth — no schema duplicated in JS), then give it a unique name/iface/subnet.
     addProfile() {
+      if (this.destroyed || this.action || !this.loaded || this.loading || this.saving || this.restarting || !this.defaultProfile) return;
       const slot = this.requireFreshProfileSlot();
       if (!slot) return;
       const profiles = this.cfg.profiles || [];
       let suffix = profiles.length + 1;
       let name = `profile-${suffix}`;
       while (profiles.some(p => p.name === name)) name = `profile-${++suffix}`;
-      const base = this.defaultProfile
-        ? JSON.parse(JSON.stringify(this.defaultProfile))
-        : { name: '', bind: {}, roaming: { enabled: true, grace_secs: 30, max_orphaned: 256, max_orphan_bytes: 67108864 }, tun: { ip_mode: 'ipv4' }, pool: { ipv6: { exclude: [], static_reservations: {} } }, routing: { nat: {}, ipv6: { mode: 'off', interface: '' } }, dns: {}, dhcp: {}, obfuscation: { tls: { reality_proxy: {} }, padding: {}, fragmentation: {}, heartbeat: {}, traffic_normalization: {}, recordizer: { policy: 'prefer', batch: { delay_min_ms: 2, delay_max_ms: 8, max_packets: 16, max_queue_bytes: 262144 }, record: { max_payload_bytes: 0, small_min_ratio: 0.25, small_max_ratio: 0.875, full_probability: 0.72 }, fragment: { enabled: true, reassembly_timeout_ms: 3000, max_inflight_packets: 64, max_reassembly_bytes: 4194304, max_fragments_per_packet: 64 } }, anti_fingerprinting: {}, quic: {}, multipath: {} }, performance: { tcp: {}, tun: {}, connection: {} } };
+      const base = JSON.parse(JSON.stringify(this.defaultProfile));
       base.name = name;
       base.enabled = true;
       base.bind.address = '0.0.0.0';
@@ -2310,6 +2322,7 @@ function configPage() {
     },
 
     cloneProfile() {
+      if (this.destroyed || this.action || this.loading || this.saving || this.restarting) return;
       const src = this.cfg.profiles[this.activeTab];
       if (!src) return;
       const slot = this.requireFreshProfileSlot();
@@ -2344,12 +2357,15 @@ function configPage() {
     },
 
     async removeProfile(i) {
-      if (!await qeliConfirm(qeliT('Remove profile'),
-            qeliTf('Remove profile "{}"?', this.cfg.profiles[i]?.name || i),
-            { danger: true, label: qeliT('Remove') })) return;
-      this.cfg.profiles.splice(i, 1);
-      this.activeTab = this.cfg.profiles.length > 0 ? 0 : '__global';
-      this.markDirty();
+      const cfg = this.cfg, profile = cfg.profiles[i];
+      if (!profile || !this.beginAction('remove')) return false;
+      const snapshot = JSON.stringify(profile);
+      try {
+        if (!await qeliConfirm(qeliT('Remove profile'),qeliTf('Remove profile "{}"?',profile.name || i),{danger:true,label:qeliT('Remove')})) return false;
+        if (this.destroyed || this.cfg !== cfg || JSON.stringify(profile) !== snapshot) return false;
+        const index = cfg.profiles.indexOf(profile); if (index < 0) return false;
+        cfg.profiles.splice(index,1); this.activeTab = cfg.profiles.length ? 0 : '__global'; this.markDirty(); return true;
+      } finally { this.action = null; }
     },
 
     updateReservation(pi, oldUser, newUser, ip) {

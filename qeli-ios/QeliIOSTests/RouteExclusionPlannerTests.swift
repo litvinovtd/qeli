@@ -2,17 +2,17 @@ import XCTest
 @testable import Qeli
 
 final class RouteExclusionPlannerTests: XCTestCase {
-    func testLANBypassOnlyExtendsFullTunnelExclusions() {
+    func testLANBypassOnlyExtendsFullTunnelExclusions() throws {
         let configured = ["203.0.113.0/24"]
         XCTAssertEqual(
-            RouteExclusionPlanner.effectiveExcludes(
+            try RouteExclusionPlanner.effectiveExcludes(
                 configured: configured, fullTunnel: false, allowLAN: true
             ),
             configured,
             "split-tunnel pushed private routes must not be removed by allow_lan"
         )
 
-        let full = RouteExclusionPlanner.effectiveExcludes(
+        let full = try RouteExclusionPlanner.effectiveExcludes(
             configured: configured, fullTunnel: true, allowLAN: true
         )
         XCTAssertTrue(full.contains("10.0.0.0/8"))
@@ -20,7 +20,7 @@ final class RouteExclusionPlannerTests: XCTestCase {
         XCTAssertEqual(full.first, configured.first)
 
         XCTAssertEqual(
-            RouteExclusionPlanner.effectiveExcludes(
+            try RouteExclusionPlanner.effectiveExcludes(
                 configured: configured, fullTunnel: true, allowLAN: false
             ),
             configured

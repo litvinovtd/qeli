@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_SOURCE_FIXES_Q30_IN_PROGRESS",
+  "executed_at": "2026-10-06T11:19:52.086943+00:00",
+  "base_commit": "1fe0a17a8e43eab812072648146507dd955f3392",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q30-ios-policy-snapshot-20261006",
+  "raw_seal_sha256": "2e43333da3c4f2400acbe185b8e11a2fa7b76cd5218d2b0bd91608fb4048a54c",
+  "checks": [
+    {
+      "id": "ipa-verifier",
+      "status": "PASS",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_verify_ios_ipa.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "ipa-verifier.log"
+    },
+    {
+      "id": "docs",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "status": "PASS",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    }
+  ],
+  "source_review": {
+    "status": "SOURCE_AND_STRUCTURE_ONLY",
+    "gate_invalidation_sites": 4,
+    "new_xctest_cases": 6,
+    "xctest_status": "NOT_RUN",
+    "swift_build_status": "NOT_RUN",
+    "reason": "Windows host has no swift/Xcode; Apple runtime user-excluded",
+    "parsed_xml_inputs": [
+      "qeli-ios/Config/App-Info.plist",
+      "qeli-ios/Config/PacketTunnel-Info.plist",
+      "qeli-ios/Config/PrivacyInfo.xcprivacy",
+      "qeli-ios/Config/QeliIOS.entitlements",
+      "qeli-ios/Config/QeliPacketTunnel.entitlements",
+      "qeli-ios/Config/QeliWidgets.entitlements",
+      "qeli-ios/Config/Widget-Info.plist",
+      "qeli-ios/MDM/Apple-IKEv2-AlwaysOn.mobileconfig",
+      "qeli-ios/MDM/Qeli-Managed-App-Configuration.plist",
+      "qeli-ios/MDM/Qeli-PerApp-VPN.mobileconfig"
+    ],
+    "unchanged_git_inputs": 777,
+    "changed_paths": [
+      "docs/eng/index.md",
+      "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/eng/reports/AUDIT-Q30-IOS-POLICY-SNAPSHOT.md",
+      "docs/ru/index.md",
+      "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/ru/reports/AUDIT-Q30-IOS-POLICY-SNAPSHOT.md",
+      "qeli-ios/MDM/README.md",
+      "qeli-ios/PARITY.md",
+      "qeli-ios/QeliCore/Management/ManagedConfiguration.swift",
+      "qeli-ios/QeliCore/Support/ProviderSnapshotResponseGate.swift",
+      "qeli-ios/QeliCore/VPN/TunnelManager.swift",
+      "qeli-ios/QeliIOSTests/ManagedConfigurationTests.swift",
+      "qeli-ios/QeliIOSTests/ProviderSnapshotResponseGateTests.swift"
+    ],
+    "no_real_ios_or_signed_ipa_claim": true
+  },
+  "findings": {
+    "F290": "exact MDM numeric conversion; source fixed, XCTest NOT_RUN",
+    "F291": "provider response ownership and ordering; source fixed, XCTest NOT_RUN"
+  },
+  "runtime": "NOT_RUN_USER_EXCLUDED_APPLE",
+  "ipa_verifier": "6 fixture regressions PASS; no real IPA/signature qualification",
+  "historical_runtime": "Reused only with unchanged implementation Git input hashes; artifacts/execution dates/statuses unchanged",
+  "plan": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "Q29": "IN_PROGRESS; SIGKILL FAIL/auto-null ENONET preserved",
+    "Q30": "IN_PROGRESS"
+  },
+  "push": "NOT_RUN",
+  "documentation_correction": {
+    "reason": "Describe decoding before the MainActor check without asserting an undocumented callback execution queue. Original sealed review snapshot retained.",
+    "files": {
+      "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q30-ios-policy-snapshot-20261006\\final-report-eng.md": "816199acc7d68cec2c66f67f6788ff768afb469b712a99346cc8322351ebe4e4",
+      "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q30-ios-policy-snapshot-20261006\\final-report-ru.md": "f528e83aae41edf3199138545555df60ff6033e673a04415f446e59f4fcf4470"
+    }
+  },
+  "source_digest": "050de5b15fff647542015ff9693d617b9bc147cfcbeb9cab39b379707d4e9590"
+}

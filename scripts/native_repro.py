@@ -37,6 +37,20 @@ EVIDENCE_SPECS = {
     ),
 }
 
+# Files outside qeli/src that can change compilation, linking, or Mach-O normalization.
+# Keep the same set in clean-source preflight and the provenance digest.
+BUILD_INPUTS = (
+    "qeli/Cargo.toml",
+    "qeli/Cargo.lock",
+    "qeli/.cargo/config.toml",
+    "scripts/build_native_libs_p4.py",
+    "scripts/build_android_so_11.py",
+    "scripts/native_lab.py",
+    "scripts/ssh_command.py",
+    "scripts/native_repro.py",
+    "scripts/macho_repro.py",
+)
+
 CONSUMED_COPIES = {
     "native-libs/windows-x64/qeli.dll": "qeli-win/QeliWin/native/qeli.dll",
     "native-libs/macos-universal/libqeli.dylib": "qeli-mac/QeliMac/native/libqeli.dylib",
@@ -93,10 +107,10 @@ def atomic_write_bytes(path: str | os.PathLike[str], data: bytes) -> None:
         with tempfile.NamedTemporaryFile(
             "wb", dir=destination.parent, delete=False
         ) as stream:
+            temporary = Path(stream.name)
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-            temporary = Path(stream.name)
         os.replace(temporary, destination)
     finally:
         if temporary is not None and temporary.exists():
@@ -104,10 +118,10 @@ def atomic_write_bytes(path: str | os.PathLike[str], data: bytes) -> None:
 
 
 def source_digest(repo_root: str | os.PathLike[str]) -> str:
-    """Digest every Rust source and locked manifest that lands in the native cdylibs."""
+    """Digest Rust sources, Cargo config/manifests and the executable build recipes."""
     root = Path(repo_root)
     files = sorted((root / "qeli" / "src").rglob("*.rs"))
-    files.extend(root / "qeli" / name for name in ("Cargo.toml", "Cargo.lock"))
+    files.extend(root / relative for relative in BUILD_INPUTS)
     aggregate = hashlib.sha256()
     for path in sorted(files):
         relative = path.relative_to(root).as_posix()
@@ -126,8 +140,7 @@ def require_clean_source_identity(repo_root: str | os.PathLike[str]) -> dict[str
             "--porcelain",
             "--",
             "qeli/src",
-            "qeli/Cargo.toml",
-            "qeli/Cargo.lock",
+            *BUILD_INPUTS,
         ],
         cwd=root,
         check=True,
@@ -136,7 +149,7 @@ def require_clean_source_identity(repo_root: str | os.PathLike[str]) -> dict[str
     ).stdout.strip()
     if dirty:
         raise RuntimeError(
-            "native builds require committed qeli/src and Cargo manifests; dirty files:\n"
+            "native builds require committed source and recipe inputs; dirty files:\n"
             + dirty
         )
     commit = subprocess.run(
@@ -321,13 +334,9 @@ def write_evidence(
     output_dir = root / "native-libs" / "reproducibility"
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f"{name}.json"
-    with tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", newline="\n", dir=output_dir, delete=False
-    ) as stream:
-        json.dump(document, stream, indent=2, sort_keys=True)
-        stream.write("\n")
-        temporary = Path(stream.name)
-    os.replace(temporary, output)
+    atomic_write_bytes(
+        output, (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    )
     return output
 
 

@@ -98,7 +98,7 @@
                             </StackPanel>
                             <TextBlock Text="{l:Loc SectionTransport}" Classes="sectionHeader" Margin="0,28,0,14"/>
                             <StackPanel x:Name="SniPanel" Margin="0,0,0,14">
-                                <TextBlock Text="{l:Loc FieldSni}" Classes="label"/>
+                                <TextBlock x:Name="SniLabel" Text="{l:Loc FieldSni}" Classes="label"/>
                                 <AutoCompleteBox x:Name="SniBox" MinimumPrefixLength="0" FilterMode="Contains"
                                                  HorizontalAlignment="Stretch"/>
                             </StackPanel>
@@ -150,7 +150,7 @@
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
                                     <TextBlock Text="{l:Loc FieldMtu}" Classes="label"/>
-                                    <AutoCompleteBox x:Name="MtuBox" MinimumPrefixLength="0" FilterMode="Contains"
+                                    <AutoCompleteBox x:Name="MtuBox" MinimumPrefixLength="0" FilterMode="Contains" ToolTip.Tip="{l:Loc MtuPolicyHint}"
                                                      HorizontalAlignment="Stretch"/>
                                 </StackPanel>
                             </Grid>
@@ -183,7 +183,8 @@
                             <TextBlock Text="{l:Loc DnsPushHint}" TextWrapping="Wrap"
                                        Foreground="{DynamicResource FgDim}" FontSize="11.5" Margin="0,0,0,16"/>
 
-                            <CheckBox x:Name="LocalBox" Content="{l:Loc RouteLocal}" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="PullRoutesBox" Content="{l:Loc PullRoutes}" IsChecked="True" Margin="0,0,0,8"/>
+                        <CheckBox x:Name="LocalBox" Content="{l:Loc RouteLocal}" Margin="0,0,0,12"/>
                             <CheckBox x:Name="KillSwitchBox" Content="{l:Loc KillSwitch}" Margin="0,0,0,18"/>
                             <StackPanel x:Name="FamilyLeakPanel" Margin="0,0,0,18">
                                 <TextBlock Text="{l:Loc FamilyLeakHint}" TextWrapping="Wrap" Foreground="{DynamicResource FgDim}" FontSize="11.5" Margin="0,0,0,8"/>

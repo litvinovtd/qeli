@@ -1,4 +1,5 @@
 using System.Net;
+using System.ComponentModel;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -13,14 +14,24 @@ namespace QeliWin.Vpn;
 /// </summary>
 internal sealed class WinDivertKillSwitchGate : IDisposable
 {
-    // WinDivert accepts priorities only in [-300, 300]. The drop gate must run before the
+    // WinDivert 2.2 accepts priorities in [-30000, 30000]. The drop gate must run before the
     // normal priority-0 per-app handle so blocked carrier traffic cannot be re-injected by
     // another Qeli handle first.
     internal static readonly short DropGatePriority = 300;
 
     private IntPtr _handle;
 
-    private WinDivertKillSwitchGate(IntPtr handle) => _handle = handle;
+    private readonly object _gate = new();
+    private readonly Action<IntPtr> _close;
+    internal WinDivertKillSwitchGate(IntPtr handle, Action<IntPtr>? close = null)
+    {
+        _handle = handle;
+        _close = close ?? (h =>
+        {
+            if (!WinDivertNative.WinDivertClose(h))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "WinDivert drop gate close failed");
+        });
+    }
 
     public static WinDivertKillSwitchGate Open(
         string tunAlias,
@@ -105,8 +116,11 @@ internal sealed class WinDivertKillSwitchGate : IDisposable
 
     public void Dispose()
     {
-        IntPtr handle = Interlocked.Exchange(ref _handle, IntPtr.Zero);
-        if (handle != IntPtr.Zero && handle != new IntPtr(-1))
-            try { WinDivertNative.WinDivertClose(handle); } catch { }
+        lock (_gate)
+        {
+            if (_handle == IntPtr.Zero) return;
+            _close(_handle); // A failed close retains ownership and the recovery journal.
+            _handle = IntPtr.Zero;
+        }
     }
 }

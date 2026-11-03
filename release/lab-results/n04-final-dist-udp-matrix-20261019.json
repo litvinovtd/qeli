@@ -1,0 +1,2388 @@
+{
+  "schema": 1,
+  "status": "MEASUREMENTS_COMPLETE",
+  "binary_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+  "server_binary_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+  "dist_sha256_after": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+  "dist_unchanged": true,
+  "started_utc": "2026-10-19T10:20:55.012158+00:00",
+  "finished_utc": "2026-10-19T10:37:14.439222+00:00",
+  "method": {
+    "offered_mbps": 600,
+    "repetitions": 3,
+    "seconds": 15,
+    "omit": 3,
+    "payload_bytes": 1200,
+    "inner_families": [
+      4,
+      6
+    ],
+    "directions": [
+      "upload",
+      "download"
+    ],
+    "outer_family": 4,
+    "outer_MTU": 1500,
+    "inner_MTU": 1400,
+    "client_queue": 1000,
+    "server_queue": 1000,
+    "recordizer": "required",
+    "actual_PACKET_MUX_V1": true,
+    "requested_iperf_socket_bytes": 4194304,
+    "actual_socket_bytes": 8388608,
+    "profiler": false,
+    "FULL_RING_histogram": false,
+    "ceiling_search": false
+  },
+  "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbudpmatrix-20261019",
+  "raw_hosts": [
+    "VM300",
+    "VM301"
+  ],
+  "receipt_sha256": "f8fbf38af1483104b84c664480f7edb6ee468aaefb855a6c61518e7ef7bf2fd0",
+  "controller_sha256": "338608834196bd65aef9f7db6d08e7d29f7ac4a7a58763de9b7e5e44b7e54d70",
+  "restoration": {
+    "server": {
+      "boot_id": true,
+      "protected_files": true,
+      "sysctls": true,
+      "hostname": true,
+      "kernel": true,
+      "cpus": true,
+      "processes": true,
+      "links": true,
+      "addresses": true,
+      "routes4": true,
+      "routes6": true,
+      "rules4": true,
+      "rules6": true,
+      "qdiscs": true,
+      "iptables": true,
+      "ip6tables": true
+    },
+    "client": {
+      "boot_id": true,
+      "protected_files": true,
+      "sysctls": true,
+      "hostname": true,
+      "kernel": true,
+      "cpus": true,
+      "processes": true,
+      "links": true,
+      "addresses": true,
+      "routes4": true,
+      "routes6": true,
+      "rules4": true,
+      "rules6": true,
+      "qdiscs": true,
+      "iptables": true,
+      "ip6tables": true
+    }
+  },
+  "final_state": {
+    "server": {
+      "lock_absent": true,
+      "TUN_absent": true,
+      "test_processes_absent": true,
+      "version": "qeli 0.8.2"
+    },
+    "client": {
+      "lock_absent": true,
+      "TUN_absent": true,
+      "test_processes_absent": true,
+      "version": "qeli 0.8.2"
+    }
+  },
+  "guest_helper_sha256": {
+    "server": {
+      "release_short_guest.py": "8bceb2b1afbd33d9c9accc481dcb5514774ca005fab04233e151bb6c707b6d1f",
+      "guest.py": "5b13db36950f356a25a03c37842eb9850adc79911e54a28193f6006478943a6d",
+      "gigabit_restore_guest_20261017.py": "3128dd060e582dc57e4b257285227322fa512684dbeb41146fe1ce2600731854"
+    },
+    "client": {
+      "release_short_guest.py": "8bceb2b1afbd33d9c9accc481dcb5514774ca005fab04233e151bb6c707b6d1f",
+      "guest.py": "5b13db36950f356a25a03c37842eb9850adc79911e54a28193f6006478943a6d",
+      "gigabit_restore_guest_20261017.py": "3128dd060e582dc57e4b257285227322fa512684dbeb41146fe1ce2600731854"
+    }
+  },
+  "session_config_sha256": {
+    "tcp-faketls": {
+      "server": "0cb9d6856dcdb65f5dae218ab23bafb5c31a27f72097732131dcac0d110d74f0",
+      "client": "0fca28761c82950aa5f6addb187e81620be5a2db6f9ef819dd23d619898f3ee2"
+    },
+    "tcp-reality-tls": {
+      "server": "119f4bc330efe8c47984cebb96c48bda077c3caf3d23c07e9889e8e433a6be68",
+      "client": "3914522315f1ef30a99c6219812778f9e98bbc75fc21935a2fd7911488998c04"
+    },
+    "udp-faketls": {
+      "server": "dff509caae3da9dc02d9e1348d9e3ec0c5afdec2f2707e383b5cb553bfc50cfd",
+      "client": "134fe6edd1ae38b44e3e5e6255cb27d4b26ef723edbf50ff79bf083a1fc03fed"
+    },
+    "udp-quic": {
+      "server": "d737649ef79ade67cc7508613e59e9028298c82370a933d6b209766d2f7b39ff",
+      "client": "e19c89eb8f2c0b3787ba08cca2a37567bab9a6539d4ea0e0a6f4160b4166b5f9"
+    }
+  },
+  "summary": [
+    {
+      "mode": "tcp-faketls",
+      "family": 4,
+      "direction": "upload",
+      "n": 3,
+      "median_mbps": 599.802022501073,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 4,
+      "direction": "download",
+      "n": 3,
+      "median_mbps": 599.9964028839279,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 6,
+      "direction": "upload",
+      "n": 3,
+      "median_mbps": 599.6859121098353,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 6,
+      "direction": "download",
+      "n": 3,
+      "median_mbps": 600,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 4,
+      "direction": "upload",
+      "n": 3,
+      "median_mbps": 599.539628938423,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 4,
+      "direction": "download",
+      "n": 3,
+      "median_mbps": 599.9910071948436,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 6,
+      "direction": "upload",
+      "n": 3,
+      "median_mbps": 599.5360166972274,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 6,
+      "direction": "download",
+      "n": 3,
+      "median_mbps": 600,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 4,
+      "direction": "upload",
+      "n": 3,
+      "median_mbps": 599.777860229241,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 4,
+      "direction": "download",
+      "n": 3,
+      "median_mbps": 599.9975215013093,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 6,
+      "direction": "upload",
+      "n": 3,
+      "median_mbps": 599.6959800385773,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 6,
+      "direction": "download",
+      "n": 3,
+      "median_mbps": 599.9972821749848,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "udp-quic",
+      "family": 4,
+      "direction": "upload",
+      "n": 3,
+      "median_mbps": 599.8111733610663,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "udp-quic",
+      "family": 4,
+      "direction": "download",
+      "n": 3,
+      "median_mbps": 599.9980011750426,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "udp-quic",
+      "family": 6,
+      "direction": "upload",
+      "n": 3,
+      "median_mbps": 599.803261534488,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    },
+    {
+      "mode": "udp-quic",
+      "family": 6,
+      "direction": "download",
+      "n": 3,
+      "median_mbps": 599.9996802563065,
+      "median_loss_percent": 0,
+      "max_loss_percent": 0,
+      "client_TUN_drops_sum": 0,
+      "server_TUN_drops_sum": 0,
+      "windows_loss_at_most_1_percent": 3
+    }
+  ],
+  "windows": [
+    {
+      "mode": "tcp-faketls",
+      "family": 4,
+      "direction": "upload",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.802022501073,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938812,
+      "label": "tcp-faketls-q1000-r1-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 43.51892387654482,
+      "client_context_switches": 451800,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 4,
+      "direction": "download",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9964028839279,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938246,
+      "label": "tcp-faketls-q1000-r1-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 35.1252153834686,
+      "client_context_switches": 191832,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 6,
+      "direction": "upload",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.6859121098353,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938537,
+      "label": "tcp-faketls-q1000-r1-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 43.28287425318568,
+      "client_context_switches": 455573,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 6,
+      "direction": "download",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 600,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938057,
+      "label": "tcp-faketls-q1000-r1-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 35.589562954461684,
+      "client_context_switches": 195839,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 4,
+      "direction": "upload",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.7297833754074,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938546,
+      "label": "tcp-faketls-q1000-r2-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 43.22681351243516,
+      "client_context_switches": 452057,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 4,
+      "direction": "download",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 600.002358112724,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938254,
+      "label": "tcp-faketls-q1000-r2-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 35.10650871818205,
+      "client_context_switches": 191955,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 6,
+      "direction": "upload",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.660103523242,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938798,
+      "label": "tcp-faketls-q1000-r2-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 43.09691954072252,
+      "client_context_switches": 456147,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 6,
+      "direction": "download",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9926440369525,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938003,
+      "label": "tcp-faketls-q1000-r2-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 35.471740833567196,
+      "client_context_switches": 194748,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 4,
+      "direction": "upload",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.8196484182496,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938717,
+      "label": "tcp-faketls-q1000-r3-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 43.08293741272026,
+      "client_context_switches": 463953,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 4,
+      "direction": "download",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9924860171974,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938239,
+      "label": "tcp-faketls-q1000-r3-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 35.10127295022089,
+      "client_context_switches": 190218,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 6,
+      "direction": "upload",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.8242530170863,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938788,
+      "label": "tcp-faketls-q1000-r3-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 43.42665691721467,
+      "client_context_switches": 453495,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-faketls",
+      "family": 6,
+      "direction": "download",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 600.0004797209942,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938046,
+      "label": "tcp-faketls-q1000-r3-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 35.50449196186058,
+      "client_context_switches": 194847,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 4,
+      "direction": "upload",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.564776461617,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 939094,
+      "label": "tcp-reality-tls-q1000-r1-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 62.603376309159955,
+      "client_context_switches": 443860,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 4,
+      "direction": "download",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 600.0029176645068,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938255,
+      "label": "tcp-reality-tls-q1000-r1-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 48.579500002546894,
+      "client_context_switches": 247595,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 6,
+      "direction": "upload",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.5360166972274,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 939070,
+      "label": "tcp-reality-tls-q1000-r1-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 62.32251068304628,
+      "client_context_switches": 445924,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 6,
+      "direction": "download",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9900079789619,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938233,
+      "label": "tcp-reality-tls-q1000-r1-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 49.10463724112079,
+      "client_context_switches": 257996,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 4,
+      "direction": "upload",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.539628938423,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938793,
+      "label": "tcp-reality-tls-q1000-r2-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 62.38011597429458,
+      "client_context_switches": 445997,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 4,
+      "direction": "download",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9866906731929,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938231,
+      "label": "tcp-reality-tls-q1000-r2-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 48.43726218971375,
+      "client_context_switches": 252016,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 6,
+      "direction": "upload",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.5436948061075,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 939281,
+      "label": "tcp-reality-tls-q1000-r2-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 62.16085491490069,
+      "client_context_switches": 448823,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 6,
+      "direction": "download",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 600.0104316470325,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938267,
+      "label": "tcp-reality-tls-q1000-r2-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 49.17075114946057,
+      "client_context_switches": 263970,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 4,
+      "direction": "upload",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.3568682176705,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 939332,
+      "label": "tcp-reality-tls-q1000-r3-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 62.3285849151121,
+      "client_context_switches": 445817,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 4,
+      "direction": "download",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9910071948436,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938236,
+      "label": "tcp-reality-tls-q1000-r3-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 48.39675724480402,
+      "client_context_switches": 257141,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 6,
+      "direction": "upload",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.445177740006,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 939094,
+      "label": "tcp-reality-tls-q1000-r3-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 62.402632501031576,
+      "client_context_switches": 449683,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "family": 6,
+      "direction": "download",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 600,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938251,
+      "label": "tcp-reality-tls-q1000-r3-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 49.19934135331,
+      "client_context_switches": 260946,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 4,
+      "direction": "upload",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.6631494297576,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938947,
+      "label": "udp-faketls-q1000-r1-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 64.56514577646186,
+      "client_context_switches": 354155,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 4,
+      "direction": "download",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9976019203821,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938247,
+      "label": "udp-faketls-q1000-r1-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 76.84464012176333,
+      "client_context_switches": 767043,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 6,
+      "direction": "upload",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.6029393005516,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938624,
+      "label": "udp-faketls-q1000-r1-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 64.72906299733671,
+      "client_context_switches": 367344,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 6,
+      "direction": "download",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9942434263127,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938049,
+      "label": "udp-faketls-q1000-r1-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 81.61490373413447,
+      "client_context_switches": 778422,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 4,
+      "direction": "upload",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.90772277792,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938603,
+      "label": "udp-faketls-q1000-r2-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 64.30552718335917,
+      "client_context_switches": 363507,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 4,
+      "direction": "download",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.996842529134,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938246,
+      "label": "udp-faketls-q1000-r2-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 76.98274077980032,
+      "client_context_switches": 773082,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 6,
+      "direction": "upload",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.6959800385773,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938936,
+      "label": "udp-faketls-q1000-r2-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 65.09492416774077,
+      "client_context_switches": 346182,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 6,
+      "direction": "download",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.997521984725,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938247,
+      "label": "udp-faketls-q1000-r2-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 79.55031173418399,
+      "client_context_switches": 787228,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 4,
+      "direction": "upload",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.777860229241,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938757,
+      "label": "udp-faketls-q1000-r3-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 64.44492837535925,
+      "client_context_switches": 361805,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 4,
+      "direction": "download",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9975215013093,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938064,
+      "label": "udp-faketls-q1000-r3-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 77.83466969294994,
+      "client_context_switches": 769341,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 6,
+      "direction": "upload",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.737631513601,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938917,
+      "label": "udp-faketls-q1000-r3-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 65.03842467493524,
+      "client_context_switches": 354255,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "family": 6,
+      "direction": "download",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9972821749848,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938246,
+      "label": "udp-faketls-q1000-r3-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 79.42018770506823,
+      "client_context_switches": 776864,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 4,
+      "direction": "upload",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.8535991019467,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938802,
+      "label": "udp-quic-q1000-r1-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 64.27357740488337,
+      "client_context_switches": 375788,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 4,
+      "direction": "download",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9979216654388,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938248,
+      "label": "udp-quic-q1000-r1-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 78.02379970813513,
+      "client_context_switches": 780185,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 6,
+      "direction": "upload",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.821138300143,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938574,
+      "label": "udp-quic-q1000-r1-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 65.11446403388028,
+      "client_context_switches": 365088,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 6,
+      "direction": "download",
+      "rep": 1,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9965227945141,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938248,
+      "label": "udp-quic-q1000-r1-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 81.30072245680596,
+      "client_context_switches": 820790,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 4,
+      "direction": "upload",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.8111733610663,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938661,
+      "label": "udp-quic-q1000-r2-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 64.77412837120002,
+      "client_context_switches": 349806,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 4,
+      "direction": "download",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9980815388616,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938249,
+      "label": "udp-quic-q1000-r2-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 78.64681216290896,
+      "client_context_switches": 772019,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 6,
+      "direction": "upload",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.803261534488,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938629,
+      "label": "udp-quic-q1000-r2-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 64.99247732801737,
+      "client_context_switches": 367391,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 6,
+      "direction": "download",
+      "rep": 2,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9996802563065,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938251,
+      "label": "udp-quic-q1000-r2-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 82.05104296176658,
+      "client_context_switches": 823087,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 4,
+      "direction": "upload",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.7035013002351,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938621,
+      "label": "udp-quic-q1000-r3-udp600-ip4-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 64.82872058248334,
+      "client_context_switches": 351962,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 4,
+      "direction": "download",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.9980011750426,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938048,
+      "label": "udp-quic-q1000-r3-udp600-ip4-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 77.18791817860061,
+      "client_context_switches": 784530,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 6,
+      "direction": "upload",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 599.6413798114361,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938768,
+      "label": "udp-quic-q1000-r3-udp600-ip6-upload",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 64.97370394398068,
+      "client_context_switches": 363478,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "family": 6,
+      "direction": "download",
+      "rep": 3,
+      "protocol": "UDP",
+      "rate_mbps": 600,
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "mbps": 600.0003197440343,
+      "loss_percent": 0,
+      "lost_packets": 0,
+      "packets": 938251,
+      "label": "udp-quic-q1000-r3-udp600-ip6-download",
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 84.28573491994646,
+      "client_context_switches": 820806,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      }
+    }
+  ],
+  "old_results_overwritten": false,
+  "published": false
+}

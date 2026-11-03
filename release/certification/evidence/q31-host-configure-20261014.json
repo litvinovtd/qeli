@@ -1,0 +1,157 @@
+{
+  "status": "OFFICIAL_SDK_PINNED_SIX_FILE_RUST_FEED_PREPARE_CONFIGURE_ARCHIVE_CLEANUP_QUALIFIED",
+  "qualification": {
+    "status": "OFFICIAL_SDK_PINNED_SIX_FILE_RUST_FEED_PREPARE_CONFIGURE_ARCHIVE_CLEANUP_QUALIFIED",
+    "source_commit": "af8677c1da3db8b23fc56dbc2092cf18a3c109ea",
+    "feed_pin": "f1470815f41fe199bfdafe9a91ad115bc2e91203",
+    "recipe_sha256": "6bccd582a3bfc665f14e29ea89dd2b134221a2dca78c08313a0a6b4e23056d75",
+    "feed_files": {
+      "Config.in": "8b5f0e0399bab4d6efa3adc6ce0382418b09407837f8ce09a159c07a2c28e095",
+      "Makefile": "6bccd582a3bfc665f14e29ea89dd2b134221a2dca78c08313a0a6b4e23056d75",
+      "patches/0001-Update-xz2-and-use-it-static.patch": "e6de25dea1e0101fc96ba6255ac9af9bbd168d28dfc8a8954182fb2ee29dc067",
+      "rust-host-build.mk": "2e865f0360859be0c775976c28854850c1d7940cfaaa487e88579cc7f6b949a5",
+      "rust-package.mk": "102f1dcf6a1042be48cf20d0bc67de43c91019b99519857120864da0873761be",
+      "rust-values.mk": "bb1843fc99435dcb4aec7a5c9e3d2f1823082c179f9a5000bb9224d73e0684e9"
+    },
+    "source_archive": {
+      "bytes": 267487572,
+      "sha256": "0b9d55610d8270e06c44f459d1e2b7918a5e673809c592abed9b9c600e33d95a"
+    },
+    "verified_source_regular_bytes": 3154771958,
+    "actual_host_build_dir": "build_dir/target-x86_64_musl/host/rustc-1.89.0-src",
+    "configuration": {
+      "profile": "dist",
+      "llvm": {
+        "download-ci-llvm": true
+      },
+      "gcc": {},
+      "build": {
+        "build": "x86_64-unknown-linux-gnu",
+        "host": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "target": [
+          "x86_64-unknown-linux-musl",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "bootstrap-cache-path": "/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/dl/rustc",
+        "sanitizers": false,
+        "cargo-native-static": true,
+        "configure-args": [
+          "--build=x86_64-unknown-linux-gnu",
+          "--target=x86_64-unknown-linux-musl,x86_64-unknown-linux-gnu",
+          "--host=x86_64-unknown-linux-gnu",
+          "--prefix=/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host",
+          "--bindir=/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host/bin",
+          "--libdir=/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host/lib",
+          "--sysconfdir=/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host/etc",
+          "--datadir=/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host/share",
+          "--mandir=/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host/man",
+          "--dist-compression-formats=gz",
+          "--disable-sanitizers",
+          "--release-channel=stable",
+          "--enable-cargo-native-static",
+          "--bootstrap-cache-path=/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/dl/rustc",
+          "--set=llvm.download-ci-llvm=true",
+          "--set=target.x86_64-unknown-linux-musl.ar=x86_64-openwrt-linux-musl-gcc-ar",
+          "--set=target.x86_64-unknown-linux-musl.cc=x86_64-openwrt-linux-musl-gcc",
+          "--set=target.x86_64-unknown-linux-musl.cxx=x86_64-openwrt-linux-musl-g++",
+          "--set=target.x86_64-unknown-linux-musl.linker=x86_64-openwrt-linux-musl-gcc",
+          "--set=target.x86_64-unknown-linux-musl.ranlib=x86_64-openwrt-linux-musl-gcc-ranlib",
+          "--set=target.x86_64-unknown-linux-musl.crt-static=false",
+          "--set=target.x86_64-unknown-linux-musl.musl-root=/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/toolchain-x86_64_gcc-13.3.0_musl"
+        ]
+      },
+      "install": {
+        "prefix": "/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host",
+        "sysconfdir": "/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host/etc",
+        "bindir": "/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host/bin",
+        "libdir": "/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host/lib",
+        "mandir": "/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host/man",
+        "datadir": "/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/target-x86_64_musl/host/share"
+      },
+      "rust": {
+        "channel": "stable"
+      },
+      "target": {
+        "x86_64-unknown-linux-gnu": {},
+        "x86_64-unknown-linux-musl": {
+          "cc": "x86_64-openwrt-linux-musl-gcc",
+          "cxx": "x86_64-openwrt-linux-musl-g++",
+          "ar": "x86_64-openwrt-linux-musl-gcc-ar",
+          "ranlib": "x86_64-openwrt-linux-musl-gcc-ranlib",
+          "linker": "x86_64-openwrt-linux-musl-gcc",
+          "crt-static": false,
+          "musl-root": "/var/tmp/qeli-q31-host-configure-aef22378b44f4908b880d033ec9a2bff/sdk/staging_dir/toolchain-x86_64_gcc-13.3.0_musl"
+        }
+      },
+      "dist": {
+        "compression-formats": [
+          "gz"
+        ]
+      }
+    },
+    "official_xz2_static_patch_applied": true,
+    "host_preserved": true,
+    "identities_preserved": true,
+    "own_root_unit_caches_remote_archive_removed": true,
+    "predecessor_failures_preserved": [
+      "q31-host-configure-r2-20261014: wrong direct Make target before prepare",
+      "q31-host-configure-r3-20261014: controlled four-GiB disk guard during unpack, not compiler/OOM/ENOSPC",
+      "q31-host-configure-r4-20261014: targets exit0, independent semantic qualification rejected invalid host triple, cleaned; raw remains"
+    ],
+    "scope": "Actual full official feed Host/Prepare and Host/Configure only, same Makefile/configure/patches, no Host/Compile or Host/Install, no new Qeli/native/IPK/runtime, no LLVM or rustc compilation qualified",
+    "bootstrap_compile": false,
+    "whole_Q31_closed": false,
+    "no_push_deploy_release": true,
+    "input_sha256": {
+      "q31-host-configure-r5-20261014\\plan.json": "a66a9343540baa91f373003709d87cb9a78c0daf1ded194de2b037773d635d2a",
+      "q31-host-configure-r5-20261014\\worker.py": "67c18d4282785a54cbb2424d38c7af9f98d82cde9a29c8e9a75a81dd2cdba579",
+      "q31-host-configure-r5-20261014\\result.json": "88f7bdcdcb5c996800a54f615b3c7f3cf154cd149b83618adb2666bf2036f454",
+      "q31-host-configure-r5-20261014\\completion.json": "52c79335353f83721c74f5fb075c8cc530e499d4b193e60b93976a7340a4488e",
+      "q31-host-configure-r5-20261014\\cleanup.json": "ea24c8fbefda08bb9c9f615a1e3db74aa1c15bf573f2c29e4acb226e581361b7",
+      "q31-host-configure-r5-20261014\\runtime.tar.gz": "19a3ddfe2bb5d984681c5aeb0e667842ac1d44c889bf87f1efb3507c9c58421b",
+      "q31-host-configure-r5-20261014\\archive.json": "2d4eabc97214792b1eb1c25ed603dc8115808be052b652ce4abb1528bb037b40",
+      "q31-host-configure-r5-20261014\\finished-unit.json": "642d1d91154dc9f5d8e3589ead0b84769e36d1e1a3c6d3e7a9c5cbb0923760d1",
+      "q31-host-configure-r5-20261014\\effective-bootstrap.toml": "554a38652fb332a488f739bbf8a719930f3ba81fd39d20bf76b48382fe46c72f",
+      "q31-sdk-pinned-feed-20261014\\manifest.json": "cc10249be697de1c6535261ab594df978cd2a7eb5f20b68c2658d8cf7293cd6f",
+      "q31-rust-source-size-20261014\\inventory.json": "112c31fde3917ed48789139c4674e4728b63ab53f7bcd332115c3ba9e47899ea"
+    },
+    "SDK_toplevel_host_exports": {
+      "GNU_HOST_NAME": "x86_64-pc-linux-gnu",
+      "HOST_OS": "Linux",
+      "HOST_ARCH": "x86_64"
+    },
+    "SDK_toplevel_sha256": "3d2de2ee9b1caf70e312ccd1b0f5340b6855eb027134a71918320ebfdef5795e",
+    "unit_admission": {
+      "RuntimeMaxUSec": "25min",
+      "MainPID": "2124113",
+      "Result": "success",
+      "ExecMainStatus": "0",
+      "MemoryPeak": "8790016",
+      "MemorySwapPeak": "0",
+      "MemoryMax": "805306368",
+      "MemorySwapMax": "268435456",
+      "KillMode": "control-group",
+      "LoadState": "loaded",
+      "ActiveState": "active"
+    },
+    "finished_unit_gc_observation": {
+      "RuntimeMaxUSec": "infinity",
+      "MainPID": "0",
+      "Result": "success",
+      "ExecMainStatus": "0",
+      "MemoryPeak": "[not set]",
+      "MemorySwapPeak": "[not set]",
+      "MemoryMax": "infinity",
+      "MemorySwapMax": "infinity",
+      "KillMode": "control-group",
+      "LoadState": "not-found",
+      "ActiveState": "inactive"
+    }
+  },
+  "qualification_sha256": "6c138d17844bb1e55dca3936e295413d41056d0a85b2e6f9b448b22547358675",
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-host-configure-r5-20261014",
+  "scope": "Exact four Markdown report/plan changes only. Actual complete SDK-pinned Rust feed Host/Prepare/Host/Configure and semantic host/target checks, not compiler bootstrap. No Qeli Rust/native/INI/package/runtime change. Original current Linux20 execution identities, performance cohorts and physical21 facts retained.",
+  "no_push_deploy_release": true
+}

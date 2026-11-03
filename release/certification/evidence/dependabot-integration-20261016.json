@@ -1,0 +1,850 @@
+{
+  "status": "DEPENDABOT_LOCAL_QUALIFICATION_PASS_HOSTED_CI_REQUIRED",
+  "source_commit": "c8c7ef96a26dac23e3656f7e078cabf31e10879a",
+  "source_digest": "22d6511a9c3f84df4e7af92451bf7526ce5d6c069522cbdd3e6721769e32348a",
+  "native_source_digest": "6546682de737e66d26656cdd72484ba8f68dcc1202cc80e246f193bc797a73ef",
+  "qualification": {
+    "status": "ALL_20_CURRENT_POOL_CLI_RUNTIME_CASES_QUALIFIED_CLEANUP_PENDING",
+    "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+    "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+    "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+    "qualified_rows": [
+      {
+        "id": "linux.outer4.inner4.tcp.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.tcp.full.log",
+        "log_sha256": "422a773351c2b9e0c120a6f8df008b3cdc63e35351be49e9162a31e4edc455bc",
+        "seconds": 6.008407883000473,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.tcp.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.tcp.full.log",
+        "log_sha256": "a452a364c22577c2108e66b01fc4d4b4716c106ab6134d72a3d97070f576d1d8",
+        "seconds": 6.008113920999676,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.tcp.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.tcp.full.log",
+        "log_sha256": "5c0985b471f5da9f85ab9e662326cd8cbf55dcc375ca0ede5943548b226ec53a",
+        "seconds": 6.007870732000811,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.tcp.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.tcp.full.log",
+        "log_sha256": "726bd203d55db85e9159f3a64224af5fb5abc1d497fbca27782920db8fb2c5e8",
+        "seconds": 6.008850587000779,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner4.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.udp-fake-tls.full.log",
+        "log_sha256": "5ee8bb15b4159b9aab679a5a75012a7a7d380901055910efaa1bba5c744166b4",
+        "seconds": 6.011170118999871,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.udp-fake-tls.full.log",
+        "log_sha256": "a1a53cf52c1046876ef6f2db81da944cbad0b84c72d129c8032448715cfa406a",
+        "seconds": 6.0121550570002,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.udp-fake-tls.full.log",
+        "log_sha256": "20f8e689f3884a50fd90cdc9c48ac7f12b8f1198f89fa1aa6c9029e6306ba198",
+        "seconds": 6.013099409999995,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.udp-fake-tls.full.log",
+        "log_sha256": "e77f0900cf0b51c5eaa9b4aae9e37fe224652170b28df1b7ccf938f672057e5f",
+        "seconds": 6.012819103001675,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner4.udp-quic.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.udp-quic.full.log",
+        "log_sha256": "79a9bef43c9f232a884422c39829965738c4fd34145200391ec632f34f18cab2",
+        "seconds": 6.012739475001581,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.udp-quic.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.udp-quic.full.log",
+        "log_sha256": "f5a18228a8293d3c9ab423f14c63256478674a884932ed12ac0b44a8dcbb2bb3",
+        "seconds": 6.0120403679993615,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.udp-quic.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.udp-quic.full.log",
+        "log_sha256": "472fdff4d958e27647a0f0cdfa73897c0820bfa8d04e11dfccf18ed572b9c0dc",
+        "seconds": 6.01222054200116,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.udp-quic.full",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.udp-quic.full.log",
+        "log_sha256": "9fc70024100f256ae6b7261c11f19064d57ae096ba303fd71cbb72c27836530a",
+        "seconds": 6.013457699000355,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.dual.tcp.split",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 19,
+        "log": "linux.dual.tcp.split.log",
+        "log_sha256": "cb69d7295ef730df0ef44b61a9734c7f5dcff0a722e6a899d45f2ba2e0958773",
+        "seconds": 8.015349264000179,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.dual.udp.split",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 19,
+        "log": "linux.dual.udp.split.log",
+        "log_sha256": "9d6c566404da8f901837ab40db8bf58bce7c79520bddce84c797ee9b71c313ce",
+        "seconds": 8.015815763999854,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.tap.ndp-ra",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 15,
+        "log": "linux.tap.ndp-ra.log",
+        "log_sha256": "2d96cb3c6ce6d1859ca96560d1b9c233cf074fc14e8f3c24f95274af0b4804b3",
+        "seconds": 8.016059227998994,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.dns.ipv4-ipv6",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 105,
+        "log": "linux.dns.ipv4-ipv6.log",
+        "log_sha256": "0ee884c61d2bef6cfb2b7ea472e96de561ff5ff44d05b2f17af310bea0e267cd",
+        "seconds": 26.057868167999914,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.mtu.1280-pmtu-ptb",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 36,
+        "log": "linux.mtu.1280-pmtu-ptb.log",
+        "log_sha256": "9e90111c1b198a53058179d2e6090f14b45aada7d90a274287c86d25ea0f34c9",
+        "seconds": 18.04696971299927,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.legacy-peer",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 26,
+        "log": "linux.legacy-peer.log",
+        "log_sha256": "c9d23964196cd75b46f7cf1cfb96bd9270af8d01ee91b3d0df057736f5159c88",
+        "seconds": 12.035389347000091,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.roaming-flap-soak",
+        "status": "passed",
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+        "checks_passed": 33,
+        "log": "linux.roaming-flap-soak.log",
+        "log_sha256": "ee8e4ed172545d7970c33939b3a92a4b2fc96cb3ad342825e78625a54d372f90",
+        "seconds": 441.24242194199905,
+        "namespaces": {
+          "mnt": "mnt:[4026532321]",
+          "net": "net:[4026532323]",
+          "pid": "pid:[4026532322]"
+        }
+      },
+      {
+        "id": "linux.leak.ipv4-ipv6",
+        "status": "passed",
+        "derived_from": [
+          "linux.dual.tcp.split",
+          "linux.dual.udp.split",
+          "linux.outer4.inner4.tcp.full",
+          "linux.outer4.inner4.udp-fake-tls.full",
+          "linux.outer4.inner4.udp-quic.full",
+          "linux.outer4.inner6.tcp.full",
+          "linux.outer4.inner6.udp-fake-tls.full",
+          "linux.outer4.inner6.udp-quic.full",
+          "linux.outer6.inner4.tcp.full",
+          "linux.outer6.inner4.udp-fake-tls.full",
+          "linux.outer6.inner4.udp-quic.full",
+          "linux.outer6.inner6.tcp.full",
+          "linux.outer6.inner6.udp-fake-tls.full",
+          "linux.outer6.inner6.udp-quic.full"
+        ],
+        "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+        "release_source_digest": "4477d3cb6a0c99948c38b708f576d2ffbb4cd85242efc35829e700343e3fef84",
+        "cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e"
+      }
+    ],
+    "failed_rows": [],
+    "all_20_runtime_cases_qualified": true,
+    "actual_ordinary_executions": 19,
+    "aggregate_leak_derived_from_actual_cases": [
+      "linux.dual.tcp.split",
+      "linux.dual.udp.split",
+      "linux.outer4.inner4.tcp.full",
+      "linux.outer4.inner4.udp-fake-tls.full",
+      "linux.outer4.inner4.udp-quic.full",
+      "linux.outer4.inner6.tcp.full",
+      "linux.outer4.inner6.udp-fake-tls.full",
+      "linux.outer4.inner6.udp-quic.full",
+      "linux.outer6.inner4.tcp.full",
+      "linux.outer6.inner4.udp-fake-tls.full",
+      "linux.outer6.inner4.udp-quic.full",
+      "linux.outer6.inner6.tcp.full",
+      "linux.outer6.inner6.udp-fake-tls.full",
+      "linux.outer6.inner6.udp-quic.full"
+    ],
+    "collection_sha256": "14e0d3ad8fbfe947d359ceff5d06ccc9e4f1ab677276c67d1f2e29f4083d770a",
+    "archive_sha256": "ae86838a8cd971fc55dbab838b7f663fb7dc8a883955a6bb7e1c2109025bed5a",
+    "host_gate": "PASS",
+    "changed_fields": [],
+    "source_equivalence": {
+      "status": "FRESH_DEPENDENCY_CLI_EXACT_QELI_CONFORMANCE_TREES_NATIVE_PACKAGING_AND_CI_ONLY_DELTA",
+      "source_commit": "4b9d42c9e1144ac84d8b82e10a90aca1f216a748",
+      "actual_build_source_commit": "43a3ec907f952484aeef14aa616a8e940e32d265",
+      "unchanged_trees": [
+        "qeli",
+        "conformance"
+      ],
+      "unrelated_source_delta": [
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "docs/eng/index.md",
+        "docs/eng/manuals/TROUBLESHOOTING.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q36-CURRENT-STATISTICS.md",
+        "docs/eng/reports/AUDIT-Q36-FINAL.md",
+        "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md",
+        "docs/eng/reports/AUDIT-Q36-TUN-STAGE.md",
+        "docs/eng/reports/AUDIT-Q36-UDP-SHUTDOWN.md",
+        "docs/eng/reports/BENCHMARK.md",
+        "docs/ru/index.md",
+        "docs/ru/manuals/TROUBLESHOOTING.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q36-CURRENT-STATISTICS.md",
+        "docs/ru/reports/AUDIT-Q36-FINAL.md",
+        "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md",
+        "docs/ru/reports/AUDIT-Q36-TUN-STAGE.md",
+        "docs/ru/reports/AUDIT-Q36-UDP-SHUTDOWN.md",
+        "docs/ru/reports/BENCHMARK.md",
+        "native-libs/PROVENANCE",
+        "native-libs/SHA256SUMS",
+        "native-libs/android/arm64-v8a/libqeli.so",
+        "native-libs/android/x86_64/libqeli.so",
+        "native-libs/macos-universal/libqeli.dylib",
+        "native-libs/reproducibility/android.json",
+        "native-libs/reproducibility/desktop.json",
+        "native-libs/windows-x64/qeli.dll",
+        "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+        "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+        "qeli-mac/QeliMac/native/libqeli.dylib",
+        "qeli-openwrt/Makefile",
+        "qeli-openwrt/README.md",
+        "qeli-win/QeliWin/native/qeli.dll",
+        "release/RELEASE_NOTES_0.8.2.md",
+        "release/audit_q36_ack_path_2026-10-11.json",
+        "release/audit_q36_current_data_plane_2026-10-11.json",
+        "release/audit_q36_downlink_load_2026-10-11.json",
+        "release/audit_q36_lab11_cleanup_2026-10-11.json",
+        "release/audit_q36_native_auth_functional_2026-10-11.json",
+        "release/audit_q36_release_auth_2026-10-11.json",
+        "release/audit_q36_tcp_affinity_2026-10-11.json",
+        "release/audit_q36_tcp_state_2026-10-11.json",
+        "release/audit_q36_tun_counters_2026-10-11.json",
+        "release/audit_q36_tun_queue_2026-10-11.json",
+        "release/audit_q36_udp_shutdown_2026-10-11.json",
+        "release/benchmark_results.json",
+        "release/benchmark_v0.8.2_2026-10-01_isolated_12modes.json",
+        "release/benchmark_v0.8.2_2026-10-03_isolated_12modes.json",
+        "release/benchmark_v0.8.2_2026-10-10_bidir_12modes.json",
+        "release/benchmark_v0.8.2_2026-10-10_bidir_pressure.json",
+        "release/benchmark_v0.8.2_2026-10-10_client_downlink.json",
+        "release/benchmark_v0.8.2_2026-10-10_client_uplink.json",
+        "release/benchmark_v0.8.2_2026-10-10_latency.json",
+        "release/benchmark_v0.8.2_2026-10-10_repeated_12modes.json",
+        "release/benchmark_v0.8.2_2026-10-10_udp_ipv6.json",
+        "release/benchmark_v0.8.2_2026-10-10_unpaced_latency.json",
+        "release/benchmark_v0.8.2_2026-10-11_auth_bursts.json",
+        "release/benchmark_v0.8.2_2026-10-11_ipv6_carriers.json",
+        "release/benchmark_v0.8.2_2026-10-11_ipv6_latency.json",
+        "release/benchmark_v0.8.2_2026-10-11_mixed_carriers.json",
+        "release/certification/evidence/q36-ack-stage-pilot-20261014.json",
+        "release/certification/evidence/q36-bidir-role-harness-20261013.json",
+        "release/certification/evidence/q36-bonded-slot-analysis-20261013.json",
+        "release/certification/evidence/q36-bonded-slot-runtime-20261013.json",
+        "release/certification/evidence/q36-bonding-analysis-20261013.json",
+        "release/certification/evidence/q36-bonding-control-20261013.json",
+        "release/certification/evidence/q36-client-qdisc-analysis-20261013.json",
+        "release/certification/evidence/q36-client-qdisc-r3-20261013.json",
+        "release/certification/evidence/q36-client-writer-priority-20261014.json",
+        "release/certification/evidence/q36-current-legacy-mux-20261014.json",
+        "release/certification/evidence/q36-current-slot-statistics-20261014.json",
+        "release/certification/evidence/q36-current-statistics-20261013.json",
+        "release/certification/evidence/q36-direction-control-20261013.json",
+        "release/certification/evidence/q36-equal-load-20261013.json",
+        "release/certification/evidence/q36-final-20261014.json",
+        "release/certification/evidence/q36-queue-boundaries-20261013.json",
+        "release/certification/evidence/q36-queue-length-control-20261013.json",
+        "release/certification/evidence/q36-recordizer-analysis-20261013.json",
+        "release/certification/evidence/q36-recordizer-control-r2-20261013.json",
+        "release/certification/evidence/q36-recordizer-delay-20261013.json",
+        "release/certification/evidence/q36-recordizer-delay-analysis-20261013.json",
+        "release/certification/evidence/q36-recordizer-handoff-20261014.json",
+        "release/certification/evidence/q36-recordizer-shipping-20261014.json",
+        "release/certification/evidence/q36-server-handoff-runtime-20261014.json",
+        "release/certification/evidence/q36-server-rcvbuf-causal-20261014.json",
+        "release/certification/evidence/q36-server-sndbuf-causal-20261014.json",
+        "release/certification/evidence/q36-slot-compat-analysis-20261013.json",
+        "release/certification/evidence/q36-slot-compat-runtime-20261013.json",
+        "release/certification/evidence/q36-stock-read-pilot-20261014.json",
+        "release/certification/evidence/q36-stock-small-copy-pilot-20261014.json",
+        "release/certification/evidence/q36-stock-tun-drop-reason-20261014.json",
+        "release/certification/evidence/q36-tcp-boundaries-20261012.json",
+        "release/certification/evidence/q36-tcp-producer-pacing-20261013.json",
+        "release/certification/evidence/q36-tun-maxrate-20261013.json",
+        "release/certification/evidence/q36-tun-maxrate-analysis-20261013.json",
+        "release/certification/evidence/q36-tun-stage-20261013.json",
+        "release/certification/evidence/q36-upload-duration-20261013.json"
+      ],
+      "unchanged_runtime_script_closure": {
+        "scripts/update-kernel.sh": "23dd2984b87e87d54279ba17ec7dde5341fc676365f1d06e811e7be79b8ab431",
+        "scripts/roaming_udp_resource_soak_netns_gate.sh": "f405bb673345d2c7d74c0ade6fa5fbb1a88e540bb6c1f6cbffb79aba92c06242",
+        "scripts/roaming_udp_netns_e2e.sh": "1bdca757a71bf89c6326d6f204dc4073ca6fd4e0003e61283820d30a32275d0a",
+        "scripts/roaming_udp_netns_soak_case.sh": "6209dbbb28e8b0b48afb88262048f74e102ce803450e8b0316504a65f9490a05",
+        "scripts/roaming_soak_parameters.sh": "e044320fe7ea072ad617e1aecf0f611263144702287310de20067201ae9ed14c",
+        "scripts/roaming_process_probe.sh": "38f937792c40e8112da4f51163d664708757bb1f3b6292cd7092fc695a38c261",
+        "scripts/roaming_control_stats.py": "cc7a454a07e6e92ae8b003a8a1fdc3088acb222328e8846549559236e3e55b57",
+        "scripts/netns_e2e.sh": "daf2a93de46869f1bd6896ddcf5482f4155b40c7ce5f504cf02a91e54c744cd5",
+        "scripts/roaming_udp_netns_nat_rebind_case.sh": "02d944f79a14793dae022e95287f28fb8406398f9655be3a0104a5645115d95c",
+        "scripts/roaming_udp_netns_frag_loss_case.sh": "9f7152e353d529b0405c7aad6f4783ea712bd7be99f4e10a40549c5a275fa092",
+        "scripts/roaming_udp_netns_family_case.sh": "43b2103473ed6ebc1802c9a8a36cceb011d62c057e6c5ae1497029c09859e7a2",
+        "scripts/roaming_udp_netns_drain_case.sh": "8c8c200c707da4ce63a78b2d6f81944f09057cbbf0948240b19cea1dea6e3c6c",
+        "scripts/roaming_netns_isolation.sh": "8c92dd50bb2376fb448f8f3f2591acbb350e1af535de845ad3a9945e08cb48f6",
+        "scripts/roaming_netns_supervisor.py": "480aef283101a434cc7de0885873e7184463fc1b25cab45b623464b746c13ed8",
+        "scripts/roaming_udp_all_modes_netns_e2e.sh": "9a682b5440a8408c42468f95c8d3d68746606a17e1651e6c92ca6605057a0e9f",
+        "scripts/roaming_tcp_starvation_netns_case.sh": "e44df32d5b2b573f0566def715ca0fbc1e27e71f08361717ed3c23e23233ea7b",
+        "scripts/roaming_bonding_udp_probe.py": "422f61c4fe3eb6d162d6821dcfc11e768a3b0950ca225d941e40b0f8e9f514c0",
+        "scripts/roaming_tcp_resume_netns_case.sh": "c6b6d5404a6a8a4af876ddb4734118f7ba7d8610952124dcc977a917cf6ebc2c",
+        "scripts/roaming_netns_e2e.sh": "fca54d80506cec70e82f2a59ffb1f163eca81b0748b62ab66175c0c0e14bc731",
+        "scripts/roaming_tcp_netns_soak_case.sh": "1dd133e33f3ee847d410e21e9ffdb6961c3d6da66e7f9e19aa5d52b0cee18e7e",
+        "scripts/roaming_tcp_netns_perf_case.sh": "2a80fe5ee9acf7f11797f91e5781da173eb209dbdf354bea2c83a2da37dc85d5",
+        "scripts/roaming_tcp_multinode_netns_case.sh": "fde68810a2dc9c56861c34bdfe34117debca095c603d7ad015593138f1d3f638",
+        "scripts/roaming_tcp_bonding_netns_case.sh": "62c10c92034c4bca9b3aebd597f940185a9b06441bbe5b683274c0123d32b6cf",
+        "scripts/roaming_tcp_perf_netns_gate.sh": "e91a29d0d247159ec9d1634f20923a46cc6ffc7fbb14dd40d6020974db0443f9",
+        "scripts/roaming_tcp_all_modes_netns_e2e.sh": "9ef742fd7d0788718ce4ef9288583f4e364adeb40bc2fb06ea79fd5799ec223c",
+        "scripts/roaming_resource_release_gate.sh": "bc1e4e0bad39fffc11e7ea944b161ae58ae29077a90755291270566bddc83f76",
+        "scripts/roaming_mixed_version_netns_e2e.sh": "88b9f2afd8d872b5fa33e4200e0a142756561ab670c6c82213393f018bbd2f97",
+        "scripts/roaming_exit_node_udp_all_modes_netns_e2e.sh": "ee7fcdcb061d6624407abe9c1e6aa3a155b213c8ab6dae2725f695686250000d",
+        "scripts/roaming_exit_node_netns_e2e.sh": "55628b66c818cf93ef98502fa71ece8327299ab8ed3fd217b83ae18960691c07",
+        "scripts/linux_roaming_release_soak.sh": "b176ed09a53b68638c635452d86407458134b23c6f9181ebbc2178f58603e8ed",
+        "scripts/ipv6_netns_case.sh": "49072d5b7eab4a52f77f7c95a69d16cbb8c8652097d35d32e0cc8f42596866d5",
+        "scripts/tap_ipv6_control_probe.py": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757",
+        "scripts/dns_test_server.py": "2caab1a8b2d98a4ecc76e062cec57f75547466fa257d180c024220d2d55ba537",
+        "scripts/audit_persistent_tun.py": "35c4390b709856749e168db57fe61c299c1a53d816a2078e68db29e159504a9b",
+        "scripts/audit_outer_udp_capture.py": "3599e1e9f83254665d1c4db84172b99748e31d1d3bee6b7f46dd7b217eb1978c",
+        "scripts/audit_client_mixed_firewall.py": "931ab2f5031034f9657d58c1c1c3af1eb9ff478d2b1f7a1fe70c16794dd68d96",
+        "scripts/ipv6_mtu_pair.sh": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a",
+        "scripts/ipv6_legacy_pair.sh": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6",
+        "scripts/ipv6_dns_pair.sh": "486cfd27b1254b94e92c34ffb2667d53c8b71f5e9f685aeef00411599d5fdcf3",
+        "scripts/install-wireguard.sh": "908f22e675e6eb8962543e150eadb5a22f9ae836b08ad24231581760e0059065",
+        "scripts/install-openvpn.sh": "136042faa44ccadbe806ecfb4e2d47526b60c9a64df58e601b7f7110c0395043",
+        "scripts/ci-check.sh": "5208829a8102f3a68bc21bdfe9e8f3183d1cc6c2474c75f2908667b9ff7c18ac",
+        "scripts/test_ci_check.py": "41aa5b524fdbdc5644f14a9edc00984b15ddbece5d97751c3f2add33ca50acfc",
+        "scripts/audit_test_suite.py": "fca4922dbcb91744e54aeb1148be28d68e36d7aff6121d33bdb95b0ad4a6176b",
+        "scripts/test_audit_test_suite.py": "da2231d351755cb0e4cb15b484e6022114232d4cab24f8180b1f15f42872cb90",
+        "scripts/sync_version.py": "0ec03fe2029f2f30011d44ce3590eeac18b62215a210b31e6fe0e72046270e3f",
+        "scripts/gen_config_bindings.py": "1a11b91506df5c13a30bce50847a33bcd2d9336378fc5ef30b71d3967f466da7",
+        "scripts/check_panel.py": "73dc7722e8071ff5909ec24a5bfddab4b589d85a9f3f827169ad6398f9bf472b",
+        "scripts/check_docs.py": "e260cb024b56fc6257108801d5dae01607dfadfb6cb5458669b3b2e25e808a10",
+        "scripts/add-client.sh": "d01fd52f435f6eb62eee2a95d96d33019a9aa1bed75031610ac9bb137611923b"
+      },
+      "canonical_nonruntime_script_updates": [
+        "scripts/docker_publish_ref.py",
+        "scripts/release_tag.py",
+        "scripts/test_docker_publish_ref.py",
+        "scripts/test_macos_app_signer.py",
+        "scripts/test_release_tag.py"
+      ],
+      "actual_cli_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+      "actual_build_qualification_sha256": "b86c713374813e7e7ba57dc911070f7685568a9e483b5ecdb2cc840ecb235796",
+      "actual_build_archive_sha256": "e930b533acf9619284c03c932659552fc0b7308ca8134b71d4536f05e66e19de",
+      "old_cli_reused": false,
+      "harness_scripts_unchanged": true
+    },
+    "old_results_reused": false,
+    "q35_eight_hour_endurance_qualified": false,
+    "final_release_certified": false
+  },
+  "cli_build": {
+    "status": "CURRENT_DEV_FACTORY_RELEASE_CLI_QUALIFIED_CLEANED",
+    "source_commit": "43a3ec907f952484aeef14aa616a8e940e32d265",
+    "binary_sha256": "3d32e2b62f756b757c7cd6273a03005b73e604afc99401a4ecf3c4bf943a784e",
+    "binary_bytes": 14475528,
+    "source_inputs": 919,
+    "steps": [
+      {
+        "label": "fetch-locked",
+        "command": [
+          "/root/.rustup/toolchains/1.97.0-x86_64-unknown-linux-gnu/bin/cargo",
+          "fetch",
+          "--locked"
+        ],
+        "exit": 0,
+        "stop": null,
+        "seconds": 5.001303606000874,
+        "log_sha256": "e2ef0cb21315a4e7ad7bdfb2d0f37729f1d7d2600ba951975fa056237de4e6b3"
+      },
+      {
+        "label": "factory-release-cli",
+        "command": [
+          "unshare",
+          "--net",
+          "sh",
+          "-c",
+          "ip link set lo up && exec \"$@\"",
+          "isolated-build",
+          "/root/.rustup/toolchains/1.97.0-x86_64-unknown-linux-gnu/bin/cargo",
+          "build",
+          "--offline",
+          "--locked",
+          "--release",
+          "--features",
+          "jemalloc",
+          "--bin",
+          "qeli",
+          "--jobs",
+          "1"
+        ],
+        "exit": 0,
+        "stop": null,
+        "seconds": 580.0698560609999,
+        "log_sha256": "04a51ad517c8a7a4a5ddfad098c41e6ee4ccf5ae83c2e9d5e50decd9a1ac682f"
+      }
+    ],
+    "factory_profile": {
+      "lto": "fat",
+      "codegen-units": 1,
+      "opt-level": 3,
+      "strip": true,
+      "panic": "abort"
+    },
+    "collection_sha256": "d09c337140506d621ef6a65e116623e5379a18ba0ae562615d8ab078a5125d00",
+    "archive_sha256": "e930b533acf9619284c03c932659552fc0b7308ca8134b71d4536f05e66e19de",
+    "owned_cleanup_verified": true,
+    "full_Rust_unit_tests_replayed": false,
+    "compiler_bootstrap_replayed": false
+  },
+  "post_runtime_source_delta": [
+    ".github/workflows/ci.yml",
+    "docs/eng/manuals/CONFIG.md",
+    "docs/eng/manuals/GETTING-STARTED.md",
+    "docs/eng/manuals/OPERATIONS.md",
+    "docs/eng/manuals/PANEL.md",
+    "docs/eng/manuals/TROUBLESHOOTING.md",
+    "docs/ru/manuals/CONFIG.md",
+    "docs/ru/manuals/GETTING-STARTED.md",
+    "docs/ru/manuals/OPERATIONS.md",
+    "docs/ru/manuals/PANEL.md",
+    "docs/ru/manuals/TROUBLESHOOTING.md",
+    "qeli-android/app/gradle.lockfile",
+    "qeli-openwrt/Makefile",
+    "qeli-openwrt/README.md",
+    "qeli/fuzz/Cargo.lock",
+    "scripts/test_release_tag.py"
+  ],
+  "android_release_graph_adoption": {
+    "status": "REAL_RELEASE_GRAPH_ADOPTED_AND_STRICT_RECHECK_PASS",
+    "compiled_runtime_graphs_unchanged": true,
+    "unchanged_compiled_configurations": [
+      "debugCompileClasspath",
+      "debugRuntimeClasspath",
+      "releaseCompileClasspath",
+      "releaseRuntimeClasspath"
+    ],
+    "changed_test_configurations": [
+      "releaseAndroidTestCompileClasspath",
+      "releaseAndroidTestLintChecksClasspath",
+      "releaseUnitTestCompileClasspath",
+      "releaseUnitTestLintChecksClasspath",
+      "releaseUnitTestRuntimeClasspath"
+    ],
+    "only_dependency_changes": {
+      "androidx.core:core": "1.19.0 -> 1.19.1",
+      "androidx.core:core-ktx": "1.19.0 -> 1.19.1"
+    },
+    "verification_checksums_and_policy_unchanged": true,
+    "root_buildscript_locks_unchanged": true
+  },
+  "fuzz_lock_canonicalization": {
+    "status": "CANONICAL_LOCK_REFERENCE_FORMAT_ONLY",
+    "before": "5a62fb0321f9cef5645c2244c64c8b3eaeef8288159758b00f814d256fb5cc8b",
+    "after": "382243d6621316dbd1148fe60a532a2f71db3b7c1223732768ee4efd1c9f3d4b",
+    "cause": "Copied main-lock entry retained a version qualifier although fuzz graph contains only one thiserror-impl version; Cargo build canonicalizes it",
+    "package_versions_checksums_and_resolved_dependency_edges_unchanged": true,
+    "packages": 146,
+    "no_production_lock_or_Rust_source_change": true
+  },
+  "android_osv_summary": {
+    "queried_at_utc": "2026-10-15T21:45:06.024329+00:00",
+    "packages": 319,
+    "affected_packages": 0
+  },
+  "matrix_seal_sha256": "7c2f892dd15497e17f0ac4ff7de8d8140a5059bfa9d507b34dcf3549924a8ff5",
+  "matrix_archive_sha256": "ae86838a8cd971fc55dbab838b7f663fb7dc8a883955a6bb7e1c2109025bed5a",
+  "android": {
+    "status": "DEBUG_R8_RELEASE_LINT_PASS_CANONICAL_TWO_ABI_BYTES_VERIFIED",
+    "apks": [
+      {
+        "path": "qeli-android/app/build/outputs/apk/debug/app-debug.apk",
+        "sha256": "069a44fa116a0adeb253787cfa5afef1d300a91cdfd9d2b94f518c0141238e43",
+        "bytes": 30486272,
+        "native_libraries": {
+          "arm64-v8a": "b79237a129e0196e9fee2a9fe4c1b3ba40cd4dbc0a589d8d8ab35e0e54ea074a",
+          "x86_64": "9da76b1059c3de5d7762984d9422f4d222059926c0d4e2f1c7833a2dafb87a45"
+        }
+      },
+      {
+        "path": "qeli-android/app/build/outputs/apk/release/app-release-unsigned.apk",
+        "sha256": "365f038ecd725e841c8dbceffb07eef062fc32fda941f32bafc0590180063fbb",
+        "bytes": 12111097,
+        "native_libraries": {
+          "arm64-v8a": "b79237a129e0196e9fee2a9fe4c1b3ba40cd4dbc0a589d8d8ab35e0e54ea074a",
+          "x86_64": "9da76b1059c3de5d7762984d9422f4d222059926c0d4e2f1c7833a2dafb87a45"
+        }
+      }
+    ]
+  },
+  "android_legal": {
+    "status": "PASS",
+    "apk_sha256": "365f038ecd725e841c8dbceffb07eef062fc32fda941f32bafc0590180063fbb",
+    "reviewed_maven_coordinates": 76,
+    "indexed_assets": 562,
+    "original_archives": 63,
+    "embedded_notices": [
+      {
+        "coordinate": "androidx.annotation:annotation-jvm:1.10.0",
+        "origin": "META-INF/androidx/annotation/annotation/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.appcompat:appcompat-resources:1.8.0",
+        "origin": "META-INF/androidx/appcompat/appcompat-resources/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.appcompat:appcompat:1.8.0",
+        "origin": "META-INF/androidx/appcompat/appcompat/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.collection:collection-jvm:1.5.0",
+        "origin": "META-INF/androidx/collection/collection/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.constraintlayout:constraintlayout-core:1.1.2",
+        "origin": "META-INF/androidx/constraintlayout/constraintlayout-core/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.constraintlayout:constraintlayout:2.2.2",
+        "origin": "META-INF/androidx/constraintlayout/constraintlayout/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.core:core-ktx:1.19.1",
+        "origin": "META-INF/androidx/core/core-ktx/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.core:core-viewtree:1.0.0",
+        "origin": "META-INF/androidx/core/core-viewtree/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.core:core:1.19.1",
+        "origin": "META-INF/androidx/core/core/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.customview:customview:1.2.0",
+        "origin": "META-INF/androidx/customview/customview/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.dynamicanimation:dynamicanimation:1.1.0",
+        "origin": "META-INF/androidx/dynamicanimation/dynamicanimation/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.graphics:graphics-shapes-android:1.0.1",
+        "origin": "META-INF/androidx/graphics/graphics-shapes/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.lifecycle:lifecycle-common-jvm:2.11.0",
+        "origin": "META-INF/androidx/lifecycle/lifecycle-common/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.lifecycle:lifecycle-livedata-core-ktx:2.11.0",
+        "origin": "META-INF/androidx/lifecycle/lifecycle-livedata-core-ktx/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.lifecycle:lifecycle-livedata-core:2.11.0",
+        "origin": "META-INF/androidx/lifecycle/lifecycle-livedata-core/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.lifecycle:lifecycle-livedata:2.11.0",
+        "origin": "META-INF/androidx/lifecycle/lifecycle-livedata/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.lifecycle:lifecycle-process:2.11.0",
+        "origin": "META-INF/androidx/lifecycle/lifecycle-process/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.lifecycle:lifecycle-runtime-android:2.11.0",
+        "origin": "META-INF/androidx/lifecycle/lifecycle-runtime/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.lifecycle:lifecycle-runtime-ktx-android:2.11.0",
+        "origin": "META-INF/androidx/lifecycle/lifecycle-runtime-ktx/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.lifecycle:lifecycle-viewmodel-android:2.11.0",
+        "origin": "META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.11.0",
+        "origin": "META-INF/androidx/lifecycle/lifecycle-viewmodel-savedstate/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.lifecycle:lifecycle-viewmodel:2.11.0",
+        "origin": "META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.profileinstaller:profileinstaller:1.4.0",
+        "origin": "META-INF/androidx/profileinstaller/profileinstaller/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "coordinate": "androidx.savedstate:savedstate-android:1.4.0",
+        "origin": "META-INF/androidx/savedstate/savedstate/LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      }
+    ],
+    "native_bundle": {
+      "status": "PASS",
+      "locked_packages": 235,
+      "resources": 458,
+      "indexed_files": 532,
+      "bytes": 6557865,
+      "supplements": 6,
+      "toolchains": {
+        "status": "PASS",
+        "components": 7,
+        "resources": 65,
+        "files": 69,
+        "bytes": 3999768
+      },
+      "scope": "Full Cargo.lock superset; not per-binary linkage or complete release licensing"
+    },
+    "scope": "Project, Maven and reviewed native Cargo/toolchain legal resource packaging; per-binary linkage/source/signature admission remains separate"
+  },
+  "openwrt_source": {
+    "status": "PASS_EXACT_CURRENT_COMMIT_TWO_SDK_DOWNLOADS_PREPARE",
+    "source_commit": "084682e5f3efc05efaf4154b4d5a3eff2750a21d",
+    "source_tree": "d612b6b94d22f622d134428904001afd93b5d7da",
+    "qeli_tree": "1303f452bfdd0f69720001486e7bb87f871e4891",
+    "archive": {
+      "sha256": "df98f489de92b6738048973cc74e84dbf3ee829ef0f1b66badc0a7c091aab671",
+      "bytes": 27207208
+    },
+    "prepared_count": 3442,
+    "all_prepared_blobs_verified_against_canonical_git": true,
+    "unaltered_sdk_git_export": true,
+    "private_recipe_only_url_pin_hash_changes": true,
+    "SDK": "24.10.4",
+    "two_empty_download_caches_identical": true,
+    "host_preserved": true,
+    "production_recipe_not_yet_updated": true,
+    "no_compiler_bootstrap_or_full_build": true,
+    "no_publication_or_hosted_ci": true
+  },
+  "scope": "Fresh dependency-qualified factory CLI and20 Linux cases (19 executions plus derived leak case); 100 TCP and UDP flips, not a new eight-hour run. Native Windows/macOS/Android A/B rebuilt; Android strict-verification debug and unsigned R8 Release plus lint and legal packaging checked. OpenWrt source export/prepare only, not a new full SDK/IPK/physical-router qualification. After Linux execution, only isolated fuzz-lock reference canonicalization (identical packages/checksums/resolved edges), the matching SDK source cut, opt-in Android Release test locks/CI guard, withdrawn-release documentation and temporary-Git test fixture isolation changed. Production Rust sources/Cargo graph/build recipes and shipped Android runtime graphs remain identical. Hosted full CI is a separate mandatory PR merge gate. No release publication is authorized.",
+  "accepted_API34_ENONET_original_FAIL_and_physical_exclusions_unchanged": true,
+  "release_published": false
+}

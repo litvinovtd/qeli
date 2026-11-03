@@ -1,0 +1,47 @@
+{
+  "status": "EXACT_DOCUMENTATION_DELTA_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_commit": "b8b70d4b52f01722281915c8dd1f7d08efb63b1f",
+  "source_digest": "6181847590ad86e4b21073ad3974ccf6969f71bd1e2f85a2c105f600fa872e18",
+  "previous_source_commit": "d305f6aac795e5af0de9ca81ba5020210104bc2c",
+  "document_files": {
+    "docs/eng/index.md": "43ac670fa7cfbd410027e2f4af899d50eb523a5f74d7fc5cbc0bf4ae9d782ca4",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "a257b324b287f2feb31ec1be744c315da075b037672597336a1c1beb6de0801e",
+    "docs/eng/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md": "cda3efd7d7d44e65b9be5c283a48d5c426fa7e3dc9622c007a3e062647ebc090",
+    "docs/eng/reports/AUDIT-Q36-CURRENT-STATISTICS.md": "e439a17d109ca410d25c6e77f3cf471f7b2c4e082f6ef6cc4e53ce6c1afc1ace",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md": "18b7fa89f6867dd4282d1df19a613699a88bfa35c2fb1fafbf78656579772e96",
+    "docs/ru/index.md": "d0d17843453b0d01a24458f83893b3eb3ae254bcef91d6095b9e0530580ded5e",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "9c1eb1f7ad078591e68a54680f585282e0b4a298d31185c4486bd885378cdcab",
+    "docs/ru/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md": "e7c159f908301501cdf3a6249fa46bbc7830c6fc52b29942c4b2fb4c1503dab0",
+    "docs/ru/reports/AUDIT-Q36-CURRENT-STATISTICS.md": "8b2027bbd98ddc2f41553014fbb10d32c7a8ee44c26716a8f3a1384d2d7aedec",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md": "bad6a009e3642f6a4870e2c9f170950743359346725812dc8c98eff534b1b5e8"
+  },
+  "exact_non_certification_delta": [
+    "docs/eng/index.md",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md",
+    "docs/eng/reports/AUDIT-Q36-CURRENT-STATISTICS.md",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md",
+    "docs/ru/index.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md",
+    "docs/ru/reports/AUDIT-Q36-CURRENT-STATISTICS.md",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md"
+  ],
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "runtime_qualification_sha256": {
+    "q36-equal-load-20261013": "377caf0e5dd2ca304fa5bc73bf1aefe6cba2c0d11c269c432643072b691f092c",
+    "q36-queue-boundaries-20261013": "b7aec906aa98c292ab83b92bd666a434596cb90adc6b98cb542ebc4d19dbbc60",
+    "q36-queue-length-control-20261013": "25a9bf2f48415144641398956d98b71ff80a921cffc66752e67edf75a4728f4e"
+  },
+  "current_Q36_sessions": 12,
+  "current_Q36_windows": 84,
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "new_certification_matrix_execution": false,
+  "scope": "Exact10Markdown-only delta plus four excluded measured/review evidence files. Product/helpers/INI/Cargo/native binaries and native source digest unchanged. Fresh12sessions84windows qualified separately: matched-total two-transport load, TCPraw TUN boundary losses and same-generation client queue length500/1000 tradeoff; every full host/archive/cleanup PASS. UpstreamDNS review is no newruntime/no safeallthirdpartyfix/no acceptance. Original20Linux certification execution facts and21physical statuses unchanged; no rerun, maximumglobalcapacity/finalTCPasymmetrycause/Q29orQ36wholeclosure/hostedCI/publicrelease claim.",
+  "no_push_deploy_release": true,
+  "driver_sha256": "fd6b6ba5b4bfd7b10693f3415cdbedc16aa77814684c071d0896a80ad25fe8c6"
+}

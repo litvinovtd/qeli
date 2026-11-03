@@ -10,9 +10,11 @@
 // Feature-specific constructors still leave a few helpers unused in some builds.
 #![allow(dead_code)]
 
+use super::application::ApplicationRecords;
 use super::client::{EstablishedTls, MAX_RECORD};
 use super::record::RecordCrypto;
 use crate::protocol::obfs::SplitStream;
+use crate::protocol::stream_io::StallGuard;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -29,7 +31,7 @@ const READ_CHUNK: usize = 64 * 1024;
 
 /// An `AsyncRead + AsyncWrite` duplex over an established TLS 1.3 session.
 pub struct RealTlsStream<S> {
-    inner: S,
+    inner: StallGuard<S>,
     send: RecordCrypto,
     recv: RecordCrypto,
     /// Raw inbound bytes not yet framed into a complete record.
@@ -41,7 +43,7 @@ pub struct RealTlsStream<S> {
     plain: Vec<u8>,
     plain_pos: usize,
     /// A valid TLS close_notify was consumed; return clean EOF after buffered app data.
-    peer_closed: bool,
+    records: ApplicationRecords,
     /// Encrypted outbound record pending write to the inner socket.
     out_buf: Vec<u8>,
     out_pos: usize,
@@ -57,14 +59,14 @@ impl<S> RealTlsStream<S> {
     /// stream without depending on the client's `EstablishedTls` type.
     pub fn from_crypto(inner: S, send: RecordCrypto, recv: RecordCrypto) -> Self {
         RealTlsStream {
-            inner,
+            inner: StallGuard::new(inner),
             send,
             recv,
             in_buf: Vec::new(),
             rbuf: vec![0u8; READ_CHUNK],
             plain: Vec::new(),
             plain_pos: 0,
-            peer_closed: false,
+            records: ApplicationRecords::default(),
             out_buf: Vec::new(),
             out_pos: 0,
         }
@@ -94,54 +96,6 @@ fn flush_out<S: AsyncWrite + Unpin>(
     Poll::Ready(Ok(()))
 }
 
-/// Accept ignorable NewSessionTicket messages but fail explicitly on KeyUpdate. Skipping a
-/// KeyUpdate would leave RecordCrypto on the old traffic secret and turn the next valid record
-/// into a misleading AEAD failure. This implementation deliberately reconnects instead of
-/// pretending to support a rekey it has not applied.
-fn validate_post_handshake(mut plaintext: &[u8]) -> io::Result<()> {
-    while !plaintext.is_empty() {
-        if plaintext.len() < 4 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "truncated TLS post-handshake message",
-            ));
-        }
-        let kind = plaintext[0];
-        let len = (usize::from(plaintext[1]) << 16)
-            | (usize::from(plaintext[2]) << 8)
-            | usize::from(plaintext[3]);
-        let total = 4usize.checked_add(len).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "TLS post-handshake length overflow",
-            )
-        })?;
-        if plaintext.len() < total {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "truncated TLS post-handshake body",
-            ));
-        }
-        match kind {
-            0x04 => {} // NewSessionTicket; qeli deliberately does not resume these sessions.
-            0x18 => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Unsupported,
-                    "TLS KeyUpdate is not supported; reconnecting before record keys diverge",
-                ));
-            }
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "unexpected TLS post-handshake message",
-                ))
-            }
-        }
-        plaintext = &plaintext[total..];
-    }
-    Ok(())
-}
-
 impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -149,6 +103,9 @@ impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let me = self.get_mut();
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
         loop {
             // 1. Serve any already-decrypted plaintext.
             if me.plain_pos < me.plain.len() {
@@ -157,7 +114,10 @@ impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
                 me.plain_pos += n;
                 return Poll::Ready(Ok(()));
             }
-            if me.peer_closed {
+            if let Some(error) = me.records.error() {
+                return Poll::Ready(Err(error));
+            }
+            if me.records.peer_closed {
                 return Poll::Ready(Ok(()));
             }
             // 2. Batch: decrypt EVERY complete record currently buffered into
@@ -180,64 +140,48 @@ impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
                 // memory-amplification lever and a deviation from the thing we impersonate.
                 // (Audit 2026-08-04.)
                 if len > MAX_RECORD {
-                    me.in_buf.drain(..pos);
-                    return Poll::Ready(Err(io::Error::new(
+                    me.records.fail(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "TLS record exceeds the RFC 8446 maximum",
-                    )));
+                    ));
+                    break;
                 }
                 let total = 5 + len;
                 if me.in_buf.len() - pos < total {
                     break; // incomplete record — need more bytes
                 }
-                let mut close_notify = false;
-                match me.recv.decrypt(&me.in_buf[pos..pos + total]) {
-                    Some((0x17, pt)) => me.plain.extend_from_slice(&pt),
-                    Some((0x16, pt)) => {
-                        if let Err(error) = validate_post_handshake(&pt) {
-                            me.in_buf.drain(..pos);
-                            return Poll::Ready(Err(error));
-                        }
-                    }
-                    Some((0x15, alert)) if alert.len() == 2 && alert[1] == 0 => {
-                        me.peer_closed = true;
-                        close_notify = true;
-                    }
-                    Some((0x15, alert)) => {
-                        let description = alert.get(1).copied().unwrap_or(0xff);
-                        me.in_buf.drain(..pos);
-                        return Poll::Ready(Err(io::Error::new(
-                            io::ErrorKind::ConnectionAborted,
-                            format!("TLS peer sent alert {description}"),
-                        )));
-                    }
-                    Some(_) => {
-                        me.in_buf.drain(..pos);
-                        return Poll::Ready(Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "unexpected TLS inner content type",
-                        )));
-                    }
-                    None => {
-                        me.in_buf.drain(..pos);
-                        return Poll::Ready(Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "TLS record decrypt failed",
-                        )));
+                let result = me
+                    .recv
+                    .decrypt(&me.in_buf[pos..pos + total])
+                    .ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "TLS record decrypt failed")
+                    })
+                    .and_then(|(kind, pt)| me.records.accept(kind, pt));
+                pos += total;
+                match result {
+                    Ok(Some(plaintext)) => me.plain.extend_from_slice(&plaintext),
+                    Ok(None) => {}
+                    Err(error) => {
+                        me.records.fail(error);
+                        break;
                     }
                 }
-                pos += total;
-                if close_notify {
+                if me.records.peer_closed {
                     break;
                 }
             }
-            if pos > 0 {
+            if me.records.error().is_some() || me.records.peer_closed {
+                me.in_buf.clear();
+            } else if pos > 0 {
                 me.in_buf.drain(..pos);
             }
             if !me.plain.is_empty() {
                 continue; // serve what we just decrypted
             }
-            if me.peer_closed {
+            if let Some(error) = me.records.error() {
+                return Poll::Ready(Err(error));
+            }
+            if me.records.peer_closed {
                 // close_notify was consumed above; do not wait for transport EOF.
                 return Poll::Ready(Ok(()));
             }
@@ -251,17 +195,22 @@ impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
                     let filled = rb.filled();
                     if filled.is_empty() {
                         if me.in_buf.is_empty() {
+                            me.records.peer_closed = true;
                             return Poll::Ready(Ok(())); // clean record boundary EOF
                         }
-                        return Poll::Ready(Err(io::Error::new(
+                        me.records.fail(io::Error::new(
                             io::ErrorKind::UnexpectedEof,
                             "TLS stream ended in the middle of a record",
-                        )));
+                        ));
+                        return Poll::Ready(Err(me.records.error().unwrap()));
                     }
                     me.in_buf.extend_from_slice(filled);
                     continue;
                 }
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Ready(Err(error)) => {
+                    me.records.fail(error);
+                    return Poll::Ready(Err(me.records.error().unwrap()));
+                }
                 Poll::Pending => return Poll::Pending,
             }
         }
@@ -275,6 +224,12 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for RealTlsStream<S> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let me = self.get_mut();
+        if let Some(error) = me.records.error() {
+            return Poll::Ready(Err(error));
+        }
+        if buf.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
         // Finish flushing a record left pending from a previous call before
         // encrypting new data (preserves record order and the AEAD sequence).
         if me.out_pos < me.out_buf.len() {
@@ -290,7 +245,10 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for RealTlsStream<S> {
         // Encrypt up to one max-size fragment as an application_data record;
         // write_all loops for anything larger.
         let n = buf.len().min(MAX_PLAINTEXT);
-        me.out_buf = me.send.encrypt(0x17, &buf[..n]);
+        me.out_buf = match me.send.encrypt(0x17, &buf[..n]) {
+            Ok(record) => record,
+            Err(error) => return Poll::Ready(Err(error)),
+        };
         me.out_pos = 0;
         match flush_out(&mut me.inner, &me.out_buf, &mut me.out_pos, cx) {
             Poll::Ready(Ok(())) => {
@@ -306,6 +264,9 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for RealTlsStream<S> {
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let me = self.get_mut();
+        if let Some(error) = me.records.error() {
+            return Poll::Ready(Err(error));
+        }
         match flush_out(&mut me.inner, &me.out_buf, &mut me.out_pos, cx) {
             Poll::Ready(Ok(())) => {
                 me.out_buf.clear();
@@ -318,6 +279,9 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for RealTlsStream<S> {
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let me = self.get_mut();
+        if let Some(error) = me.records.error() {
+            return Poll::Ready(Err(error));
+        }
         match flush_out(&mut me.inner, &me.out_buf, &mut me.out_pos, cx) {
             Poll::Ready(Ok(())) => {
                 me.out_buf.clear();
@@ -333,9 +297,14 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for RealTlsStream<S> {
 /// modes (mirrors the `TcpStream`/`ObfsStream` impls).
 impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> SplitStream for RealTlsStream<S> {
     type R = ReadHalf<RealTlsStream<S>>;
-    type W = WriteHalf<RealTlsStream<S>>;
+    type W = StallGuard<WriteHalf<RealTlsStream<S>>>;
+    fn write_progress(&self) -> Option<crate::protocol::stream_io::WriteProgress> {
+        Some(self.inner.progress())
+    }
     fn split_io(self) -> (Self::R, Self::W) {
-        tokio::io::split(self)
+        let progress = self.inner.progress();
+        let (read, write) = tokio::io::split(self);
+        (read, StallGuard::observing(write, Some(progress)))
     }
 }
 
@@ -346,6 +315,65 @@ mod tests {
     use crate::protocol::realtls::client::client_handshake;
     use crate::protocol::realtls::server::{make_server_config, terminate};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn q11_prior_plaintext_precedes_sticky_tls_failure() {
+        let key = [0x31; 16];
+        let iv = [0x42; 12];
+        for bad in [vec![0x18, 0, 0, 1, 0], vec![0x19, 0, 0, 0]] {
+            let (mut peer, inner) = tokio::io::duplex(512);
+            let mut crypto = RecordCrypto::new(&key, &iv);
+            let mut wire = crypto.encrypt(0x17, b"terminal-policy").unwrap();
+            wire.extend(crypto.encrypt(0x16, &bad).unwrap());
+            wire.extend(crypto.encrypt(0x17, b"must-not-arrive").unwrap());
+            peer.write_all(&wire).await.unwrap();
+            let mut stream = RealTlsStream::from_crypto(
+                inner,
+                RecordCrypto::new(&key, &iv),
+                RecordCrypto::new(&key, &iv),
+            );
+            let mut got = [0; 15];
+            stream
+                .read_exact(&mut got)
+                .await
+                .expect("already validated data must be delivered before fatal error");
+            assert_eq!(&got, b"terminal-policy");
+            let mut byte = [0; 1];
+            let error = stream.read(&mut byte).await.unwrap_err();
+            assert_eq!(
+                stream.read(&mut byte).await.unwrap_err().kind(),
+                error.kind(),
+                "fatal error is sticky"
+            );
+            assert!(stream.write_all(b"after-failure").await.is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn q11_fragmented_ticket_preserves_following_application_data() {
+        let key = [0x31; 16];
+        let iv = [0x42; 12];
+        let (mut peer, inner) = tokio::io::duplex(512);
+        let mut crypto = RecordCrypto::new(&key, &iv);
+        let ticket = [4, 0, 0, 14, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 1, 42, 0, 0];
+        let mut wire = Vec::new();
+        for fragment in ticket.chunks(3) {
+            wire.extend(crypto.encrypt(0x16, fragment).unwrap());
+        }
+        wire.extend(crypto.encrypt(0x17, b"ok").unwrap());
+        peer.write_all(&wire).await.unwrap();
+        let mut stream = RealTlsStream::from_crypto(
+            inner,
+            RecordCrypto::new(&key, &iv),
+            RecordCrypto::new(&key, &iv),
+        );
+        let mut got = [0; 2];
+        stream
+            .read_exact(&mut got)
+            .await
+            .expect("TLS handshake fragmentation is legal");
+        assert_eq!(&got, b"ok");
+    }
 
     #[tokio::test]
     async fn eof_in_partial_record_is_an_error() {
@@ -375,7 +403,7 @@ mod tests {
 
         let (mut peer, inner) = tokio::io::duplex(256);
         let mut peer_crypto = RecordCrypto::new(&key, &iv);
-        peer.write_all(&peer_crypto.encrypt(0x15, &[1, 0]))
+        peer.write_all(&peer_crypto.encrypt(0x15, &[1, 0]).unwrap())
             .await
             .unwrap();
         let mut stream = RealTlsStream::from_crypto(
@@ -395,7 +423,7 @@ mod tests {
         let (mut peer, inner) = tokio::io::duplex(256);
         let mut peer_crypto = RecordCrypto::new(&key, &iv);
         // Handshake type 0x18 (KeyUpdate), uint24 body length 1, request_update=0.
-        peer.write_all(&peer_crypto.encrypt(0x16, &[0x18, 0, 0, 1, 0]))
+        peer.write_all(&peer_crypto.encrypt(0x16, &[0x18, 0, 0, 1, 0]).unwrap())
             .await
             .unwrap();
         let mut stream = RealTlsStream::from_crypto(

@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.qeli.audit.restartcontrol">
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="37" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <application android:label="Q29 restart control" android:allowBackup="false">
+        <receiver android:name=".ModeReceiver" android:exported="true" />
+        <service android:name=".ControlService" android:permission="android.permission.BIND_VPN_SERVICE"
+                 android:exported="false" android:stopWithTask="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Disposable VPN restart audit control" />
+            <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
+        </service>
+    </application>
+</manifest>

@@ -1,0 +1,275 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS_SCOPED_STABILITY_ADMISSION",
+  "source_digest": "78f948de3966b9e862b85044eb2d1cf737033b8b8356d99c2f15828bcd846eae",
+  "qualification_source_commit": "ba7902f54fd7eac587f08bace63b5dd0871ac0b4",
+  "product_source_commit": "282c54929d4b483d38a910fddaac52d77d29f43f",
+  "findings_closed": [
+    "F504/Q35-F001/Q36-F001",
+    "F505/Q35-F002/Q36-F002"
+  ],
+  "verification": {
+    "baseline": {
+      "statistics": [
+        {
+          "values": [
+            100,
+            100,
+            null,
+            null,
+            null
+          ],
+          "stats": {
+            "n": 2,
+            "min": 100,
+            "max": 100,
+            "median": 100.0,
+            "stdev": 0.0,
+            "spread_pct": 0.0
+          },
+          "old_gate_accepts": true
+        },
+        {
+          "values": [
+            100,
+            91.96,
+            100,
+            100,
+            100
+          ],
+          "stats": {
+            "n": 5,
+            "min": 91.96,
+            "max": 100,
+            "median": 100,
+            "stdev": 3.2,
+            "spread_pct": 8.0
+          },
+          "old_gate_accepts": true
+        },
+        {
+          "values": [
+            -10,
+            -10,
+            -10,
+            -10,
+            -10
+          ],
+          "stats": {
+            "n": 5,
+            "min": -10,
+            "max": -10,
+            "median": -10,
+            "stdev": 0.0,
+            "spread_pct": -0.0
+          },
+          "old_gate_accepts": true
+        }
+      ],
+      "host_mutation_source": "full_clean both hosts; server pkill -9 -x iperf3 before and after; no finally connection ownership",
+      "scope": "Exact prior gate stats executed with controlled imports only; dangerous host commands inspected, never executed"
+    },
+    "windows": {
+      "status": "PASS",
+      "tests": 89,
+      "earlier_valid_checks": "19 stability methods and38native recipe methods, logs0/1",
+      "remaining": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_check_workflows.py"
+          ],
+          "returncode": 0
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_release_ci_gate.py"
+          ],
+          "returncode": 0
+        },
+        {
+          "command": [
+            "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-fuzz-context-20261009\\actionlint.exe",
+            "-shellcheck=",
+            "-pyflakes="
+          ],
+          "returncode": 0
+        }
+      ],
+      "initial_failure": "wrong suite filename returned NO TESTS RAN/rc5; retained, corrected to actual test_check_workflows.py11methods; existing successful suites not repeated"
+    },
+    "linux": {
+      "status": "PASS_19_LINUX_METHODS_AND_REAL_BUSY_REFUSAL",
+      "tests": 19,
+      "producer_commit": "282c54929d4b483d38a910fddaac52d77d29f43f",
+      "qualified_files_sha256": {
+        "scripts/stability_gate.py": "20512f84333a99a0cbb4e95b6d20ff900e66d8985102abebf8fdcc41f281b950",
+        "scripts/test_stability_gate.py": "ffde27447be7089daef18aec28bd457a5c54346600eedfbf6b87acb2f9081b12",
+        "source.tar": "6b5f3c4c0dc58353fd5e87be787fa21dd374282f9fc76df4883232e0d11e4b62"
+      },
+      "original_service": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+      "service_unchanged": true,
+      "cleanup": {
+        "status": "PASS_SHA_BACKED_KNOWN_FILES_CLEANUP",
+        "files": 3
+      },
+      "commands": [
+        {
+          "command": "systemctl show qeli -p MainPID --value; pgrep -x qeli | sort -n; sha256sum /usr/bin/qeli",
+          "label": "original service",
+          "output": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli"
+        },
+        {
+          "command": "mktemp -d /var/tmp/qeli-stability.XXXXXXXX",
+          "label": "allocate private test root",
+          "output": "/var/tmp/qeli-stability.Ch65wINu"
+        },
+        {
+          "command": "sha256sum /var/tmp/qeli-stability.Ch65wINu/source.tar",
+          "label": "archive hash",
+          "output": "6b5f3c4c0dc58353fd5e87be787fa21dd374282f9fc76df4883232e0d11e4b62  /var/tmp/qeli-stability.Ch65wINu/source.tar"
+        },
+        {
+          "command": "cd /var/tmp/qeli-stability.Ch65wINu && tar -xf source.tar",
+          "label": "extract private source",
+          "output": ""
+        },
+        {
+          "command": "cd /var/tmp/qeli-stability.Ch65wINu && PYTHONPATH=scripts python3 -B -m unittest -v test_stability_gate",
+          "label": "Linux stability methods",
+          "output": "test_atomic_result_failure_preserves_old_result (test_stability_gate.StabilityTests.test_atomic_result_failure_preserves_old_result) ... ok\ntest_busy_refuses_before_measurement_without_mutation (test_stability_gate.StabilityTests.test_busy_refuses_before_measurement_without_mutation) ... ok\ntest_close_failure_does_not_skip_other_close_or_accept (test_stability_gate.StabilityTests.test_close_failure_does_not_skip_other_close_or_accept) ... ok\ntest_failed_requested_samples_refuse (test_stability_gate.StabilityTests.test_failed_requested_samples_refuse) ... ok\ntest_inspect_detects_tunnels_shapers_and_iperf_clients (test_stability_gate.StabilityTests.test_inspect_detects_tunnels_shapers_and_iperf_clients) ... ok\ntest_invalid_probe_shape_refuses (test_stability_gate.StabilityTests.test_invalid_probe_shape_refuses) ... ok\ntest_invalid_settings_refuse_before_ssh (test_stability_gate.StabilityTests.test_invalid_settings_refuse_before_ssh) ... ok\ntest_nonfinite_result_never_published (test_stability_gate.StabilityTests.test_nonfinite_result_never_published) ... ok\ntest_nonpositive_measurements_record_failure (test_stability_gate.StabilityTests.test_nonpositive_measurements_record_failure) ... ok\ntest_one_noisy_direction_refuses (test_stability_gate.StabilityTests.test_one_noisy_direction_refuses) ... ok\ntest_optional_ssh_dependency_not_needed_on_import_or_invalid_settings (test_stability_gate.StabilityTests.test_optional_ssh_dependency_not_needed_on_import_or_invalid_settings) ... ok\ntest_post_probe_busy_refuses_previous_good_rates (test_stability_gate.StabilityTests.test_post_probe_busy_refuses_previous_good_rates) ... ok\ntest_probe_failure_closes_both (test_stability_gate.StabilityTests.test_probe_failure_closes_both) ... ok\ntest_result_failure_refuses (test_stability_gate.StabilityTests.test_result_failure_refuses) ... ok\ntest_second_connection_failure_closes_first (test_stability_gate.StabilityTests.test_second_connection_failure_closes_first) ... ok\ntest_stats_invalid_and_partial_values (test_stability_gate.StabilityTests.test_stats_invalid_and_partial_values) ... ok\ntest_success_all_samples_and_both_directions (test_stability_gate.StabilityTests.test_success_all_samples_and_both_directions) ... ok\ntest_unrounded_threshold (test_stability_gate.StabilityTests.test_unrounded_threshold) ... ok\ntest_zero_spread_limit (test_stability_gate.StabilityTests.test_zero_spread_limit) ... ok\n\n----------------------------------------------------------------------\nRan 19 tests in 0.046s\n\nOK"
+        },
+        {
+          "command": "python3 -B -c 'from pathlib import Path;import hashlib,json;root=Path('\"'\"'/var/tmp/qeli-stability.Ch65wINu'\"'\"');items=list(root.rglob('\"'\"'*'\"'\"'));assert not any(f.is_symlink() for f in items);print(json.dumps(dict(files={f.relative_to(root).as_posix():hashlib.sha256(f.read_bytes()).hexdigest() for f in items if f.is_file()},dirs=[f.relative_to(root).as_posix() for f in items if f.is_dir()])))'",
+          "label": "exact inventory",
+          "output": "{\"files\": {\"source.tar\": \"6b5f3c4c0dc58353fd5e87be787fa21dd374282f9fc76df4883232e0d11e4b62\", \"scripts/stability_gate.py\": \"20512f84333a99a0cbb4e95b6d20ff900e66d8985102abebf8fdcc41f281b950\", \"scripts/test_stability_gate.py\": \"ffde27447be7089daef18aec28bd457a5c54346600eedfbf6b87acb2f9081b12\"}, \"dirs\": [\"scripts\"]}"
+        },
+        {
+          "command": "python3 -B - <<'CLEANUP'\nfrom pathlib import Path\nimport os,re,hashlib,json\nroot=Path('/var/tmp/qeli-stability.Ch65wINu');inv={'files': {'source.tar': '6b5f3c4c0dc58353fd5e87be787fa21dd374282f9fc76df4883232e0d11e4b62', 'scripts/stability_gate.py': '20512f84333a99a0cbb4e95b6d20ff900e66d8985102abebf8fdcc41f281b950', 'scripts/test_stability_gate.py': 'ffde27447be7089daef18aec28bd457a5c54346600eedfbf6b87acb2f9081b12'}, 'dirs': ['scripts']}\nassert root.resolve()==root and root.parent==Path('/var/tmp') and re.fullmatch(r'qeli-stability\\.[A-Za-z0-9]{8}',root.name)\nitems=list(root.rglob('*'));assert not any(f.is_symlink() for f in items)\nassert {f.relative_to(root).as_posix() for f in items if f.is_file()}==set(inv['files'])\nassert {f.relative_to(root).as_posix() for f in items if f.is_dir()}==set(inv['dirs'])\nfor name,digest in inv['files'].items():assert hashlib.sha256((root/name).read_bytes()).hexdigest()==digest\nfor proc in Path('/proc').iterdir():\n if not proc.name.isdigit() or proc.name==str(os.getpid()):continue\n targets=[proc/'cwd',proc/'exe',proc/'root']\n try:targets+=list((proc/'fd').iterdir())\n except (FileNotFoundError,PermissionError):pass\n for link in targets:\n  try:value=os.readlink(link)\n  except OSError:continue\n  assert value!=str(root) and not value.startswith(str(root)+'/'),(proc,link)\nassert str(root) not in Path('/proc/self/mountinfo').read_text()\nfor name in inv['files']:(root/name).unlink()\nfor name in sorted(inv['dirs'],key=lambda x:len(Path(x).parts),reverse=True):(root/name).rmdir()\nroot.rmdir()\nprint(json.dumps(dict(status='PASS_SHA_BACKED_KNOWN_FILES_CLEANUP',files=len(inv['files']))))\n\nCLEANUP",
+          "label": "guarded own cleanup",
+          "output": "{\"status\": \"PASS_SHA_BACKED_KNOWN_FILES_CLEANUP\", \"files\": 3}"
+        },
+        {
+          "command": "systemctl show qeli -p MainPID --value; pgrep -x qeli | sort -n; sha256sum /usr/bin/qeli",
+          "label": "original service after",
+          "output": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli"
+        }
+      ],
+      "scope": "Linux Python/filesystems real; unit SSH/iperf seams controlled. Live actual read-only inspection refuses running lab. No raw bandwidth/quiet-host PASS, no native/APK rebuild or service/network modifications. .10 unused. Source TAR read back exact and serves as recovery."
+    },
+    "live_refusal": {
+      "status": "PASS_REFUSED_BUSY_LAB_WITHOUT_MUTATION",
+      "error": "lab is busy: process qeli, process qeli",
+      "scope": "Real Linux ps/ip/tc/ss probes over SSH; no throughput workload, server start/stop or host hygiene commands"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": [
+        {
+          "path": "native-libs/android/arm64-v8a/libqeli.so",
+          "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+        },
+        {
+          "path": "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+          "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+        },
+        {
+          "path": "native-libs/android/x86_64/libqeli.so",
+          "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+        },
+        {
+          "path": "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+          "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+        },
+        {
+          "path": "native-libs/windows-x64/qeli.dll",
+          "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+        },
+        {
+          "path": "qeli-win/QeliWin/native/qeli.dll",
+          "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+        },
+        {
+          "path": "native-libs/macos-universal/libqeli.dylib",
+          "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+        },
+        {
+          "path": "qeli-mac/QeliMac/native/libqeli.dylib",
+          "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+        },
+        {
+          "path": "native-libs/third-party/windows-x64/wintun.dll",
+          "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+        },
+        {
+          "path": "qeli-win/QeliWin/wintun/wintun.dll",
+          "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+        },
+        {
+          "path": "native-libs/third-party/windows-x64/windivert/WinDivert.dll",
+          "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+        },
+        {
+          "path": "qeli-win/QeliWin/windivert/WinDivert.dll",
+          "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+        },
+        {
+          "path": "native-libs/third-party/windows-x64/windivert/WinDivert64.sys",
+          "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+        },
+        {
+          "path": "qeli-win/QeliWin/windivert/WinDivert64.sys",
+          "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+        }
+      ],
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "openwrt_cut": "unchanged gate PASS",
+      "scope": "Current source/hash/parity checked; unchanged previous native/core/runtime execution qualification inherited, no rebuild"
+    },
+    "harness_failures": {
+      "apply_patch": [
+        "multiple operations target same file",
+        "reparse point refusal"
+      ],
+      "write_resolution": "Native Python checks resolved source stays in resolved workspace",
+      "workflow_selector": "NO TESTS RAN rc5; exact original log retained; actual test_check_workflows selected and11PASS",
+      "docs_generator": "en path nonexistent after RU writes; resumed only eng, docs checks PASS"
+    }
+  },
+  "raw_packet": {
+    "name": "q35-stability-20261010",
+    "files": 33,
+    "bytes": 1319903,
+    "manifest_sha256": "e88d4e2a863bd92e0e6de19bdecd0ed91ffde66b89838b9461be4adb6422285f",
+    "runtime_status": "PASS_SCOPED_STABILITY_ADMISSION",
+    "path": "audit-debt-20260924/q35-stability-20261010",
+    "status": "SEALED"
+  },
+  "scope": "F504/Q35-F001/Q36-F001 closes false benchmark admission from discarded failed samples, negative/nonfinite rates and rounded spread; every requested measurement in both directions required, exact unrounded threshold, all samples preserved. F505/Q35-F002/Q36-F002 removes implicit full_clean, host-wide iperf pkill/service/emulator/DNS/network cleanup. Operator-prepared idle lab and external iperf server required; checked read-only ps/ip/tc/ss before/after, probe errors/busy/tunnels/shapers/measurement processes/connections refuse; checked iperf remote40s/SSH55s, settings before optional imports/SSH. Finally closes both connections including second-connect/probe/close failures; close/publication errors refuse; atomic result preserves previous file on write failure, caller must check current exit.89Windows methods19stability38recipe11workflow21CI and19Linux methods PASS, real read-only .11 inspection refuses activeQeli before workload;777/845/CLI75bc unchanged,.10 unused;3SHA-backed known files cleaned after exactset/procfd/mount guards. Unit SSH/iperf controlled,no actual throughput/quiet-host/soak/fullQ35 claim. New suite inCI, pinned real actionlint4 and docs724/9 PASS. Initial wrong suite filename NO TESTS RAN/rc5 and doc generator en/eng path mismatch retained/corrected; prior passing tests not repeated. Native14/e3fb/qelitree/protected/OpenWrtcut unchanged; prior execution inherited. Q34IN_PROGRESS/Q35IN_PROGRESS/Q36TODO;30/37DONE81.1percent7remain; Q29SIGKILL/ENONET,Q30/Q31,F459,D06accepted/USER_EXCLUDED/publication prerequisites retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

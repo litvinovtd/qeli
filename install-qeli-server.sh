@@ -43,7 +43,7 @@
 #                   unit / examples from it (offline). Without it they are taken from the
 #                   SHA256-verified .deb of the release that matches the binary.
 #     QELI_REF      Optional. Release tag to take that unit / those examples from
-#                   (default: v<the version `qeli version` reports>).
+#                   (default: v<the version `qeli --version` reports>).
 #     QELI_RUN_AS    Optional. OS user the service runs as: `qeli` (default,
 #                   unprivileged, least-privilege) or `root`. `root` removes privilege
 #                   separation — only pick it when the qeli user cannot work (a kernel/
@@ -82,7 +82,9 @@ cleanup_tmp() {
     [ -n "$p" ] && rm -rf -- "$p" 2>/dev/null || true
   done
 }
-trap cleanup_tmp EXIT INT TERM
+trap cleanup_tmp EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 REPO="litvinovtd/qeli"
 PROFILE=""            # chosen interactively below (or non-interactively via QELI_PROFILE)
@@ -98,6 +100,40 @@ RUN_STAMP="$(date +%Y%m%d-%H%M%S)"   # suffix for every backup this run makes
 log(){ printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 die(){ printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 warn(){ printf '\033[1;33mWARNING: %s\033[0m\n' "$*" >&2; }
+# State paths are writable by the service; refuse links/nonregular names before
+# root writes. Repeat users validation at creation, never open its final name.
+_check_install_state(){
+  local state file
+  for state in /etc/qeli /var/log/qeli /var/lib/qeli /etc/qeli/identity /etc/qeli/client-links; do
+    if [ -L "$state" ] || { [ -e "$state" ] && [ ! -d "$state" ]; }; then
+      die "refusing linked/non-directory state path: $state"
+    fi
+  done
+  for file in "$CONF" "${FINAL_CONF:-$CONF}" /etc/qeli/users.conf "${LINKS_DIR}/CONNECTION-STRINGS.txt"; do
+    if [ -L "$file" ] || { [ -e "$file" ] && [ ! -f "$file" ]; }; then
+      die "refusing linked/nonregular state file: $file"
+    fi
+  done
+  _check_perf_state
+  local i
+  for ((i=1; i<=NUM_USERS; i++)); do
+    _check_private_file "${LINKS_DIR}/${USER_PREFIX}${i}.qeli"
+  done
+}
+_ensure_users_file(){
+  local dest=/etc/qeli/users.conf tmp
+  if [ -L "$dest" ] || { [ -e "$dest" ] && [ ! -f "$dest" ]; }; then
+    die "refusing linked/nonregular users file: $dest"
+  fi
+  [ ! -f "$dest" ] || return 0
+  tmp="$(mktemp "${dest}.qeli-XXXXXX")" || return 1
+  QELI_TMP_PATHS+=("$tmp")
+  if ! ln -T -- "$tmp" "$dest" 2>/dev/null; then
+    [ ! -L "$dest" ] && [ -f "$dest" ] || die "could not publish empty users file: $dest"
+  fi
+  rm -f -- "$tmp"
+}
+
 # true iff $1 is a decimal port in 1..65535
 _valid_port(){ case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
 
@@ -153,18 +189,20 @@ _ensure_pkg_payload(){
   [ "$PKG_PAYLOAD_TRIED" -eq 0 ] || return 1
   PKG_PAYLOAD_TRIED=1
   command -v dpkg-deb >/dev/null 2>&1 || { warn "dpkg-deb is missing — cannot unpack the release package."; return 1; }
-  local ref ver json deb_url sha_url tmp_deb tmp_sha want got dest
+  local ref ver json deb_url sha_url tmp_deb tmp_sha want got dest arch pkg_name pkg_arch
   ref="${QELI_REF:-}"
   if [ -z "$ref" ]; then
-    # The tag that matches the binary the operator handed us — NOT `main`.
-    ver="$(qeli version 2>/dev/null | awk '{print $2}')"
-    [ -n "$ver" ] || { warn "cannot read the version from 'qeli version' — pass QELI_REF=<tag> or QELI_SRC=<checkout>."; return 1; }
+    # Read the supplied binary before publishing it; an installed older binary
+    # must not select the payload for this transaction.
+    ver="$("$QELI_BIN" --version 2>/dev/null | awk '{print $2}')"
+    [ -n "$ver" ] || { warn "cannot read the version from 'qeli --version' — pass QELI_REF=<tag> or QELI_SRC=<checkout>."; return 1; }
     ref="v${ver}"
   fi
   echo "  taking the unit + config examples from release ${ref} (SHA256-verified)"
   json="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/${ref}" 2>/dev/null || true)"
   [ -n "$json" ] || { warn "release ${ref} not found on GitHub — pass QELI_SRC=<repo checkout> (offline) or QELI_REF=<existing tag>."; return 1; }
-  deb_url="$(printf '%s' "$json" | jq -r '.assets[]? | select(.name|endswith(".deb")) | .browser_download_url' | head -n1)"
+  arch="$(dpkg --print-architecture)" || return 1
+  deb_url="$(printf '%s' "$json" | jq -r --arg arch "$arch" '.assets[]? | select(.name|endswith("_" + $arch + ".deb")) | .browser_download_url' | head -n1)"
   sha_url="$(printf '%s' "$json" | jq -r '.assets[]? | select(.name=="SHA256SUMS") | .browser_download_url' | head -n1)"
   [ -n "$deb_url" ] || { warn "release ${ref} publishes no .deb — pass QELI_SRC=<repo checkout>."; return 1; }
   [ -n "$sha_url" ] || { warn "release ${ref} publishes no SHA256SUMS — refusing to install an unverifiable systemd unit. Pass QELI_SRC=<repo checkout>."; return 1; }
@@ -183,6 +221,17 @@ _ensure_pkg_payload(){
     warn "SHA256 check failed for the ${ref} package (want '${want:-<unlisted>}', got ${got}) — refusing to use it."
     return 1
   fi
+  if [ "${QELI_VERIFY_ATTESTATION:-0}" = 1 ]; then
+    command -v gh >/dev/null 2>&1 || { warn "QELI_VERIFY_ATTESTATION=1 requires gh for the release payload."; return 1; }
+    gh attestation verify "$tmp_deb" --repo "$REPO" >/dev/null 2>&1 \
+      || { warn "release payload attestation verification failed."; return 1; }
+  fi
+  pkg_name="$(dpkg-deb -f "$tmp_deb" Package)" || return 1
+  pkg_arch="$(dpkg-deb -f "$tmp_deb" Architecture)" || return 1
+  if [ "$pkg_name" != qeli ] || { [ "$pkg_arch" != "$arch" ] && [ "$pkg_arch" != all ]; }; then
+    warn "release payload must be a qeli package for $arch (or all)."
+    return 1
+  fi
   dest="$(mktemp -d)"
   QELI_TMP_PATHS+=("$dest")
   if ! dpkg-deb -x "$tmp_deb" "$dest" 2>/dev/null; then
@@ -196,8 +245,9 @@ _ensure_pkg_payload(){
 # .deb payload, $3 = destination. Returns non-zero when neither source has it.
 _pkg_file(){
   local rel="$1" pkgrel="$2" dest="$3"
-  if [ -n "${QELI_SRC:-}" ] && [ -f "${QELI_SRC}/${rel}" ]; then
-    install -m644 "${QELI_SRC}/${rel}" "$dest"
+  if [ -n "${QELI_SRC:-}" ]; then
+    [ -f "${QELI_SRC}/${rel}" ] || return 1
+    install -m644 "${QELI_SRC}/${rel}" "$dest" || return 1
     return 0
   fi
   _ensure_pkg_payload || return 1
@@ -218,7 +268,9 @@ _pkg_file(){
 # fails). (Audit 2026-07-27, O3/O4)
 _conf_web_set(){
   local key="$1" val="$2" tmp
-  tmp="$(mktemp)"
+  _check_private_file "$CONF"
+  tmp="$(mktemp "${CONF}.qeli-XXXXXX")" || die "could not stage web config."
+  QELI_TMP_PATHS+=("$tmp")
   awk -v k="$key" -v v="$val" '
     BEGIN { insec = 0; done = 0 }
     /^\[/ {
@@ -230,11 +282,11 @@ _conf_web_set(){
     insec && $0 ~ ("^[[:space:]]*#?[[:space:]]*" k "[[:space:]]*=") { next }
     { print }
     END { if (!done) { print ""; print "[web]"; print k " = " v } }
-  ' "$CONF" > "$tmp"
+  ' "$CONF" > "$tmp" || die "failed to set web.${key} in ${CONF}."
   # Never let a failed rewrite truncate the config we are standing on.
   [ -s "$tmp" ] || { rm -f "$tmp"; die "failed to set web.${key} in ${CONF}."; }
-  cat "$tmp" > "$CONF"          # keep the original inode/owner/mode
-  rm -f "$tmp"
+  chown --reference="$CONF" -- "$tmp" || die "could not preserve config ownership."
+  _publish_private_file "$tmp" "$CONF"
 }
 
 # Install from a prebuilt binary ($QELI_BIN) and reproduce EXACTLY what the .deb sets
@@ -243,46 +295,430 @@ _conf_web_set(){
 # rule. Used instead of downloading the .deb (build-from-source or air-gapped installs).
 # Point QELI_SRC at a repo checkout to copy the exact artifacts offline; otherwise they
 # come from the SHA256-verified .deb of the matching release (see _ensure_pkg_payload).
+_repair_service_state_ownership(){
+  _check_install_state
+  # Receipts/journals and reserved backups are administrator data, not daemon state.
+  find -P /etc/qeli -path /etc/qeli/client-links -prune -o -name '*.bak-*' -prune \
+    -o -exec chown -h qeli:qeli '{}' + || die "could not repair qeli state ownership."
+  if [ -d /etc/qeli/client-links ]; then
+    chown -h root:root /etc/qeli/client-links
+    chmod 700 /etc/qeli/client-links
+  fi
+}
+
 from_source_install(){
   log "Installing from binary ${QELI_BIN} (reproducing the .deb layout)"
-  [ -x "$QELI_BIN" ] || die "QELI_BIN=$QELI_BIN is not an executable file."
-  # 1) binary — 0755 root:root, no file caps (the unit grants caps via AmbientCapabilities).
-  install -m755 "$QELI_BIN" /usr/bin/qeli
+  [ -f "$QELI_BIN" ] && [ -x "$QELI_BIN" ] || die "QELI_BIN=$QELI_BIN is not a regular executable file."
+  _check_install_state
+
+  # Admit the complete payload before replacing the installed binary or state.
+  local stage name
+  stage="$(mktemp -d)"
+  QELI_TMP_PATHS+=("$stage")
+  for name in server server-multiprofile server-ipv6 server-maxobf users client client-reality client-maxobf; do
+    _pkg_file "qeli/config/${name}.conf" "etc/qeli/${name}.conf.example" "$stage/${name}.conf.example" \
+      || die "could not obtain a VERIFIED ${name}.conf example (pass QELI_SRC=<complete checkout> or QELI_REF=<release tag>)."
+  done
+  _pkg_file qeli/debian/qeli.service lib/systemd/system/qeli.service "$stage/qeli.service" \
+    || die "could not obtain a VERIFIED qeli.service unit."
+  _pkg_file qeli/debian/49-qeli.rules etc/polkit-1/rules.d/49-qeli.rules "$stage/49-qeli.rules" \
+    || die "could not obtain a VERIFIED polkit rule."
+
+  install -o root -g root -m755 "$QELI_BIN" /usr/bin/qeli
   setcap -r /usr/bin/qeli 2>/dev/null || true
-  # 2) system user (mirrors postinst: adduser --system --group --no-create-home).
   if ! getent passwd qeli >/dev/null 2>&1; then
     adduser --system --group --no-create-home qeli 2>/dev/null \
       || useradd --system --user-group --no-create-home --shell /usr/sbin/nologin qeli
   fi
-  # 3) directories.
   mkdir -p /etc/qeli /var/log/qeli /var/lib/qeli
-  # 4) example configs — the same complete set the .deb ships.
-  local name
   for name in server server-multiprofile server-ipv6 server-maxobf users client client-reality client-maxobf; do
-    _pkg_file "qeli/config/${name}.conf" "etc/qeli/${name}.conf.example" "/etc/qeli/${name}.conf.example" \
-      || die "could not obtain a VERIFIED ${name}.conf example (pass QELI_SRC=<repo checkout> for an offline install, or QELI_REF=<release tag>)."
+    install -o root -g root -m644 "$stage/${name}.conf.example" "/etc/qeli/${name}.conf.example"
   done
-  # 5) empty users.conf so add-client can append (never seed the sample — it has a known hash).
-  [ -f /etc/qeli/users.conf ] || : > /etc/qeli/users.conf
-  # 6) systemd unit — the exact one the .deb installs. This one runs as root, so it is
-  #    never taken from an unverified source. (Audit 2026-07-27, O2)
-  _pkg_file "qeli/debian/qeli.service" "lib/systemd/system/qeli.service" /lib/systemd/system/qeli.service \
-    || die "could not obtain a VERIFIED qeli.service unit (pass QELI_SRC=<repo checkout>, or QELI_REF=<release tag>)."
-  # 7) ownership + perms (mirrors postinst).
-  chown -R qeli:qeli /etc/qeli /var/log/qeli /var/lib/qeli
+  _ensure_users_file
+  install -d /lib/systemd/system /etc/polkit-1/rules.d
+  install -o root -g root -m644 "$stage/qeli.service" /lib/systemd/system/qeli.service
+  install -o root -g root -m644 "$stage/49-qeli.rules" /etc/polkit-1/rules.d/49-qeli.rules
+  _repair_service_state_ownership
+  chown -h -R -P qeli:qeli /var/log/qeli /var/lib/qeli
   chmod 755 /etc/qeli
   systemctl daemon-reload 2>/dev/null || true
   command -v qeli >/dev/null || die "qeli is not on PATH after install."
-  # 8) polkit rule — reuse the binary's own installer (identical to the .deb's rule); if
-  #    this binary predates `install-polkit`, fall back to the shipped rule file.
-  if ! qeli install-polkit >/dev/null 2>&1; then
-    install -d /etc/polkit-1/rules.d
-    _pkg_file "qeli/debian/49-qeli.rules" "etc/polkit-1/rules.d/49-qeli.rules" /etc/polkit-1/rules.d/49-qeli.rules \
-      || echo "  (polkit rule not installed — panel 'Apply & Restart' needs it; run 'qeli install-polkit' later)"
-  fi
-  # The unpacked package tree was only a source of files — drop it.
-  [ -z "$PKG_PAYLOAD" ] || rm -rf "$PKG_PAYLOAD"
+  rm -rf -- "$stage"
+  [ -z "$PKG_PAYLOAD" ] || rm -rf -- "$PKG_PAYLOAD"
   echo "  from-binary install complete: binary, user, dirs, examples, unit, polkit rule."
+}
+
+# Install only missing OS prerequisites. Local payload + explicit host needs no
+# curl/jq/CA download setup; an offline run still requires existing package deps.
+_ensure_installer_deps(){
+  local remote=0 cmd pkg missing=() checks=()
+  if { [ -z "${QELI_BIN:-}" ] && [ -z "${QELI_DEB:-}" ]; } \
+     || { [ -n "${QELI_BIN:-}" ] && [ -z "${QELI_SRC:-}" ]; }; then
+    remote=1
+  fi
+  for cmd in iptables ip openssl; do
+    case "$cmd" in iptables) pkg=iptables ;; ip) pkg=iproute2 ;; openssl) pkg=openssl ;; esac
+    checks+=("$cmd")
+    command -v "$cmd" >/dev/null 2>&1 || missing+=("$pkg")
+  done
+  if ! command -v adduser >/dev/null 2>&1 && ! command -v useradd >/dev/null 2>&1; then
+    checks+=(adduser); missing+=(adduser)
+  fi
+  if [ "$remote" = 1 ] || [ -z "${PUBLIC_HOST:-}" ]; then
+    checks+=(curl)
+    command -v curl >/dev/null 2>&1 || missing+=(curl)
+    [ -s /etc/ssl/certs/ca-certificates.crt ] || missing+=(ca-certificates)
+  fi
+  if [ "$remote" = 1 ]; then
+    checks+=(jq)
+    command -v jq >/dev/null 2>&1 || missing+=(jq)
+  fi
+  if [ "${#missing[@]}" -gt 0 ]; then
+    log "Installing missing dependencies: ${missing[*]}"
+    apt-get update -y || die "dependency index refresh failed; qeli was not installed."
+    apt-get install -y --no-install-recommends "${missing[@]}" \
+      || die "dependency installation failed; qeli was not installed."
+  else
+    log "OS dependencies already available; skipping apt dependency setup"
+  fi
+  for cmd in "${checks[@]}"; do
+    command -v "$cmd" >/dev/null 2>&1 || die "required dependency command is unavailable: $cmd"
+  done
+  if { [ "$remote" = 1 ] || [ -z "${PUBLIC_HOST:-}" ]; } \
+     && [ ! -s /etc/ssl/certs/ca-certificates.crt ]; then
+    die "CA certificate bundle is unavailable after dependency setup."
+  fi
+}
+_validate_install_deb(){
+  local package="$1" name
+  name="$(dpkg-deb -f "$package" Package 2>/dev/null)" || die "cannot read Debian package metadata: $package"
+  [ "$name" = qeli ] || die "expected Package=qeli, got ${name}."
+  DEB_ARCH="$(dpkg-deb -f "$package" Architecture)" || die "cannot read package architecture."
+  HOST_DEB_ARCH="$(dpkg --print-architecture)" || die "cannot read host architecture."
+  case "$DEB_ARCH" in "$HOST_DEB_ARCH"|all) ;; *) die "package architecture ${DEB_ARCH} is incompatible with host architecture ${HOST_DEB_ARCH}." ;; esac
+  DEB_VERSION="$(dpkg-deb -f "$package" Version)" || die "cannot read package version."
+  [ -n "$DEB_VERSION" ] || die "package version is empty."
+}
+_install_verified_deb(){
+  local package="$1" installed
+  _validate_install_deb "$package"
+  if [ "${QELI_VERIFY_ATTESTATION:-0}" = 1 ]; then
+    command -v gh >/dev/null 2>&1 || die "QELI_VERIFY_ATTESTATION=1 requires gh; refusing package installation."
+    gh attestation verify "$package" --repo "$REPO" >/dev/null 2>&1 \
+      || die "package attestation verification FAILED; refusing installation."
+  fi
+  if ! { apt-get install -y --no-install-recommends "$package" \
+         || { dpkg -i "$package" || true; apt-get install -y --no-install-recommends -f; }; }; then
+    die "package installation failed; no config was generated."
+  fi
+  installed="$(dpkg-query -W -f='${Status} ${Version} ${Architecture}' qeli 2>/dev/null || true)"
+  [ "$installed" = "install ok installed ${DEB_VERSION} ${DEB_ARCH}" ] \
+    || die "package installation did not configure the requested qeli --version/architecture; no config was generated."
+}
+
+# Root writes must never open a final secret/config name for truncation.
+# Pathname guards reject static unsafe entries; same-directory rename breaks hard
+# links and does not follow the destination. Ancestor replacement races remain.
+_check_private_file(){
+  local dest="$1"
+  if [ -L "$dest" ] || { [ -e "$dest" ] && [ ! -f "$dest" ]; }; then
+    die "refusing linked/nonregular private file: $dest"
+  fi
+}
+_publish_private_file(){
+  local tmp="$1" dest="$2"
+  _check_private_file "$dest"
+  chmod 600 -- "$tmp" || die "could not make private temporary file: $tmp"
+  mv -T -- "$tmp" "$dest" || die "could not publish private file: $dest"
+}
+_write_private_file(){
+  local dest="$1" tmp
+  _check_private_file "$dest"
+  tmp="$(mktemp "${dest}.qeli-XXXXXX")" || die "could not stage private file: $dest"
+  QELI_TMP_PATHS+=("$tmp")
+  cat > "$tmp" || die "could not write private file: $dest"
+  _publish_private_file "$tmp" "$dest"
+}
+_backup_private_file(){
+  local file="$1" backup
+  _check_private_file "$file"
+  [ -f "$file" ] || return 0
+  backup="$(mktemp "${file}.bak-${RUN_STAMP}-XXXXXX")" || die "could not reserve backup: $file"
+  if ! install -o root -g root -m 600 -- "$file" "$backup"; then
+    rm -f -- "$backup"
+    die "could not back up private file: $file"
+  fi
+  printf '%s\n' "$backup"
+}
+_create_client_links(){
+  local i U P ADD_OUT LINK kept_link summary_tmp journal journal_fd
+  _check_install_state
+  mkdir -p "$LINKS_DIR"; chmod 700 "$LINKS_DIR"
+  _ensure_users_file
+  SUMMARY="${LINKS_DIR}/CONNECTION-STRINGS.txt"
+  SUMMARY_BAK="$(_backup_private_file "$SUMMARY")" || die "could not back up connection-string list."
+  [ -z "$SUMMARY_BAK" ] || echo "  previous connection-string list backed up → ${SUMMARY_BAK}"
+  summary_tmp="$(mktemp "${SUMMARY}.qeli-XXXXXX")" || die "could not stage connection-string list."
+  QELI_TMP_PATHS+=("$summary_tmp")
+  # Retain this file on failure: add-client may commit the user before returning
+  # a link/error. Journal the password first, while it is still recoverable.
+  journal="$(mktemp "${LINKS_DIR}/INSTALL-PENDING-${RUN_STAMP}-XXXXXX")" || die "could not create pending-credentials journal."
+  exec {journal_fd}>"$journal"
+  printf 'Unfinished installer credentials; check users.conf before recovery.\n\n' >&"$journal_fd"
+  echo "  pending credentials on failure → ${journal}"
+  for ((i=1; i<=NUM_USERS; i++)); do
+    U="${USER_PREFIX}${i}"
+    if grep -q "^\[user:${U}\]" /etc/qeli/users.conf 2>/dev/null; then
+      kept_link="${LINKS_DIR}/${U}.qeli"
+      if [ -f "$kept_link" ]; then
+        # Preserve bytes, but make this generated secret private without chmod
+        # following a hard link into an unrelated file.
+        _write_private_file "$kept_link" < "$kept_link"
+      fi
+      echo "  = ${U} already exists — kept (password unchanged)"
+      printf 'user: %s\npass: <unchanged — see %s>\nlink: <re-issue if endpoint/profile settings changed>\n\n' \
+        "$U" "${SUMMARY_BAK:-the previous install or INSTALL-PENDING journal}" >> "$summary_tmp"
+      continue
+    fi
+    P="$(openssl rand -hex 12)" || die "password generation failed; pending credentials: $journal"
+    [ -n "$P" ] || die "password generation returned empty output; pending credentials: $journal"
+    printf 'user: %s\npass: %s\nstatus: pending — account may already exist\n' "$U" "$P" >&"$journal_fd" \
+      || die "could not journal password; no add-client call for $U."
+    if ! ADD_OUT="$(printf '%s' "$P" | qeli add-client "$U" --password-stdin --link \
+             --host "${PUBLIC_AUTHORITY_HOST}:${PORT}" --link-profile "$PROFILE" \
+             --config "$CONF" 2>&1)"; then
+      printf '%s\n' "$ADD_OUT" >&2
+      die "add-client failed for ${U}; pending credentials: $journal"
+    fi
+    LINK="$(printf '%s\n' "$ADD_OUT" | grep -m1 '^qeli://' || true)"
+    [ -n "$LINK" ] || die "add-client did not return a link for $U; pending credentials: $journal"
+    printf 'link: %s\n\n' "$LINK" >&"$journal_fd" || die "could not journal link; pending credentials: $journal"
+    _write_private_file "${LINKS_DIR}/${U}.qeli" <<< "$LINK"
+    printf 'user: %s\npass: %s\nlink: %s\n\n' "$U" "$P" "$LINK" >> "$summary_tmp" \
+      || die "could not stage connection-string list; pending credentials: $journal"
+    echo "  + ${U}"
+  done
+  _publish_private_file "$summary_tmp" "$SUMMARY"
+  exec {journal_fd}>&-
+  rm -f -- "$journal"
+  chown -h -R -P qeli:qeli /etc/qeli/users.conf 2>/dev/null || true
+}
+
+_validate_public_host(){
+# Validate the moment it is known, BEFORE it reaches a config file or a share link.
+# The value is either $1 or whatever api.ipify.org / ifconfig.me / icanhazip.com
+# answered, and it used to be spliced straight into `sed -i "s|…|public_host = $X|"` —
+# so a `|` in it closed the s||| command and everything after it executed as further
+# sed commands against server.conf, as root. Accept only characters an IP or hostname
+# can legitimately contain, and bound the length. (Audit 2026-07-27, O3)
+case "$PUBLIC_HOST" in
+  *[!A-Za-z0-9._:-]*)
+    die "PUBLIC_HOST '${PUBLIC_HOST}' contains characters that cannot appear in an IP or hostname — pass a clean address as the first argument." ;;
+  -*)
+    die "PUBLIC_HOST '${PUBLIC_HOST}' starts with '-' — that is not an address." ;;
+esac
+[ "${#PUBLIC_HOST}" -le 253 ] || die "PUBLIC_HOST is ${#PUBLIC_HOST} characters long — no hostname is (max 253)."
+}
+_validate_installer_options(){
+  local flag value
+  for flag in QELI_FORCE_RECONFIG QELI_PANEL_PUBLIC QELI_VERIFY_ATTESTATION QELI_ALLOW_UNVERIFIED; do
+    value="${!flag:-0}"
+    case "$value" in 0|1) ;; *) die "$flag must be 0 or 1 (got '$value')." ;; esac
+  done
+  [ -z "$PUBLIC_HOST" ] || _validate_public_host
+PANEL_PUBLIC=0
+PANEL_ALLOWED="${QELI_PANEL_ALLOWED_IPS:-}"
+if [ "${QELI_PANEL_PUBLIC:-0}" = "1" ]; then
+  [ -n "$PANEL_ALLOWED" ] || die "QELI_PANEL_PUBLIC=1 needs QELI_PANEL_ALLOWED_IPS=<ip[,ip…]> — a public panel needs an explicit source allowlist."
+  # Same reasoning as PUBLIC_HOST: this value lands in the config, so it is data only.
+  # Comma-separated, no spaces (e.g. QELI_PANEL_ALLOWED_IPS=203.0.113.4,198.51.100.0/24).
+  case "$PANEL_ALLOWED" in
+    *[!A-Za-z0-9./,:-]*) die "QELI_PANEL_ALLOWED_IPS must be a comma-separated list of addresses/CIDRs with no spaces (got '${PANEL_ALLOWED}')." ;;
+  esac
+  PANEL_PUBLIC=1
+fi
+}
+_resolve_public_host(){
+if [ -z "$PUBLIC_HOST" ]; then
+  # 1) External echo services — authoritative public IP (esp. behind NAT). Try a
+  #    few, each time-bounded so a blocked/unreachable one can't hang the install.
+  PUBLIC_HOST="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  [ -n "$PUBLIC_HOST" ] || PUBLIC_HOST="$(curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)"
+  [ -n "$PUBLIC_HOST" ] || PUBLIC_HOST="$(curl -fsS --max-time 5 https://icanhazip.com 2>/dev/null || true)"
+  # 2) Local fallback — src address of the default route. Works even with a /32 WAN
+  #    IP (as many cloud VMs have). On a NAT'd box this is the PRIVATE IP, so warn.
+  if [ -z "$PUBLIC_HOST" ]; then
+    PUBLIC_HOST="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n1)"
+    [ -n "$PUBLIC_HOST" ] && echo "  (external lookup failed — using the local WAN address ${PUBLIC_HOST}; if this box is behind NAT, re-run with the real public IP)"
+  fi
+  PUBLIC_HOST="$(printf '%s' "$PUBLIC_HOST" | tr -d '[:space:]')"
+  echo "  Auto-detected public IP: ${PUBLIC_HOST:-<unknown>}"
+  echo "  (Separate inbound/outbound IPs or a domain? Re-run with it as an argument.)"
+fi
+[ -n "$PUBLIC_HOST" ] || die "could not determine PUBLIC_HOST — pass it as an argument."
+_validate_public_host
+# Host:port authorities must bracket IPv6 literals (RFC 3986). Keep public_host itself bare:
+# qeli's config/share codec owns authority parsing and adds brackets where required.
+PUBLIC_AUTHORITY_HOST="$PUBLIC_HOST"
+PUBLIC_PANEL_BIND="0.0.0.0"
+ENABLE_IPV6_LISTENER=0
+case "$PUBLIC_HOST" in
+  *:*)
+    PUBLIC_AUTHORITY_HOST="[${PUBLIC_HOST}]"
+    PUBLIC_PANEL_BIND="::"
+    ENABLE_IPV6_LISTENER=1
+    ;;
+esac
+
+# A hostname can gain/use an AAAA record without changing the installed config. When this
+# kernel has IPv6 enabled, make Quick Start dual-carrier-ready even if PUBLIC_HOST itself is
+# a DNS name (or today's auto-detected address happened to be IPv4). The second socket is
+# V6ONLY, so it neither steals nor duplicates the primary IPv4 listener. An explicit IPv6
+# literal still requests this listener even on a misconfigured IPv6-disabled host, making the
+# final service start fail honestly instead of printing an unusable connection link.
+if [ -s /proc/net/if_inet6 ]; then
+  ENABLE_IPV6_LISTENER=1
+fi
+
+}
+_prepare_profile_config(){
+  local count
+  _check_private_file "$CONF"
+  [ -f "$EXAMPLE" ] && [ -r "$EXAMPLE" ] || die "profile example is not readable: $EXAMPLE"
+  count="$(grep -Fxc -- "[profile:${PROFILE}]" "$EXAMPLE" || true)"
+  [ "$count" = 1 ] || die "expected exactly one [profile:${PROFILE}] in $EXAMPLE, got ${count:-none}."
+  FINAL_CONF="$CONF"
+  CONF="$(mktemp "${FINAL_CONF}.qeli-XXXXXX")" || die "could not stage server config."
+  # Real CLI writers create a persistent sibling lock for this private stage.
+  # All synchronous writers finish before EXIT; retire only this unique stage lock.
+  QELI_TMP_PATHS+=("$CONF" "$CONF.lock")
+  awk '/^\[profile:/{exit} {print}' "$EXAMPLE" > "$CONF" || die "could not stage global config sections."
+  # Add missing TCP defaults even when the packaged example predates OS-managed
+  # buffers. Preserve explicit example overrides; never migrate a live config.
+  awk -v p="[profile:${PROFILE}]" -v mode="$PROFILE" '
+    FNR==NR {
+      if ($0==p) { selected=1; next }
+      if (/^\[/) selected=0
+      if (selected && /^[[:space:]]*perf\.tcp\.send_buffer_size[[:space:]]*=/) send=1
+      if (selected && /^[[:space:]]*perf\.tcp\.recv_buffer_size[[:space:]]*=/) recv=1
+      next
+    }
+    $0==p {
+      f=1; print
+      if (mode!="udp-quic") {
+        if (!send) print "perf.tcp.send_buffer_size = 0"
+        if (!recv) print "perf.tcp.recv_buffer_size = 0"
+      }
+      next
+    }
+    /^\[profile:/ { f=0 }
+    f { print }
+  ' "$EXAMPLE" "$EXAMPLE" >> "$CONF" || die "could not stage selected profile."
+}
+_commit_profile_config(){
+  _check_private_file "$FINAL_CONF"
+  CONF_BAK="$(_backup_private_file "$FINAL_CONF")" || die "could not back up server config."
+  [ -z "$CONF_BAK" ] || echo "  previous config backed up → ${CONF_BAK}"
+  _publish_private_file "$CONF" "$FINAL_CONF"
+  CONF="$FINAL_CONF"
+}
+
+_check_perf_state(){
+  local dir file
+  for dir in /etc/sysctl.d /etc/modules-load.d; do
+    if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
+      die "refusing linked/non-directory tuning path: $dir"
+    fi
+  done
+  for file in /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf; do
+    _check_private_file "$file"
+  done
+}
+_apply_perf_tuning(){
+  local perf=/etc/sysctl.d/99-qeli-perf.conf module=/etc/modules-load.d/qeli-bbr.conf
+  local key desired previous actual verified=0 failures=0 total=0 item owner group mode metadata
+  _check_perf_state
+  mkdir -p /etc/sysctl.d /etc/modules-load.d "$LINKS_DIR"
+  # Retain the receipt on failure as well as success. Each forced reconfiguration
+  # has its own snapshot; it must not replace the previous run's recovery data.
+  PERF_RECEIPT="$(mktemp -d "${LINKS_DIR}/kernel-tuning-${RUN_STAMP}-XXXXXX")" \
+    || die "could not reserve kernel tuning recovery directory."
+  chmod 700 "$PERF_RECEIPT"
+  : > "$PERF_RECEIPT/runtime.before"
+  : > "$PERF_RECEIPT/apply.log"
+  : > "$PERF_RECEIPT/restore.txt"
+  for item in "$perf" "$module"; do
+    _check_private_file "$item"
+    if [ -f "$item" ]; then
+      install -o root -g root -m 600 -- "$item" "$PERF_RECEIPT/$(basename "$item").before"
+      metadata="$(stat -c '%u %g %a' -- "$item")" || die "could not read previous tuning file metadata: $item"
+      read -r owner group mode <<< "$metadata"
+      printf 'install -o %s -g %s -m %s -- "%s/%s.before" "%s"\n' \
+        "$owner" "$group" "$mode" "$PERF_RECEIPT" "$(basename "$item")" "$item" >> "$PERF_RECEIPT/restore.txt"
+    else
+      printf 'rm -f -- "%s"\n' "$item" >> "$PERF_RECEIPT/restore.txt"
+    fi
+  done
+  _perf_sysctl_values > "$PERF_RECEIPT/requested.conf"
+  # Read the old values before any writes. Never change a runtime key whose old
+  # value cannot be saved; the persistent file can still request it after reboot.
+  while IFS='=' read -r key desired; do
+    case "$key" in ''|'#'*) continue ;; esac
+    if previous="$(sysctl -n "$key" 2>> "$PERF_RECEIPT/apply.log")" && [ -n "$previous" ] && [[ "$previous" != *$'\n'* ]]; then
+      printf '%s=%s\n' "$key" "$previous" >> "$PERF_RECEIPT/runtime.before"
+    else
+      printf '%s: previous value unavailable; runtime write skipped\n' "$key" >> "$PERF_RECEIPT/apply.log"
+    fi
+  done < "$PERF_RECEIPT/requested.conf"
+  printf 'sysctl -p "%s/runtime.before"\n' "$PERF_RECEIPT" >> "$PERF_RECEIPT/restore.txt"
+  printf '# Inspect apply.log. Restore only if no later administrator changed these settings.\n# An already loaded tcp_bbr module is left loaded; this is not an installer/service rollback.\n' >> "$PERF_RECEIPT/restore.txt"
+  _write_private_file "$perf" < "$PERF_RECEIPT/requested.conf"
+  _write_private_file "$module" <<< tcp_bbr
+  if ! modprobe tcp_bbr >> "$PERF_RECEIPT/apply.log" 2>&1; then
+    printf 'tcp_bbr module load failed; an existing/built-in implementation may still be usable\n' >> "$PERF_RECEIPT/apply.log"
+  fi
+  while IFS='=' read -r key desired; do
+    case "$key" in ''|'#'*) continue ;; esac
+    total=$((total+1))
+    if grep -Fq "${key}=" "$PERF_RECEIPT/runtime.before"; then
+      if ! sysctl -w "${key}=${desired}" >> "$PERF_RECEIPT/apply.log" 2>&1; then
+        failures=$((failures+1))
+      fi
+    else
+      failures=$((failures+1))
+    fi
+    # Kernel vector values use tabs; compare normalized whitespace, not formatting.
+    actual="$(sysctl -n "$key" 2>> "$PERF_RECEIPT/apply.log" | awk '{$1=$1; print}')" || actual=""
+    if [ "$actual" = "$desired" ]; then verified=$((verified+1)); fi
+  done < "$perf"
+  if [ "$verified" = "$total" ] && [ "$failures" = 0 ]; then
+    SYSCTL_STATUS="kernel tuning applied and verified (${verified}/${total} values)"
+  else
+    SYSCTL_STATUS="kernel tuning incomplete (${verified}/${total} values effective; ${failures} writes unavailable/failed)"
+    warn "${SYSCTL_STATUS}; inspect ${PERF_RECEIPT}/apply.log. Persistent requests remain in ${perf}."
+  fi
+  echo "  ${SYSCTL_STATUS}"
+  echo "  Previous runtime values/files and restore commands: ${PERF_RECEIPT}"
+}
+_perf_sysctl_values(){
+  cat <<'SYSCTL'
+# qeli throughput + PMTU tuning; previous values/files are in the per-run receipt.
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.ipv4.tcp_rmem=4096 131072 16777216
+net.ipv4.tcp_wmem=4096 65536 16777216
+# TCP receive autotuning needs this switch AND OS-managed socket buffers.
+net.ipv4.tcp_moderate_rcvbuf=1
+# Keep tcp_mem (the system-wide page budget) under OS/administrator control.
+net.ipv4.tcp_mtu_probing=1
+# UDP has no kernel receive autotuning; qeli starts at 4 MiB and may grow
+# within its own RAM budget and rmem_max. Logs show the effective SO_RCVBUF.
+net.core.rmem_default=4194304
+net.core.wmem_default=4194304
+net.core.netdev_max_backlog=4000
+SYSCTL
 }
 
 # Must run as root. Run it directly as root (no sudo needed), or — if you are a
@@ -296,6 +732,17 @@ if [ "$(id -u)" -ne 0 ]; then
   die "must run as root, and 'sudo' is not installed. Switch to root and re-run:  su -"
 fi
 export DEBIAN_FRONTEND=noninteractive
+_check_install_state
+if [ -n "${QELI_BIN:-}" ]; then
+  [ -f "$QELI_BIN" ] && [ -x "$QELI_BIN" ] || die "QELI_BIN=$QELI_BIN is not a regular executable file."
+fi
+if [ -n "${QELI_DEB:-}" ] && [ ! -f "$QELI_DEB" ]; then
+  die "QELI_DEB does not name a regular package file: $QELI_DEB"
+fi
+# Reject a wrong/corrupt local package before dependency or config changes.
+if [ -n "${QELI_DEB:-}" ] && [ -z "${QELI_BIN:-}" ]; then
+  _validate_install_deb "$QELI_DEB"
+fi
 PUBLIC_HOST="${1:-}"
 # OS user the service will run as (default the unprivileged `qeli`). Validated up front so
 # a typo fails before we install anything; applied just before the service is started.
@@ -304,6 +751,7 @@ case "$QELI_RUN_AS" in
   qeli|root) ;;
   *) die "QELI_RUN_AS must be 'qeli' or 'root' (got '$QELI_RUN_AS')." ;;
 esac
+_validate_installer_options
 
 # ── pre-flight: never silently destroy a working deployment ─────────────────
 # This is a FIRST-INSTALL script: it writes /etc/qeli/server.conf from scratch and
@@ -423,13 +871,7 @@ esac
 TRANSPORT_UC="$(printf '%s' "$TRANSPORT" | tr '[:lower:]' '[:upper:]')"
 
 # ── 1. dependencies ─────────────────────────────────────────────────────────
-log "Installing dependencies"
-apt-get update -y
-# Debian/Ubuntu ship both iptables and ip6tables in this one package. ip6tables
-# is checked explicitly below so a broken alternatives/minimal image cannot leave
-# an IPv6 tunnel without the NAT66 firewall tool.
-apt-get install -y curl ca-certificates jq iptables iproute2 openssl
-command -v iptables >/dev/null 2>&1 || die "the iptables package was installed but the iptables command is unavailable."
+_ensure_installer_deps
 if ! command -v ip6tables >/dev/null 2>&1; then
   warn "the iptables package did not provide ip6tables; this install will use IPv4 only."
 fi
@@ -444,19 +886,16 @@ if [ -n "${QELI_BIN:-}" ]; then
   from_source_install
 else
 # By default: newest GitHub release (the releases are pre-releases, so we read
-# /releases, not /releases/latest). Override with QELI_DEB=<local path or URL> for
+# /releases, not /releases/latest). Override with QELI_DEB=<local path> for
 # an offline / air-gapped install or to pin a specific build.
 log "Obtaining the qeli .deb"
 CLEANUP_DEB=0
 HOST_DEB_ARCH="$(dpkg --print-architecture)"
-if [ -n "${QELI_DEB:-}" ] && [ -f "$QELI_DEB" ]; then
+if [ -n "${QELI_DEB:-}" ]; then
   echo "  using local .deb: $QELI_DEB"
   TMP_DEB="$QELI_DEB"
 else
   SHA_URL=""
-  if [ -n "${QELI_DEB:-}" ]; then
-    DEB_URL="$QELI_DEB"
-  else
     RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
     DEB_URL=$(printf '%s' "$RELEASES_JSON" | jq -r --arg arch "$HOST_DEB_ARCH" 'map(select(.draft|not)) | .[0].assets[]
                | select(.name|endswith("_" + $arch + ".deb")) | .browser_download_url' | head -n1)
@@ -464,15 +903,14 @@ else
     # SHA256SUMS asset (published since 0.7.6) — used to verify the download below.
     SHA_URL=$(printf '%s' "$RELEASES_JSON" | jq -r 'map(select(.draft|not)) | .[0].assets[]
                | select(.name=="SHA256SUMS") | .browser_download_url' | head -n1)
-  fi
   echo "  downloading: $DEB_URL"
   TMP_DEB="$(mktemp --suffix=.deb)"; CLEANUP_DEB=1
   QELI_TMP_PATHS+=("$TMP_DEB")
   curl -fL --retry 3 -o "$TMP_DEB" "$DEB_URL"
   # Verify the .deb against the release's SHA256SUMS — FAIL CLOSED (S-10). A GitHub
-  # download is trusted only once its SHA256 matches the signed sums file; a missing
+  # download is trusted only once its SHA256 matches the release sums file; a missing
   # sums file or an unlisted .deb aborts unless the operator opts out with
-  # QELI_ALLOW_UNVERIFIED=1. A QELI_DEB the operator supplied (path or URL) is exempt.
+  # QELI_ALLOW_UNVERIFIED=1. A QELI_DEB the operator supplied (local path) is exempt.
   ALLOW_UNVERIFIED="${QELI_ALLOW_UNVERIFIED:-0}"
   if [ -n "$SHA_URL" ]; then
     echo "  verifying SHA256"
@@ -511,19 +949,13 @@ fi
 # Never pass a package for another CPU architecture to apt. Besides producing a
 # confusing dependency failure, choosing the first .deb asset used to install the
 # wrong package whenever a release carried more than one architecture. Explicit
-# QELI_DEB paths/URLs are checked as well because their file names are not trusted.
-DEB_ARCH="$(dpkg-deb -f "$TMP_DEB" Architecture 2>/dev/null)" || die "cannot read Debian package metadata from $TMP_DEB."
-case "$DEB_ARCH" in
-  "$HOST_DEB_ARCH"|all) ;;
-  *) die "package architecture ${DEB_ARCH} is incompatible with host architecture ${HOST_DEB_ARCH}." ;;
-esac
-
+# QELI_DEB paths are checked as well because their file names are not trusted.
 # --no-install-recommends: the package Recommends systemd-resolved (only useful
 # for the CLIENT's resolvectl path). A server doesn't need it, and letting apt
 # pull it in repoints /etc/resolv.conf to the systemd stub mid-install, which can
 # transiently break DNS (e.g. the public-IP lookup below). Skip it on servers.
 log "Installing the package"
-apt-get install -y --no-install-recommends "$TMP_DEB" || { dpkg -i "$TMP_DEB" || true; apt-get install -y --no-install-recommends -f; }
+_install_verified_deb "$TMP_DEB"
 [ "$CLEANUP_DEB" -eq 1 ] && rm -f "$TMP_DEB"
 fi   # end obtain+install (from-binary vs .deb)
 command -v qeli >/dev/null || die "qeli is not on PATH after install."
@@ -531,21 +963,8 @@ command -v qeli >/dev/null || die "qeli is not on PATH after install."
 
 # ── 4. build server.conf: the selected profile only, from the example ───────
 log "Configuring the ${PROFILE} profile on :${PORT}"
-# Only reachable with QELI_FORCE_RECONFIG=1 (see the guard at the top). Keep the
-# previous config: it is the only copy of the identity pinning, the panel
-# password_hash and any hand-written profile this run is about to throw away.
-# (Audit 2026-07-27, K2)
-if [ -e "$CONF" ]; then
-  CONF_BAK="${CONF}.bak-${RUN_STAMP}"
-  cp -a "$CONF" "$CONF_BAK"
-  echo "  previous config backed up → ${CONF_BAK}"
-fi
-{
-  # global sections ([auth]/[logging]/[web]) — everything before the first profile
-  awk '/^\[profile:/{exit} {print}' "$EXAMPLE"
-  # only the selected profile block (header until the next [profile:)
-  awk -v p="[profile:${PROFILE}]" '$0==p{f=1;print;next} /^\[profile:/{f=0} f{print}' "$EXAMPLE"
-} > "$CONF"
+_resolve_public_host
+_prepare_profile_config
 # Force the listener onto :$PORT regardless of the example's per-profile port
 # (reality-tls already ships on 443; fake-tls ships on 8444 in the example).
 sed -i "s|^bind.port = .*|bind.port = ${PORT}|" "$CONF"
@@ -588,61 +1007,10 @@ fi
 log "Generating the server identity key"
 qeli show-identity --config "$CONF"
 PUBKEY=$(qeli show-identity --config "$CONF" 2>/dev/null | awk -v p="$PROFILE" '$1==p{print $NF}')
-chown -R qeli:qeli "$CONF" /etc/qeli/identity 2>/dev/null || true
+chown -h -R -P qeli:qeli "$CONF" /etc/qeli/identity 2>/dev/null || true
 
 # ── 6. public host clients will connect to ──────────────────────────────────
-if [ -z "$PUBLIC_HOST" ]; then
-  # 1) External echo services — authoritative public IP (esp. behind NAT). Try a
-  #    few, each time-bounded so a blocked/unreachable one can't hang the install.
-  PUBLIC_HOST="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
-  [ -n "$PUBLIC_HOST" ] || PUBLIC_HOST="$(curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)"
-  [ -n "$PUBLIC_HOST" ] || PUBLIC_HOST="$(curl -fsS --max-time 5 https://icanhazip.com 2>/dev/null || true)"
-  # 2) Local fallback — src address of the default route. Works even with a /32 WAN
-  #    IP (as many cloud VMs have). On a NAT'd box this is the PRIVATE IP, so warn.
-  if [ -z "$PUBLIC_HOST" ]; then
-    PUBLIC_HOST="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n1)"
-    [ -n "$PUBLIC_HOST" ] && echo "  (external lookup failed — using the local WAN address ${PUBLIC_HOST}; if this box is behind NAT, re-run with the real public IP)"
-  fi
-  PUBLIC_HOST="$(printf '%s' "$PUBLIC_HOST" | tr -d '[:space:]')"
-  echo "  Auto-detected public IP: ${PUBLIC_HOST:-<unknown>}"
-  echo "  (Separate inbound/outbound IPs or a domain? Re-run with it as an argument.)"
-fi
-[ -n "$PUBLIC_HOST" ] || die "could not determine PUBLIC_HOST — pass it as an argument."
-# Validate the moment it is known, BEFORE it reaches a config file or a share link.
-# The value is either $1 or whatever api.ipify.org / ifconfig.me / icanhazip.com
-# answered, and it used to be spliced straight into `sed -i "s|…|public_host = $X|"` —
-# so a `|` in it closed the s||| command and everything after it executed as further
-# sed commands against server.conf, as root. Accept only characters an IP or hostname
-# can legitimately contain, and bound the length. (Audit 2026-07-27, O3)
-case "$PUBLIC_HOST" in
-  *[!A-Za-z0-9._:-]*)
-    die "PUBLIC_HOST '${PUBLIC_HOST}' contains characters that cannot appear in an IP or hostname — pass a clean address as the first argument." ;;
-  -*)
-    die "PUBLIC_HOST '${PUBLIC_HOST}' starts with '-' — that is not an address." ;;
-esac
-[ "${#PUBLIC_HOST}" -le 253 ] || die "PUBLIC_HOST is ${#PUBLIC_HOST} characters long — no hostname is (max 253)."
-# Host:port authorities must bracket IPv6 literals (RFC 3986). Keep public_host itself bare:
-# qeli's config/share codec owns authority parsing and adds brackets where required.
-PUBLIC_AUTHORITY_HOST="$PUBLIC_HOST"
-PUBLIC_PANEL_BIND="0.0.0.0"
-ENABLE_IPV6_LISTENER=0
-case "$PUBLIC_HOST" in
-  *:*)
-    PUBLIC_AUTHORITY_HOST="[${PUBLIC_HOST}]"
-    PUBLIC_PANEL_BIND="::"
-    ENABLE_IPV6_LISTENER=1
-    ;;
-esac
-
-# A hostname can gain/use an AAAA record without changing the installed config. When this
-# kernel has IPv6 enabled, make Quick Start dual-carrier-ready even if PUBLIC_HOST itself is
-# a DNS name (or today's auto-detected address happened to be IPv4). The second socket is
-# V6ONLY, so it neither steals nor duplicates the primary IPv4 listener. An explicit IPv6
-# literal still requests this listener even on a misconfigured IPv6-disabled host, making the
-# final service start fail honestly instead of printing an unusable connection link.
-if [ -s /proc/net/if_inet6 ]; then
-  ENABLE_IPV6_LISTENER=1
-fi
+# Public endpoint was resolved/validated before preparing the staged INI.
 
 # The packaged multiprofile example uses an IPv4 primary listener. An IPv6 literal in the
 # generated link is useful only if the selected profile also owns an IPv6 socket; qeli makes
@@ -659,54 +1027,7 @@ fi
 
 # ── 7. create users + save ready qeli:// connection strings ─────────────────
 log "Creating ${NUM_USERS} users + connection strings"
-mkdir -p "$LINKS_DIR"; chmod 700 "$LINKS_DIR"
-# add-client appends to the users file; make sure it exists (older builds error if not).
-[ -f /etc/qeli/users.conf ] || : > /etc/qeli/users.conf
-SUMMARY="${LINKS_DIR}/CONNECTION-STRINGS.txt"
-SUMMARY_BAK=""
-# This file is the ONLY place the generated passwords exist in the clear, so a forced
-# re-run must not truncate it before we know which users are being kept.
-# (Audit 2026-07-27, K2)
-if [ -s "$SUMMARY" ]; then
-  SUMMARY_BAK="${SUMMARY}.bak-${RUN_STAMP}"
-  cp -a "$SUMMARY" "$SUMMARY_BAK"
-  echo "  previous connection-string list backed up → ${SUMMARY_BAK}"
-fi
-: > "$SUMMARY"
-for i in $(seq 1 "$NUM_USERS"); do
-  U="${USER_PREFIX}${i}"
-  # A user that is already there (only possible on a QELI_FORCE_RECONFIG re-run) is
-  # KEPT, not recreated: `qeli add-client` refuses to overwrite one. That refusal used
-  # to abort the whole installer, because `LINK=$(qeli add-client … | grep …)` is an
-  # assignment from a pipeline — `set -e` killed the script at the assignment, so the
-  # explicit `die` on the next line was unreachable and the service never got started.
-  # (Audit 2026-07-27, K2)
-  if grep -q "^\[user:${U}\]" /etc/qeli/users.conf 2>/dev/null; then
-    echo "  = ${U} already exists — kept (password unchanged; its old link is stale if the short_id changed)"
-    printf 'user: %s\npass: <unchanged — see %s>\nlink: <stale — this run minted a new REALITY short_id>\n      re-issue from the web panel, or drop [user:%s] from /etc/qeli/users.conf\n      and re-run the installer to recreate it with a fresh password.\n\n' \
-      "$U" "${SUMMARY_BAK:-the previous install}" "$U" >> "$SUMMARY"
-    continue
-  fi
-  P="$(openssl rand -hex 12)"   # URL-safe (hex) — embedded straight into the link
-  # Run add-client as its own command so a FAILURE is both survivable and visible.
-  # Password on STDIN, never in argv: /proc/<pid>/cmdline is world-readable, so
-  # `--password "$P"` handed every credential this script generates to any local
-  # account polling /proc, and put it into auditd execve records besides.
-  # (Audit 2026-08-04.)
-  if ! ADD_OUT="$(printf '%s' "$P" | qeli add-client "$U" --password-stdin --link \
-           --host "${PUBLIC_AUTHORITY_HOST}:${PORT}" --link-profile "$PROFILE" \
-           --config "$CONF" 2>&1)"; then
-    printf '%s\n' "$ADD_OUT" >&2
-    die "add-client failed for ${U} (output above)."
-  fi
-  LINK="$(printf '%s\n' "$ADD_OUT" | grep -m1 '^qeli://' || true)"
-  [ -n "$LINK" ] || die "add-client did not return a link for $U."
-  echo "$LINK" > "${LINKS_DIR}/${U}.qeli"
-  printf 'user: %s\npass: %s\nlink: %s\n\n' "$U" "$P" "$LINK" >> "$SUMMARY"
-  echo "  + ${U}"
-done
-chmod 600 "$LINKS_DIR"/* 2>/dev/null || true
-chown -R qeli:qeli /etc/qeli/users.conf 2>/dev/null || true
+_create_client_links
 
 # ── 8. OS tuning for mobile / LTE paths (PMTU black-hole fix) ───────────────
 # The post-quantum reality-tls / fake-tls ClientHello is one large TCP segment; on
@@ -893,30 +1214,7 @@ if [ "$TRANSPORT" = "tcp" ]; then
 else
   echo "  udp-quic: UDP transport has no outer TCP handshake — skipping MSS clamp."
 fi
-# /etc/sysctl.d and /etc/modules-load.d may be absent on a minimal base (no procps/
-# systemd yet) — create them so the heredoc write below can't abort the run (set -e).
-mkdir -p /etc/sysctl.d /etc/modules-load.d
-cat > /etc/sysctl.d/99-qeli-perf.conf <<'SYSCTL'
-# qeli throughput + PMTU tuning (reversible: delete this file + sysctl --system)
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-net.core.rmem_max=16777216
-net.core.wmem_max=16777216
-net.ipv4.tcp_rmem=4096 131072 16777216
-net.ipv4.tcp_wmem=4096 65536 16777216
-net.ipv4.tcp_mtu_probing=1
-# UDP has NO receive-buffer autotuning. Current qeli explicitly requests 4 MiB per UDP
-# listener, so rmem_max must permit it; the default values also protect older qeli builds
-# and other UDP sockets on the host. Left at 208 KB, one scheduling stall makes the kernel
-# drop datagrams; each lost datagram is a lost TCP segment INSIDE the tunnel, so the inner
-# connection halves its window. qeli logs the effective SO_RCVBUF and warns when clamped.
-net.core.rmem_default=4194304
-net.core.wmem_default=4194304
-net.core.netdev_max_backlog=4000
-SYSCTL
-modprobe tcp_bbr 2>/dev/null || true
-echo tcp_bbr > /etc/modules-load.d/qeli-bbr.conf 2>/dev/null || true
-sysctl -p /etc/sysctl.d/99-qeli-perf.conf >/dev/null 2>&1 || true
+_apply_perf_tuning
 
 # ── 8b. web admin panel: enable over HTTPS with a generated password ─────────
 # BIND POLICY (Audit 2026-07-27, O4). This used to `sed 's/^bind = 127\.0\.0\.1/
@@ -932,17 +1230,7 @@ sysctl -p /etc/sysctl.d/99-qeli-perf.conf >/dev/null 2>&1 || true
 # outright rather than quietly accepted. TLS is enabled through ONE mechanism
 # (_conf_web_set), so there is nothing left that can silently fail to match.
 log "Enabling the web admin panel (HTTPS, generated password)"
-PANEL_PUBLIC=0
-PANEL_ALLOWED="${QELI_PANEL_ALLOWED_IPS:-}"
-if [ "${QELI_PANEL_PUBLIC:-0}" = "1" ]; then
-  [ -n "$PANEL_ALLOWED" ] || die "QELI_PANEL_PUBLIC=1 needs QELI_PANEL_ALLOWED_IPS=<ip[,ip…]> — publishing the admin panel on a wildcard bind with no source allowlist is refused. Use your own address, or drop QELI_PANEL_PUBLIC and reach the panel through an SSH tunnel:  ssh -L ${PANEL_PORT}:127.0.0.1:${PANEL_PORT} root@${PUBLIC_HOST}"
-  # Same reasoning as PUBLIC_HOST: this value lands in the config, so it is data only.
-  # Comma-separated, no spaces (e.g. QELI_PANEL_ALLOWED_IPS=203.0.113.4,198.51.100.0/24).
-  case "$PANEL_ALLOWED" in
-    *[!A-Za-z0-9./,:-]*) die "QELI_PANEL_ALLOWED_IPS must be a comma-separated list of addresses/CIDRs with no spaces (got '${PANEL_ALLOWED}')." ;;
-  esac
-  PANEL_PUBLIC=1
-fi
+# Panel opt-in/allowlist input was checked before dependency/config changes.
 PANEL_PW="$(openssl rand -base64 18 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c 20)"
 # Password on stdin, not in argv — see the note on add-client above.
 if [ -n "$PANEL_PW" ] && printf '%s' "$PANEL_PW" \
@@ -976,11 +1264,6 @@ fi
 # Run-as user: default `qeli` (least privilege). QELI_RUN_AS=root writes a systemd
 # drop-in (via the binary's own helper) BEFORE the first start, so the service comes up
 # as the chosen user. Reverting later: `qeli set-service-user qeli`.
-if [ "$QELI_RUN_AS" = root ]; then
-  log "Configuring the service to run as root (QELI_RUN_AS=root — privilege separation off)"
-  qeli set-service-user root
-fi
-
 # Validate the FINAL file, after add-client and all web-panel rewrites. Earlier
 # `show-identity` only parsed the profile subset that existed before those mutations;
 # it neither rejected unread keys/bad values nor loaded users.conf. Refuse before
@@ -988,8 +1271,13 @@ fi
 # config and turn an otherwise recoverable edit into an outage.
 log "Validating the final server and users configuration"
 if ! qeli check-config --config "$CONF"; then
-  die "final configuration validation failed; qeli was NOT restarted. Fix ${CONF} (previous copy: ${CONF_BAK:-not available}) and run qeli check-config again."
+  die "staged configuration validation failed; ${FINAL_CONF} was NOT replaced and qeli was NOT restarted. Users/identity/links/tuning may already have changed; inspect their recovery data before retrying."
 fi
+
+log "Configuring the service user: ${QELI_RUN_AS}"
+qeli set-service-user "$QELI_RUN_AS"
+
+_commit_profile_config
 
 log "Starting the service"
 systemctl enable qeli
@@ -998,30 +1286,27 @@ sleep 2
 systemctl is-active --quiet qeli || die "qeli failed to start — see: journalctl -u qeli -e"
 
 # ── done ────────────────────────────────────────────────────────────────────
-# Perf/revert note has three cases: the clamp went in, the clamp was REFUSED by this
-# host (which is no longer fatal — see O5 above), or the profile is UDP and never
-# wanted one. Reporting a revert command for a rule that was never installed would
-# send the operator chasing a rule that is not there.
+PERF_NOTE="Perf tuning:   ${SYSCTL_STATUS}
+               Details and restore instructions: ${PERF_RECEIPT}/restore.txt"
 if [ "$MSS_APPLIED" = "1" ] || [ "$MSS6_APPLIED" = "1" ]; then
+  PERF_NOTE="${PERF_NOTE}
+Mobile/LTE:    ${MSS_SUMMARY}"
   if [ -n "$MSS_REVERT" ]; then
-    PERF_NOTE="Mobile/LTE:    ${MSS_SUMMARY} + BBR/PMTU probing.
-               Revert installer-added rules: ${MSS_REVERT}
-               Revert tuning: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system"
+    PERF_NOTE="${PERF_NOTE}
+               Revert installer-added rules: ${MSS_REVERT}"
   else
-    PERF_NOTE="Mobile/LTE:    ${MSS_SUMMARY} already existed; BBR/PMTU probing applied.
-               MSS ownership: no firewall rule was added, so none is removed by this installer.
-               Revert tuning: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system"
+    PERF_NOTE="${PERF_NOTE}
+               MSS ownership: existing rules were kept; this installer added none."
   fi
 elif [ "$TRANSPORT" = "tcp" ]; then
-  PERF_NOTE="Mobile/LTE:    BBR/PMTU sysctl applied; the outer IPv4 MSS clamps could NOT be installed
-               on this host (see the warning above) — large post-quantum ClientHellos may
-               black-hole on LTE/CGNAT. Add both directions once iptables works:
+  PERF_NOTE="${PERF_NOTE}
+Mobile/LTE:    outer IPv4 MSS clamps could NOT be installed (see warning above).
+               Retry both directions once iptables works:
                  iptables -t mangle -A PREROUTING ${MSS_INPUT_RULE}
-                 iptables -t mangle -A OUTPUT ${MSS_RULE}
-               Revert: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system"
+                 iptables -t mangle -A OUTPUT ${MSS_RULE}"
 else
-  PERF_NOTE="Perf tuning:   BBR/PMTU sysctl applied (udp-quic has no outer TCP → no MSS clamp).
-               Revert: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system"
+  PERF_NOTE="${PERF_NOTE}
+               udp-quic has no outer TCP handshake; no MSS clamp is needed."
 fi
 
 log "Done"

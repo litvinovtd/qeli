@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "kind": "development-performance-publication-withdrawal",
+  "status": "WITHDRAWN_FROM_PUBLIC_BENCHMARK",
+  "release_version": "0.8.2",
+  "original_sha256": "ce7cdd0699809610096e8e5e95d2ae22084611965023841415e3d3bd1c78441b",
+  "retention": "Complete original retained in a git-ignored local audit archive.",
+  "scope": "Not public measurement data, a performance claim, or certification evidence."
+}

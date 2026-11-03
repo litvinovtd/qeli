@@ -163,8 +163,9 @@ pub fn derive_keys_hybrid_bound(
 /// shared secret: `(server→client, client→server)`.
 ///
 /// POST-QUANTUM SCOPE: this is the legacy classic-only derivation, kept for the
-/// `plain` wire mode (which has no TLS-shaped handshake to carry an ML-KEM share).
-/// The fake-tls / obfs / reality-tls / UDP modes use [`derive_keys_hybrid`], whose
+/// `plain` wire mode and the private inner exchange of `reality-tls`. The latter
+/// can obtain PQ protection from its outer TLS layer when a hybrid group is negotiated.
+/// The fake-tls / obfs / reality / UDP modes use [`derive_keys_hybrid`], whose
 /// keys also depend on an ML-KEM-768 secret and are therefore harvest-now/
 /// decrypt-later resistant. See [`crate::crypto::mlkem`].
 pub fn derive_keys(shared_secret: &[u8; 32]) -> ([u8; 32], [u8; 32]) {

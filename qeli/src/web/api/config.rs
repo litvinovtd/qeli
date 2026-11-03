@@ -1,5 +1,6 @@
 use super::paths::{
     validate_in_whitelist, validate_path_field, ALLOWED_CONFIG_DIRS, ALLOWED_LOG_DIRS,
+    ALLOWED_TLS_DIRS,
 };
 use crate::server::web::auth::{self, AuthError};
 use crate::server::ServerState;
@@ -13,6 +14,33 @@ use std::sync::Arc;
 const CONFIG_HISTORY_DIR: &str = ".config-history";
 const CONFIG_HISTORY_KEEP: usize = 10;
 
+/// Serialize Qeli CLI and panel writers through the same sidecar lock. Acquire
+/// it off the async runtime before reading the INI and hold it through rename.
+pub(super) async fn lock_server_config(path: &FsPath) -> Result<crate::util::FileLock, String> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        crate::util::FileLock::acquire_timeout(&path, std::time::Duration::from_secs(5))
+    })
+    .await
+    .map_err(|error| format!("config writer lock task failed: {error}"))?
+    .map_err(|error| format!("cannot lock server config for writing: {error}"))
+}
+
+fn read_config_text(path: impl AsRef<FsPath>) -> std::io::Result<String> {
+    crate::server::read_config_text(path)
+}
+
+/// A panel save publishes a new private inode. Never promote bytes from a file
+/// whose hooks and explicit paths the worker would refuse to trust.
+pub(super) fn read_trusted_config_text(path: &FsPath, label: &str) -> Result<String, String> {
+    let source = crate::server::read_config_source(path)
+        .map_err(|error| format!("read config {}: {error}", path.display()))?;
+    source
+        .require_trusted_file_output(label)
+        .map_err(|error| error.to_string())?;
+    Ok(source.text().to_owned())
+}
+
 /// Revision of the exact file bytes, comments included. Structured and raw editors therefore
 /// share one optimistic-concurrency token and a hand edit is detected just like a panel edit.
 pub(super) fn config_revision(raw: &str) -> String {
@@ -22,11 +50,19 @@ pub(super) fn config_revision(raw: &str) -> String {
         .collect()
 }
 
-fn revision_conflict(body: &Value, current_raw: &str) -> Option<Value> {
-    let expected = body
+pub(super) fn revision_conflict(body: &Value, current_raw: &str) -> Option<Value> {
+    let Some(expected) = body
         .get("expected_revision")
         .and_then(Value::as_str)
-        .filter(|revision| !revision.is_empty())?;
+        .filter(|revision| !revision.is_empty())
+    else {
+        return Some(json!({
+            "ok": false,
+            "kind": "config_revision_required",
+            "error": "A configuration revision is required for this write. Reload the current configuration before saving.",
+            "current_revision": config_revision(current_raw),
+        }));
+    };
     let current = config_revision(current_raw);
     (expected != current).then(|| {
         json!({
@@ -46,8 +82,7 @@ fn external_write_conflict(
     config_path: &FsPath,
     checked_raw: &str,
 ) -> Result<Option<Value>, String> {
-    let actual_raw = std::fs::read_to_string(config_path)
-        .map_err(|error| format!("re-read config {}: {error}", config_path.display()))?;
+    let actual_raw = read_trusted_config_text(config_path, "panel config save")?;
     let checked_revision = config_revision(checked_raw);
     let current_revision = config_revision(&actual_raw);
     Ok((checked_revision != current_revision).then(|| {
@@ -104,7 +139,7 @@ fn snapshot_config(config_path: &FsPath, current_raw: &str) -> Result<Option<Str
             .map_err(|error| format!("inspect config snapshot {}: {error}", snapshot.display()))?;
         if !metadata.is_file()
             || metadata.file_type().is_symlink()
-            || std::fs::read_to_string(&snapshot).ok().as_deref() != Some(current_raw)
+            || read_config_text(&snapshot).ok().as_deref() != Some(current_raw)
         {
             return Err(format!(
                 "existing config snapshot {} is not the expected regular file",
@@ -116,21 +151,26 @@ fn snapshot_config(config_path: &FsPath, current_raw: &str) -> Result<Option<Str
             .map_err(|error| format!("write config snapshot {}: {error}", snapshot.display()))?;
     }
 
-    let mut entries = std::fs::read_dir(&dir)
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(&dir)
         .map_err(|error| format!("read config history {}: {error}", dir.display()))?
-        .flatten()
-        .filter(|entry| {
-            entry.path().extension().and_then(|x| x.to_str()) == Some("conf")
-                && entry
-                    .file_type()
-                    .map(|kind| kind.is_file() && !kind.is_symlink())
-                    .unwrap_or(false)
-        })
-        .collect::<Vec<_>>();
+    {
+        let entry = entry
+            .map_err(|error| format!("enumerate config history {}: {error}", dir.display()))?;
+        if entry.path().extension().and_then(|x| x.to_str()) == Some("conf") {
+            let kind = entry
+                .file_type()
+                .map_err(|error| format!("inspect config history entry: {error}"))?;
+            if kind.is_file() && !kind.is_symlink() {
+                entries.push(entry);
+            }
+        }
+    }
     entries.sort_by_key(|entry| entry.file_name());
     let remove_count = entries.len().saturating_sub(CONFIG_HISTORY_KEEP);
     for entry in entries.into_iter().take(remove_count) {
-        let _ = std::fs::remove_file(entry.path());
+        std::fs::remove_file(entry.path())
+            .map_err(|error| format!("rotate config history: {error}"))?;
     }
     Ok(Some(id))
 }
@@ -140,11 +180,67 @@ pub(super) fn snapshot_before_changed_write(
     current_raw: &str,
     next_raw: &str,
 ) -> Result<Option<String>, String> {
+    if next_raw.len() as u64 > crate::server::MAX_SERVER_INI_BYTES {
+        return Err(format!(
+            "server config is {} bytes; maximum is {}",
+            next_raw.len(),
+            crate::server::MAX_SERVER_INI_BYTES
+        ));
+    }
     if config_revision(current_raw) == config_revision(next_raw) {
         Ok(None)
     } else {
         snapshot_config(config_path, current_raw)
     }
+}
+
+/// Server INI carries admin password hashes and inline user credentials.
+/// Every panel save creates a private inode even if an old config was 0644.
+pub(super) fn write_server_config(path: &FsPath, raw: &str) -> anyhow::Result<()> {
+    crate::util::write_atomic_private(path, raw.as_bytes())
+}
+
+/// A saved config must not leave an enabled admin panel unable to start or
+/// cause a live reload to reject its authentication settings.
+pub(super) fn validate_web_auth_for_save(
+    web: &crate::config::server::WebConfig,
+) -> Result<(), String> {
+    web.validate_auth_admission()?;
+    if web.enabled && !web.password_hash.is_empty() {
+        super::users::validate_argon2_hash(&web.password_hash)
+            .map_err(|error| format!("web.password_hash: {error}"))?;
+    }
+    Ok(())
+}
+
+pub(super) fn needs_full_restart(
+    current: &crate::config::server::WebConfig,
+    next: &crate::config::server::WebConfig,
+) -> bool {
+    current.bind != next.bind
+        || current.port != next.port
+        || current.enabled != next.enabled
+        || current.tls != next.tls
+        || current.tls_cert != next.tls_cert
+        || current.tls_key != next.tls_key
+        || current.base_path != next.base_path
+        || current.persist_session_key != next.persist_session_key
+}
+
+/// The supervisor retains the startup users path; SIGHUP deliberately cannot
+/// switch it while panel/control writers still target the old path.
+pub(super) fn needs_full_restart_for_config(
+    current: &crate::config::server::ServerConfig,
+    next: &crate::config::server::ServerConfig,
+) -> bool {
+    needs_full_restart(&current.web, &next.web)
+        || current.auth.users_file != next.auth.users_file
+        // The supervisor and worker each initialise their logger before parsing the
+        // full config. Restarting only the worker would split their log policy.
+        || current.logging.level != next.logging.level
+        || current.logging.file != next.logging.file
+        || current.logging.time_format != next.logging.time_format
+        || current.logging.format != next.logging.format
 }
 
 pub async fn get_config(
@@ -154,7 +250,7 @@ pub async fn get_config(
     // Return the live on-disk config so the panel reflects Quick-Start / Apply
     // changes (the supervisor's in-memory `config` is only its startup snapshot).
     if let Some(path) = state.config_path.lock().await.clone() {
-        let raw = match std::fs::read_to_string(&path) {
+        let raw = match read_config_text(&path) {
             Ok(raw) => raw,
             Err(error) => {
                 return Ok(Json(super::err_json(format!(
@@ -182,6 +278,7 @@ pub async fn get_config(
         }
         return Ok(Json(json!({
             "ok": true,
+            "needs_full_restart": needs_full_restart_for_config(&state.config, &config),
             "config": config,
             "revision": config_revision(&raw),
         })));
@@ -190,6 +287,7 @@ pub async fn get_config(
     Ok(Json(json!({
         "ok": true,
         "config": &state.config,
+        "needs_full_restart": false,
         "revision": config_revision(&raw),
     })))
 }
@@ -819,7 +917,7 @@ fn configure_quickstart_ip_mode(
     }
     if !host_has_native_ipv6_egress(host) {
         return Err(
-            "this host has no observed global IPv6 address on an IPv6 default-route interface; Quick Start cannot promise Internet IPv6 (use IPv4, or configure routed/off IPv6 manually)"
+            "this host has no observed global IPv6 address on an IPv6 default-route interface; Quick Start cannot promise Internet IPv6 (use IPv4, or configure route/manual/off IPv6 in Configuration)"
                 .into(),
         );
     }
@@ -1024,12 +1122,15 @@ pub async fn get_quickstart_profile(
         Ok(config) => config,
         Err(error) => return Ok(Json(super::err_json(error))),
     };
-    let host = crate::server::preflight::gather_host_net();
+    let observed = match super::preflight::observe(true).await {
+        Ok(observed) => observed,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     match quickstart_profile_for_current(
         &mode,
         &current,
-        host.as_ref(),
-        crate::server::nat::ip6tables_path().is_some(),
+        observed.host.as_ref(),
+        observed.ipv6_firewall_available,
         None,
     ) {
         Ok((profile, short_id, obfs_key, reused)) => Ok(Json(json!({
@@ -1053,7 +1154,10 @@ pub async fn apply_quickstart_profile(
     _guard: auth::AuthGuard,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AuthError> {
-    let _config_write_guard = state.config_write_lock.lock().await;
+    let (_config_write_guard, observed) = match super::preflight::lock(&state, true).await {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     let Some(target) = state.config_path.lock().await.clone() else {
         return Ok(Json(super::err_json(
             "config_path not set — running from in-memory config",
@@ -1063,9 +1167,13 @@ pub async fn apply_quickstart_profile(
         Ok(path) => path,
         Err(error) => return Ok(Json(super::err_json(error))),
     };
-    let current_raw = match std::fs::read_to_string(&canon) {
+    let _file_write_guard = match lock_server_config(&canon).await {
+        Ok(guard) => guard,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let current_raw = match read_trusted_config_text(FsPath::new(&target), "panel config save") {
         Ok(raw) => raw,
-        Err(error) => return Ok(Json(super::err_json(format!("read config: {error}")))),
+        Err(error) => return Ok(Json(super::err_json(error))),
     };
     if let Some(conflict) = revision_conflict(&body, &current_raw) {
         return Ok(Json(conflict));
@@ -1082,12 +1190,11 @@ pub async fn apply_quickstart_profile(
             ))))
         }
     };
-    let host = crate::server::preflight::gather_host_net();
     let (profile, short_id, obfs_key, reused) = match quickstart_profile_for_current(
         &mode,
         &current,
-        host.as_ref(),
-        crate::server::nat::ip6tables_path().is_some(),
+        observed.host.as_ref(),
+        observed.ipv6_firewall_available,
         requested_ip_mode,
     ) {
         Ok(result) => result,
@@ -1107,6 +1214,9 @@ pub async fn apply_quickstart_profile(
             ))))
         }
     };
+    if let Err(error) = validate_web_auth_for_save(&reparsed.web) {
+        return Ok(Json(super::err_json(error)));
+    }
     if let Err(error) = crate::server::validate_profiles(&reparsed) {
         return Ok(Json(super::err_json(format!(
             "Quick Start config would be rejected at startup: {error}"
@@ -1117,12 +1227,10 @@ pub async fn apply_quickstart_profile(
             "Quick Start conflicts with existing static user addresses: {error}"
         ))));
     }
-    if let Some(host) = host.as_ref() {
-        if let Err(error) = crate::server::preflight::check(&reparsed, host) {
-            return Ok(Json(super::err_json(format!(
-                "Quick Start conflicts with host networking: {error}"
-            ))));
-        }
+    if let Err(error) = observed.check(&reparsed) {
+        return Ok(Json(super::err_json(format!(
+            "Quick Start conflicts with host networking: {error}"
+        ))));
     }
     match external_write_conflict(&canon, &current_raw) {
         Ok(Some(conflict)) => return Ok(Json(conflict)),
@@ -1137,12 +1245,12 @@ pub async fn apply_quickstart_profile(
             ))))
         }
     };
-    if let Err(error) = crate::util::write_atomic(&canon, next_raw.as_bytes()) {
+    if let Err(error) = write_server_config(&canon, &next_raw) {
         return Ok(Json(super::err_json(format!(
             "Quick Start write failed: {error}"
         ))));
     }
-    state.reload_web_settings().await;
+    let web_settings_applied = state.reload_web_settings().await;
     Ok(Json(json!({
         "ok": true,
         "profile": profile,
@@ -1151,7 +1259,10 @@ pub async fn apply_quickstart_profile(
         "reused": reused,
         "revision": config_revision(&next_raw),
         "snapshot": snapshot,
-        "message": if reused {
+        "web_settings_applied": web_settings_applied,
+        "message": if !web_settings_applied {
+            "Quick Start saved the INI, but panel settings were not applied live; inspect the current INI and server logs before restarting."
+        } else if reused {
             "Existing profile enabled; credentials preserved and requested IP mode applied."
         } else {
             "Quick Start profile created."
@@ -1172,19 +1283,41 @@ pub async fn put_config(
     // Serialize the entire read-modify-write sequence, not just the final atomic rename.
     // The expected revision is checked while this guard is held, closing the last-writer-wins
     // window between two panel tabs or Configuration and Quick Start.
-    let _config_write_guard = state.config_write_lock.lock().await;
+    let (_config_write_guard, observed) = match super::preflight::lock(&state, false).await {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     let revision_path = state.config_path.lock().await.clone();
-    let current_raw_for_revision = revision_path
-        .as_deref()
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .unwrap_or_else(|| state.config.to_ini_string());
+    let (_file_write_guard, locked_config_path, original_config_path) =
+        match revision_path.as_deref() {
+            Some(path) => {
+                let canon = match validate_in_whitelist(path, ALLOWED_CONFIG_DIRS) {
+                    Ok(path) => path,
+                    Err(error) => return Ok(Json(super::err_json(error))),
+                };
+                match lock_server_config(&canon).await {
+                    Ok(guard) => (guard, canon, path.to_string()),
+                    Err(error) => return Ok(Json(super::err_json(error))),
+                }
+            }
+            None => {
+                return Ok(Json(super::err_json(
+                    "config_path not set — running from in-memory config",
+                )))
+            }
+        };
+    let current_raw_for_revision =
+        match read_trusted_config_text(FsPath::new(&original_config_path), "panel config save") {
+            Ok(raw) => raw,
+            Err(error) => return Ok(Json(super::err_json(error))),
+        };
     if let Some(conflict) = revision_conflict(&body, &current_raw_for_revision) {
         return Ok(Json(conflict));
     }
 
     // Deserialize-validate the structure first.
     let mut parsed: crate::config::server::ServerConfig =
-        match serde_json::from_value(new_config_value.clone()) {
+        match crate::config::decode_server_form(new_config_value.clone()) {
             Ok(c) => c,
             Err(e) => return Ok(Json(super::err_json(format!("invalid config: {}", e)))),
         };
@@ -1207,8 +1340,13 @@ pub async fn put_config(
     let bad_name = parsed
         .profiles
         .iter()
-        .find(|p| !crate::util::is_valid_ident(&p.name))
-        .map(|p| name_err("profile name", &p.name))
+        .find(|p| !crate::util::is_valid_profile_name(&p.name))
+        .map(|p| {
+            format!(
+                "{}; profile names must not contain commas or path separators",
+                name_err("profile name", &p.name)
+            )
+        })
         .or_else(|| {
             parsed
                 .auth
@@ -1336,15 +1474,17 @@ pub async fn put_config(
             }
         }
     }
-    if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_CONFIG_DIRS) {
-        return Ok(Json(
-            json!({ "ok": false, "error": format!("web.tls_cert: {}", e) }),
-        ));
-    }
-    if let Err(e) = validate_path_field(&parsed.web.tls_key, ALLOWED_CONFIG_DIRS) {
-        return Ok(Json(
-            json!({ "ok": false, "error": format!("web.tls_key: {}", e) }),
-        ));
+    if parsed.web.enabled && parsed.web.tls {
+        if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_TLS_DIRS) {
+            return Ok(Json(
+                json!({ "ok": false, "error": format!("web.tls_cert: {}", e) }),
+            ));
+        }
+        if let Err(e) = validate_path_field(&parsed.web.tls_key, ALLOWED_TLS_DIRS) {
+            return Ok(Json(
+                json!({ "ok": false, "error": format!("web.tls_key: {}", e) }),
+            ));
+        }
     }
 
     // Resolve and validate the write target. config_path is set at startup and
@@ -1372,15 +1512,22 @@ pub async fn put_config(
         }
     };
 
+    if canon != locked_config_path {
+        return Ok(Json(super::err_json(
+            "config path changed while this save was being prepared; reload and retry",
+        )));
+    }
+
     // SECURITY: post_up/post_down run arbitrary commands as root. They are
     // FILE-ONLY — the panel/API must never set or change them, or a panel
     // compromise becomes RCE. Restore each profile's hooks from the current
-    // on-disk config (discarding whatever the request sent); if the file can't be
-    // read, force-clear them so the panel can never introduce a hook.
-    match std::fs::read_to_string(&canon)
-        .ok()
-        .and_then(|s| crate::config::parse_server_config(&s).ok())
-    {
+    // on-disk config (discarding whatever the request sent). A failed read
+    // aborts the edit; an unparseable file cannot authorize new hooks.
+    let current_for_secrets = match read_trusted_config_text(&canon, "panel config save") {
+        Ok(raw) => raw,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    match crate::config::parse_server_config(&current_for_secrets).ok() {
         Some(cur) => {
             for p in &mut parsed.profiles {
                 let (up, down) = cur
@@ -1430,28 +1577,19 @@ pub async fn put_config(
         }
     }
 
+    // The structured form restores its masked admin hash from disk above.
+    if let Err(error) = validate_web_auth_for_save(&parsed.web) {
+        return Ok(Json(super::err_json(error)));
+    }
+
     // Write flat-INI (the canonical on-disk format) so the file stays
     // consistent with hand-edited configs. Note: structured editing through the
     // UI cannot preserve hand-written comments — for comment-heavy configs, edit
     // the file directly. We serialize the validated struct so the output is a
     // faithful, lossless round-trip of the config.
-    // Did the PANEL's own socket change (web.bind/port/tls/enabled)? Those are bound by the
-    // supervisor at startup and NOT reapplied by the worker restart — they need a FULL restart.
-    // Compare against config.web, the boot-time snapshot = what the panel is bound to now.
-    let cur = &state.config.web;
-    let w = &parsed.web;
-    let needs_full_restart = w.bind != cur.bind
-        || w.port != cur.port
-        || w.enabled != cur.enabled
-        || w.tls != cur.tls
-        || w.tls_cert != cur.tls_cert
-        || w.tls_key != cur.tls_key
-        // The router is NESTED under the boot-time base_path (web/mod.rs), and the
-        // base-href rewrite middleware reads the same startup snapshot — so a change
-        // here does NOT take effect on a worker restart, only on a full process
-        // restart. Without this the panel said "applied live" while still serving on
-        // the old prefix, sending the operator on a 404 hunt behind their proxy.
-        || w.base_path != cur.base_path;
+    // Panel listener, session-key source, users-file path and logging are bound at supervisor startup.
+    // A worker-only restart cannot apply them; compare with the boot-time snapshot.
+    let needs_full_restart = needs_full_restart_for_config(&state.config, &parsed);
 
     let config_str = parsed.to_ini_string();
     // Fail-closed defense-in-depth: never write a config we can't read back. The
@@ -1531,7 +1669,7 @@ pub async fn put_config(
     // before Quick Start asks the supervisor to kill the current worker. Structural validation
     // cannot see a LAN/default-gateway/other-VPN collision; discovering it only in the new
     // worker is too late because the known-good data plane has already been stopped.
-    if let Err(e) = crate::server::preflight::run(&reparsed) {
+    if let Err(e) = observed.check(&reparsed) {
         return Ok(Json(json!({
             "ok": false,
             "error": format!("refusing to save a config that conflicts with host networking: {}", e),
@@ -1551,7 +1689,7 @@ pub async fn put_config(
                 ))))
             }
         };
-    if let Err(e) = crate::util::write_atomic(&canon, config_str.as_bytes()) {
+    if let Err(e) = write_server_config(&canon, &config_str) {
         return Ok(Json(json!({
             "ok": false,
             "error": format!("write error: {}", e),
@@ -1561,18 +1699,21 @@ pub async fn put_config(
     // Apply the panel's own settings (admin password/username, IP allowlist, CSRF
     // origins, public host) LIVE — the supervisor serves the panel from this copy,
     // so they take effect without a restart. Profile/bind/tun/TLS still need one.
-    state.reload_web_settings().await;
+    let web_settings_applied = state.reload_web_settings().await;
 
-    let message = if needs_full_restart {
-        "config saved. This changes the PANEL socket (web.bind/port/tls/enabled/base_path) — \
-         apply it with a FULL restart: the `Apply & Restart` button does one, or run \
-         `systemctl restart qeli`. Other changes are picked up by the worker restart."
+    let message = if !web_settings_applied {
+        "config saved, but panel settings were not applied live; the previous panel authentication remains active. Inspect the current INI and server logs before retrying or restarting."
+    } else if needs_full_restart {
+        "config saved. A startup-only setting changed (panel listener, session-key source, \
+         auth.users_file or logging settings) — apply it with a FULL restart using \
+         `Apply & Restart` or `systemctl restart qeli`."
     } else {
         "config saved — web/panel settings applied live; restart to apply profile/bind/tun changes"
     };
     Ok(Json(json!({
         "ok": true,
         "needs_full_restart": needs_full_restart,
+        "web_settings_applied": web_settings_applied,
         "message": message,
         "path": canon.display().to_string(),
         "revision": config_revision(&config_str),
@@ -1608,12 +1749,14 @@ pub async fn get_config_raw(
             ))))
         }
     };
-    match std::fs::read_to_string(&canon) {
+    match read_config_text(&canon) {
         // Secrets are masked on the way out and restored on the way back in
         // (`put_config_raw`), so the raw editor keeps working without the browser ever
         // holding the admin hash or a user's stored password. (Audit 2026-07-27, P1.)
         Ok(raw) => Ok(Json(json!({
             "ok": true,
+            "needs_full_restart": crate::config::parse_server_config(&raw)
+                .map(|config| needs_full_restart_for_config(&state.config, &config)).unwrap_or(true),
             "raw": mask_raw_secrets(&raw),
             "path": canon.display().to_string(),
             "masked": RAW_SECRET_MASK,
@@ -1642,9 +1785,12 @@ fn validate_config_structure(parsed: &crate::config::server::ServerConfig) -> Op
     if let Some(p) = parsed
         .profiles
         .iter()
-        .find(|p| !crate::util::is_valid_ident(&p.name))
+        .find(|p| !crate::util::is_valid_profile_name(&p.name))
     {
-        return Some(name_err("profile name", &p.name));
+        return Some(format!(
+            "{}; profile names must not contain commas or path separators",
+            name_err("profile name", &p.name)
+        ));
     }
     if let Some(g) = parsed
         .auth
@@ -1755,25 +1901,35 @@ fn mask_raw_secrets(raw: &str) -> String {
     out
 }
 
-/// Put the real secrets back: any masked value in `incoming` is replaced with the value
-/// the same `(section, key)` holds in `on_disk`.
-///
-/// Keyed by section so two users' hashes can never be swapped. A masked value with no
-/// counterpart on disk becomes empty, which the parser treats as "unset" — the same
-/// outcome the structured path produces for a user it cannot match.
-fn unmask_raw_secrets(incoming: &str, on_disk: &str) -> String {
+/// Use the INI parser's canonical identity; formatting never renames a secret owner.
+fn canonical_secret_section(header: &str) -> Result<String, String> {
+    let doc = crate::config::format::IniDoc::parse(header).map_err(|error| error.to_string())?;
+    doc.sections
+        .first()
+        .map(|section| section.header())
+        .ok_or_else(|| "missing INI section".to_string())
+}
+
+/// An unresolved mask is an error, never an implicit request to clear credentials.
+fn unmask_raw_secrets(incoming: &str, on_disk: &str) -> Result<String, String> {
     let mut disk: std::collections::HashMap<(String, String), String> =
         std::collections::HashMap::new();
     let mut section = String::new();
     for line in on_disk.lines() {
         let t = line.trim();
         if t.starts_with('[') {
-            section = t.to_string();
+            section = canonical_secret_section(t)?;
             continue;
         }
         if let Some((k, v)) = ini_kv(line) {
-            if RAW_SECRET_KEYS.contains(&k) {
-                disk.insert((section.clone(), k.to_string()), v.to_string());
+            if RAW_SECRET_KEYS.contains(&k)
+                && disk
+                    .insert((section.clone(), k.to_string()), v.to_string())
+                    .is_some()
+            {
+                return Err(format!(
+                    "ambiguous secret {k} in {section}; resolve the duplicate on disk first"
+                ));
             }
         }
     }
@@ -1785,7 +1941,7 @@ fn unmask_raw_secrets(incoming: &str, on_disk: &str) -> String {
         let eol = &line[body.len()..];
         let t = body.trim();
         if t.starts_with('[') {
-            section = t.to_string();
+            section = canonical_secret_section(t)?;
             out.push_str(line);
             continue;
         }
@@ -1794,7 +1950,7 @@ fn unmask_raw_secrets(incoming: &str, on_disk: &str) -> String {
                 let real = disk
                     .get(&(section.clone(), k.to_string()))
                     .cloned()
-                    .unwrap_or_default();
+                    .ok_or_else(|| format!("cannot preserve masked secret {k} in {section}: no matching value on disk; enter a new value explicitly"))?;
                 let indent_len = body.len() - body.trim_start().len();
                 out.push_str(&body[..indent_len]);
                 out.push_str(k);
@@ -1805,7 +1961,7 @@ fn unmask_raw_secrets(incoming: &str, on_disk: &str) -> String {
             _ => out.push_str(line),
         }
     }
-    out
+    Ok(out)
 }
 
 /// Write raw INI text **verbatim** (preserving hand-written comments/formatting),
@@ -1822,12 +1978,34 @@ pub async fn put_config_raw(
         None => return Ok(Json(super::err_json("raw field required"))),
     };
 
-    let _config_write_guard = state.config_write_lock.lock().await;
+    let (_config_write_guard, observed) = match super::preflight::lock(&state, false).await {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     let revision_path = state.config_path.lock().await.clone();
-    let current_raw_for_revision = revision_path
-        .as_deref()
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .unwrap_or_else(|| state.config.to_ini_string());
+    let (_file_write_guard, locked_config_path, original_config_path) =
+        match revision_path.as_deref() {
+            Some(path) => {
+                let canon = match validate_in_whitelist(path, ALLOWED_CONFIG_DIRS) {
+                    Ok(path) => path,
+                    Err(error) => return Ok(Json(super::err_json(error))),
+                };
+                match lock_server_config(&canon).await {
+                    Ok(guard) => (guard, canon, path.to_string()),
+                    Err(error) => return Ok(Json(super::err_json(error))),
+                }
+            }
+            None => {
+                return Ok(Json(super::err_json(
+                    "config_path not set — running from in-memory config",
+                )))
+            }
+        };
+    let current_raw_for_revision =
+        match read_trusted_config_text(FsPath::new(&original_config_path), "panel config save") {
+            Ok(raw) => raw,
+            Err(error) => return Ok(Json(super::err_json(error))),
+        };
     if let Some(conflict) = revision_conflict(&body, &current_raw_for_revision) {
         return Ok(Json(conflict));
     }
@@ -1837,12 +2015,14 @@ pub async fn put_config_raw(
     // (worse) persist the placeholder and lock the operator out. Restoration is keyed by
     // (section, key), so hashes cannot be swapped between users. (Audit 2026-07-27, P1.)
     let raw = {
-        let path = state.config_path.lock().await.clone();
-        let on_disk = path
-            .as_deref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .unwrap_or_default();
-        unmask_raw_secrets(&raw, &on_disk)
+        let on_disk = match read_trusted_config_text(&locked_config_path, "panel config save") {
+            Ok(raw) => raw,
+            Err(error) => return Ok(Json(super::err_json(error))),
+        };
+        match unmask_raw_secrets(&raw, &on_disk) {
+            Ok(raw) => raw,
+            Err(error) => return Ok(Json(super::err_json(error))),
+        }
     };
 
     // Validate by parsing — catches INI syntax errors and invalid/missing values.
@@ -1865,6 +2045,9 @@ pub async fn put_config_raw(
         ))));
     }
 
+    if let Err(error) = validate_web_auth_for_save(&parsed.web) {
+        return Ok(Json(super::err_json(error)));
+    }
     if let Some(ref log_file) = parsed.logging.file {
         if let Err(e) = validate_path_field(log_file, ALLOWED_LOG_DIRS) {
             return Ok(Json(super::err_json(format!("logging.file: {}", e))));
@@ -1890,11 +2073,13 @@ pub async fn put_config_raw(
             }
         }
     }
-    if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_CONFIG_DIRS) {
-        return Ok(Json(super::err_json(format!("web.tls_cert: {}", e))));
-    }
-    if let Err(e) = validate_path_field(&parsed.web.tls_key, ALLOWED_CONFIG_DIRS) {
-        return Ok(Json(super::err_json(format!("web.tls_key: {}", e))));
+    if parsed.web.enabled && parsed.web.tls {
+        if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_TLS_DIRS) {
+            return Ok(Json(super::err_json(format!("web.tls_cert: {}", e))));
+        }
+        if let Err(e) = validate_path_field(&parsed.web.tls_key, ALLOWED_TLS_DIRS) {
+            return Ok(Json(super::err_json(format!("web.tls_key: {}", e))));
+        }
     }
 
     let config_path = state.config_path.lock().await;
@@ -1920,12 +2105,20 @@ pub async fn put_config_raw(
         }
     };
 
+    if canon != locked_config_path {
+        return Ok(Json(super::err_json(
+            "config path changed while this save was being prepared; reload and retry",
+        )));
+    }
+
     // SECURITY: post_up/post_down are file-only (they execute commands as root).
     // The raw editor must not introduce or change them — reject if the submitted
     // config's hooks differ from what's currently on disk.
-    let on_disk = std::fs::read_to_string(&canon)
-        .ok()
-        .and_then(|s| crate::config::parse_server_config(&s).ok());
+    let current_for_hooks = match read_trusted_config_text(&canon, "panel config save") {
+        Ok(raw) => raw,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let on_disk = crate::config::parse_server_config(&current_for_hooks).ok();
     for p in &parsed.profiles {
         let (cur_up, cur_down) = on_disk
             .as_ref()
@@ -1962,7 +2155,7 @@ pub async fn put_config_raw(
         ))));
     }
 
-    if let Err(e) = crate::server::preflight::run(&parsed) {
+    if let Err(e) = observed.check(&parsed) {
         return Ok(Json(super::err_json(format!(
             "refusing to write a config that conflicts with host networking: {}",
             e
@@ -1982,30 +2175,23 @@ pub async fn put_config_raw(
             ))))
         }
     };
-    if let Err(e) = crate::util::write_atomic(&canon, raw.as_bytes()) {
+    if let Err(e) = write_server_config(&canon, &raw) {
         return Ok(Json(super::err_json(format!("write error: {}", e))));
     }
 
     // Apply the panel's own settings live (see put_config); restart still needed
     // for profile/bind/tun/TLS.
-    state.reload_web_settings().await;
+    let web_settings_applied = state.reload_web_settings().await;
 
-    // Report whether the PANEL's own socket changed, exactly as the structured path does.
-    // Without it the raw editor always claimed a worker restart would suffice, so an
-    // operator who moved web.port there restarted the worker, watched the panel stay on
-    // the old port, and had nothing pointing at the cause. (Audit 2026-07-27, C2.)
-    let cur = &state.config.web;
-    let w = &parsed.web;
-    let needs_full_restart = w.bind != cur.bind
-        || w.port != cur.port
-        || w.enabled != cur.enabled
-        || w.tls != cur.tls
-        || w.tls_cert != cur.tls_cert
-        || w.tls_key != cur.tls_key
-        || w.base_path != cur.base_path;
+    // Report startup-only changes exactly as the structured editor does. A worker-only
+    // restart cannot change the panel listener, session-key source, users-file path
+    // or supervisor logging.
+    let needs_full_restart = needs_full_restart_for_config(&state.config, &parsed);
 
-    let message = if needs_full_restart {
-        "raw config saved (comments preserved). This changes the PANEL socket (web.bind/port/tls/enabled/base_path); apply it with a FULL restart: the `Apply & Restart` button does one, or run `systemctl restart qeli`."
+    let message = if !web_settings_applied {
+        "raw config saved (comments preserved), but panel settings were not applied live; the previous panel authentication remains active. Inspect the current INI and server logs before retrying or restarting."
+    } else if needs_full_restart {
+        "raw config saved (comments preserved). A startup-only setting changed (panel listener, session-key source, auth.users_file or logging settings); apply it with a FULL restart using `Apply & Restart` or `systemctl restart qeli`."
     } else {
         "raw config saved (comments preserved) — web/panel settings applied live; restart to apply profile/bind/tun changes"
     };
@@ -2014,6 +2200,7 @@ pub async fn put_config_raw(
         "ok": true,
         "message": message,
         "needs_full_restart": needs_full_restart,
+        "web_settings_applied": web_settings_applied,
         "path": canon.display().to_string(),
         "revision": config_revision(&raw),
         "snapshot": snapshot,
@@ -2028,6 +2215,49 @@ fn valid_history_id(id: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
         && id != ".conf"
+}
+
+fn read_config_history_entries(dir: &FsPath) -> Result<Vec<Value>, String> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
+            return Err("config history path is not a real directory".to_string());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("inspect config history {}: {error}", dir.display())),
+    }
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(dir)
+        .map_err(|error| format!("read config history {}: {error}", dir.display()))?
+    {
+        let entry = entry
+            .map_err(|error| format!("enumerate config history {}: {error}", dir.display()))?;
+        let id = entry.file_name().to_string_lossy().to_string();
+        if !valid_history_id(&id) {
+            continue;
+        }
+        let kind = entry
+            .file_type()
+            .map_err(|error| format!("inspect config history entry {id}: {error}"))?;
+        if !kind.is_file() || kind.is_symlink() {
+            continue;
+        }
+        let raw = read_config_text(entry.path())
+            .map_err(|error| format!("read config history entry {id}: {error}"))?;
+        let created = id
+            .split('-')
+            .next()
+            .and_then(|part| part.parse::<u64>().ok())
+            .unwrap_or(0);
+        entries.push(json!({
+            "id": id,
+            "created": created,
+            "bytes": raw.len(),
+            "revision": config_revision(&raw),
+        }));
+    }
+    entries.sort_by(|a, b| b["created"].as_u64().cmp(&a["created"].as_u64()));
+    Ok(entries)
 }
 
 pub async fn list_config_history(
@@ -2047,43 +2277,10 @@ pub async fn list_config_history(
         Ok(dir) => dir,
         Err(error) => return Ok(Json(super::err_json(error))),
     };
-    let mut entries = Vec::new();
-    if let Ok(metadata) = std::fs::symlink_metadata(&dir) {
-        if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Ok(Json(super::err_json(
-                "config history path is not a real directory",
-            )));
-        }
-    }
-    if let Ok(read_dir) = std::fs::read_dir(&dir) {
-        for entry in read_dir.flatten() {
-            let id = entry.file_name().to_string_lossy().to_string();
-            if !valid_history_id(&id)
-                || !entry
-                    .file_type()
-                    .map(|kind| kind.is_file() && !kind.is_symlink())
-                    .unwrap_or(false)
-            {
-                continue;
-            }
-            let raw = match std::fs::read_to_string(entry.path()) {
-                Ok(raw) => raw,
-                Err(_) => continue,
-            };
-            let created = id
-                .split('-')
-                .next()
-                .and_then(|part| part.parse::<u64>().ok())
-                .unwrap_or(0);
-            entries.push(json!({
-                "id": id,
-                "created": created,
-                "bytes": raw.len(),
-                "revision": config_revision(&raw),
-            }));
-        }
-    }
-    entries.sort_by(|a, b| b["created"].as_u64().cmp(&a["created"].as_u64()));
+    let entries = match read_config_history_entries(&dir) {
+        Ok(entries) => entries,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     Ok(Json(json!({ "ok": true, "entries": entries })))
 }
 
@@ -2096,7 +2293,10 @@ pub async fn restore_config_history(
     if !valid_history_id(&id) {
         return Ok(Json(super::err_json("invalid config history id")));
     }
-    let _config_write_guard = state.config_write_lock.lock().await;
+    let (_config_write_guard, observed) = match super::preflight::lock(&state, false).await {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     let Some(target) = state.config_path.lock().await.clone() else {
         return Ok(Json(super::err_json(
             "config_path not set — running from in-memory config",
@@ -2106,9 +2306,13 @@ pub async fn restore_config_history(
         Ok(path) => path,
         Err(error) => return Ok(Json(super::err_json(error))),
     };
-    let current_raw = match std::fs::read_to_string(&canon) {
+    let _file_write_guard = match lock_server_config(&canon).await {
+        Ok(guard) => guard,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let current_raw = match read_trusted_config_text(FsPath::new(&target), "panel config save") {
         Ok(raw) => raw,
-        Err(error) => return Ok(Json(super::err_json(format!("read config: {error}")))),
+        Err(error) => return Ok(Json(super::err_json(error))),
     };
     if let Some(conflict) = revision_conflict(&body, &current_raw) {
         return Ok(Json(conflict));
@@ -2144,18 +2348,14 @@ pub async fn restore_config_history(
             ))))
         }
     };
-    if snapshot_meta.len() > 16 * 1024 * 1024 {
+    if snapshot_meta.len() > crate::server::MAX_SERVER_INI_BYTES {
         return Ok(Json(super::err_json(
             "config snapshot is unexpectedly large",
         )));
     }
-    let raw = match std::fs::read_to_string(&snapshot_path) {
+    let raw = match read_trusted_config_text(&snapshot_path, "panel config snapshot restore") {
         Ok(raw) => raw,
-        Err(error) => {
-            return Ok(Json(super::err_json(format!(
-                "read config snapshot {id}: {error}"
-            ))))
-        }
+        Err(error) => return Ok(Json(super::err_json(error))),
     };
     let (parsed, findings) = match crate::config::parse_server_config_reporting(&raw) {
         Ok(parsed) => parsed,
@@ -2172,6 +2372,9 @@ pub async fn restore_config_history(
             findings.join("; ")
         ))));
     }
+    if let Err(error) = validate_web_auth_for_save(&parsed.web) {
+        return Ok(Json(super::err_json(error)));
+    }
     if let Some(error) = validate_config_structure(&parsed) {
         return Ok(Json(super::err_json(error)));
     }
@@ -2185,7 +2388,7 @@ pub async fn restore_config_history(
             "snapshot conflicts with existing static user addresses: {error}"
         ))));
     }
-    if let Err(error) = crate::server::preflight::run(&parsed) {
+    if let Err(error) = observed.check(&parsed) {
         return Ok(Json(super::err_json(format!(
             "snapshot conflicts with current host networking: {error}"
         ))));
@@ -2203,24 +2406,21 @@ pub async fn restore_config_history(
             ))))
         }
     };
-    if let Err(error) = crate::util::write_atomic(&canon, raw.as_bytes()) {
+    if let Err(error) = write_server_config(&canon, &raw) {
         return Ok(Json(super::err_json(format!(
             "rollback write failed: {error}"
         ))));
     }
-    state.reload_web_settings().await;
-    let cur = &state.config.web;
-    let web = &parsed.web;
-    let needs_full_restart = web.bind != cur.bind
-        || web.port != cur.port
-        || web.enabled != cur.enabled
-        || web.tls != cur.tls
-        || web.tls_cert != cur.tls_cert
-        || web.tls_key != cur.tls_key
-        || web.base_path != cur.base_path;
+    let web_settings_applied = state.reload_web_settings().await;
+    let needs_full_restart = needs_full_restart_for_config(&state.config, &parsed);
     Ok(Json(json!({
         "ok": true,
-        "message": "Configuration snapshot restored — restart to apply it.",
+        "message": if web_settings_applied {
+            "Configuration snapshot restored — restart to apply it."
+        } else {
+            "Configuration snapshot restored, but panel settings were not applied live; inspect the current INI and server logs before restarting."
+        },
+        "web_settings_applied": web_settings_applied,
         "revision": config_revision(&raw),
         "restored": id,
         "rollback_snapshot": rollback_snapshot,
@@ -2242,6 +2442,44 @@ mod raw_secret_tests {
         assert_ne!(a, config_revision("# comment\n[web]\nport = 8080\n"));
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn config_writer_lock_serializes_a_second_process_path() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-config-lock-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        std::fs::write(&path, b"[web]\n").unwrap();
+
+        let first = lock_server_config(&path).await.unwrap();
+        let second_path = path.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let second = tokio::spawn(async move {
+            let _ = started_tx.send(());
+            let _guard = lock_server_config(&second_path).await.unwrap();
+            read_config_text(&second_path).unwrap()
+        });
+        started_rx.await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            !second.is_finished(),
+            "second writer bypassed the sidecar lock"
+        );
+        write_server_config(&path, "[web]\nusername = newer\n").unwrap();
+        drop(first);
+        assert_eq!(
+            second.await.unwrap(),
+            "[web]\nusername = newer\n",
+            "the next writer must read the committed revision"
+        );
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(format!("{}.lock", path.display())).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
     #[test]
     fn expected_revision_detects_a_stale_editor() {
         let current = "[web]\nport = 8080\n";
@@ -2251,8 +2489,15 @@ mod raw_secret_tests {
         let conflict = revision_conflict(&stale, current).unwrap();
         assert_eq!(conflict["kind"], "config_conflict");
         assert_eq!(conflict["current_revision"], config_revision(current));
-        // API compatibility for older automation: no token still takes the serialized lock.
-        assert!(revision_conflict(&json!({}), current).is_none());
+        for missing in [
+            json!({}),
+            json!({"expected_revision": ""}),
+            json!({"expected_revision": 1}),
+        ] {
+            let conflict = revision_conflict(&missing, current).unwrap();
+            assert_eq!(conflict["kind"], "config_revision_required");
+            assert_eq!(conflict["current_revision"], config_revision(current));
+        }
     }
 
     #[test]
@@ -2263,6 +2508,120 @@ mod raw_secret_tests {
         }
     }
 
+    #[test]
+    fn config_history_listing_reports_corrupt_entries() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-config-history-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        assert!(read_config_history_entries(&dir).unwrap().is_empty());
+        std::fs::create_dir(&dir).unwrap();
+        let entry = dir.join("1780000000-aabbccddeeff.conf");
+        std::fs::write(&entry, b"[web]\n").unwrap();
+        let listed = read_config_history_entries(&dir).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["id"], "1780000000-aabbccddeeff.conf");
+        std::fs::write(&entry, [0xff]).unwrap();
+        assert!(read_config_history_entries(&dir)
+            .unwrap_err()
+            .contains("read config history entry"));
+        std::fs::remove_file(&entry).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
+    }
+
+    #[test]
+    fn oversized_ini_cannot_replace_revision_or_be_saved() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-config-size-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        std::fs::write(&path, b"[web]\n").unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(crate::server::MAX_SERVER_INI_BYTES + 1)
+            .unwrap();
+        let error = read_config_text(&path).unwrap_err();
+        assert!(error.to_string().contains("maximum is 16777216"));
+        assert!(external_write_conflict(&path, "[web]\n").is_err());
+        let large = "x".repeat(crate::server::MAX_SERVER_INI_BYTES as usize + 1);
+        let error = snapshot_before_changed_write(&path, "[web]\n", &large).unwrap_err();
+        assert!(error.contains("maximum is 16777216"));
+        assert!(!dir.join(CONFIG_HISTORY_DIR).exists());
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn panel_save_makes_existing_server_ini_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-config-private-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        std::fs::write(&path, b"[web]\npassword_hash = old\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_server_config(&path, "[web]\npassword_hash = new\n").unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            read_config_text(&path).unwrap(),
+            "[web]\npassword_hash = new\n"
+        );
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn panel_save_cannot_promote_untrusted_ini_or_history_snapshot() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-config-trust-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        let raw = "[profile:default]\nrouting.post_up = echo untrusted\n";
+        std::fs::write(&path, raw).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let error = read_trusted_config_text(&path, "panel config save").unwrap_err();
+        assert!(error.contains("group/world-writable"), "{error}");
+        assert!(external_write_conflict(&path, raw).is_err());
+        assert!(
+            read_trusted_config_text(&path, "panel config snapshot restore").is_err(),
+            "a tampered history entry cannot become a trusted server config"
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let link = dir.join("server-link.conf");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert!(
+            read_trusted_config_text(&link, "panel config save").is_err(),
+            "canonicalizing the configured path must not make a symlink trusted"
+        );
+        assert_eq!(
+            read_trusted_config_text(&path, "panel config save").unwrap(),
+            raw
+        );
+        std::fs::remove_file(link).unwrap();
+        assert!(external_write_conflict(&path, raw).unwrap().is_none());
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[cfg(unix)]
     #[test]
     fn second_disk_read_detects_a_hand_edit_during_validation() {
         let unique = format!(
@@ -2301,7 +2660,7 @@ mod raw_secret_tests {
     #[test]
     fn masked_values_round_trip_back_to_the_originals() {
         let masked = mask_raw_secrets(SAMPLE);
-        let restored = unmask_raw_secrets(&masked, SAMPLE);
+        let restored = unmask_raw_secrets(&masked, SAMPLE).unwrap();
         assert_eq!(restored, SAMPLE, "round-trip must be byte-identical");
     }
 
@@ -2309,7 +2668,7 @@ mod raw_secret_tests {
     #[test]
     fn restoration_does_not_swap_secrets_between_users() {
         let masked = mask_raw_secrets(SAMPLE);
-        let restored = unmask_raw_secrets(&masked, SAMPLE);
+        let restored = unmask_raw_secrets(&masked, SAMPLE).unwrap();
         let alice = restored.split("[user:alice]").nth(1).unwrap();
         let alice_block = alice.split("[user:bob]").next().unwrap();
         assert!(alice_block.contains("$argon2id$alice"));
@@ -2320,8 +2679,97 @@ mod raw_secret_tests {
     #[test]
     fn an_explicitly_edited_secret_is_kept() {
         let edited = SAMPLE.replace("$argon2id$alice", "$argon2id$NEWVALUE");
-        let restored = unmask_raw_secrets(&edited, SAMPLE);
+        let restored = unmask_raw_secrets(&edited, SAMPLE).unwrap();
         assert!(restored.contains("$argon2id$NEWVALUE"));
+    }
+
+    #[test]
+    fn panel_save_rejects_an_enabled_web_panel_without_auth() {
+        let mut config =
+            crate::config::parse_server_config("[profile:a]\n[web]\nenabled = true\n").unwrap();
+        assert!(validate_web_auth_for_save(&config.web)
+            .unwrap_err()
+            .contains("web.password_hash"));
+
+        config.web.insecure_no_auth = true;
+        assert!(validate_web_auth_for_save(&config.web).is_ok());
+
+        config.web.insecure_no_auth = false;
+        config.web.enabled = false;
+        assert!(validate_web_auth_for_save(&config.web).is_ok());
+
+        config.web.enabled = true;
+        config.web.password_hash = crate::crypto::hash_password(b"test-admin").unwrap();
+        let result = validate_web_auth_for_save(&config.web);
+        assert!(result.is_ok(), "{result:?}");
+
+        config.web.password_hash = "stored-verifier".into();
+        assert!(validate_web_auth_for_save(&config.web)
+            .unwrap_err()
+            .contains("Argon2"));
+    }
+
+    #[test]
+    fn full_restart_requirement_survives_loading_the_saved_config() {
+        let current = crate::config::parse_server_config("[profile:a]\n")
+            .unwrap()
+            .web;
+        assert!(!needs_full_restart(&current, &current));
+        let mut next = current.clone();
+        next.port += 1;
+        assert!(needs_full_restart(&current, &next));
+        next = current.clone();
+        next.base_path = "/vpn".into();
+        assert!(needs_full_restart(&current, &next));
+        next = current.clone();
+        next.username = "another-admin".into();
+        assert!(!needs_full_restart(&current, &next));
+        next = current.clone();
+        next.persist_session_key = !current.persist_session_key;
+        assert!(needs_full_restart(&current, &next));
+
+        let current_config = crate::config::parse_server_config("[profile:a]\n").unwrap();
+        let mut next_config = current_config.clone();
+        next_config.auth.users_file = "/etc/qeli/alternate-users.conf".into();
+        assert!(needs_full_restart_for_config(&current_config, &next_config));
+        next_config = current_config.clone();
+        next_config.web.username = "another-admin".into();
+        assert!(!needs_full_restart_for_config(
+            &current_config,
+            &next_config
+        ));
+        for change in ["level", "file", "time_format", "format"] {
+            let mut next_config = current_config.clone();
+            match change {
+                "level" => next_config.logging.level = "debug".into(),
+                "file" => next_config.logging.file = Some("/var/log/qeli/alternate.log".into()),
+                "time_format" => next_config.logging.time_format = "none".into(),
+                "format" => next_config.logging.format = "json".into(),
+                _ => unreachable!(),
+            }
+            assert!(
+                needs_full_restart_for_config(&current_config, &next_config),
+                "logging.{change} must restart the supervisor too"
+            );
+        }
+    }
+
+    #[test]
+    fn secret_masks_follow_canonical_sections_and_reject_missing_owners() {
+        let masked = mask_raw_secrets(SAMPLE)
+            .replace("[web]", "[ web ]")
+            .replace("[user:alice]", "[ user : alice ]");
+        let restored = unmask_raw_secrets(&masked, SAMPLE).unwrap();
+        assert!(restored.contains("password_hash = $argon2id$alice"));
+        assert!(restored.contains("password_enc = ZW5jcnlwdGVk"));
+        assert!(!restored.contains(RAW_SECRET_MASK));
+        let renamed = mask_raw_secrets(SAMPLE).replace("[user:alice]", "[user:renamed]");
+        assert!(unmask_raw_secrets(&renamed, SAMPLE)
+            .unwrap_err()
+            .contains("no matching value"));
+        assert!(unmask_raw_secrets(&mask_raw_secrets(SAMPLE), "").is_err());
+        let duplicated = format!("{SAMPLE}\n[user: alice ]\npassword_hash = second\n");
+        assert!(unmask_raw_secrets(&mask_raw_secrets(SAMPLE), &duplicated).is_err());
     }
 
     #[test]
@@ -2374,11 +2822,6 @@ mod raw_secret_tests {
         assert!(profile.obfuscation.tls.reality_proxy.enabled);
         assert!(profile.obfuscation.tls.reality_proxy.real_tls);
         assert!(short_id.is_some());
-
-        let page = include_str!("../templates/quickstart.html");
-        assert!(page.contains("id: 'reality-tls'"));
-        assert!(page.contains("obfMode: 'reality-tls'"));
-        assert!(page.contains("genuine HTTP/2 streaming carrier"));
     }
 
     #[test]
@@ -2399,7 +2842,7 @@ mod raw_secret_tests {
     }
 
     #[test]
-    fn panel_new_profile_consumes_the_canonical_recordizer_default() {
+    fn new_profile_uses_the_canonical_recordizer_default() {
         assert_eq!(
             crate::config::server::ProfileConfig::new_profile()
                 .obfuscation
@@ -2407,10 +2850,9 @@ mod raw_secret_tests {
                 .policy,
             "prefer"
         );
-        let page = include_str!("../templates/config.html");
-        assert!(page.contains("fetch('api/config/defaults')"));
-        assert!(page.contains("JSON.parse(JSON.stringify(this.defaultProfile))"));
-        assert!(!page.contains("base.obfuscation.recordizer.policy = 'prefer'"));
+        // Browser consumption, deep-copy ownership and unavailable defaults are
+        // exercised by test_panel_editors.cjs against the real component. Checking
+        // the exact fetch spelling here rejected its legitimate no-store option.
     }
 
     #[test]

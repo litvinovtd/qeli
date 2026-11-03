@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F311_F313_FIXTURES_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T13:19:08.441566+00:00",
+  "base_commit": "b6c7323d4e843ad970aee5db9a15ded5d519ec43",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-router-build-failures-20261006",
+  "raw_seal_sha256": "fd48a57b722b3a0af438077996c23638719f7a26de39d6c919ce110f12d4fa4c",
+  "checks": [
+    {
+      "id": "router-fixtures",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_router_build.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "router-fixtures-final.log"
+    },
+    {
+      "id": "native-recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "native-recipes-final.log"
+    },
+    {
+      "id": "luci-fixtures",
+      "command": [
+        "node",
+        "scripts/test_openwrt_luci.js"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "luci-fixtures-final.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "docs-final.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "bindings-final.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "diff-final.log"
+    },
+    {
+      "id": "busybox-shell-qualified",
+      "status": "PASS",
+      "command": "cd /var/tmp/qeli-q31-router-build-failures-20261006 && QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p test_openwrt_init.py -v",
+      "exit_code": 0,
+      "log": "busybox-shell-qualified.log"
+    },
+    {
+      "id": "dash-shell-qualified",
+      "status": "PASS",
+      "command": "cd /var/tmp/qeli-q31-router-build-failures-20261006 && QELI_OPENWRT_TEST_SHELL='/bin/sh' python3 -m unittest discover -s scripts -p test_openwrt_init.py -v",
+      "exit_code": 0,
+      "log": "dash-shell-qualified.log"
+    }
+  ],
+  "source_review": {
+    "findings": [
+      "F311 checked preparation/connection+manifest ownership",
+      "F312 verified atomic artifact publication/false PASS",
+      "F313 init-visible status outside form cache"
+    ],
+    "python_router_fault_tests": 14,
+    "native_recipe_checks": 37,
+    "node_fixture_tests": 10,
+    "node_status_adapter": "compatible source parsed with mocked system/fs; not ucode execution",
+    "shell_tests_per_interpreter": 11,
+    "interpreters": [
+      "BusyBox ash",
+      "dash"
+    ],
+    "baseline_reproduction": [
+      {
+        "source": "baseline",
+        "download_failure_main_exit": 0,
+        "incorrect_build_PASS": true,
+        "connection_closed_after_setup_failure": false,
+        "toolchain_error_rejected": false
+      },
+      {
+        "source": "current",
+        "download_failure_main_exit": 1,
+        "incorrect_build_PASS": false,
+        "connection_closed_after_setup_failure": true,
+        "toolchain_error_rejected": true
+      }
+    ],
+    "source_proof": {
+      "base_commit": "b6c7323d4e843ad970aee5db9a15ded5d519ec43",
+      "changed_paths": [
+        "docs/eng/manuals/KEENETIC-DEPLOY.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "docs/ru/manuals/KEENETIC-DEPLOY.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "qeli-openwrt/INSTALL.md",
+        "qeli-openwrt/README.md",
+        "qeli-openwrt/build/build_openwrt.py",
+        "qeli-openwrt/files/qeli.init",
+        "qeli-openwrt/luci-app-qeli/htdocs/luci-static/resources/view/qeli/config.js",
+        "qeli-openwrt/luci-app-qeli/root/usr/share/rpcd/acl.d/luci-app-qeli.json",
+        "qeli-openwrt/luci-app-qeli/root/usr/share/rpcd/ucode/qeli.uc",
+        "scripts/build_keenetic.py",
+        "scripts/test_openwrt_init.py",
+        "scripts/test_openwrt_luci.js",
+        "scripts/test_router_build.py"
+      ],
+      "unchanged_implementation_git_inputs": 842,
+      "scope": "Git base/index identity plus exact working change allowlist; OpenWrt adapter/status and router build recipes only. Shared atomic artifact helper reused unchanged. No Rust/native/client binary change.",
+      "real_qualification": {
+        "ucode_rpcd_rc_common": "NOT_RUN",
+        "cross_build": "NOT_RUN",
+        "real_router_runtime": "USER_EXCLUDED"
+      },
+      "remaining": [
+        "install defaults/upgrade rollback",
+        "exact source sync/.cargo config/provenance",
+        "cross-process lifecycle/secret races",
+        "broader source review/cross-build ABI"
+      ],
+      "retained": [
+        "Q29 SIGKILL FAIL",
+        "Q29 auto/null DnsResolver ENONET",
+        "Q30 OS callback drain OPEN; Apple runtime excluded",
+        "D06 ACCEPTED_LIMITATION"
+      ]
+    }
+  },
+  "real_qualification": {
+    "ucode_rpcd_rc_common": "NOT_RUN",
+    "cross_build": "NOT_RUN",
+    "real_router_runtime": "USER_EXCLUDED"
+  },
+  "remaining": [
+    "install defaults/upgrade rollback",
+    "exact source sync/.cargo config/provenance",
+    "cross-process lifecycle/secret races",
+    "broader source review/cross-build ABI"
+  ],
+  "retained_observations": [
+    "Q29 SIGKILL FAIL",
+    "Q29 auto/null DnsResolver ENONET",
+    "Q30 OS callback drain OPEN; Apple runtime excluded",
+    "D06 ACCEPTED_LIMITATION"
+  ],
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "q31": "IN_PROGRESS"
+  }
+}

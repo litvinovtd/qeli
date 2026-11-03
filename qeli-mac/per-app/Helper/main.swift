@@ -13,42 +13,72 @@ struct QeliPerAppCtl {
             switch arguments[1] {
             case "prepare":
                 try activateSystemExtension()
-            case "start":
+            case "start", "update":
                 guard arguments.count == 3 else { throw HelperError.usage }
-                try installState(URL(fileURLWithPath: arguments[2]))
-                try activateSystemExtension()
-                do {
-                    try configureDNS(enabled: true)
-                    try configureAndStartTransparent()
-                } catch {
-                    try? mutateState { $0.tunnelUp = false }
-                    try? stopAll()
-                    throw error
+                let ownerPID = try validatedParent(getppid())
+                let proposed = try RoutingStateStore.decode(URL(fileURLWithPath: arguments[2]))
+                try RoutingStateStore.validate(proposed)
+                guard proposed.ownerPid == ownerPID, let token = proposed.ownerToken else {
+                    throw HelperError.invalidGuardianOwner
                 }
-            case "update":
-                guard arguments.count == 3 else { throw HelperError.usage }
-                try installState(URL(fileURLWithPath: arguments[2]))
-                do { try notifyTransparentProvider() }
-                catch {
-                    try? mutateState { $0.tunnelUp = false }
-                    try? notifyTransparentProvider()
-                    throw error
+                try RoutingStateStore.withOperation {
+                    try RoutingStateStore.replaceOwned(proposed, token: token, pid: ownerPID)
+                    do {
+                        if arguments[1] == "start" {
+                            try activateSystemExtension()
+                            _ = try validatedParent(ownerPID)
+                            try configureDNS(enabled: true)
+                            _ = try validatedParent(ownerPID)
+                            try configureAndStartTransparent()
+                        } else {
+                            _ = try validatedParent(ownerPID)
+                            try notifyTransparentProvider()
+                        }
+                    } catch {
+                        try? RoutingStateStore.mutateOwned(token: token, pid: ownerPID) { $0.tunnelUp = false }
+                        if arguments[1] == "start" { try? stopAll() }
+                        else { try? notifyTransparentProvider() }
+                        throw error
+                    }
                 }
-            case "down":
-                try mutateState { $0.tunnelUp = false }
-                try notifyTransparentProvider()
-            case "stop":
-                try mutateState { $0.tunnelUp = false }
-                try stopAll()
+            case "down", "stop":
+                guard arguments.count == 3, RoutingStateStore.validToken(arguments[2]) else {
+                    throw HelperError.usage
+                }
+                let token = arguments[2]
+                let ownerPID = try validatedParent(getppid())
+                try RoutingStateStore.withOperation {
+                    let current = try RoutingStateStore.load()
+                    try RoutingStateStore.requireOwner(current, token: token, pid: ownerPID)
+                    if arguments[1] == "stop", current.ownerReleased == true { return }
+                    try RoutingStateStore.mutateOwned(token: token, pid: ownerPID) { $0.tunnelUp = false }
+                    if arguments[1] == "stop" {
+                        try stopAll()
+                        try RoutingStateStore.mutateOwned(token: token, pid: ownerPID) {
+                            $0.ownerReleased = true
+                            $0.leaseExpiresAtUnixMs = 0
+                        }
+                    } else { try notifyTransparentProvider() }
+                }
             case "guard":
                 guard arguments.count == 5, let ownerPID = Int32(arguments[2]) else {
                     throw HelperError.usage
                 }
-                // Install before the potentially long system-extension approval flow. The
-                // guardian can then renew a short lease throughout that wait; a power loss
-                // never leaves a multi-minute stale allowance behind.
-                try installState(URL(fileURLWithPath: arguments[4]))
-                try guardOwner(ownerPID, executablePath: arguments[3])
+                // Validate before even reading the handoff or publishing shared state.
+                _ = try validatedParent(ownerPID)
+                let source = URL(fileURLWithPath: arguments[4])
+                let state = try RoutingStateStore.decode(source)
+                try RoutingStateStore.validate(state)
+                guard state.ownerPid == ownerPID, let token = state.ownerToken else {
+                    throw HelperError.invalidGuardianOwner
+                }
+                try RoutingStateStore.withOperation {
+                    _ = try validatedParent(ownerPID)
+                    try RoutingStateStore.claim(state, guardian: getpid())
+                }
+                let ready = source.deletingLastPathComponent().appendingPathComponent("ready")
+                try Data(token.utf8).write(to: ready, options: .atomic)
+                try guardOwner(ownerPID, executablePath: arguments[3], token: token)
             default: throw HelperError.usage
             }
             print("ok")
@@ -58,54 +88,42 @@ struct QeliPerAppCtl {
         }
     }
 
-    private static func installState(_ source: URL) throws {
-        let state = try JSONDecoder().decode(RoutingState.self, from: Data(contentsOf: source))
-        try RoutingStateStore.replace(state)
+    private static func validatedParent(_ ownerPID: Int32) throws -> Int32 {
+        guard ownerPID > 1, getppid() == ownerPID else { throw HelperError.invalidGuardianOwner }
+        return ownerPID
     }
 
-    private static func mutateState(_ body: (inout RoutingState) -> Void) throws {
-        try RoutingStateStore.mutate(body)
-    }
-
-    /// The preferences installed by NetworkExtension survive process death, reboot and app
-    /// deletion. Keep a short lease alive while the owning qeli process and its executable
-    /// still exist. If either disappears, expire the state and disable both managers. The
-    /// already-running helper remains mapped even when Qeli.app is removed from Applications.
-    private static func guardOwner(_ ownerPID: Int32, executablePath: String) throws {
-        // This helper is spawned directly by the owning Qeli process. PID existence alone is
-        // not an identity check: after Qeli exits macOS can reuse that PID for an unrelated
-        // process, which would keep renewing a stale utun lease indefinitely. Once a parent
-        // exits, this process is re-parented and getppid() never changes back even if the
-        // numeric PID is reused, so parenthood is the stable lifetime token we need.
-        guard ownerPID > 1, getppid() == ownerPID else {
-            throw HelperError.invalidGuardianOwner
-        }
+    /// Generation checks cover both heartbeats and manager cleanup. A retired guardian
+    /// must never renew or disable a later owner's policy, even after its parent exits.
+    private static func guardOwner(_ ownerPID: Int32, executablePath: String, token: String) throws {
         while getppid() == ownerPID
-                && processExists(ownerPID)
+                && RoutingStateStore.processExists(ownerPID)
                 && FileManager.default.fileExists(atPath: executablePath) {
             do {
-                try mutateState {
+                try RoutingStateStore.mutateOwned(token: token, pid: ownerPID, guardian: getpid()) {
                     $0.leaseExpiresAtUnixMs = unixMilliseconds() + 5_000
                 }
+            } catch RoutingStateStore.StateError.ownerMismatch {
+                return // Retired/replaced generation: no manager mutation.
             } catch {
-                // Keep trying: a transient app-group or lock error must not terminate the only
-                // removal watchdog. Every writer shares RoutingStateStore's process lock, so a
-                // successful heartbeat can no longer overwrite a newer policy with stale data.
                 FileHandle.standardError.write(Data(
                     "Qeli per-app lease renewal failed: \(error.localizedDescription)\n".utf8))
             }
             Thread.sleep(forTimeInterval: 1)
         }
-        try? mutateState {
-            $0.tunnelUp = false
-            $0.leaseExpiresAtUnixMs = 0
+        try RoutingStateStore.withOperation {
+            guard let current = try RoutingStateStore.existing(),
+                  RoutingStateStore.sameOwner(current, token: token, pid: ownerPID),
+                  current.guardianPid == getpid(), current.ownerReleased != true else { return }
+            try RoutingStateStore.mutateOwned(token: token, pid: ownerPID, guardian: getpid()) {
+                $0.tunnelUp = false
+                $0.leaseExpiresAtUnixMs = 0
+            }
+            try stopAll()
+            try RoutingStateStore.mutateOwned(token: token, pid: ownerPID, guardian: getpid()) {
+                $0.ownerReleased = true
+            }
         }
-        try stopAll()
-    }
-
-    private static func processExists(_ pid: Int32) -> Bool {
-        if kill(pid, 0) == 0 { return true }
-        return errno == EPERM
     }
 
     private static func unixMilliseconds() -> Int64 {
@@ -293,7 +311,7 @@ private enum HelperError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .usage: return "usage: QeliPerAppCtl prepare | start|update <state.json> | down | stop | guard <pid> <executable> <state.json>"
+        case .usage: return "usage: QeliPerAppCtl prepare | start|update <state.json> | down|stop <token> | guard <pid> <executable> <state.json>"
         case .timeout: return "macOS Network Extension operation timed out"
         case .rebootRequired: return "macOS must be restarted to activate the updated Qeli extension"
         case .transparentConfigurationMissing: return "Qeli transparent-proxy configuration is missing"

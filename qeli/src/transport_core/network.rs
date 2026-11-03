@@ -12,7 +12,7 @@ use crate::transport_core::{
 };
 use serde::Deserialize;
 use std::collections::HashSet;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 
 pub(crate) struct HandshakeNetwork<'a> {
     pub family_mode: NetworkFamilyMode,
@@ -113,39 +113,7 @@ pub(crate) fn build_network_plan(
         .find(|address| address.address == network.client_ip)
         .map(|address| address.on_link_prefix_len)
         .unwrap_or_else(|| normalized_prefix(network.prefix));
-    let tun_net = network
-        .client_ip
-        .parse::<Ipv4Addr>()
-        .ok()
-        .map(|address| (address, prefix_to_netmask(prefix)));
-    // An empty v2 DNS array means "the server did not push a resolver", not "this is an
-    // IPv4-only legacy handshake".  Basing the parser choice on that array made an IPv6-only
-    // client reject its own configured IPv6 resolver whenever the server push was empty.
-    // Retain the legacy projection only for a genuinely IPv4-only plan; v2/dual/IPv6 plans
-    // must resolve DNS against the negotiated address families even when the pushed list is
-    // empty.
-    let legacy_ipv4_plan = network.family_mode == NetworkFamilyMode::Ipv4
-        && network
-            .addresses
-            .iter()
-            .all(|address| address.family == NetworkAddressFamily::Ipv4);
-    let dns_servers = if network.dns_servers.is_empty() && legacy_ipv4_plan {
-        planned_dns_servers(
-            &config.dns,
-            network.dns_ip,
-            network.dns_port,
-            tun_net,
-            full_tunnel,
-            network.fallback_dns_servers,
-        )?
-    } else {
-        planned_dns_servers_v2(
-            &config.dns,
-            network.dns_servers,
-            network.addresses,
-            network.fallback_dns_servers,
-        )?
-    };
+    let dns_servers = planned_dns_servers(&config.dns, network)?;
     if full_tunnel && config.dns.mode == "tunnel" && dns_servers.is_empty() {
         anyhow::bail!(
             "full-tunnel DNS is set to tunnel mode but no resolver is available; configure dns_servers, let the server push one, or set dns = off only when the platform manages DNS"
@@ -178,6 +146,11 @@ pub(crate) fn build_network_plan(
     }
 
     let mut routes = planned_pushed_routes_for_addresses(network.routes_json, network.addresses)?;
+    // Parse and bound the push even when declined; this policy must not bypass
+    // validation of the authenticated network document.
+    if !config.routing.pull_routes {
+        routes.clear();
+    }
     let pushed_routes = routes.iter().map(|route| route.cidr.clone()).collect();
     for cidr in &config.routing.include {
         if !route_family_is_active(cidr, network.addresses)? {
@@ -299,14 +272,14 @@ fn route_family_is_active(cidr: &str, addresses: &[NetworkAddress]) -> anyhow::R
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct NumericCidr {
-    start: u128,
-    prefix: u8,
-    bits: u8,
+pub(crate) struct NumericCidr {
+    pub(crate) start: u128,
+    pub(crate) prefix: u8,
+    pub(crate) bits: u8,
 }
 
 impl NumericCidr {
-    fn parse(cidr: &str) -> anyhow::Result<Self> {
+    pub(crate) fn parse(cidr: &str) -> anyhow::Result<Self> {
         let network = cidr
             .parse::<ipnet::IpNet>()
             .map_err(|_| anyhow::anyhow!("invalid route CIDR '{cidr}'"))?;
@@ -324,7 +297,7 @@ impl NumericCidr {
         })
     }
 
-    fn overlaps(self, other: Self) -> bool {
+    pub(crate) fn overlaps(self, other: Self) -> bool {
         if self.bits != other.bits {
             return false;
         }
@@ -334,7 +307,7 @@ impl NumericCidr {
                 == (other.start >> u32::from(other.bits - common))
     }
 
-    fn children(self) -> Option<[Self; 2]> {
+    pub(crate) fn children(self) -> Option<[Self; 2]> {
         if self.prefix >= self.bits {
             return None;
         }
@@ -350,7 +323,7 @@ impl NumericCidr {
         ])
     }
 
-    fn render(self) -> String {
+    pub(crate) fn render(self) -> String {
         if self.bits == 32 {
             format!(
                 "{}/{}",
@@ -399,45 +372,48 @@ fn routes_cover_address_family(routes: &[NetworkRoute], bits: u8) -> bool {
     )
 }
 
-fn subtract_one_cidr(
+fn subtract_cidrs(
     base: NumericCidr,
-    excluded: NumericCidr,
+    excludes: &[NumericCidr],
     output: &mut Vec<NumericCidr>,
 ) -> anyhow::Result<()> {
-    if !base.overlaps(excluded) {
-        output.push(base);
-    } else if excluded.prefix <= base.prefix {
-        // For two overlapping CIDRs, the broader/equal prefix covers the narrower one.
-    } else if let Some(children) = base.children() {
-        subtract_one_cidr(children[0], excluded, output)?;
-        subtract_one_cidr(children[1], excluded, output)?;
+    let overlapping: Vec<_> = excludes
+        .iter()
+        .copied()
+        .filter(|excluded| base.overlaps(*excluded))
+        .collect();
+    if overlapping
+        .iter()
+        .any(|excluded| excluded.prefix <= base.prefix)
+    {
+        return Ok(());
     }
-    if output.len() > super::MAX_ROUTES {
-        anyhow::bail!(
-            "route exclusions expand the NetworkPlan beyond {} routes",
-            super::MAX_ROUTES
-        );
+    if overlapping.is_empty() {
+        output.push(base);
+        if output.len() > super::MAX_ROUTES {
+            anyhow::bail!(
+                "route exclusions expand the NetworkPlan beyond {} routes",
+                super::MAX_ROUTES
+            );
+        }
+    } else if let Some(children) = base.children() {
+        for child in children {
+            subtract_cidrs(child, &overlapping, output)?;
+        }
     }
     Ok(())
 }
 
-fn cidr_minus_excludes(cidr: &str, excludes: &[NumericCidr]) -> anyhow::Result<Vec<NumericCidr>> {
-    let base = NumericCidr::parse(cidr)?;
-    let mut fragments = vec![base];
-    for excluded in excludes
-        .iter()
-        .copied()
-        .filter(|value| value.bits == base.bits)
-    {
-        let mut next = Vec::new();
-        for fragment in fragments {
-            subtract_one_cidr(fragment, excluded, &mut next)?;
-        }
-        fragments = next;
-        if fragments.is_empty() {
-            break;
-        }
-    }
+pub(crate) fn cidr_minus_excludes(
+    cidr: &str,
+    excludes: &[NumericCidr],
+) -> anyhow::Result<Vec<NumericCidr>> {
+    // Subtract the entire union before counting output. Sequential subtraction may
+    // exceed the budget temporarily even though later exclusions remove those pieces.
+    // Emitting only final disjoint prefixes is order-independent and keeps the budget
+    // effective without allocating an unbounded intermediate complement.
+    let mut fragments = Vec::new();
+    subtract_cidrs(NumericCidr::parse(cidr)?, excludes, &mut fragments)?;
     Ok(fragments)
 }
 
@@ -484,25 +460,40 @@ fn apply_route_exclusions(
     Ok(planned)
 }
 
-fn planned_dns_servers_v2(
+fn planned_dns_servers(
     config: &ClientDnsConfig,
-    pushed: &[NetworkDns],
-    addresses: &[NetworkAddress],
-    platform_fallback: &[String],
+    network: &HandshakeNetwork<'_>,
 ) -> anyhow::Result<Vec<NetworkDns>> {
     if config.mode != "tunnel" {
         return Ok(Vec::new());
     }
     let candidates = if !config.servers.is_empty() {
         dns_list(&config.servers, "client", 53)?
-    } else if !pushed.is_empty() {
-        pushed.to_vec()
-    } else if !platform_fallback.is_empty() {
-        dns_list(platform_fallback, "platform fallback", 53)?
+    } else if !network.dns_servers.is_empty() {
+        network.dns_servers.to_vec()
+    } else if !network.dns_ip.is_empty()
+        && network.family_mode == NetworkFamilyMode::Ipv4
+        && network
+            .addresses
+            .iter()
+            .all(|address| address.family == NetworkAddressFamily::Ipv4)
+    {
+        // Adapt only the legacy wire representation. Both versions then use the same
+        // validation, precedence and protected DNS host routes, including split mode.
+        let port = network
+            .dns_port
+            .parse::<u16>()
+            .map_err(|_| anyhow::anyhow!("invalid pushed DNS port '{}'", network.dns_port))?;
+        vec![NetworkDns {
+            address: network.dns_ip.to_string(),
+            port,
+        }]
+    } else if !network.fallback_dns_servers.is_empty() {
+        dns_list(network.fallback_dns_servers, "platform fallback", 53)?
     } else {
         dns_list(&config.fallback_servers, "client fallback", 53)?
     };
-    if candidates.len() > 8 {
+    if candidates.len() > super::MAX_DNS_SERVERS {
         anyhow::bail!("network plan contains too many DNS servers");
     }
     for dns in &candidates {
@@ -513,7 +504,7 @@ fn planned_dns_servers_v2(
             .address
             .parse()
             .map_err(|_| anyhow::anyhow!("invalid DNS server '{}:{}'", dns.address, dns.port))?;
-        gateway_for_ip(address, addresses).map_err(|_| {
+        gateway_for_ip(address, network.addresses).map_err(|_| {
             anyhow::anyhow!(
                 "DNS server '{}' uses a family not present in the negotiated tunnel",
                 dns.address
@@ -655,6 +646,8 @@ pub(crate) fn server_push_log_lines(
             "server push: no routes sent — the server profile/user has no valid route entries"
                 .into(),
         );
+    } else if !config.routing.pull_routes {
+        lines.push(format!("server push: {received_routes} route(s) IGNORED — pull_routes=false; local routes, gateway and tunnel DNS remain active"));
     } else {
         lines.push(format!(
             "server push: {} route(s) received; {} validated before client exclusions",
@@ -855,82 +848,6 @@ fn normalized_prefix(prefix: u8) -> u8 {
     }
 }
 
-fn prefix_to_netmask(prefix: u8) -> Ipv4Addr {
-    let mask = if prefix == 32 {
-        u32::MAX
-    } else {
-        !0u32 << (32 - prefix)
-    };
-    Ipv4Addr::from(mask)
-}
-
-/// Resolve the DNS part of a plan without changing platform state.
-pub(crate) fn planned_dns_servers(
-    config: &ClientDnsConfig,
-    pushed_server: &str,
-    pushed_port: &str,
-    tun_net: Option<(Ipv4Addr, Ipv4Addr)>,
-    full_tunnel: bool,
-    platform_fallback: &[String],
-) -> anyhow::Result<Vec<NetworkDns>> {
-    if config.mode != "tunnel" {
-        return Ok(Vec::new());
-    }
-
-    if !config.servers.is_empty() {
-        return ipv4_dns_list(&config.servers, "client", 53);
-    }
-
-    if !pushed_server.is_empty() {
-        let parsed = match pushed_server.parse::<IpAddr>() {
-            Ok(IpAddr::V4(value)) if !pushed_server.starts_with('-') => IpAddr::V4(value),
-            Ok(IpAddr::V6(_)) => anyhow::bail!(
-                "IPv6 pushed DNS server '{pushed_server}' is unreachable in a legacy IPv4 tunnel"
-            ),
-            _ => return Ok(Vec::new()),
-        };
-        let port = pushed_port
-            .parse::<u16>()
-            .map_err(|_| anyhow::anyhow!("invalid pushed DNS port '{pushed_port}'"))?;
-        if port == 0 {
-            anyhow::bail!("invalid pushed DNS port '0'");
-        }
-        let reachable = match (parsed, tun_net) {
-            (IpAddr::V4(dns), Some((address, mask))) => {
-                (u32::from(dns) & u32::from(mask)) == (u32::from(address) & u32::from(mask))
-            }
-            _ => false,
-        };
-        if full_tunnel || reachable {
-            return Ok(vec![NetworkDns {
-                address: pushed_server.to_string(),
-                port,
-            }]);
-        }
-    }
-
-    if !platform_fallback.is_empty() {
-        return ipv4_dns_list(platform_fallback, "platform fallback", 53);
-    }
-    ipv4_dns_list(&config.fallback_servers, "client fallback", 53)
-}
-
-fn ipv4_dns_list(addresses: &[String], source: &str, port: u16) -> anyhow::Result<Vec<NetworkDns>> {
-    let servers = dns_list(addresses, source, port)?;
-    if let Some(server) = servers.iter().find(|server| {
-        server
-            .address
-            .parse::<IpAddr>()
-            .is_ok_and(|address| address.is_ipv6())
-    }) {
-        anyhow::bail!(
-            "IPv6 {source} DNS server '{}' is unreachable in a legacy IPv4 tunnel",
-            server.address
-        );
-    }
-    Ok(servers)
-}
-
 fn dns_list(addresses: &[String], source: &str, port: u16) -> anyhow::Result<Vec<NetworkDns>> {
     addresses
         .iter()
@@ -960,6 +877,7 @@ pub(crate) fn pushed_route_prefix_is_allowed(address: IpAddr, prefix: u8) -> boo
 }
 
 /// Parse and validate server-pushed routes before they cross the platform boundary.
+#[cfg(test)]
 pub(crate) fn planned_pushed_routes(
     routes_json: &str,
     default_gateway: &str,
@@ -1068,6 +986,185 @@ mod tests {
         }]
     }
 
+    fn ipv4_network(addresses: &[NetworkAddress]) -> HandshakeNetwork<'_> {
+        HandshakeNetwork {
+            family_mode: NetworkFamilyMode::Ipv4,
+            addresses,
+            client_ip: "10.8.0.2",
+            prefix: 24,
+            tunnel_gateway: "10.8.0.1",
+            dns_ip: "",
+            dns_port: "53",
+            dns_servers: &[],
+            routes_json: "[]",
+            mtu: 1400,
+            fallback_dns_servers: &[],
+        }
+    }
+
+    #[test]
+    fn audit_legacy_and_v2_split_dns_have_the_same_protected_route() {
+        let mut config = ClientConfig::default();
+        config.dns.mode = "tunnel".into();
+        config.routing.add_default_gateway = false;
+        config.routing.mode = "split-tunnel".into();
+        config.routing.exclude.push("203.0.113.0/24".into());
+        let addresses = ipv4_addresses();
+        let mut network = ipv4_network(&addresses);
+        network.dns_ip = "203.0.113.53";
+        let legacy = build_network_plan(&config, 1, &network).unwrap();
+        let pushed = vec![NetworkDns {
+            address: network.dns_ip.into(),
+            port: 53,
+        }];
+        network.dns_servers = &pushed;
+        let v2 = build_network_plan(&config, 1, &network).unwrap();
+        assert_eq!(legacy.dns_servers, v2.dns_servers);
+        assert_eq!(legacy.routes, v2.routes);
+        assert!(!legacy.full_tunnel);
+        assert_eq!(legacy.dns_servers, pushed);
+        assert!(legacy
+            .routes
+            .iter()
+            .any(|r| r.cidr == "203.0.113.53/32" && r.gateway == "10.8.0.1"));
+    }
+
+    #[test]
+    fn audit_malformed_legacy_dns_fails_instead_of_leaving_the_host_resolver() {
+        let mut config = ClientConfig::default();
+        config.dns.mode = "tunnel".into();
+        config.routing.add_default_gateway = false;
+        let addresses = ipv4_addresses();
+        let mut network = ipv4_network(&addresses);
+        for invalid in ["not-an-ip", "--option", "203.0.113.53:53"] {
+            network.dns_ip = invalid;
+            let error = build_network_plan(&config, 1, &network).unwrap_err();
+            assert!(error.to_string().contains("DNS"), "{error}");
+        }
+    }
+
+    #[test]
+    fn audit_dns_limit_is_identical_for_legacy_and_v2_inputs() {
+        let mut config = ClientConfig::default();
+        config.dns.mode = "tunnel".into();
+        config.dns.servers = (1..=9).map(|n| format!("203.0.113.{n}")).collect();
+        let addresses = ipv4_addresses();
+        let mut network = ipv4_network(&addresses);
+        assert!(build_network_plan(&config, 1, &network).is_err());
+        let pushed = vec![NetworkDns {
+            address: "10.8.0.1".into(),
+            port: 53,
+        }];
+        network.dns_servers = &pushed;
+        assert!(build_network_plan(&config, 1, &network).is_err());
+        config.dns.servers.pop();
+        assert_eq!(
+            build_network_plan(&config, 1, &network)
+                .unwrap()
+                .dns_servers
+                .len(),
+            8
+        );
+        network.dns_servers = &[];
+        assert_eq!(
+            build_network_plan(&config, 1, &network)
+                .unwrap()
+                .dns_servers
+                .len(),
+            8
+        );
+    }
+
+    #[test]
+    fn audit_route_exclusion_order_cannot_exhaust_a_transient_budget() {
+        let mut config = ClientConfig::default();
+        config.dns.mode = "off".into();
+        config.routing.include.push("198.18.0.0/15".into());
+        config.routing.exclude = (0..256).map(|n| format!("198.18.{n}.1/32")).collect();
+        config.routing.exclude.push("198.18.0.0/15".into());
+        let addresses = ipv4_addresses();
+        let network = ipv4_network(&addresses);
+        let forward = build_network_plan(&config, 1, &network).unwrap();
+        config.routing.exclude.reverse();
+        let reverse = build_network_plan(&config, 1, &network).unwrap();
+        assert!(forward.routes.is_empty());
+        assert_eq!(forward.routes, reverse.routes);
+    }
+
+    #[test]
+    fn audit_route_budget_applies_to_the_final_complement() {
+        // All 1024 hosts are excluded, but an intermediate complement of just the
+        // even hosts has over 256 entries. No ordering heuristic may reject the union.
+        let mut excludes = Vec::new();
+        for parity in 0..2 {
+            for n in (parity..1024).step_by(2) {
+                excludes.push(
+                    NumericCidr::parse(&format!("198.18.{}.{}/32", n / 256, n % 256)).unwrap(),
+                );
+            }
+        }
+        assert!(cidr_minus_excludes("198.18.0.0/22", &excludes)
+            .unwrap()
+            .is_empty());
+        // A genuinely oversized final complement must still be refused.
+        assert!(cidr_minus_excludes("198.18.0.0/22", &excludes[..512]).is_err());
+    }
+
+    #[test]
+    fn cidr_complements_match_every_small_ipv4_and_ipv6_address_set() {
+        for (cidr, first, bits) in [
+            (
+                "198.18.0.0/29",
+                u128::from(u32::from(
+                    "198.18.0.0".parse::<std::net::Ipv4Addr>().unwrap(),
+                )),
+                32,
+            ),
+            (
+                "2001:db8::/125",
+                u128::from("2001:db8::".parse::<std::net::Ipv6Addr>().unwrap()),
+                128,
+            ),
+        ] {
+            for mask in 0..256u16 {
+                let mut excludes: Vec<_> = (0..8u8)
+                    .filter(|n| mask & (1 << n) != 0)
+                    .map(|n| NumericCidr {
+                        start: first + u128::from(n),
+                        prefix: bits,
+                        bits,
+                    })
+                    .collect();
+                let forward = cidr_minus_excludes(cidr, &excludes).unwrap();
+                excludes.reverse();
+                excludes.extend(excludes.clone());
+                assert_eq!(forward, cidr_minus_excludes(cidr, &excludes).unwrap());
+                for n in 0..8u8 {
+                    let host = NumericCidr {
+                        start: first + u128::from(n),
+                        prefix: bits,
+                        bits,
+                    };
+                    assert_eq!(
+                        forward.iter().filter(|p| p.overlaps(host)).count(),
+                        usize::from(mask & (1 << n) == 0)
+                    );
+                }
+                assert!(forward.iter().all(|p| p.prefix >= bits - 3));
+            }
+        }
+        for cidr in [
+            "0.0.0.0/0",
+            "::/0",
+            "255.255.255.255/32",
+            "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128",
+        ] {
+            let base = NumericCidr::parse(cidr).unwrap();
+            assert_eq!(cidr_minus_excludes(cidr, &[]).unwrap(), [base]);
+            assert!(cidr_minus_excludes(cidr, &[base]).unwrap().is_empty());
+        }
+    }
+
     #[test]
     fn assigned_prefix_follows_the_client_device_not_the_server_device() {
         let server_tun_addresses = vec![
@@ -1129,75 +1226,84 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unreachable_pushed_dns_but_keeps_client_dns() {
+    fn configured_dns_overrides_both_push_formats_and_their_invalid_values() {
         let mut dns = ClientDnsConfig {
             mode: "tunnel".into(),
+            servers: vec!["203.0.113.53".into()],
             ..ClientDnsConfig::default()
         };
-        let subnet = Some((
-            "10.8.0.2".parse().unwrap(),
-            "255.255.255.0".parse().unwrap(),
-        ));
-        assert!(
-            planned_dns_servers(&dns, "203.0.113.53", "53", subnet, false, &[])
-                .unwrap()
-                .is_empty()
-        );
-        dns.servers.push("203.0.113.53".into());
+        let addresses = ipv4_addresses();
+        let mut network = ipv4_network(&addresses);
+        network.dns_ip = "invalid-host";
+        network.dns_port = "invalid-port";
         assert_eq!(
-            planned_dns_servers(&dns, "10.8.0.1", "53", subnet, false, &[])
-                .unwrap()
-                .first()
-                .unwrap()
-                .address,
+            planned_dns_servers(&dns, &network).unwrap()[0].address,
             "203.0.113.53"
         );
+        let pushed = vec![NetworkDns {
+            address: "invalid-host".into(),
+            port: 0,
+        }];
+        network.dns_servers = &pushed;
+        assert_eq!(planned_dns_servers(&dns, &network).unwrap()[0].port, 53);
+        dns.servers.clear();
+        assert!(planned_dns_servers(&dns, &network).is_err());
+        for mode in ["off", "system"] {
+            dns.mode = mode.into();
+            assert!(planned_dns_servers(&dns, &network).unwrap().is_empty());
+        }
     }
 
     #[test]
-    fn platform_fallback_is_used_only_after_an_unusable_push() {
-        let dns = ClientDnsConfig {
+    fn platform_fallback_is_used_only_when_the_push_is_absent() {
+        let mut dns = ClientDnsConfig {
             mode: "tunnel".into(),
+            fallback_servers: vec!["192.0.2.53".into()],
             ..ClientDnsConfig::default()
         };
+        let addresses = ipv4_addresses();
+        let mut network = ipv4_network(&addresses);
+        assert_eq!(
+            planned_dns_servers(&dns, &network).unwrap()[0].address,
+            "192.0.2.53"
+        );
         let fallback = vec!["1.1.1.1".into(), "8.8.8.8".into()];
-        let planned = planned_dns_servers(&dns, "", "53", None, true, &fallback).unwrap();
+        network.fallback_dns_servers = &fallback;
+        let planned = planned_dns_servers(&dns, &network).unwrap();
         assert_eq!(planned.len(), 2);
         assert_eq!(planned[1].address, "8.8.8.8");
-
-        let pushed = planned_dns_servers(&dns, "10.8.0.1", "5353", None, true, &fallback).unwrap();
+        network.dns_ip = "203.0.113.53";
+        network.dns_port = "5353";
+        let pushed = planned_dns_servers(&dns, &network).unwrap();
         assert_eq!(pushed.len(), 1);
+        assert_eq!(pushed[0].address, "203.0.113.53");
         assert_eq!(pushed[0].port, 5353);
-
-        let disabled = ClientDnsConfig {
-            mode: "off".into(),
-            ..ClientDnsConfig::default()
-        };
-        assert!(
-            planned_dns_servers(&disabled, "", "53", None, true, &fallback)
-                .unwrap()
-                .is_empty()
-        );
+        for invalid_port in ["0", "65536", "bad"] {
+            network.dns_port = invalid_port;
+            assert!(planned_dns_servers(&dns, &network).is_err());
+        }
+        dns.mode = "off".into();
+        assert!(planned_dns_servers(&dns, &network).unwrap().is_empty());
     }
 
     #[test]
     fn legacy_ipv4_plan_rejects_unreachable_ipv6_dns() {
         let mut dns = ClientDnsConfig {
             mode: "tunnel".into(),
+            servers: vec!["2001:4860:4860::8888".into()],
             ..ClientDnsConfig::default()
         };
-        dns.servers.push("2001:4860:4860::8888".into());
-        let error = planned_dns_servers(&dns, "", "53", None, true, &[]).unwrap_err();
-        assert!(error.to_string().contains("legacy IPv4 tunnel"));
-
+        let addresses = ipv4_addresses();
+        let mut network = ipv4_network(&addresses);
+        let error = planned_dns_servers(&dns, &network).unwrap_err();
+        assert!(error.to_string().contains("family not present"));
         dns.servers.clear();
-        let error =
-            planned_dns_servers(&dns, "2001:4860:4860::8888", "53", None, true, &[]).unwrap_err();
-        assert!(error.to_string().contains("legacy IPv4 tunnel"));
-
+        network.dns_ip = "2001:4860:4860::8888";
+        assert!(planned_dns_servers(&dns, &network).is_err());
+        network.dns_ip = "";
         let fallback = vec!["2001:4860:4860::8888".into()];
-        let error = planned_dns_servers(&dns, "", "53", None, true, &fallback).unwrap_err();
-        assert!(error.to_string().contains("legacy IPv4 tunnel"));
+        network.fallback_dns_servers = &fallback;
+        assert!(planned_dns_servers(&dns, &network).is_err());
     }
 
     #[test]
@@ -1362,6 +1468,123 @@ mod tests {
         assert!(
             error.to_string().contains("active IPv4 tunnel address"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn declining_pushed_routes_preserves_local_and_protected_dns_routes_in_each_family() {
+        for ipv6 in [false, true] {
+            let addresses = if ipv6 {
+                vec![NetworkAddress {
+                    family: NetworkAddressFamily::Ipv6,
+                    address: "fd71:e1::2".into(),
+                    prefix_len: 128,
+                    on_link_prefix_len: 64,
+                    gateway: Some("fd71:e1::1".into()),
+                }]
+            } else {
+                ipv4_addresses()
+            };
+            let pushed = if ipv6 {
+                "2001:db8:20::/48"
+            } else {
+                "10.20.0.0/16"
+            };
+            let local = if ipv6 {
+                "2001:db8:30::/48"
+            } else {
+                "192.0.2.0/24"
+            };
+            let dns = if ipv6 { "fd71:e1::53" } else { "10.8.0.53" };
+            let json = format!(r#"[{{"cidr":"{pushed}"}}]"#);
+            let mut network = ipv4_network(&addresses);
+            network.family_mode = if ipv6 {
+                NetworkFamilyMode::Ipv6
+            } else {
+                NetworkFamilyMode::Ipv4
+            };
+            network.client_ip = &addresses[0].address;
+            network.prefix = addresses[0].prefix_len;
+            network.tunnel_gateway = addresses[0].gateway.as_deref().unwrap();
+            network.routes_json = &json;
+            network.dns_ip = dns;
+            // IPv6/v2 pushes are typed. The legacy dns_ip field is IPv4-only.
+            let dns_servers = vec![NetworkDns {
+                address: dns.into(),
+                port: 53,
+            }];
+            network.dns_servers = &dns_servers;
+            let mut config = ClientConfig::default();
+            config.routing.add_default_gateway = false;
+            config.dns.mode = "tunnel".into();
+            config.routing.include.push(local.into());
+            let accepted = build_network_plan(&config, 1, &network).unwrap();
+            assert_eq!(accepted.pushed_routes, [pushed]);
+            config.routing.pull_routes = false;
+            let declined = build_network_plan(&config, 2, &network).unwrap();
+            assert!(declined.pushed_routes.is_empty());
+            assert!(!declined.routes.iter().any(|r| r.cidr == pushed));
+            assert!(declined.routes.iter().any(|r| r.cidr == local));
+            assert!(declined
+                .routes
+                .iter()
+                .any(|r| r.cidr == format!("{dns}/{}", if ipv6 { 128 } else { 32 })));
+            assert_eq!(declined.addresses, accepted.addresses);
+            assert_eq!(declined.dns_servers, accepted.dns_servers);
+            config
+                .routing
+                .exclude
+                .push(format!("{dns}/{}", if ipv6 { 128 } else { 32 }));
+            assert!(build_network_plan(&config, 3, &network).is_err());
+        }
+    }
+
+    #[test]
+    fn declining_routes_keeps_dual_stack_dns_and_independent_gateway_policy() {
+        let mut addresses = ipv4_addresses();
+        addresses.push(NetworkAddress {
+            family: NetworkAddressFamily::Ipv6,
+            address: "fd71:e1::2".into(),
+            prefix_len: 128,
+            on_link_prefix_len: 64,
+            gateway: Some("fd71:e1::1".into()),
+        });
+        let dns = vec![
+            NetworkDns {
+                address: "10.8.0.53".into(),
+                port: 53,
+            },
+            NetworkDns {
+                address: "fd71:e1::53".into(),
+                port: 53,
+            },
+        ];
+        let mut network = ipv4_network(&addresses);
+        network.family_mode = NetworkFamilyMode::Dual;
+        network.dns_servers = &dns;
+        network.routes_json = r#"[{"cidr":"10.20.0.0/16"},{"cidr":"2001:db8:20::/48"}]"#;
+        let mut config = ClientConfig::default();
+        config.dns.mode = "tunnel".into();
+        config.routing.pull_routes = false;
+        config.routing.include = vec!["192.0.2.0/24".into(), "2001:db8:30::/48".into()];
+        let plan = build_network_plan(&config, 1, &network).unwrap();
+        assert!(plan.pushed_routes.is_empty());
+        assert_eq!(plan.addresses.len(), 2);
+        assert_eq!(plan.dns_servers, dns);
+        assert!(!plan.full_tunnel);
+        for required in [
+            "192.0.2.0/24",
+            "2001:db8:30::/48",
+            "10.8.0.53/32",
+            "fd71:e1::53/128",
+        ] {
+            assert!(plan.routes.iter().any(|r| r.cidr == required), "{required}");
+        }
+        config.routing.add_default_gateway = true;
+        assert!(
+            build_network_plan(&config, 2, &network)
+                .unwrap()
+                .full_tunnel
         );
     }
 

@@ -77,7 +77,7 @@ enum QeliPathCommandOutcome: Int32, Sendable {
 }
 
 final class QeliNativeTransport: @unchecked Sendable {
-    static let compatibilityABIVersion: UInt32 = 0x0001_000b
+    static let compatibilityABIVersion: UInt32 = 0x0001_0010
     // ABI 1.14 is the first path-transaction revision that can report an incomplete platform
     // rollback separately from a clean rejection. Older cores stay on full reconnect.
     static let pathTransactionsABIVersion: UInt32 = 0x0001_000e

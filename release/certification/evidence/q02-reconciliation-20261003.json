@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "kind": "q02-current-contract-reconciliation",
+  "captured_at": "2026-10-02T23:44:54.332613+00:00",
+  "status": "PASS",
+  "review_source_commit": "13dc2922fd4cade482b0bd35cdfc8340d06f344d",
+  "static_checks": [
+    {
+      "command": "python scripts/test_native_config_keys.py",
+      "exit_code": 0,
+      "output_sha256": "a25b5619af971eae96a8c9d37ebc69133b4c28e990455e210be0507206df182c"
+    },
+    {
+      "command": "python scripts/gen_config_bindings.py --check",
+      "exit_code": 0,
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "key_names": 81,
+  "editor_fields_including_logging": 84,
+  "reused_evidence": "release/certification/evidence/client-store-20261002.json",
+  "reused_evidence_sha256": "6c3214c5da59b09e61274ad083350fc799b58893b17afeb15abfa977c50b76aa",
+  "matched_inputs": {
+    "tested_adapter_input_sha256": 164,
+    "unchanged_rust_input_sha256": 288
+  },
+  "managed_checks": 511,
+  "android_jvm": {
+    "tests": 167,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "android_runtime_summary": {
+    "ro.build.version.sdk": "34",
+    "ro.build.version.release": "14",
+    "ro.product.cpu.abi": "x86_64",
+    "status": "PASS",
+    "instrumented_tests": 12,
+    "elapsed_seconds": 77.37
+  },
+  "new_platform_test_execution": false,
+  "remaining": null,
+  "limits": "Apple and physical platform runtime excluded by user; prior original artifact identities and test times retained, no new QR/UI/storage/device claims",
+  "review_completed_at": "2026-10-02T23:59:22.059589+00:00",
+  "scope": "Section 02 configuration contract and available C#/Android adapters; user-excluded Apple and physical environments remain SKIP, not runtime PASS",
+  "native_config_audit": {
+    "schema_version": 1,
+    "kind": "q02-packaged-native-config-audit",
+    "executed_at": "2026-10-02T23:56:12.273612+00:00",
+    "source_commit": "eabb4bc6e11d0b44306e5685ad7ea9258b586142",
+    "library_sha256": "653522e6bade8fce705a12ec1566c4c119d49b27d55cb7ba088c018b2bd1dd92",
+    "fixture_sha256": {
+      "conformance/qeli-links.json": "8252808891870bea093f6fdaf3ef7e5dc44aa647d8762925cfef589d562696da",
+      "conformance/config-boundary.json": "0660b853f1747393c99af0b20518b6d04d9276a4c56f94bfdc26ffae603623cf"
+    },
+    "driver_sha256": "1578181c5b4e7787d0384356ec38c92f2039857372d2a07d47c1f77004530cf5",
+    "checks": [
+      {
+        "name": "schema",
+        "passed": true,
+        "keys": 81,
+        "fields": 84
+      },
+      {
+        "name": "URI independent corpus and roundtrip",
+        "passed": true,
+        "valid": 21,
+        "reject": 29
+      },
+      {
+        "name": "INI independent boundary corpus",
+        "passed": true,
+        "cases": 15
+      },
+      {
+        "name": "every schema field explicit-value runtime projection",
+        "passed": true,
+        "fields": 84,
+        "scope": "parsed runtime document, not OS effects of platform-owned fields"
+      },
+      {
+        "name": "seeded draft preservation",
+        "passed": true,
+        "cases": 1000,
+        "seed": 192486,
+        "scope": "canonical import/export, values/raw and admission; not statistical fuzzing"
+      },
+      {
+        "name": "unrelated edits preserve errors",
+        "passed": true,
+        "cases": 4
+      },
+      {
+        "name": "document/request/ABI bounds",
+        "passed": true,
+        "checks": 4
+      },
+      {
+        "name": "parallel document isolation and error redaction",
+        "passed": true,
+        "cases": 128,
+        "workers": 16
+      }
+    ],
+    "service_calls": 5630,
+    "status": "PASS",
+    "no_session_or_network_io": true,
+    "limits": [
+      "Direct C ABI configuration service only, no platform UI/runtime network claim",
+      "Cargo absent from local PATH and C:/Users/litvi/.cargo/bin; attempted Rust test did not execute; this is a packaged DLL check",
+      "Existing same-source C#/JVM/instrumentation evidence is separate, not rerun",
+      "Seeded mutations are bounded smoke coverage, not full fuzz/DoS qualification"
+    ]
+  },
+  "raw_artifact_root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q02-close-20261003",
+  "raw_artifact_sha256": {
+    "close_q02.py": "d78c080c22d7928d770c4ecfa7bee9cfbda7c6ed2b724f624f788ca4887a7917",
+    "config_abi_audit-r1.py": "b5cd9f5c57d137f64509c08925f570e6b808e8587295d4358cf82c6303530b12",
+    "config_abi_audit.py": "1578181c5b4e7787d0384356ec38c92f2039857372d2a07d47c1f77004530cf5",
+    "panel-editors.log": "e79b4fff5144c8767372e448a81264394f71b5a4c2e44637317d5fbcbbc70b93",
+    "panel-static.log": "87d4ec386af12e374adab8c918f26f6a2553161b7381e1e84e05fdd85c4232dc",
+    "results-r1.json": "c33a4fc75377b71e84e683e3341c6b92be5219c1d7152b79de4c7dbda0231002",
+    "results.json": "3e34493d686694875b788aa9abb283801bd01de855df7b292fdad38c4949ed80"
+  },
+  "review": {
+    "entry_points": [
+      "editor import/export/runtime/validate/uri/probe",
+      "parse_client_config and parse_client_config_strict -> editor::parse_runtime",
+      "panel import_link -> ClientLink::from_uri -> from_link -> persist -> strict validation",
+      "qeli_config_request bounded C ABI, Java_com_qeli_ConfigCore_nativeRequest bounded JNI",
+      "C#/Kotlin/Swift native projections -> shared document service"
+    ],
+    "decisions": [
+      "No separate client INI/URI parser or silent native-unavailable fallback found",
+      "Source/raw/unresolved markers preserve malformed and unmodelled fields across unrelated edits",
+      "Known URI duplicate query parameters and invalid scalar/percent/UTF-8 inputs reject; unknown extension names intentionally ignored",
+      "Only empty or exactly 64 zero hex characters represent an absent pin; other malformed pins stay errors",
+      "Syntactically valid out-of-working-range numeric link MTU intentionally falls back to auto; INI rejects invalid MTU",
+      "URI carries connection essentials, not all file/platform policy; absent inline pass blocks share",
+      "Exports may preserve invalid editable drafts; validate/runtime/URI enforce admission",
+      "Document service performs no password command/file/network I/O; platform-owned effects remain separate audit sections",
+      "No removable dead runtime parser implementation found; test helpers and generated/feature-gated consumers retained"
+    ],
+    "new_confirmed_findings": [],
+    "production_changes": false
+  },
+  "review_source_sha256": {
+    "qeli/src/config/client.rs": "43eb84092bd383818311d097c01a3a90e191573039f878ce0413db6d48ba9780",
+    "qeli/src/config/share.rs": "1a058f4de739f5a8ffd588b18e43f754041d0790eba4406032c8521025a59349",
+    "qeli/src/config/editor/mod.rs": "70697a3c9c2af5656ee04eedb6a3578e926cfebdf47734517926d822ac7b46ec",
+    "qeli/src/config/editor/schema.rs": "953e6f7fcefba10ee6f323524f4ddcb988a2aaff189310f373676d7b0e90315b",
+    "qeli/src/transport_core/ffi.rs": "51c5b01511c74155d69fd9d56265324822ba2e3b9bcb5412803f2ac66456a422",
+    "qeli/src/transport_core/config_jni.rs": "b5a637a798b8f496da68bc0693f0e0eb9ca68c96b69d584b3ee136806c1383d4",
+    "qeli/src/web/api/client.rs": "32329892b706d93934993625cac5e41f71df449df2c70b07afd8e6beb739ea96",
+    "qeli-shared/QeliShared/Model/ConfigCore.cs": "f75f0ef9309edda42ad229e9482392bca8518342cd05b8e74615ae50e164999f",
+    "qeli-shared/QeliShared/Model/VpnConfig.cs": "5c4aa13920fe4a51021827c69b0bfd48fbe2f6cf0554d88c529fe9b77108ab06",
+    "qeli-shared/QeliShared/Model/VpnConfig.Native.g.cs": "96b37209f936191e28e3fbd5595d8ae52f1834caaaa4e9ca2050206421d8ef0a",
+    "qeli-android/app/src/main/kotlin/com/qeli/ConfigCore.kt": "94a4c646a976e6fea6d2c1f27f71259262f0f5777b059fc2a846ebf7c7072975",
+    "qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt": "deb12ac6bd27eda6afd7ac64c5f8909077de719dde10facfad31c9e4b09c0f5d",
+    "qeli-android/app/src/main/kotlin/com/qeli/model/ConfigProjection.kt": "81166e1ea0bd0e35af4735fb2f1d4fc8ce0d49feba12f7ac16ec7760d53d2bf4",
+    "qeli-ios/QeliCore/Native/ConfigCore.swift": "bdaad45f09f8c02bc4ae392c267115beeb75b44d7dad2890bdc1fa3f1841fd06",
+    "qeli-ios/QeliCore/Model/VPNConfig.swift": "5aa4356996d0c982c12ad456e1cd1584e86d288ca033515bb75c4a97cf27b07e",
+    "qeli-ios/QeliCore/Model/VPNConfigProjection.swift": "ce75fc7804789eb67e30264933c669e51b9638cc071470837d4fa71d6fd5ab54"
+  }
+}

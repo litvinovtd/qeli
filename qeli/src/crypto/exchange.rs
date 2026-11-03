@@ -183,6 +183,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rfc7748_x25519_known_answer() {
+        // RFC 7748 section 6.1: published inputs and outputs, not a roundtrip oracle.
+        fn bytes(hex: &str) -> [u8; 32] {
+            crate::crypto::parse_pubkey_hex(hex).unwrap()
+        }
+        let alice_secret = StaticSecret::from(bytes(
+            "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a",
+        ));
+        let bob_secret = StaticSecret::from(bytes(
+            "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+        ));
+        let alice = Keypair {
+            public: PublicKey(XPublic::from(&alice_secret).to_bytes()),
+            secret: alice_secret,
+        };
+        let bob = Keypair {
+            public: PublicKey(XPublic::from(&bob_secret).to_bytes()),
+            secret: bob_secret,
+        };
+        assert_eq!(
+            alice.public().0,
+            bytes("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a")
+        );
+        assert_eq!(
+            bob.public().0,
+            bytes("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f")
+        );
+        let shared = bytes("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
+        assert_eq!(alice.derive_shared_checked(bob.public()).unwrap().0, shared);
+        assert_eq!(bob.derive_shared_checked(alice.public()).unwrap().0, shared);
+    }
+
+    #[test]
     fn derive_shared_checked_rejects_low_order_point() {
         let kp = Keypair::generate();
         // The all-zero public key is a low-order point → all-zero shared secret.

@@ -1,0 +1,27 @@
+{
+  "status": "POST_PUBLICATION_DOCUMENTATION_ALIGNED",
+  "published_tag": "v0.8.2",
+  "published_source_commit": "ca924bcec7f0a6049d20d0e85ac0b8ecb1174178",
+  "source_digest": "60fe4cd00698845d356d13bb5c32c09c88c6612da83921a207ff9cc1e88a4c11",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "changed_git_blobs": {
+    "docs/ru/manuals/OPERATIONS.md": "98f0412cdf96ca3da498f8b08d315db4b192d586",
+    "docs/eng/manuals/PANEL.md": "0408363a67e4a6d7fabbe6c415b5a3603b9779e6",
+    "docs/eng/manuals/CONFIG.md": "e392121269a6b3d37dc3831f5bc45f1e32a2cc11",
+    "docs/eng/manuals/TROUBLESHOOTING.md": "c8e4774b58cff4e2937852b9f84358f03199b44b",
+    "docs/ru/manuals/TROUBLESHOOTING.md": "efeb153166d4788323ae3399bfe4b69bf72abaa6",
+    "docs/eng/manuals/OPERATIONS.md": "b23b5cdff3c089c985d825ec7315ab7cf90413a6",
+    "docs/ru/manuals/GETTING-STARTED.md": "64767f471aac5a613e0066dbc134981f2823f68e",
+    "docs/eng/manuals/GETTING-STARTED.md": "55900d9b9ed59d134d67af32b02432a4664ddcea",
+    "docs/ru/manuals/PANEL.md": "07656da98f0359c98548eeb40c805150cd8a7b66",
+    "docs/ru/manuals/CONFIG.md": "834975d52261ae32774ef652c589f9718bd64e11"
+  },
+  "scope": "Ten bilingual manual banners and package commands now identify the published 0.8.2 prerelease. Operations explicitly documents that its preserved candidate .deb has no new release-build attestation, and strict provenance mode still refuses an unattested package. Only Markdown and certification evidence changed; runtime inputs, harnesses, native inputs, actual execution identities and 23 published asset bytes are unchanged. Published tag is not moved.",
+  "documentation_checks_passed": 9,
+  "version_sync_passed": true,
+  "original_tag_CI_docs_failure": "38784682113: documentation banner still said 0.8.1 after tag creation",
+  "new_runtime_executions": 0,
+  "published_asset_bytes_changed": false,
+  "published_tag_moved": false,
+  "accepted_API34_ENONET_and_physical_scope_unchanged": true
+}

@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "source_commit": "633e95eff4e5ce303c899a6c765c3de3ab745beb",
+  "build_commit": "5584f297cb6daa34a79054c8421f5d3656757b2a",
+  "native_build_source_commit": "42134ecb25a7c93509a39ef6f35ccb55606c0105",
+  "source_digest": "d9e0709911fcbbff7acfedaa907e7c4689b6fbb81721378d400333c881ca892c",
+  "assets": {
+    "install-keenetic.sh": {
+      "sha256": "2c8f695d7509651d49db6986183d5fcb876554a490200f084e12c3068d969429",
+      "bytes": 8426
+    },
+    "qeli-android-0.8.2.apk": {
+      "sha256": "a1e2e900dbad6960c7d7aa2eb35bf83a6a0520cf7bffe2f3fbf42f0ff1a5f0e1",
+      "bytes": 12246052
+    },
+    "qeli-client-keenetic-aarch64": {
+      "sha256": "15ab1c62d04a9a61647517481cbf1534dd75d789206f322f1c519d7d9ac3259d",
+      "bytes": 9342312
+    },
+    "qeli-client-keenetic-mipsel": {
+      "sha256": "cf52387fa0b9b5b1a7296af14fbc0bc196291327d4bf15cf9385ed3d89a6e98a",
+      "bytes": 11372344
+    },
+    "qeli-client-openwrt-aarch64": {
+      "sha256": "15ab1c62d04a9a61647517481cbf1534dd75d789206f322f1c519d7d9ac3259d",
+      "bytes": 9342312
+    },
+    "qeli-client-openwrt-armv7": {
+      "sha256": "f5ee65ebf06eff9e159a3926070b4c51ff2bce84a86f6a0a714e8b183ea0b38e",
+      "bytes": 9496852
+    },
+    "qeli-client-openwrt-mipsel": {
+      "sha256": "cf52387fa0b9b5b1a7296af14fbc0bc196291327d4bf15cf9385ed3d89a6e98a",
+      "bytes": 11372344
+    },
+    "qeli-client-openwrt-x86_64": {
+      "sha256": "9598f62f43878ca828d810256a75d26c0ce297803d608ec0881c9dd810a0f93f",
+      "bytes": 10113688
+    },
+    "qeli-keenetic-files.tar.gz": {
+      "sha256": "27fe405955971fed89314d6e2cc67739f1815920ef40477a73fb94d529823fe9",
+      "bytes": 43262
+    },
+    "qeli-linux-amd64": {
+      "sha256": "15a181d5f9de851826839dfe8413ea4ee9b1ff798cb25d6d403ac2bcddcdda9a",
+      "bytes": 18883576
+    },
+    "Qeli-macOS-universal.zip": {
+      "sha256": "c52d7434a9ca804d455565462854472c391da6ae440c3a57f9821d00f1308f9d",
+      "bytes": 61461916
+    },
+    "qeli-openwrt-files.tar.gz": {
+      "sha256": "087189d9f45595e9b7b109d8f5c52487f174d01c3389da1c2d12920a34ffe704",
+      "bytes": 51810
+    },
+    "QeliWin-net-required.exe": {
+      "sha256": "22df2011e2654b640a9885b02f0ad2d6ed35e1bf8b222fe49e13019bb56a1ec1",
+      "bytes": 20384267
+    },
+    "QeliWin-standalone.exe": {
+      "sha256": "09f17d252a9e113112fc68c8a884a1b8e98297e907c16d09ad553eb37ac35907",
+      "bytes": 74413036
+    },
+    "qeli_0.8.2_amd64.deb": {
+      "sha256": "39be33109f881d03c67162c71196237574c6d6a724770aeb62f0934a23c01614",
+      "bytes": 4841280
+    },
+    "SHA256SUMS": {
+      "sha256": "bd3cc864b57b93c7432cf8ade21e62c41784296f37b6397411fe4b521cba440e",
+      "bytes": 1362
+    }
+  },
+  "exact_candidate_CI": {
+    "status": "PASS",
+    "head": "5584f297cb6daa34a79054c8421f5d3656757b2a",
+    "run_id": 39158513383,
+    "url": "https://github.com/litvinovtd/qeli/actions/runs/39158513383",
+    "completed": 22,
+    "success": 20,
+    "skipped": 2,
+    "failed": [],
+    "pending": [],
+    "at": "2026-10-18T19:41:51.029696+00:00"
+  },
+  "native_A_B_evidence": "release/certification/evidence/debt-closure-source-build-20261018.json",
+  "Android": {
+    "qualification": {
+      "source_commit": "633e95eff4e5ce303c899a6c765c3de3ab745beb",
+      "signed_apk_sha256": "a1e2e900dbad6960c7d7aa2eb35bf83a6a0520cf7bffe2f3fbf42f0ff1a5f0e1",
+      "unsigned_apk_sha256": "ca6cd2c74c7aac3d18df1d9c6bc12056853972e49e0cccd49c79998185fa12e2",
+      "certificate_sha256": "4616b75cb5cb4dfe0d803d048091b04a956c58963f1ab63bcb58cd30c93781f8",
+      "same_release_certificate_as_0_8_1": true,
+      "signature_v2_verified": true,
+      "signature_v3_verified": true,
+      "min_sdk": 28,
+      "payload_entries_unchanged": 1091,
+      "only_added_JAR_signature_entries": [
+        "META-INF/MANIFEST.MF",
+        "META-INF/QELI.RSA",
+        "META-INF/QELI.SF"
+      ],
+      "native_JNI_exact": true,
+      "zip_alignment_16K_checked": true,
+      "device_install_upgrade_not_executed": true
+    },
+    "existing_release_certificate": true
+  },
+  "macOS": {
+    "minimum": "15.0",
+    "universal_MachOs": 19,
+    "signature": "ad-hoc; not notarized",
+    "core_comparison": {
+      "ignored_only_signature_ranges": [
+        [
+          6934208,
+          59392
+        ],
+        [
+          13353280,
+          55296
+        ]
+      ],
+      "all_other_bytes_identical": true
+    }
+  },
+  "artifact_checks_passed": 838,
+  "actual_queue_parameter_check": {
+    "binary_sha256": "15a181d5f9de851826839dfe8413ea4ee9b1ff798cb25d6d403ac2bcddcdda9a",
+    "check_config_only": true,
+    "vpn_started_by_probe": false,
+    "rows": [
+      {
+        "value": null,
+        "accepted": true,
+        "exit": 0
+      },
+      {
+        "value": "500",
+        "accepted": true,
+        "exit": 0
+      },
+      {
+        "value": "1000",
+        "accepted": true,
+        "exit": 0
+      },
+      {
+        "value": "0",
+        "accepted": false,
+        "exit": 1
+      }
+    ],
+    "source_commit": "5584f297cb6daa34a79054c8421f5d3656757b2a"
+  },
+  "resolved": [
+    "N01 inherited background Git maintenance eliminated with real trace regression and five Linux suites; original intermittent cleanup failure retained, exclusive root cause not claimed",
+    "N02 parallel measurement/configuration documentation integrated without rebinding old results",
+    "N03 five Rust and two Actions dependency updates; native/app/legal/source/lock refresh"
+  ],
+  "PR195": "Equivalent source-map-js 1.2.2 already in dev; main unchanged.",
+  "N04": "Performance diagnosis and residual TUN drops are outside these three corrections; not claimed fixed.",
+  "final_exact_commit_CI_and_preflight": "Mandatory independent checks after this certification-only commit; no future PASS claimed.",
+  "runtime_evidence": "release/certification/evidence/debt-closure-runtime-20261018.json",
+  "physical_checks_executed": false,
+  "published": false,
+  "tag_created": false
+}

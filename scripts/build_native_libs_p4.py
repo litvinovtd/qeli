@@ -28,6 +28,7 @@ from native_lab import (
     pull_verified_artifact,
     remote_sha256,
     reset_repro_group,
+    REPRO_BUILD_ROOT,
     sync_qeli_source,
 )
 from native_repro import (
@@ -44,8 +45,8 @@ from native_repro import (
 
 REPO = Path(__file__).resolve().parent.parent
 LOCAL_QELI = REPO / "qeli"
-REMOTE_SOURCE = "/opt/qeli-src"
-REMOTE_BUILD_ROOT = "/tmp/qeli-native-repro"
+REMOTE_SOURCE = f"{REPRO_BUILD_ROOT}/desktop-source"
+REMOTE_BUILD_ROOT = REPRO_BUILD_ROOT
 REMOTE_MACHO_REPRO = f"{REMOTE_BUILD_ROOT}/macho_repro.py"
 RCODESIGN = "/usr/local/bin/rcodesign"
 HOST = ("10.66.116.10", os.environ.get("QELI_LAB_USER", "root"))
@@ -197,7 +198,7 @@ def build_pass(
     )
     win_command = (
         f"{common}export RUSTFLAGS={shlex.quote(win_flags)}; "
-        f"cd {shlex.quote(REMOTE_SOURCE)} && cargo +{toolchain} build --locked --release "
+        f"cd {shlex.quote(REMOTE_SOURCE)} && cargo +{toolchain} build --locked --release --jobs 1 "
         f"--no-default-features --features transport-core-ffi --lib --target {WIN_TARGET} 2>&1"
     )
     print(f"=== pass {pass_name}: Windows {WIN_TARGET} ===")
@@ -217,7 +218,7 @@ def build_pass(
     mac_flags = macos_rust_flags()
     mac_command = (
         f"{common}export RUSTFLAGS={shlex.quote(mac_flags)}; "
-        f"cd {shlex.quote(REMOTE_SOURCE)} && cargo +{toolchain} zigbuild --locked --release "
+        f"cd {shlex.quote(REMOTE_SOURCE)} && cargo +{toolchain} zigbuild --locked --release --jobs 1 "
         f"--no-default-features --features transport-core-ffi --lib --target {MAC_TARGET} 2>&1"
     )
     print(f"=== pass {pass_name}: macOS {MAC_TARGET} ===")
@@ -250,6 +251,12 @@ def verify_exports(client: LabConnection) -> None:
         "| grep -c qeli_client_ || true",
         "Windows client exports",
     )
+    editor = client.checked(
+        f"x86_64-w64-mingw32-objdump -p {shlex.quote(win)} 2>/dev/null | grep -c qeli_config_request || true",
+        "Windows configuration editor export",
+    )
+    if editor.strip() != "1":
+        raise RuntimeError("Windows artifact lacks the ABI 1.16 configuration API")
     print(
         f"[win] qeli.dll={win_size} bytes, qeli_realtls exports={reality}, "
         f"qeli_client exports={core}"
@@ -273,6 +280,12 @@ def verify_exports(client: LabConnection) -> None:
         f"llvm-nm {shlex.quote(mac)} 2>/dev/null) | grep -c ' T _qeli_client_' || true",
         "macOS client exports",
     )
+    editor = client.checked(
+        f"(llvm-nm-19 {shlex.quote(mac)} 2>/dev/null || llvm-nm {shlex.quote(mac)} 2>/dev/null) | grep -c ' T _qeli_config_request$' || true",
+        "macOS configuration editor export",
+    )
+    if editor.strip() != "1":
+        raise RuntimeError("macOS artifact lacks the ABI 1.16 configuration API")
     print(
         f"[mac] libqeli.dylib={mac_size} bytes, qeli_realtls exports={reality}, "
         f"qeli_client exports={core}\n      {architecture}"
@@ -316,7 +329,7 @@ def main() -> int:
         sftp = client.open_sftp()
         try:
             count = sync_qeli_source(client, sftp, LOCAL_QELI, REMOTE_SOURCE)
-            print(f"[sync] {count} source/assets files + Cargo.toml/.lock -> {HOST[0]}:{REMOTE_SOURCE}")
+            print(f"[sync] {count} source/assets files + Cargo.toml/.lock + .cargo/config.toml -> {HOST[0]}:{REMOTE_SOURCE}")
             sftp.put(os.fspath(REPO / "scripts" / "macho_repro.py"), REMOTE_MACHO_REPRO)
             pass_hashes = collect_reproducible_hashes(
                 ARTIFACTS,

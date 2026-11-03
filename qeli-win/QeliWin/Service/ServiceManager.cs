@@ -12,7 +12,7 @@ namespace QeliWin.Service;
 /// <summary>
 /// Installs/controls the Qeli Windows Service. Create/delete go through the Win32 SCM
 /// API (robust binPath quoting); start/stop/status use ServiceController. The service
-/// runs as LocalSystem with auto-start, so the VPN comes up at boot, before any logon.
+/// runs as LocalSystem with auto-start; saved connection intent controls the tunnel.
 /// </summary>
 public static class ServiceManager
 {
@@ -87,7 +87,7 @@ public static class ServiceManager
         // if any of them grants write to a non-privileged principal. (Audit 2026-08-04.)
         foreach (var path in PathAndAncestors(full))
         {
-            var who = NonAdminWriterOn(path);
+            var who = NonAdminWriterOn(path, ancestor: !path.Equals(full, StringComparison.OrdinalIgnoreCase));
             if (who != null)
             {
                 throw new InvalidOperationException(
@@ -111,54 +111,48 @@ public static class ServiceManager
         }
     }
 
-    /// <summary>Name of a non-privileged principal that can WRITE <paramref name="path"/>,
-    /// or null when only privileged accounts can. Unreadable ACLs return null: refusing on a
-    /// DACL we cannot read would block legitimate installs on locked-down systems, and the
-    /// prefix check above still applies.</summary>
-    internal static string? NonAdminWriterOn(string path)
+    /// <summary>Fail closed for unknown writers, owners, reparse points or unreadable ACLs.</summary>
+    internal static string? NonAdminWriterOn(string path, bool ancestor = false, bool privateFile = false)
     {
-        const FileSystemRights Dangerous =
-            FileSystemRights.WriteData      // create files in a dir / overwrite a file
-            | FileSystemRights.AppendData   // create subdirectories
-            | FileSystemRights.Delete
-            | FileSystemRights.DeleteSubdirectoriesAndFiles
-            | FileSystemRights.ChangePermissions
-            | FileSystemRights.TakeOwnership;
-
-        // Groups that any interactive, non-elevated account is a member of. Administrators,
-        // SYSTEM, TrustedInstaller and CREATOR OWNER are all expected to have write here.
-        var untrusted = new[]
-        {
-            WellKnownSidType.WorldSid,               // Everyone
-            WellKnownSidType.AuthenticatedUserSid,   // Authenticated Users
-            WellKnownSidType.BuiltinUsersSid,        // BUILTIN\Users
-            WellKnownSidType.InteractiveSid,         // INTERACTIVE
-        };
-
         try
         {
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                return "reparse point";
             var sec = Directory.Exists(path)
                 ? (FileSystemSecurity)new DirectoryInfo(path).GetAccessControl()
                 : new FileInfo(path).GetAccessControl();
-            foreach (FileSystemAccessRule rule in
-                     sec.GetAccessRules(true, true, typeof(SecurityIdentifier)))
-            {
-                if (rule.AccessControlType != AccessControlType.Allow) continue;
-                if ((rule.FileSystemRights & Dangerous) == 0) continue;
-                if (rule.IdentityReference is not SecurityIdentifier sid) continue;
-                foreach (var w in untrusted)
-                {
-                    if (sid.IsWellKnown(w))
-                    {
-                        try { return sid.Translate(typeof(NTAccount)).Value; }
-                        catch { return sid.Value; }
-                    }
-                }
-            }
+            return UntrustedAccess(sec, ancestor, privateFile);
         }
-        catch
+        catch (Exception error) { return $"unverifiable ACL ({error.GetType().Name})"; }
+    }
+
+    internal static string? UntrustedAccess(FileSystemSecurity sec, bool ancestor = false, bool privateFile = false)
+    {
+        static bool Trusted(SecurityIdentifier sid) =>
+            sid.IsWellKnown(WellKnownSidType.LocalSystemSid)
+            || sid.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid)
+            || sid.Value == "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"; // TrustedInstaller
+
+        if (sec.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner || !Trusted(owner))
+            return "untrusted owner";
+        if (new RawSecurityDescriptor(sec.GetSecurityDescriptorBinaryForm(), 0).DiscretionaryAcl == null)
+            return "unrestricted DACL";
+
+        var dangerous = FileSystemRights.Delete | FileSystemRights.DeleteSubdirectoriesAndFiles
+            | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership;
+        // Creating new siblings in an ancestor (e.g. C:\\) does not replace an existing
+        // protected child. Delete-child and ownership/DACL changes DO allow replacement.
+        if (!ancestor)
+            dangerous |= FileSystemRights.WriteData | FileSystemRights.AppendData
+                | FileSystemRights.WriteAttributes | FileSystemRights.WriteExtendedAttributes;
+        if (privateFile) dangerous |= FileSystemRights.ReadData;
+        foreach (FileSystemAccessRule rule in sec.GetAccessRules(true, true, typeof(SecurityIdentifier)))
         {
-            // No access to the DACL, or an unsupported filesystem — see the summary.
+            if (rule.AccessControlType != AccessControlType.Allow
+                || (rule.PropagationFlags & PropagationFlags.InheritOnly) != 0
+                || (rule.FileSystemRights & dangerous) == 0) continue;
+            if (rule.IdentityReference is not SecurityIdentifier sid || !Trusted(sid))
+                return rule.IdentityReference.Value;
         }
         return null;
     }
@@ -191,20 +185,23 @@ public static class ServiceManager
     private static extern bool CloseServiceHandle(IntPtr handle);
 
     // ── public API ────────────────────────────────────────────────────────────────
-    public static bool IsInstalled() =>
-        ServiceController.GetServices().Any(s =>
-            s.ServiceName.Equals(ServiceName, StringComparison.OrdinalIgnoreCase));
-
-    public static bool IsRunning()
+    public static bool IsInstalled()
     {
-        try
-        {
-            using var sc = new ServiceController(ServiceName);
-            sc.Refresh();
-            return sc.Status is ServiceControllerStatus.Running or ServiceControllerStatus.StartPending;
-        }
-        catch { return false; }
+        // Dispose every enumerated controller, including those after an early match.
+        var services = ServiceController.GetServices();
+        try { return services.Any(s => s.ServiceName.Equals(ServiceName, StringComparison.OrdinalIgnoreCase)); }
+        finally { foreach (var service in services) service.Dispose(); }
     }
+
+    public static ServiceControllerStatus GetStatus()
+    {
+        using var sc = new ServiceController(ServiceName);
+        sc.Refresh();
+        return sc.Status; // Query failures must not masquerade as Disconnected.
+    }
+
+    internal static void EnsureRegistration() => ServiceRegistration.Validate(
+        ServiceRegistration.Read(ServiceName), ExePath, EnsureProtectedLocation);
 
     public static void Install()
     {
@@ -220,6 +217,7 @@ public static class ServiceManager
             {
                 int err = Marshal.GetLastWin32Error();
                 if (err != ERROR_SERVICE_EXISTS) throw new Win32Exception(err, "CreateService failed");
+                EnsureRegistration();
             }
             else CloseServiceHandle(svc);
         }
@@ -260,6 +258,7 @@ public static class ServiceManager
 
     public static void Start()
     {
+        EnsureRegistration(); // Refuse legacy/mismatched registration before arming boot intent.
         ServiceState.SetDesiredConnected(true);
         try
         {
@@ -274,10 +273,11 @@ public static class ServiceManager
                 sc.Start();
             sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));
         }
-        catch
+        catch (Exception startFailure)
         {
-            // A failed Start must not arm a surprise connection on the next boot/install.
-            ServiceState.SetDesiredConnected(false);
+            // Preserve both failures if disarming intent also fails.
+            try { ServiceState.SetDesiredConnected(false); }
+            catch (Exception rollback) { throw new AggregateException("Service start and intent rollback failed", startFailure, rollback); }
             throw;
         }
     }
@@ -289,11 +289,34 @@ public static class ServiceManager
         ServiceState.SetDesiredConnected(false);
         if (!IsInstalled()) return;
         using var sc = new ServiceController(ServiceName);
-        sc.Refresh();
-        if (sc.CanStop)
+        StopController(sc.Refresh, () => sc.Status, () => sc.CanStop, sc.Stop, sc.WaitForStatus);
+    }
+
+    internal static void StopController(Action refresh, Func<ServiceControllerStatus> status,
+        Func<bool> canStop, Action stop, Action<ServiceControllerStatus, TimeSpan> wait)
+    {
+        var elapsed = Stopwatch.StartNew();
+        void Wait(ServiceControllerStatus target)
         {
-            sc.Stop();
-            sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(20));
+            var remaining = TimeSpan.FromSeconds(20) - elapsed.Elapsed;
+            if (remaining <= TimeSpan.Zero) throw new System.TimeoutException("Service stop exceeded 20 seconds");
+            wait(target, remaining);
+            refresh();
+            if (status() != target)
+                throw new InvalidOperationException($"Service changed state after waiting for {target}; cleanup is not confirmed");
         }
+        refresh();
+        if (status() == ServiceControllerStatus.StartPending)
+            Wait(ServiceControllerStatus.Running);
+        if (status() == ServiceControllerStatus.Stopped) return;
+        if (status() == ServiceControllerStatus.StopPending)
+        {
+            Wait(ServiceControllerStatus.Stopped);
+            return;
+        }
+        if (!canStop())
+            throw new InvalidOperationException($"Service cannot stop in state {status()}; cleanup is not confirmed");
+        stop();
+        Wait(ServiceControllerStatus.Stopped);
     }
 }

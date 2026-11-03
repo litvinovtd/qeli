@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_PASS_F362_F363_Q31_IN_PROGRESS",
+  "source_digest": "9e33accc00e99bfac3e75990f83164de7f2a4cffdbd3ab09ba5f3ca6d9e02202",
+  "base_worktree_commit": "ac9adc9b6456c965914122bd55325cc97ece7a12",
+  "base_dev_commit": "0d0486a4c88b319e90ba30e8300d594ef05d0c28",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-keenetic-receipt-20261007",
+  "raw_seal_sha256": "e9c8633ed1fca71a304b9e8efcd89af360f4234e198e0565d72f5efe4281dda8",
+  "raw_sealed_files": 29,
+  "scope": "Q31 F362/F363: actual Keenetic POSIX shell with owned /opt/command sandboxes and retained native Linux process helper. F362 cached no-op rechecks whole plan/marker after ndmc show, rechecks after APPLIED rename and PENDING removal; observed replacement returns failure and retains/recreates pending. Stale APPLIED may remain after rename but cannot qualify no-op with pending. F363 fresh OpkgTun init launch invalidates exited-process receipt before PID/process admission, after preflight/owner/old forwarding cleanup; invalidation failure refuses launch, repeated verified live start preserves receipt, failed preflight preserves receipt/pending. Reset generation=1 publication is fixture model; C helper qualifies actual process/identity/admission/stop, not Rust Auth. Base init, Rust core/config schema/ABI/SDK/build recipes and published binaries unchanged. Same5new methods baseline8expected assertion failures in4methods on each dash/BusyBox ash (show plan/marker2; mv/rm plan/marker4; inherited receipt1; invalidation failure1); baseline preflight preservation PASS. Fixed199methods each interpreter without skips PASS (194previous+5new), retry/current receipt/no false success log/native repeated live start/no launch upon directory receipt preserving canary/old plan.382Git/current executable inputs and2retained artifact SHA verified before/after; nonexecuted markdown is the pre-documentation source snapshot. Retained metadata inspector only previously qualified unchanged region, proof reused from sealed F361 packet; no current handshake/native ABI/new compile claim.37recipes/14LuCI/docs9/bindings/diff PASS; own process/mount/fixture temp roots absent; source/logs retained, no .10/cache/toolchain/global service/network/firewall mutations.41historic cases/acceptance and34old supplements preserved except source_digest; scoped new supplement only. Q31 IN_PROGRESS28/37(75.7%),9remain;Q29SIGKILL FAIL/auto-null ENONET,Q30callback-drain OPEN/Apple exclusions,D06ACCEPTED retained. Direct binary/adapter replacement outside updated init protocol,writer/shell-lock coordination,replacement after final check,atomic ndm/rollback/old address-family removal,full SDK bootstrap/release pipeline,full hermetic clean Qeli A/B/power-loss OPEN;firmware USER_EXCLUDED. No push/deploy.",
+  "checks": {
+    "baseline_methods_per_interpreter": 5,
+    "baseline_expected_assertion_failures_per_interpreter": 8,
+    "baseline_failing_methods_per_interpreter": 4,
+    "fixed_methods_per_interpreter": 199,
+    "new_methods": 5,
+    "interpreters": [
+      "dash",
+      "BusyBox ash"
+    ],
+    "skips": 0,
+    "source_inputs": 382,
+    "retained_artifacts": 2,
+    "recipes": 37,
+    "luci": 14,
+    "docs": 9,
+    "bindings": "PASS",
+    "diff": "PASS",
+    "rust_core": "UNCHANGED",
+    "new_rust_ffi_cross_sdk_build": "NOT_RUN_NO_CORE_CHANGE"
+  },
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "q31": "IN_PROGRESS"
+  }
+}

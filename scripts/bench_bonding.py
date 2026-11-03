@@ -15,6 +15,9 @@ Run from the local machine:  source scripts/lab_env.sh && python scripts/bench_b
 """
 import os, sys, io, time, json, re
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if "--allow-host-wide-benchmark" not in sys.argv[1:]:
+    print("historical bonding benchmark changes host qdisc, services and VPN state; use --allow-host-wide-benchmark only on a disposable lab", file=sys.stderr)
+    raise SystemExit(2)
 import paramiko
 import ssh_hostkey
 

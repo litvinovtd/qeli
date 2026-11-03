@@ -17,7 +17,7 @@
 //! exposed at these call sites), so correlation is by time and size — good enough to
 //! answer "did this packet leave, and when did the other end see it".
 //!
-//! Dump with `SIGUSR1` (see [`watch`]) or at a clean shutdown.
+//! Dump with `SIGUSR1` (see [`watch`]). Shutdown does not dump automatically.
 
 use std::io::Write;
 // AtomicU64 via portable-atomic, not std: mipsel (Keenetic routers) has no native 64-bit
@@ -76,6 +76,8 @@ struct Trace {
 }
 
 static TRACE: OnceLock<Trace> = OnceLock::new();
+// One snapshot/write at a time, including a blocking dump whose watcher was cancelled.
+static DUMPS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
 /// Arm tracing if `QELI_TRACE` names a destination file. Call once at startup;
 /// everything else in this module is a no-op until it has run.
@@ -155,16 +157,37 @@ pub fn dump() -> std::io::Result<usize> {
     let Some(trace) = TRACE.get() else {
         return Ok(0);
     };
+    let _permit = DUMPS.try_acquire().map_err(|_| dump_busy())?;
+    dump_trace(trace)
+}
+
+fn dump_busy() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::WouldBlock,
+        "packet trace dump already in progress",
+    )
+}
+
+fn dump_trace(trace: &Trace) -> std::io::Result<usize> {
     // Copy under the lock and format outside it, so writers are blocked for as short a
     // time as possible (a dump is disk IO; the data plane is not).
-    let (events, next, wrapped) = {
+    let (events, next, wrapped, overwritten, contended) = {
         let ring = trace
             .ring
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        (ring.buf.clone(), ring.next, ring.wrapped)
+        (
+            ring.buf.clone(),
+            ring.next,
+            ring.wrapped,
+            OVERWRITTEN.load(Ordering::Relaxed),
+            CONTENDED.load(Ordering::Relaxed),
+        )
     };
-    let mut file = std::fs::File::create(&trace.path)?;
+    // Render before publication. Atomic private replacement never truncates the last
+    // complete dump or follows a destination symlink/FIFO. Memory stays bounded by
+    // the fixed ring and static capture-site labels, with only one admitted dump.
+    let mut file = Vec::new();
     writeln!(
         file,
         "# qeli packet trace — shapes only, no payloads, no addresses"
@@ -172,12 +195,11 @@ pub fn dump() -> std::io::Result<usize> {
     writeln!(
         file,
         "# overwritten={} contended={}",
-        OVERWRITTEN.load(Ordering::Relaxed),
-        CONTENDED.load(Ordering::Relaxed)
+        overwritten, contended
     )?;
     writeln!(file, "t_us,dir,site,size,seq")?;
     let order: Box<dyn Iterator<Item = usize>> = if wrapped {
-        Box::new((next..CAPACITY).chain(0..next)) // oldest is where we are about to write
+        Box::new((next..events.len()).chain(0..next)) // oldest is where we are about to write
     } else {
         Box::new(0..next)
     };
@@ -195,8 +217,24 @@ pub fn dump() -> std::io::Result<usize> {
         )?;
         written += 1;
     }
-    file.flush()?;
+    crate::util::write_atomic_private(&trace.path, &file).map_err(std::io::Error::other)?;
     Ok(written)
+}
+
+// Admission precedes spawn_blocking, so repeated signals/watchers cannot queue
+// unbounded snapshots. Filesystem syscalls cannot be force-cancelled: a running
+// job keeps admission after its async caller is dropped.
+async fn background_dump(
+    gate: &'static tokio::sync::Semaphore,
+    write: impl FnOnce() -> std::io::Result<usize> + Send + 'static,
+) -> std::io::Result<usize> {
+    let permit = gate.try_acquire().map_err(|_| dump_busy())?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        write()
+    })
+    .await
+    .map_err(std::io::Error::other)?
 }
 
 /// Dump on every `SIGUSR1`. Returns immediately when tracing is not armed, so it is
@@ -215,7 +253,10 @@ pub async fn watch() {
         }
     };
     while sig.recv().await.is_some() {
-        match dump() {
+        let Some(trace) = TRACE.get() else {
+            return;
+        };
+        match background_dump(&DUMPS, move || dump_trace(trace)).await {
             Ok(n) => log::info!("packet trace: wrote {} events", n),
             Err(e) => log::warn!("packet trace: dump failed: {}", e),
         }
@@ -278,5 +319,113 @@ mod tests {
             vec![2, 3, 4, 5],
             "oldest surviving event must come first"
         );
+    }
+    fn fixture() -> (std::path::PathBuf, Trace) {
+        let root = std::env::temp_dir().join(format!(
+            "qeli-trace-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let trace = Trace {
+            start: Instant::now(),
+            path: root.join("trace.csv").to_str().unwrap().to_string(),
+            ring: Mutex::new(Ring {
+                buf: vec![Event {
+                    t_us: 7,
+                    dir: Dir::Rx,
+                    site: "fixture",
+                    size: 42,
+                    seq: 3,
+                }],
+                next: 1,
+                wrapped: false,
+            }),
+        };
+        (root, trace)
+    }
+
+    #[test]
+    fn atomic_dump_keeps_symlink_target_and_replaces_fifo_without_waiting() {
+        use std::{
+            ffi::CString,
+            os::unix::{
+                ffi::OsStrExt,
+                fs::{symlink, PermissionsExt},
+            },
+        };
+        let (root, trace) = fixture();
+        let path = std::path::Path::new(&trace.path);
+        let other = root.join("other");
+        std::fs::write(&other, "previous-secret").unwrap();
+        symlink(&other, path).unwrap();
+        assert_eq!(dump_trace(&trace).unwrap(), 1);
+        assert_eq!(std::fs::read_to_string(&other).unwrap(), "previous-secret");
+        assert!(!std::fs::symlink_metadata(path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let csv = std::fs::read_to_string(path).unwrap();
+        assert!(csv.ends_with("7,rx,fixture,42,3\n"));
+        std::fs::remove_file(path).unwrap();
+        let name = CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        // The overall isolated test process has a deadline as a regression backstop.
+        assert_eq!(dump_trace(&trace).unwrap(), 1);
+        assert!(std::fs::metadata(path).unwrap().is_file());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_publication_leaves_existing_destination_intact() {
+        let (root, mut trace) = fixture();
+        let directory = root.join("directory");
+        std::fs::create_dir(&directory).unwrap();
+        let previous = directory.join("previous");
+        std::fs::write(&previous, "preserved").unwrap();
+        trace.path = directory.to_str().unwrap().to_string();
+        assert!(dump_trace(&trace).is_err());
+        assert_eq!(std::fs::read_to_string(previous).unwrap(), "preserved");
+        assert_eq!(
+            std::fs::read_dir(&root).unwrap().count(),
+            1,
+            "failed temporary dump must be cleaned up"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn dump_io_does_not_block_runtime_and_cancellation_keeps_admission() {
+        let gate = Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let (start, started) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let caller = tokio::spawn(background_dump(gate, move || {
+            let _ = start.send(());
+            released
+                .recv_timeout(std::time::Duration::from_secs(3))
+                .unwrap();
+            Ok(1)
+        }));
+        started.await.unwrap();
+        // This timer must run while the filesystem job is stalled on the single-thread runtime.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        caller.abort();
+        assert!(caller.await.unwrap_err().is_cancelled());
+        let error = background_dump(gate, || panic!("dump bypassed admission"))
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+        assert_eq!(gate.available_permits(), 0);
+        release.send(()).unwrap();
+        let permit = tokio::time::timeout(std::time::Duration::from_secs(2), gate.acquire())
+            .await
+            .unwrap()
+            .unwrap();
+        drop(permit);
+        assert_eq!(background_dump(gate, || Ok(2)).await.unwrap(), 2);
     }
 }

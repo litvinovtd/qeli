@@ -19,6 +19,7 @@ public partial class SettingsWindow : Window
         Owner = owner;
         Icon = owner.Icon;
         Loaded += (_, _) => FitToWorkArea();
+        Closing += (_, e) => { if (_saving) e.Cancel = true; };
 
         var s = AppSettings.Current;
         SelectByTag(LanguageBox, s.Language);
@@ -119,11 +120,15 @@ public partial class SettingsWindow : Window
         ServiceProfilePanel.Opacity = on ? 1.0 : 0.45;
     }
 
-    private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
+    private bool _saving;
+    private void OnCancel(object sender, RoutedEventArgs e) { if (!_saving) DialogResult = false; }
 
-    private void OnSave(object sender, RoutedEventArgs e)
+    private async void OnSave(object sender, RoutedEventArgs e)
     {
-        var s = AppSettings.Current;
+        if (_saving) return;
+        _saving = true;
+        var previous = AppSettings.Current;
+        var s = previous.Snapshot();
         s.Language = TagOf(LanguageBox);
         s.Theme = TagOf(ThemeBox);
         // Not TagOf(): its no-selection fallback is the language default "en",
@@ -144,19 +149,35 @@ public partial class SettingsWindow : Window
         s.AutoConnect = AutoConnectBox.IsChecked == true;
         s.AutoConnectProfile = (AutoProfileBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string;
         s.StartMinimized = StartMinBox.IsChecked == true;
-        s.Save();
+        try { s.Save(); }
+        catch (Exception error)
+        {
+            _saving = false;
+            MessageBox.Show(this, error.Message, Loc.T("Settings"), MessageBoxButton.OK, MessageBoxImage.Error);
+            return; // The live singleton and saved preferences are still the previous snapshot.
+        }
 
         Loc.SetLanguage(s.Language);  // live switch (updates all {l:Loc} bindings)
         ThemeManager.Apply();         // live theme switch (updates DynamicResource brushes)
         Toast.Enabled = s.ToastsEnabled;
 
-        try { AutoStartManager.Apply(s.AutoStart); }
+        if (Content is UIElement controls) controls.IsEnabled = false;
+        try
+        {
+            // Retry desired state after an earlier failure; absent tasks are idempotent disables.
+            await Task.Run(() => AutoStartManager.Apply(s.AutoStart));
+        }
         catch (Exception ex)
         {
             MessageBox.Show(this, Loc.F("AutostartError", ex.Message),
                 Loc.T("Settings"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
+        finally
+        {
+            _saving = false;
+            if (Content is UIElement restoredControls) restoredControls.IsEnabled = true;
+        }
         DialogResult = true;
     }
 }

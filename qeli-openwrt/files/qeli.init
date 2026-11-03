@@ -14,12 +14,26 @@ RUNDIR=/var/run/qeli            # tmpfs — rendered config and credentials neve
 CONF="$RUNDIR/client.conf"
 PASS_FILE="$RUNDIR/password"
 OBFS_KEY_FILE="$RUNDIR/obfs-key"
+FIREWALL_INIT=/etc/init.d/firewall
 STATEDIR=/etc/qeli              # persistent overlay — device-id + TOFU known_hosts survive reboot
 
-EXTRA_COMMANDS="set_secret clear_secrets"
+# Resolve only the firmware-owned /var alias, not the journal directory itself.
+# OpenWrt uses /var -> /tmp. The core opens/creates lib/qeli with openat NOFOLLOW
+# and checks ownership/modes; shell mkdir/chmod must never adopt a planted link.
+# This names the SAME physical directory as /var/lib/qeli, retaining old state.
+qeli_state_directory() {
+	local root
+	root="$(readlink -f /var)" || return 1
+	case "$root" in /*) ;; *) return 1 ;; esac
+	[ -d "$root" ] || return 1
+	printf '%s/lib/qeli' "${root%/}"
+}
+
+EXTRA_COMMANDS="set_secret clear_secrets status_enabled"
 EXTRA_HELP="
 	set_secret <pass|obfs_key>  Read one secret line from stdin into tmpfs
-	clear_secrets [name]        Remove one or all volatile secrets"
+	clear_secrets [name]        Remove one or all volatile secrets
+	status_enabled              Exit 0/1 for init-visible enabled/disabled intent"
 
 # Strip CR/LF (and every other control character) from a UCI value.
 #
@@ -33,10 +47,18 @@ EXTRA_HELP="
 # Whether a raw LF survives libuci's line-oriented parser is doubtful — in practice it
 # more likely corrupts /etc/config/qeli and bricks the package for every reader.
 # Neither outcome is acceptable, and this costs one `tr`.
-ini_sanitize() { printf '%s' "$1" | tr -d '\000-\037'; }
+ini_sanitize() { printf '%s' "$1" | tr -d '\000-\037\177'; }
 
 # Append `key = value` to the INI only when value is non-empty.
-ini_kv() { [ -n "$2" ] && printf '%s = %s\n' "$1" "$(ini_sanitize "$2")" >> "$CONF"; }
+# The shared INI parser trims bare values and unescapes quotes inside quoted
+# values. Always quote strings, escaping only double quotes exactly as its
+# serializer does; bare backslashes remain literal. Never evaluate UCI text.
+ini_write() {
+	local value
+	value="$(ini_sanitize "$2" | sed 's/"/\\\"/g')" || return 1
+	printf '%s = "%s"\n' "$1" "$value" >> "$CONF"
+}
+ini_kv() { [ -n "$2" ] || return 0; ini_write "$1" "$2"; }
 
 # qeli.main.dev is written into the root-owned firewall zone. Reserve a qeli-specific
 # namespace so LuCI write access to this package cannot repoint NAT/forwarding at br-lan,
@@ -53,7 +75,13 @@ valid_qeli_dev() {
 	[ "${#value}" -le 15 ]
 }
 
+valid_runtime_dir() {
+	# A missing directory is allowed; linked/non-directory runtime leaves are not.
+	[ ! -L "$RUNDIR" ] && { [ ! -e "$RUNDIR" ] || [ -d "$RUNDIR" ]; }
+}
+
 ensure_runtime_dir() {
+	valid_runtime_dir || return 1
 	mkdir -p "$RUNDIR" || return 1
 	chmod 700 "$RUNDIR" || return 1
 }
@@ -79,6 +107,8 @@ write_runtime_secret_value() {
 	clean="$(ini_sanitize "$value")"
 	[ "$clean" = "$value" ] || { logger -t qeli "ERROR: $name secret contains a control character"; return 2; }
 	ensure_runtime_dir || return 1
+	# mv treats a directory (including a link to one) as a container, not a file.
+	[ ! -L "$path" ] && { [ ! -e "$path" ] || [ -f "$path" ]; } || return 1
 	umask 077
 	tmp="$(mktemp "$RUNDIR/.secret.XXXXXX")" || return 1
 	if ! printf '%s' "$value" > "$tmp" || ! chmod 600 "$tmp" || ! mv -f "$tmp" "$path"; then
@@ -86,6 +116,15 @@ write_runtime_secret_value() {
 		return 1
 	fi
 	logger -t qeli "$name secret installed in volatile tmpfs; restart qeli to apply it"
+}
+
+# Read init-visible UCI outside the LuCI session cache. Exit 0/1 means enabled/disabled;
+# load failure is distinct, so a disconnected UI does not invent autostart intent.
+status_enabled() {
+	local enabled
+	config_load qeli || return 2
+	config_get_bool enabled main enabled 0
+	[ "$enabled" = 1 ]
 }
 
 set_secret() {
@@ -97,10 +136,15 @@ set_secret() {
 
 clear_secrets() {
 	case "${1:-all}" in
-		pass) rm -f "$PASS_FILE" ;;
-		obfs_key) rm -f "$OBFS_KEY_FILE" ;;
-		all) rm -f "$PASS_FILE" "$OBFS_KEY_FILE" ;;
+		pass|obfs_key|all) ;;
 		*) logger -t qeli "ERROR: secret name must be pass, obfs_key or all"; return 2 ;;
+	esac
+	# Do not unlink credentials outside the runtime leaf through a directory link.
+	valid_runtime_dir || return 1
+	case "${1:-all}" in
+		pass) rm -f "$PASS_FILE" || return 1 ;;
+		obfs_key) rm -f "$OBFS_KEY_FILE" || return 1 ;;
+		all) rm -f "$PASS_FILE" "$OBFS_KEY_FILE" || return 1 ;;
 	esac
 	logger -t qeli "volatile qeli secret(s) cleared"
 }
@@ -110,19 +154,23 @@ clear_secrets() {
 # Flash wear levelling means prior blocks cannot be securely erased in software; users
 # upgrading from the old format should rotate both credentials after migration.
 migrate_legacy_secrets() {
-	local changed=0 name value path
+	local changed=0 name value path pending="$RUNDIR/secret-migration-pending"
 	for name in pass obfs_key; do
-		uci -q get "qeli.main.$name" >/dev/null || continue
-		value="$(uci -q get "qeli.main.$name")"
+		value="$(uci -q get "qeli.main.$name")" || continue
 		path="$(runtime_secret_path "$name")" || return 1
 		if [ -n "$value" ] && [ ! -s "$path" ]; then
 			write_runtime_secret_value "$name" "$value" || return 1
 		fi
+		ensure_runtime_dir || return 1
+		# UCI get exposes staged deletes even if commit later fails. Retain retry
+		# intent before deleting; a subsequent migration must still commit them.
+		(umask 077; : > "$pending") || return 1
 		uci -q delete "qeli.main.$name" || return 1
 		changed=1
 	done
-	[ "$changed" = 1 ] || return 0
+	[ "$changed" = 1 ] || [ -f "$pending" ] || return 0
 	uci commit qeli || return 1
+	rm -f "$pending" || return 1
 	logger -t qeli "WARNING: migrated legacy UCI secrets to tmpfs and removed them from /etc/config/qeli; rotate them because old flash blocks may remain recoverable"
 }
 
@@ -134,7 +182,7 @@ append_dns_server() {
 }
 
 # Render the UCI `main` section into the flat-INI the binary expects.
-render_conf() {
+render_conf_file() {
 	local server proto user key bind_static mode sni obfs_key front quic \
 	      reality_sid gateway ipv6 dns dns_mode dns_servers dev mtu route_local kill_switch allow_ipv4_leak allow_ipv6_leak log_level \
 	      log_time_format
@@ -187,27 +235,26 @@ render_conf() {
 	fi
 
 	ensure_runtime_dir || return 1
-	: > "$CONF"; chmod 600 "$CONF"
-	{
-		echo "[qeli]"
-		echo "server = $(ini_sanitize "$server")"
-		echo "proto = $(ini_sanitize "$proto")"
-	} >> "$CONF"
-	ini_kv user "$user"
+	: > "$CONF" || return 1
+	chmod 600 "$CONF" || return 1
+	printf '[qeli]\n' >> "$CONF" || return 1
+	ini_write server "$server" || return 1
+	ini_write proto "$proto" || return 1
+	ini_kv user "$user" || return 1
 	# Keep the password out of the rendered INI too: the core reads this 0600 tmpfs file.
-	echo "password_file = $PASS_FILE" >> "$CONF"
-	ini_kv key  "$key"
+	ini_write password_file "$PASS_FILE" || return 1
+	ini_kv key  "$key" || return 1
 	# bind_static is on by default; only emit when explicitly off (TOFU / zero key).
-	[ "$bind_static" = 0 ] && echo "bind_static = false" >> "$CONF"
-	ini_kv mode "$mode"
-	ini_kv sni  "$sni"
-	ini_kv obfs_key "$obfs_key"
-	ini_kv front "$front"
-	[ "$quic" = 1 ] && echo "quic = true" >> "$CONF"
-	ini_kv reality_sid "$reality_sid"
+	if [ "$bind_static" = 0 ]; then echo "bind_static = false" >> "$CONF" || return 1; fi
+	ini_kv mode "$mode" || return 1
+	ini_kv sni  "$sni" || return 1
+	ini_kv obfs_key "$obfs_key" || return 1
+	ini_kv front "$front" || return 1
+	if [ "$quic" = 1 ]; then echo "quic = true" >> "$CONF" || return 1; fi
+	ini_kv reality_sid "$reality_sid" || return 1
 	# Routing: full-tunnel only on explicit opt-in (`gateway = false` => split).
-	[ "$gateway" = 1 ] && echo "gateway = true" >> "$CONF" || echo "gateway = false" >> "$CONF"
-	ini_kv ipv6 "$ipv6"
+	if [ "$gateway" = 1 ]; then echo "gateway = true" >> "$CONF" || return 1; else echo "gateway = false" >> "$CONF" || return 1; fi
+	ini_kv ipv6 "$ipv6" || return 1
 	# Pre-IPv6 packages overloaded `dns` with either a mode OR a comma-separated resolver
 	# list. Preserve those installed configs, but render the unambiguous flat-INI keys the
 	# shared Rust model now consumes.
@@ -219,25 +266,48 @@ render_conf() {
 			logger -t qeli "migrating legacy qeli.main.dns resolver list to dns_servers"
 			;;
 	esac
-	ini_kv dns "$dns_mode"
-	ini_kv dns_servers "$dns_servers"
-	ini_kv dev "$dev"
-	[ "$mtu" -gt 0 ] 2>/dev/null && echo "mtu = $mtu" >> "$CONF"
-	[ "$route_local" = 1 ] && echo "route_local = true" >> "$CONF"
-	[ "$kill_switch" = 1 ] && echo "kill_switch = true" >> "$CONF"
+	ini_kv dns "$dns_mode" || return 1
+	ini_kv dns_servers "$dns_servers" || return 1
+	ini_kv dev "$dev" || return 1
+	case "$mtu" in *[!0-9]*|"") logger -t qeli "ERROR: invalid MTU"; return 1 ;; esac
+	if [ "$mtu" != 0 ]; then
+		[ "$mtu" -ge 576 ] 2>/dev/null && [ "$mtu" -le 16602 ] 2>/dev/null || {
+			logger -t qeli "ERROR: MTU must be 0 or 576..16602"
+			return 1
+		}
+		printf 'mtu = %s\n' "$mtu" >> "$CONF" || return 1
+	fi
+	if [ "$route_local" = 1 ]; then echo "route_local = true" >> "$CONF" || return 1; fi
+	if [ "$kill_switch" = 1 ]; then echo "kill_switch = true" >> "$CONF" || return 1; fi
 	# OpenWrt owns NAT through its qeli firewall zone, but the core must know this is a
 	# router when kill-switch is enabled so it guards FORWARD as well as host OUTPUT.
 	# `forward` enables the core's no-NAT forwarding lifecycle; the zone remains the NAT owner.
-	[ "$gateway" = 1 ] && [ "$kill_switch" = 1 ] && echo "forward = true" >> "$CONF"
+	if [ "$gateway" = 1 ] && [ "$kill_switch" = 1 ]; then echo "forward = true" >> "$CONF" || return 1; fi
 	# If the negotiated profile lacks one family, the secure full-tunnel default blocks
 	# that native leg. These are the explicit opt-outs that let it bypass via WAN.
-	[ "$allow_ipv4_leak" = 1 ] && echo "allow_ipv4_leak = true" >> "$CONF"
-	[ "$allow_ipv6_leak" = 1 ] && echo "allow_ipv6_leak = true" >> "$CONF"
+	if [ "$allow_ipv4_leak" = 1 ]; then echo "allow_ipv4_leak = true" >> "$CONF" || return 1; fi
+	if [ "$allow_ipv6_leak" = 1 ]; then echo "allow_ipv6_leak = true" >> "$CONF" || return 1; fi
 	# Sanitize log_level like every other value: a control char in the UCI option
 	# (e.g. a stray newline) would otherwise inject an extra INI line here. (C-10)
-	printf '\n[logging]\nlevel = %s\ntime_format = %s\n' \
-		"$(ini_sanitize "$log_level")" "$(ini_sanitize "$log_time_format")" >> "$CONF"
+	printf '\n[logging]\n' >> "$CONF" || return 1
+	ini_write level "$log_level" || return 1
+	ini_write time_format "$log_time_format" || return 1
 	return 0
+}
+
+# Publish a complete config atomically. A failed render must not truncate the
+# configuration a running procd instance can still be opening during restart.
+render_conf() {
+	local destination="$CONF" tmp CONF
+	ensure_runtime_dir || return 1
+	umask 077
+	tmp="$(mktemp "$RUNDIR/.config.XXXXXX")" || return 1
+	CONF="$tmp"
+	if ! render_conf_file || ! mv -f "$tmp" "$destination"; then
+		rm -f "$tmp"
+		logger -t qeli "ERROR: could not publish client configuration"
+		return 1
+	fi
 }
 
 # Keep the `qeli` firewall zone pointing at the CURRENT tun device.
@@ -249,7 +319,11 @@ render_conf() {
 # stops reaching the internet through it. Re-checked on every start, and only written when
 # it actually differs (a no-op start must not commit UCI or bounce the firewall). (C-25)
 sync_firewall_device() {
-	local dev zone cur cur_masq6 changed
+	[ ! -f "$RUNDIR/firewall-install-pending" ] || {
+		logger -t qeli "ERROR: incomplete firewall installation; rerun /etc/uci-defaults/99-qeli-firewall"
+		return 1
+	}
+	local dev zone zone_count cur cur_masq6 changed pending
 	dev="$(uci -q get qeli.main.dev || echo qeli0)"
 
 	# `dev` comes from UCI, which the LuCI app lets an operator edit — and this function
@@ -269,10 +343,20 @@ sync_firewall_device() {
 	}
 
 	zone=""
-	find_zone() { [ "$(uci -q get firewall.$1.name)" = "qeli" ] && zone="$1"; }
-	config_load firewall
+	zone_count=0
+	find_zone() {
+		if [ "$(uci -q get firewall.$1.name)" = "qeli" ]; then
+			zone="$1"
+			zone_count=$((zone_count + 1))
+		fi
+	}
+	config_load firewall || return 1
 	config_foreach find_zone zone
-	config_load qeli          # restore the config context start_service is reading
+	config_load qeli || return 1  # restore the start_service config context
+	[ "$zone_count" -le 1 ] || {
+		logger -t qeli "ERROR: multiple qeli firewall zones; refusing ambiguous sync"
+		return 1
+	}
 	[ -n "$zone" ] || return 0   # no zone (gateway mode not set up) — nothing to sync
 
 	# `device` is a list; treat "exactly our dev and nothing else" as already correct.
@@ -281,26 +365,83 @@ sync_firewall_device() {
 	cur="$(uci -q get firewall.$zone.device)"
 	cur_masq6="$(uci -q get firewall.$zone.masq6)"
 	changed=0
+	pending="$RUNDIR/firewall-pending"
+	if [ "$cur" != "$dev" ] || [ "$cur_masq6" != "1" ]; then
+		ensure_runtime_dir || return 1
+		# Keep retry intent through failed writes, commit or reload. UCI get may
+		# already expose staged changes on the next start despite a failed commit.
+		(umask 077; : > "$pending") || return 1
+	fi
 	if [ "$cur" != "$dev" ]; then
-		uci -q delete firewall."$zone".device
-		uci add_list firewall."$zone".device="$dev"
+		[ -z "$cur" ] || uci -q delete firewall."$zone".device || return 1
+		uci add_list firewall."$zone".device="$dev" || return 1
 		changed=1
 	fi
 	if [ "$cur_masq6" != "1" ]; then
-		uci set firewall."$zone".masq6='1'
+		uci set firewall."$zone".masq6='1' || return 1
 		changed=1
 	fi
-	[ "$changed" = 1 ] || return 0
-	uci commit firewall
+	[ "$changed" = 1 ] || [ -f "$pending" ] || return 0
+	uci commit firewall || return 1
 	logger -t qeli "firewall zone 'qeli': device ${cur:-<unset>} -> $dev, masq6=1 (re-synced from uci)"
-	[ -x /etc/init.d/firewall ] && /etc/init.d/firewall reload >/dev/null 2>&1
+	[ ! -x "$FIREWALL_INIT" ] || "$FIREWALL_INIT" reload >/dev/null 2>&1 || return 1
+	rm -f "$pending" || return 1
 	return 0
 }
 
+# procd.sh restores its JSON namespace after ubus and loses the command status.
+# Observe only this init invocation's service mutations, leaving argument arrays
+# unchanged. The rc.common result hooks run after submission/deletion and preserve
+# that status; a failed stop also prevents restart from admitting a new instance.
+qeli_track_procd_result() {
+	QELI_PROCD_RESULT=0
+	ubus() {
+		local result
+		# rc.common closes/submits the service even when start_service failed.
+		# Refuse that empty/partial replacement so the admitted instance survives.
+		if [ "$1" = call ] && [ "$2" = service ]; then
+			case "$3" in
+				set|add)
+					if [ "${QELI_START_RESULT:-0}" != 0 ]; then
+						QELI_PROCD_RESULT="$QELI_START_RESULT"
+						return "$QELI_PROCD_RESULT"
+					fi
+					;;
+			esac
+		fi
+		command ubus "$@"
+		result=$?
+		if [ "$1" = call ] && [ "$2" = service ]; then
+			case "$3" in
+				set|add|delete) QELI_PROCD_RESULT="$result" ;;
+			esac
+		fi
+		return "$result"
+	}
+}
+
 start_service() {
-	config_load qeli
+	QELI_START_RESULT=1
+	[ "${QELI_STOP_RESULT:-0}" = 0 ] || return 1
+	qeli_track_procd_result
+	qeli_start_service "$@" || { QELI_START_RESULT=$?; return "$QELI_START_RESULT"; }
+	QELI_START_RESULT=0
+}
+
+service_started() {
+	[ "${QELI_START_RESULT:-1}" = 0 ] || return "${QELI_START_RESULT:-1}"
+	return "${QELI_PROCD_RESULT:-1}"
+}
+service_stopped() {
+	[ "${QELI_STOP_RESULT:-1}" = 0 ] || return "${QELI_STOP_RESULT:-1}"
+	QELI_STOP_RESULT="${QELI_PROCD_RESULT:-1}"
+	return "$QELI_STOP_RESULT"
+}
+
+qeli_start_service() {
+	config_load qeli || return 1
 	migrate_legacy_secrets || return 1
-	config_load qeli
+	config_load qeli || return 1
 
 	local enabled
 	config_get_bool enabled main enabled 0
@@ -308,15 +449,20 @@ start_service() {
 
 	[ -x "$BIN" ] || { logger -t qeli "ERROR: $BIN missing"; return 1; }
 	[ -e /dev/net/tun ] || { logger -t qeli "ERROR: /dev/net/tun missing — install kmod-tun"; return 1; }
+	local journal_dir
+	journal_dir="$(qeli_state_directory)" || { logger -t qeli "ERROR: cannot resolve firmware /var state root"; return 1; }
 
 	render_conf || return 1
-	mkdir -p "$STATEDIR"
+	mkdir -p "$STATEDIR" || return 1
 	sync_firewall_device || return 1
 
 	procd_open_instance qeli
 	procd_set_param command "$BIN" --config "$CONF"
+	# Re-submitting the same command/path must still apply changed INI/password
+	# bytes. procd compares file contents; identical renders keep the process.
+	procd_set_param file "$CONF" "$PASS_FILE"
 	# Persistent identity/pinning across reboots (/etc and overlay survive; /var is tmpfs).
-	procd_set_param env QELI_DEVICE_ID_FILE="$STATEDIR/device-id" QELI_KNOWN_HOSTS="$STATEDIR/known_hosts"
+	procd_set_param env STATE_DIRECTORY="$journal_dir" QELI_DEVICE_ID_FILE="$STATEDIR/device-id" QELI_KNOWN_HOSTS="$STATEDIR/known_hosts"
 	procd_set_param respawn 3600 5 0      # respawn: threshold 3600s, 5s delay, unlimited
 	procd_set_param stdout 1              # → logread -e qeli
 	procd_set_param stderr 1
@@ -328,7 +474,10 @@ start_service() {
 }
 
 stop_service() {
-	rm -f "$CONF"
+	qeli_track_procd_result
+	QELI_STOP_RESULT=0
+	rm -f "$CONF" || QELI_STOP_RESULT=$?
+	return "$QELI_STOP_RESULT"
 }
 
 reload_service() {

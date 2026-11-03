@@ -1,0 +1,498 @@
+{
+  "schema_version": 1,
+  "finding": "Q37-F006",
+  "status": "SCOPED_COLLECTION_PARITY_AND_DIAGNOSTIC_FIX_VERIFIED_FULL_CLI_REBUILD_REQUIRED_HOST_FAILURES_RETAINED",
+  "source_baseline_commit": "82afaa1205759aabcee4d2b894256a457a0e2949",
+  "factory_cli_sha256": "35da83fd0a727a31a93c4527f8c814777aabcc7ef48dd92e0a0de65f5cbc7050",
+  "native_input_digest": "317e722baff760987c838b9f1146a041606410504d25ce0b2a4a7786ec746c8b",
+  "scope": "All consumed INI reader keys and reference defaults; actual old factory admission boundaries; compiled exact diagnostic helper/unit tests and four consumer format expressions, NOT full CLI/native builds or full Q37",
+  "reader_inventory": {
+    "roots": {
+      "profile": [
+        "bind.address",
+        "bind.port",
+        "bind.transport",
+        "dhcp.domain_name",
+        "dhcp.enabled",
+        "dhcp.lease_time_secs",
+        "dhcp.listen",
+        "dhcp.pool_end",
+        "dhcp.pool_start",
+        "dns.blocklist",
+        "dns.cache_size",
+        "dns.enabled",
+        "dns.listen",
+        "dns.listen_ipv6",
+        "dns.port",
+        "dns.push_servers",
+        "dns.timeout_secs",
+        "dns.upstream",
+        "dns.upstream_protocol",
+        "enabled",
+        "identity_key",
+        "listen",
+        "obf.anti_fingerprinting.add_jitter_to_handshake",
+        "obf.anti_fingerprinting.enabled",
+        "obf.awg.enabled",
+        "obf.awg.jc",
+        "obf.awg.jmax",
+        "obf.awg.jmin",
+        "obf.fragmentation.enabled",
+        "obf.fragmentation.max_chunk_size",
+        "obf.fragmentation.max_fragments_per_packet",
+        "obf.fragmentation.min_chunk_size",
+        "obf.heartbeat.data_size_bytes",
+        "obf.heartbeat.enabled",
+        "obf.heartbeat.interval_ms",
+        "obf.heartbeat.jitter_ms",
+        "obf.mode",
+        "obf.multipath.adaptive",
+        "obf.multipath.enabled",
+        "obf.multipath.max_streams",
+        "obf.obfs_fronting",
+        "obf.obfs_key",
+        "obf.padding.enabled",
+        "obf.padding.max_bytes",
+        "obf.padding.min_bytes",
+        "obf.padding.probability",
+        "obf.padding.randomize",
+        "obf.quic.enabled",
+        "obf.recordizer.batch.delay_max_ms",
+        "obf.recordizer.batch.delay_min_ms",
+        "obf.recordizer.batch.max_packets",
+        "obf.recordizer.batch.max_queue_bytes",
+        "obf.recordizer.fragment.enabled",
+        "obf.recordizer.fragment.max_fragments_per_packet",
+        "obf.recordizer.fragment.max_inflight_packets",
+        "obf.recordizer.fragment.max_reassembly_bytes",
+        "obf.recordizer.fragment.reassembly_timeout_ms",
+        "obf.recordizer.policy",
+        "obf.recordizer.record.full_probability",
+        "obf.recordizer.record.max_payload_bytes",
+        "obf.recordizer.record.small_max_ratio",
+        "obf.recordizer.record.small_min_ratio",
+        "obf.tls.reality_proxy.enabled",
+        "obf.tls.reality_proxy.handrolled",
+        "obf.tls.reality_proxy.peek_timeout_ms",
+        "obf.tls.reality_proxy.real_tls",
+        "obf.tls.reality_proxy.short_ids",
+        "obf.tls.reality_proxy.target",
+        "obf.tls.reality_proxy.target_port",
+        "obf.tls.server_name",
+        "obf.traffic_normalization.enabled",
+        "obf.traffic_normalization.round_sizes",
+        "obf.traffic_shaping.budget_bytes_per_sec",
+        "obf.traffic_shaping.enabled",
+        "obf.traffic_shaping.idle_gap_max_ms",
+        "obf.traffic_shaping.idle_gap_mean_ms",
+        "obf.traffic_shaping.idle_gap_min_ms",
+        "obf.traffic_shaping.max_size",
+        "obf.traffic_shaping.min_size",
+        "obf.traffic_shaping.stealth",
+        "obf.traffic_shaping.stealth_rate_mbps",
+        "perf.connection.handshake_timeout_secs",
+        "perf.connection.idle_timeout_secs",
+        "perf.connection.max_clients",
+        "perf.connection.new_session_rate_max",
+        "perf.connection.new_session_rate_window_secs",
+        "perf.tcp.keepalive_secs",
+        "perf.tcp.nodelay",
+        "perf.tcp.recv_buffer_size",
+        "perf.tcp.send_buffer_size",
+        "perf.tun.read_buffer_size",
+        "perf.udp.recv_buffer_size",
+        "perf.udp.send_buffer_size",
+        "pool.cidr",
+        "pool.exclude",
+        "pool.ipv6.cidr",
+        "pool.ipv6.exclude",
+        "pool.ipv6.reservation.",
+        "pool.reservation.",
+        "roaming.enabled",
+        "roaming.grace_secs",
+        "roaming.max_orphan_bytes",
+        "roaming.max_orphaned",
+        "route",
+        "routing.client_to_client",
+        "routing.forward_private",
+        "routing.ipv6.interface",
+        "routing.ipv6.mode",
+        "routing.ipv6.ndp_proxy",
+        "routing.ipv6.ndp_proxy_interface",
+        "routing.nat.enabled",
+        "routing.nat.interface",
+        "routing.post_down",
+        "routing.post_up",
+        "tun.address",
+        "tun.device_type",
+        "tun.ip_mode",
+        "tun.ipv6_address",
+        "tun.mtu",
+        "tun.name",
+        "tun.netmask",
+        "tun.queues",
+        "tun.tx_queue_len"
+      ],
+      "auth": [
+        "bind_static_to_session",
+        "brute_force.enabled",
+        "brute_force.lockout_secs",
+        "brute_force.max_attempts",
+        "brute_force.window_secs",
+        "require_client_key_proof",
+        "users_file"
+      ],
+      "web": [
+        "allowed_ips",
+        "allowed_origins",
+        "base_path",
+        "bind",
+        "brute_force.enabled",
+        "brute_force.lockout_secs",
+        "brute_force.max_attempts",
+        "brute_force.window_secs",
+        "csrf",
+        "enabled",
+        "insecure_no_auth",
+        "password_hash",
+        "persist_session_key",
+        "port",
+        "public_host",
+        "secure_cookie",
+        "session_ttl_secs",
+        "tls",
+        "tls_cert",
+        "tls_key",
+        "trusted_proxies",
+        "update_check",
+        "username"
+      ],
+      "logging": [
+        "file",
+        "format",
+        "level",
+        "time_format"
+      ],
+      "user": [
+        "allowed_networks",
+        "bandwidth.burst_mbps",
+        "bandwidth.limit_mbps",
+        "client_subnet",
+        "data_limit_gb",
+        "enabled",
+        "expire_at",
+        "group",
+        "max_sessions",
+        "metadata.",
+        "password_enc",
+        "password_hash",
+        "profiles",
+        "route",
+        "static_ip",
+        "static_ipv6"
+      ],
+      "group": [
+        "allowed_networks",
+        "bandwidth_limit_mbps",
+        "max_sessions"
+      ]
+    },
+    "remaining_defaults": {
+      "profile.identity_key": "",
+      "profile.listen": "",
+      "profile.tun.ipv6_address": "",
+      "profile.pool.exclude": "",
+      "profile.pool.reservation.": "",
+      "profile.pool.ipv6.cidr": "",
+      "profile.pool.ipv6.exclude": "",
+      "profile.pool.ipv6.reservation.": "",
+      "profile.route": "",
+      "profile.dns.listen_ipv6": "",
+      "profile.dns.upstream": "1.1.1.1, 8.8.8.8",
+      "profile.dns.blocklist": "",
+      "profile.dns.push_servers": "",
+      "profile.dhcp.pool_start": "",
+      "profile.dhcp.pool_end": "",
+      "profile.obf.tls.reality_proxy.short_ids": "",
+      "profile.obf.traffic_normalization.round_sizes": "64, 128, 256, 512, 1024, 1500",
+      "profile.obf.recordizer.policy": "off",
+      "web.allowed_ips": "",
+      "web.allowed_origins": "",
+      "web.trusted_proxies": "",
+      "logging.file": "",
+      "user.password_enc": "",
+      "user.metadata.": "",
+      "user.bandwidth.limit_mbps": "0",
+      "user.expire_at": "",
+      "user.bandwidth.burst_mbps": "0",
+      "user.max_sessions": "0",
+      "user.allowed_networks": "",
+      "user.password_hash": "",
+      "user.data_limit_gb": "0",
+      "user.group": "",
+      "user.static_ipv6": "",
+      "user.client_subnet": "",
+      "user.enabled": "true",
+      "user.profiles": "",
+      "user.static_ip": "",
+      "user.route": "",
+      "group.max_sessions": "",
+      "group.allowed_networks": "",
+      "group.bandwidth_limit_mbps": ""
+    }
+  },
+  "defaults": {
+    "scalar": 134,
+    "remaining": 41,
+    "obsolete_warn_only": [
+      "profile.tun.netmask"
+    ],
+    "total_consumed_keys": 176,
+    "remaining_language_comparisons": 82
+  },
+  "admission": {
+    "calls": 82,
+    "accepted": 30,
+    "refused": 52,
+    "qualified": "PASS",
+    "original_matrix_verdict": "FAIL",
+    "original_missing_diagnostics": [
+      "metadata-empty-suffix",
+      "metadata-duplicate-key",
+      "user-duplicate-section",
+      "group-duplicate-section",
+      "group-invalid-acl",
+      "client-subnet-limit-17",
+      "user-route-limit-257",
+      "user-route-desc-rejected",
+      "user-route-metric-u32-overflow",
+      "user-route-family-mismatch",
+      "user-scalar-unknown"
+    ],
+    "expectation_correction": "14-hex REALITY accepted and padded; initial wrong refusal expectation retained",
+    "additional_reality_cases": [
+      {
+        "name": "reality-short-id-two",
+        "exit": 0,
+        "expected_exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "reality-short-id-fourteen",
+        "exit": 0,
+        "expected_exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "reality-short-id-sixteen",
+        "exit": 0,
+        "expected_exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "reality-short-id-separators",
+        "exit": 0,
+        "expected_exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "reality-short-id-zero",
+        "exit": 1,
+        "expected_exit": 1,
+        "pass_": true
+      },
+      {
+        "name": "reality-short-id-single",
+        "exit": 1,
+        "expected_exit": 1,
+        "pass_": true
+      },
+      {
+        "name": "reality-short-id-seventeen",
+        "exit": 1,
+        "expected_exit": 1,
+        "pass_": true
+      },
+      {
+        "name": "reality-short-id-empty",
+        "exit": 1,
+        "expected_exit": 1,
+        "pass_": true
+      }
+    ]
+  },
+  "diagnostic_probe": {
+    "before_exit": 101,
+    "before_tests": {
+      "passed": 0,
+      "failed": 3
+    },
+    "after_exit": 0,
+    "after_tests": {
+      "passed": 3,
+      "failed": 0
+    },
+    "archive": {
+      "sha256": "d33790ace9f17cbb006d2257370ba857af34dc409bb87eb40ecf60e834d4e064",
+      "bytes": 6138272,
+      "files": 64,
+      "all_entries_verified": true,
+      "hardlinks_resolved_and_sha_verified": 1
+    },
+    "scope": "Exact diagnostic helper/tests plus four real consumer formatting expressions; not a full CLI rebuild",
+    "full_cli_after_fix": "NOT_BUILT_OR_RUN",
+    "archive_qualifier_initial_fail_retained": true
+  },
+  "checks": [
+    {
+      "args": [
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_server_config*.py",
+        "-v"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": "test_complete_reader_key_inventory_has_reference_defaults (test_server_config_collections.ServerCollectionDocumentationTests.test_complete_reader_key_inventory_has_reference_defaults) ... ok\ntest_all_explicit_scalar_reader_defaults_match_both_references (test_server_config_defaults.ServerDefaultDocumentationTests.test_all_explicit_scalar_reader_defaults_match_both_references) ... ok\ntest_ru_and_english_examples_are_unambiguous_ini (test_server_config_examples.ServerConfigExampleTests.test_ru_and_english_examples_are_unambiguous_ini) ... ok\ntest_valid_secret_and_shell_punctuation_are_preserved (test_server_config_examples.ServerConfigExampleTests.test_valid_secret_and_shell_punctuation_are_preserved) ... ok\n\n----------------------------------------------------------------------\nRan 4 tests in 0.074s\n\nOK\n"
+    },
+    {
+      "args": [
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_config_keys.py",
+        "-v"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": "test_android_has_no_silently_unsupported_shared_security_keys (test_native_config_keys.ClientConfigKeyContractTests.test_android_has_no_silently_unsupported_shared_security_keys) ... ok\ntest_cli_applied_matrix_keys_match_actual_runtime_reads (test_native_config_keys.ClientConfigKeyContractTests.test_cli_applied_matrix_keys_match_actual_runtime_reads) ... ok\ntest_client_ini_examples_do_not_advertise_unsupported_inline_comments (test_native_config_keys.ClientConfigKeyContractTests.test_client_ini_examples_do_not_advertise_unsupported_inline_comments) ... ok\ntest_documented_defaults_cover_the_complete_authoritative_schema (test_native_config_keys.ClientConfigKeyContractTests.test_documented_defaults_cover_the_complete_authoritative_schema) ... ok\ntest_every_platform_recognizes_the_exact_rust_and_gui_key_union (test_native_config_keys.ClientConfigKeyContractTests.test_every_platform_recognizes_the_exact_rust_and_gui_key_union) ... ok\ntest_native_schema_and_generated_adapters_are_current (test_native_config_keys.ClientConfigKeyContractTests.test_native_schema_and_generated_adapters_are_current) ... ok\ntest_ru_and_english_before_after_matrices_cover_the_live_contract (test_native_config_keys.ClientConfigKeyContractTests.test_ru_and_english_before_after_matrices_cover_the_live_contract) ... ok\ntest_rust_roundtrip_fixture_and_assertions_cover_every_runtime_key (test_native_config_keys.ClientConfigKeyContractTests.test_rust_roundtrip_fixture_and_assertions_cover_every_runtime_key) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 0.016s\n\nOK\n"
+    },
+    {
+      "args": [
+        "scripts/check_docs.py"
+      ],
+      "exit": 0,
+      "stdout": "checking 736 tracked Markdown files…\nOK — all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "scripts/sync_version.py"
+      ],
+      "exit": 0,
+      "stdout": "development version 0.8.2 (qeli/Cargo.toml) · planned release 0.8.2 (CHANGELOG.md) · released version 0.8.1 (newest v* tag)\nOK — every version string agrees with its source of truth.\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "native-libs/provenance.py",
+        "--check"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "STALE NATIVE CORES.\n  recorded : e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c\n  actual   : 317e722baff760987c838b9f1146a041606410504d25ce0b2a4a7786ec746c8b\n\nA native source or build recipe has changed since the .so/.dll/.dylib build;\nthe GUI clients may ship cores that do not match this tree. Rebuild them:\n  python scripts/build_native_libs_p4.py   # windows + macos, on lab .10\n  python scripts/build_android_so_11.py    # android, on lab .11\nthen `bash native-libs/verify.sh --update` and\n`python native-libs/provenance.py --update`.\n"
+    }
+  ],
+  "original_document_negatives": [
+    {
+      "lang": "ru",
+      "method": "test_complete_reader_key_inventory_has_reference_defaults",
+      "tests_run": 1,
+      "failures": 6,
+      "errors": 0,
+      "failure_text": [
+        "Traceback (most recent call last):\n  File \"C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\scripts\\test_server_config_collections.py\", line 125, in test_complete_reader_key_inventory_has_reference_defaults\n    self.assertEqual(documented.get(key), {value.replace(\" \", \"\")})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != {''}\n",
+        "Traceback (most recent call last):\n  File \"C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\scripts\\test_server_config_collections.py\", line 125, in test_complete_reader_key_inventory_has_reference_defaults\n    self.assertEqual(documented.get(key), {value.replace(\" \", \"\")})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != {''}\n",
+        "Traceback (most recent call last):\n  File \"C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\scripts\\test_server_config_collections.py\", line 125, in test_complete_reader_key_inventory_has_reference_defaults\n    self.assertEqual(documented.get(key), {value.replace(\" \", \"\")})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != {''}\n",
+        "Traceback (most recent call last):\n  File \"C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\scripts\\test_server_config_collections.py\", line 125, in test_complete_reader_key_inventory_has_reference_defaults\n    self.assertEqual(documented.get(key), {value.replace(\" \", \"\")})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != {''}\n",
+        "Traceback (most recent call last):\n  File \"C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\scripts\\test_server_config_collections.py\", line 125, in test_complete_reader_key_inventory_has_reference_defaults\n    self.assertEqual(documented.get(key), {value.replace(\" \", \"\")})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != {''}\n",
+        "Traceback (most recent call last):\n  File \"C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\scripts\\test_server_config_collections.py\", line 125, in test_complete_reader_key_inventory_has_reference_defaults\n    self.assertEqual(documented.get(key), {value.replace(\" \", \"\")})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != {''}\n"
+      ]
+    },
+    {
+      "lang": "eng",
+      "method": "test_complete_reader_key_inventory_has_reference_defaults",
+      "tests_run": 1,
+      "failures": 4,
+      "errors": 0,
+      "failure_text": [
+        "Traceback (most recent call last):\n  File \"C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\scripts\\test_server_config_collections.py\", line 125, in test_complete_reader_key_inventory_has_reference_defaults\n    self.assertEqual(documented.get(key), {value.replace(\" \", \"\")})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != {''}\n",
+        "Traceback (most recent call last):\n  File \"C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\scripts\\test_server_config_collections.py\", line 125, in test_complete_reader_key_inventory_has_reference_defaults\n    self.assertEqual(documented.get(key), {value.replace(\" \", \"\")})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != {''}\n",
+        "Traceback (most recent call last):\n  File \"C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\scripts\\test_server_config_collections.py\", line 125, in test_complete_reader_key_inventory_has_reference_defaults\n    self.assertEqual(documented.get(key), {value.replace(\" \", \"\")})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != {''}\n",
+        "Traceback (most recent call last):\n  File \"C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\scripts\\test_server_config_collections.py\", line 125, in test_complete_reader_key_inventory_has_reference_defaults\n    self.assertEqual(documented.get(key), {value.replace(\" \", \"\")})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != {''}\n"
+      ]
+    }
+  ],
+  "host_gates": [
+    {
+      "scope": "74_admissions",
+      "gate": "PASS",
+      "changed_fields": [],
+      "cleanup": "OWNED_FIXTURE_REMOVED"
+    },
+    {
+      "scope": "diagnostic_probe",
+      "gate": "FAIL",
+      "changed_fields": [
+        "iptables4",
+        "legacy4"
+      ],
+      "cleanup": "OWNED_PROBE_REMOVED"
+    },
+    {
+      "scope": "8_reality_boundaries",
+      "gate": "FAIL",
+      "changed_fields": [
+        "iptables4",
+        "legacy4"
+      ],
+      "cleanup": "OWNED_FIXTURE_REMOVED"
+    }
+  ],
+  "inputs": {
+    "qeli/src/config/users.rs": "9d8929d067b3c3026bb2d4500d13d759febc73cad89ab03711e346103be9a200",
+    "qeli/src/main.rs": "723fc2fcc9db87c14e640784d3c6743b6bd5360a1248878734c58d595e2e55eb",
+    "qeli/src/web/api/mod.rs": "5b8d9f23e8f8d24913c1ae34b608899339584d898ffa2381f595c511ccde9ccd",
+    "qeli/src/server/control.rs": "2efae996546f8ec4810520d479322be4c106fd9875e258680ee6bdc12a1a23af",
+    "qeli/src/server/mod.rs": "a5fdc60b1ca70b5b3ceb873ba886ff07a5d16cdc69a1e419716e9cc848b8c5d3",
+    "scripts/test_server_config_collections.py": "b761a2937a1ae9004c31503e5aed768ebccc507895833dcb7c89c264fc7cc630",
+    "scripts/test_server_config_defaults.py": "b2df51cd725817518683f623a35e9b56e6258da490cb745a01d17103222b1cce",
+    "qeli/src/config/server_ini.rs": "1e928532fc24bb80e28338057ff784d32ad4b60d2d16b63a61324a4ffb22d842",
+    "qeli/src/server/acl.rs": "6439ef67a4b9262389b1a43791a2882c86593599316278cb9a782726e05d2cca",
+    "docs/ru/manuals/CONFIG.md": "449381096331a8745648c79c4d4b6be7c221a519f47517e4857d8a80be891fb6",
+    "docs/eng/manuals/CONFIG.md": "79a699e6d3122f3bea534b54254ac601176a33f40ef4d9637bbd00e9862ecc08",
+    ".github/workflows/ci.yml": "1120063c9c2381c552db28ac941df4904ebae11a6045307a923432227e965d1a"
+  },
+  "overall": {
+    "done": 30,
+    "total": 37,
+    "percent": 81.1,
+    "Q37": "IN_PROGRESS",
+    "Q35": "FROZEN_OLD_FACTORY_RUNNING"
+  },
+  "remaining_debt": [
+    "current full CLI build and actual corrected diagnostic checks",
+    "independent native A/B builds then provenance",
+    "final release matrix after committed source freeze",
+    "full Q35 endurance qualification",
+    "exact TCP asymmetry stage",
+    "OS/features/FFI-aware dead-code and integration review"
+  ],
+  "publication": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

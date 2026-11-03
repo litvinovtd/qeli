@@ -1,0 +1,266 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "PASS_SCOPED_SDK_SOURCE_ARCHIVE_PREPARE_COMPILE_BOUNDARY",
+  "source_digest": "3297558383b4a8b35128f8321d78473da6fccd85f2931ea2f347795100e31971",
+  "base_worktree_commit": "a249e46951597362702db927a8ce02b17bf7ab86",
+  "base_dev_commit": "eae907bb035497c8e031730b782275ff8fa5db53",
+  "findings": [
+    "F379"
+  ],
+  "audit_scenario": "Q31-V008",
+  "baseline": {
+    "baseline_download_rc": 0,
+    "baseline_no_hash_error": true,
+    "baseline_prepare_rc": 0,
+    "actual_source_filename": "qeli-0.8.2.tar.zst",
+    "actual_archive_sha256": "49450a5b4803b8e2b657a49c5b4fdbb5c0373813275904ab9c1e689c52850b58",
+    "actual_archive_size": 1541480,
+    "fixup_rc": 0,
+    "fixed_recipe_sha256": "0cefc57283d77b474f337027496f1cc2673872d777c2f7f7f627cd7a53554540",
+    "fixture_pin": "372d97078c169b5742b1458d50d1f0aa6d8f225b",
+    "qeli_tree": "26a0402e0f57322a73c93570e313aabf8d9affd3"
+  },
+  "sdk": {
+    "version": "OpenWrt24.10.4",
+    "sha256": "229e871f734a2cee5ce3ad6a3e98d3836b0899bfdeaea4d9c2c5cc7b1fce1407",
+    "source_url_fixture": "private local Git",
+    "source_pin_and_mirror_hash_production": "UNCHANGED"
+  },
+  "integration": {
+    "cases": [
+      {
+        "case": "bad_hash_prepare",
+        "status": "PASS_REFUSED_BEFORE_UNPACK"
+      },
+      {
+        "case": "verified_prepare",
+        "status": "PASS_EXACT_QELI_TREE",
+        "qeli_tree": "26a0402e0f57322a73c93570e313aabf8d9affd3"
+      },
+      {
+        "case": "old-bad_compile_boundary",
+        "status": "PASS",
+        "rc": 0,
+        "inert_cargo_calls": 2
+      },
+      {
+        "case": "new-bad_compile_boundary",
+        "status": "PASS",
+        "rc": 1,
+        "inert_cargo_calls": 0
+      },
+      {
+        "case": "new-good_compile_boundary",
+        "status": "PASS",
+        "rc": 0,
+        "inert_cargo_calls": 2
+      },
+      {
+        "case": "gate3_real_sdk_archive",
+        "status": "PASS",
+        "fixture_candidate_commit": "38487a06cd54f4429d47bcbc2b4db4440f128657"
+      },
+      {
+        "case": "repeat_download",
+        "status": "PASS_BYTE_IDENTICAL",
+        "archive_sha256": "49450a5b4803b8e2b657a49c5b4fdbb5c0373813275904ab9c1e689c52850b58"
+      }
+    ],
+    "sdk_source_archive_sha256": "49450a5b4803b8e2b657a49c5b4fdbb5c0373813275904ab9c1e689c52850b58",
+    "fixture_pin": "372d97078c169b5742b1458d50d1f0aa6d8f225b",
+    "exact_qeli_tree": "26a0402e0f57322a73c93570e313aabf8d9affd3",
+    "no_real_cargo_or_rust_bootstrap": true
+  },
+  "units": [
+    {
+      "label": "archive-dash",
+      "methods": 9,
+      "skipped": 0,
+      "rc": 0,
+      "uid": 65534
+    },
+    {
+      "label": "archive-ash",
+      "methods": 9,
+      "skipped": 0,
+      "rc": 0,
+      "uid": 65534
+    },
+    {
+      "label": "source",
+      "methods": 25,
+      "skipped": 0,
+      "rc": 0,
+      "uid": 65534
+    }
+  ],
+  "final_inputs": [
+    {
+      "path": "qeli-openwrt/Makefile",
+      "size": 5059,
+      "sha256": "d4d3b6f07004e09c585fe3c1d5a3d7c45a6835246e66ccfb4dedff53b8d6db04"
+    },
+    {
+      "path": "qeli-openwrt/verify-source.sh",
+      "size": 533,
+      "sha256": "776d5a5ba493d8435af88e278a2667f378439817d26a62ccb4dcadd669773a9d"
+    },
+    {
+      "path": "scripts/openwrt_source_gate.py",
+      "size": 5738,
+      "sha256": "86540998a12bdaecaae05dbfecacd6e48f4a53ad1e823b66d6200cb1b8a09198"
+    },
+    {
+      "path": "scripts/test_openwrt_source_gate.py",
+      "size": 11783,
+      "sha256": "cf2637d3f7eaf4c688d588bc07faa40c9eaebb7ebfab64d45f27a4fdefc922dc"
+    },
+    {
+      "path": "scripts/test_openwrt_archive.py",
+      "size": 3847,
+      "sha256": "8d83a227b9076779f4233ff14e4f9edbf12a9bbc578c2243c51752cb7549fb0f"
+    },
+    {
+      "path": "scripts/release_preflight.py",
+      "size": 6512,
+      "sha256": "7706950ce9d29f6d0bef19f6829db2c95a5c6e1e662cae15483a0c067f2da886"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "size": 43310,
+      "sha256": "c34f67fd6c4fa9210bd6538b64054043b076d102b289d1f4e653f9956e024062"
+    }
+  ],
+  "checks": [
+    {
+      "label": "docs",
+      "chunk_id": "308124",
+      "wall_time_seconds": 0.999321,
+      "exit_code": 0,
+      "original_token_count": 45,
+      "output": "checking 654 tracked Markdown files…\r\nOK — all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+    },
+    {
+      "label": "bindings",
+      "chunk_id": "3643d0",
+      "wall_time_seconds": 0.0952572,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    },
+    {
+      "label": "native",
+      "chunk_id": "a7ce67",
+      "wall_time_seconds": 0.1541756,
+      "exit_code": 0,
+      "original_token_count": 16,
+      "output": "OK: native cores match this source and independent A/B builds.\r\n"
+    },
+    {
+      "label": "diff",
+      "chunk_id": "5594c0",
+      "wall_time_seconds": 0.0609661,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  ],
+  "native_provenance": {
+    "status": "PASS_CURRENT_INDEPENDENT_A_B",
+    "build_input_digest": "c2ac10e0f41c826129a7b10918db88e84a77e55109eb4537783b34f99abd2a8b",
+    "fresh_native_build_this_turn": false
+  },
+  "cleanup": {
+    "removed_owned_directories": [
+      "/var/tmp/qeli-q31-sdk-source-integrity-20261007/sdk",
+      "/var/tmp/qeli-q31-sdk-source-integrity-20261007/deps",
+      "/var/tmp/qeli-q31-sdk-source-integrity-20261007/source",
+      "/var/tmp/qeli-q31-sdk-source-integrity-20261007/home",
+      "/var/tmp/qeli-q31-sdk-source-integrity-20261007/good",
+      "/var/tmp/qeli-q31-sdk-source-integrity-20261007/bad",
+      "/var/tmp/qeli-q31-sdk-source-integrity-20261007/qeli-0.8.2",
+      "/var/tmp/qeli-q31-sdk-source-integrity-20261007/baseline-prepared",
+      "/var/tmp/qeli-q31-sdk-source-integrity-20261007/shim"
+    ],
+    "removed_duplicate_sdk_archive": true,
+    "service_before": "MainPID=777\nActiveState=active\n",
+    "service_after": "MainPID=777\nActiveState=active\n",
+    "sdk_packet_root_mode": "0o700",
+    "preserved_files": [
+      {
+        "path": "fixture-source.bundle",
+        "size": 2235568,
+        "sha256": "1c1ee3380046e496f275452e7ee8a4b5b1fb162e311a8bc9fbc565b7bc0ab529"
+      },
+      {
+        "path": "sdk-overlay.tar",
+        "size": 368640,
+        "sha256": "64d265775ae331f9f8fc96b49c53443cdd1994763d82defb7fd7b93e5b5310c2"
+      },
+      {
+        "path": "gawk.deb",
+        "size": 673696,
+        "sha256": "0e3b376e74cadfa5049bc8248c563efe89fd45e31466f8891c094c65c0879f5c"
+      },
+      {
+        "path": "sigsegv.deb",
+        "size": 34368,
+        "sha256": "bac603b965f303ea88dc39cd723b3d88cd86e3be9c948783f0d5e0d00e971302"
+      },
+      {
+        "path": "sdk-generated-source.tar.zst",
+        "size": 1541480,
+        "sha256": "49450a5b4803b8e2b657a49c5b4fdbb5c0373813275904ab9c1e689c52850b58"
+      },
+      {
+        "path": "candidate-source.tar",
+        "size": 8550400,
+        "sha256": "aceddc9bb26cdf5bc0038a95cf99838f5ea52b4b51f11db0edff065ab61fd4da"
+      },
+      {
+        "path": "sdk.tar.zst",
+        "size": 257559594,
+        "sha256": "229e871f734a2cee5ce3ad6a3e98d3836b0899bfdeaea4d9c2c5cc7b1fce1407"
+      }
+    ],
+    "unit_root_retained": "/var/tmp/qeli-q31-sdk-archive-unit-20261007",
+    "no_host_tools_services_network_mutation": true
+  },
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-sdk-source-integrity-20261007",
+  "raw_seal_sha256": "671aa388866d1628e522b05095c7623126c25814c366e9ad4c02e636e3523604",
+  "raw_sealed_files": 60,
+  "credential_scan": {
+    "raw_files": 60,
+    "decompressed_tar_members": 744,
+    "utf8_utf16_hits": 0
+  },
+  "preparation_failures_retained": [
+    "SDK tmp missing for flock",
+    "wrong expectation of mandatory download warning",
+    "fixture unpack basename mismatch",
+    "initial CRLF upload corrected to LF",
+    "precommit Windows CRLF/Git LF identity refusal; all43methods rerun exact staged Git LF",
+    "automatic review refused widening original SDK0700; new separate uid65534 private0700 root used instead"
+  ],
+  "limits": [
+    "Cargo is an inert seam for real GNU-make exported Compile, no compiler/package output",
+    "no full SDK Rust bootstrap or release cut; production pin/hash unchanged",
+    "no GitHub Actions dispatch, configured live Gate2 or public source hosting qualification",
+    "no privileged postcheck archive replacement or arbitrary Make override guarantee",
+    "explicit developer source overlays remain permitted and are not mirror-qualified",
+    "writer lock/post-final-check/atomic ndm integration remains open",
+    "firmware/Apple/Windows VM USER_EXCLUDED; Q29SIGKILL/ENONET,Q30callback drain OPEN,D06ACCEPTED retained"
+  ],
+  "progress": {
+    "Q31": "IN_PROGRESS",
+    "Q31_criteria_done": 3,
+    "Q31_criteria_total": 5,
+    "full_audit_done": 28,
+    "full_audit_total": 37,
+    "debt_done": 14,
+    "debt_total": 15,
+    "D06": "ACCEPTED_LIMITATION"
+  },
+  "push_deploy_release": false
+}

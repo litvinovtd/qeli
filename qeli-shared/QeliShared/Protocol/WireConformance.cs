@@ -176,7 +176,7 @@ public static class WireConformance
             try
             {
                 Ini("proto = tcp", $"mode = {mode}",
-                    "reality_sid = 0123456789abcdef",
+                    "reality_sid = 0123456789abcdef", "sni = vpn.example.com",
                     "key = 1111111111111111111111111111111111111111111111111111111111111111")
                     .Validate();
             }
@@ -198,7 +198,7 @@ public static class WireConformance
             try
             {
                 Model.VpnConfig.FromIni(
-                    "[qeli]\nserver = 1.2.3.4:443\nuser = u\npass = p\n" + extra + "\n")
+                    "[qeli]\nserver = 1.2.3.4:443\nsni = vpn.example.com\nuser = u\npass = p\n" + extra + "\n")
                     .Validate();
             }
             catch (ArgumentException e) { refusal = e.Message; }
@@ -209,7 +209,7 @@ public static class WireConformance
         try
         {
             Model.VpnConfig.FromIni(
-                "[qeli]\nserver = 1.2.3.4:443\nuser = u\npass = p\nmode = reality-tls\n"
+                "[qeli]\nserver = 1.2.3.4:443\nsni = vpn.example.com\nuser = u\npass = p\nmode = reality-tls\n"
                 + "reality_sid = 0123456789abcdef\n").Validate();
         }
         catch (ArgumentException e) { noKey = e.Message; }
@@ -246,6 +246,25 @@ public static class WireConformance
             .Select(_ => Vpn.VpnTunnelBase.JitterReconnectDelay(60_000))
             .All(delay => delay is >= 48_000 and <= 60_000);
         check("reconnect: jitter stays within 80-100% of the capped schedule", jitterBounded);
+        var shortSession = Model.ConfigCore.Policy("next_attempt", new {
+            attempt = 3, established = true, connected_ms = 200, elapsed_ms = 45_000
+        }).GetProperty("value").GetInt64();
+        check("reconnect: handshake time cannot reset the failure budget", shortSession == 4);
+        var retryDenied = Model.ConfigCore.Policy("retry_decision", new {
+            attempt = shortSession, max_retries = 3, settling_cap = 3
+        }).GetProperty("value");
+        check("reconnect: settling cannot bypass the retry limit", retryDenied.GetProperty("reason").GetString() == "retry_limit");
+        var stableRetry = Model.ConfigCore.Policy("retry_decision", new {
+            attempt = 0, max_retries = 0, elapsed_ms = 30_000
+        }).GetProperty("value");
+        check("reconnect: a stable session may restart with zero failed-attempt retries",
+            stableRetry.GetProperty("reason").ValueKind == System.Text.Json.JsonValueKind.Null
+            && stableRetry.GetProperty("delay_ms").GetInt64() == 0);
+        var disabledRetry = Model.ConfigCore.Policy("retry_decision", new { attempt = 0, enabled = false }).GetProperty("value");
+        check("reconnect: disabled also stops after a stable session", disabledRetry.GetProperty("reason").GetString() == "disabled");
+        var largestRetry = Model.ConfigCore.Policy("next_attempt", new { attempt = int.MaxValue }).GetProperty("value").GetInt64();
+        check("reconnect: largest finite retry limit can be exhausted", largestRetry == (long)int.MaxValue + 1);
+
 
         // padding_min > padding_max is an inverted range; a five-digit padding is past the
         // ceiling. Each field only checked `>= 0` on its own, so both parsed.
@@ -329,12 +348,12 @@ public static class WireConformance
         // Recorded ONCE however many times it repeats, and the last value still wins, so a file
         // that already had a duplicate parses exactly as it always did.
         var thrice = Ini("mtu = 1400", "mtu = 1300", "mtu = 1200");
-        bool dupOnce = thrice.DuplicateKeys.Count == 1 && thrice.Mtu == 1200;
+        bool dupOnce = thrice.DuplicateKeys.Count == 1 && thrice.Mtu == 1400;
         // A clean config must record nothing — otherwise the check above passes vacuously.
         bool cleanQuiet = Ini("mtu = 1400").DuplicateKeys.Count == 0;
         check("ini-dups: a key written twice is recorded", dupRecorded);
         check("ini-dups: Validate() refuses an ambiguous config", dupRefused);
-        check("ini-dups: recorded once, last value still wins", dupOnce);
+        check("ini-dups: recorded once, native draft projects the first value", dupOnce);
         check("ini-dups: a clean config records nothing", cleanQuiet);
 
         // route_file is deliberately repeatable: each occurrence contributes one desktop
@@ -478,6 +497,113 @@ public static class WireConformance
 
         // The sparse portable serializer is made explicit at the transport boundary: desktop
         // full-tunnel and GUI data-plane defaults differ from an absent Rust key.
+        // Exercise every schema field through the actual model, including unmodelled
+        // qeli fields and logging.file/time_format retained in the native document.
+        var coverageFields = Model.ConfigCore.Call(new { version = 1, op = "schema" })
+            .GetProperty("fields").EnumerateArray().ToArray();
+        var coverageText = new System.Text.StringBuilder();
+        foreach (string section in new[] { "qeli", "logging" })
+        {
+            coverageText.AppendLine($"[{section}]");
+            foreach (var field in coverageFields)
+            {
+                string key = field.GetProperty("key").GetString()!;
+                if (key.StartsWith("logging.", StringComparison.Ordinal) != (section == "logging")) continue;
+                string value = key switch { "server" => "vpn.example.com:443", "pass" => "secret",
+                    "tun.tx_queue_len" => "500", "pull_routes" => "false", "windows_disable_sharing" => "true",
+                    "logging.file" => "/tmp/coverage.log", "logging.time_format" => "rfc3339",
+                    _ => field.GetProperty("default").GetString()! };
+                string localKey = section == "logging" ? key["logging.".Length..] : key;
+                coverageText.AppendLine($"{localKey} = {value}");
+            }
+        }
+        var coverageModel = Model.VpnConfig.FromIni(coverageText.ToString()).Clone();
+        coverageModel.Name = "edited";
+        var coverageRaw = Model.ConfigCore.Call(new { version = 1, op = "import", source = coverageModel.ToIni() }).GetProperty("raw");
+        var coverageMissing = coverageFields.Select(f => f.GetProperty("key").GetString()!)
+            .Where(key => !coverageRaw.TryGetProperty(key, out _)).ToArray();
+        check("schema: all 87 fields survive clone/edit; missing=" + string.Join(",", coverageMissing),
+            coverageFields.Length == 87 && coverageMissing.Length == 0);
+        check("schema: non-default route policy and sharing survive clone", coverageRaw.GetProperty("pull_routes")[0].GetString() == "false" && coverageRaw.GetProperty("windows_disable_sharing")[0].GetString() == "true");
+        check("schema: literal client TUN queue survives model clone", coverageRaw.GetProperty("tun.tx_queue_len")[0].GetString() == "500");
+        check("schema: editing the model updates its name", coverageRaw.GetProperty("name")[0].GetString() == "edited");
+        check("schema: logging.file survives model clone", coverageRaw.GetProperty("logging.file")[0].GetString() == "/tmp/coverage.log");
+        check("schema: logging.time_format survives model clone", coverageRaw.GetProperty("logging.time_format")[0].GetString() == "rfc3339");
+        foreach (var (foreignKey, first, second) in new[] {
+            ("autostart", "true", "false"), ("recv_buffer_size", "4194304", "0") })
+        {
+            var duplicateForeign = Ini($"{foreignKey} = {first}", $"{foreignKey} = {second}");
+            bool refused = false;
+            try { duplicateForeign.Validate(); } catch (ArgumentException) { refused = true; }
+            var duplicateRaw = Model.ConfigCore.Call(new { version = 1, op = "import", source = duplicateForeign.ToIni() }).GetProperty("raw");
+            check($"ini-carry: duplicate {foreignKey} survives unchanged and refuses activation",
+                refused && duplicateRaw.GetProperty(foreignKey).GetArrayLength() == 2);
+        }
+        var routeDocument = Ini("route_file =", "route_file = Rules.txt", "route_file = rules.txt", "route_file = Rules.txt");
+        var routeRaw = Model.ConfigCore.Call(new { version = 1, op = "import", source = routeDocument.ToIni() }).GetProperty("raw").GetProperty("route_file");
+        check("route_file: empty, repeated and case-distinct paths survive the document",
+            routeRaw.EnumerateArray().Select(x => x.GetString()).SequenceEqual(new[] { "", "Rules.txt", "rules.txt", "Rules.txt" }));
+        check("route_file: case-distinct paths both reach file loading", routeDocument.RouteFilePaths.SequenceEqual(new[] { "Rules.txt", "rules.txt" }));
+        foreach (string dnsTail in new[] { "dns = 1.1.1.1\ndns = 8.8.8.8", "dns = 1.1.1.1\ndns_servers = 8.8.8.8,," })
+        {
+            var draft = Ini(dnsTail);
+            var again = Model.VpnConfig.FromIni(draft.Clone().ToIni());
+            bool refused = false;
+            try { again.Validate(); } catch (ArgumentException) { refused = true; }
+            check("dns-migration: invalid draft survives model clone/save and cannot activate", refused);
+        }
+        foreach (string text in new[] { "pass = sec\u0007ret", "gatewa\u0007y = false" })
+        {
+            bool refused = false;
+            try { Ini(text); } catch (ArgumentException) { refused = true; }
+            check("ini-controls: import rejects lossy serialization", refused);
+        }
+        var passwordlessDraft = Model.VpnConfig.FromQeliUri("qeli://u:@host:443");
+        bool passwordlessShareRefused = false;
+        try { passwordlessDraft.ToQeliUri(); }
+        catch (ArgumentException error) { passwordlessShareRefused = error.Message.Contains("inline pass"); }
+        check("uri-password: old passwordless link imports but cannot be re-shared", passwordlessShareRefused);
+        bool bomUriRefused = false;
+        try { Model.VpnConfig.FromQeliUri("\ufeffqeli://u:p@host:443?proto=udp&mode=reality-tls"); }
+        catch (ArgumentException) { bomUriRefused = true; }
+        check("uri-bom: strict validation is retained", bomUriRefused);
+        bool credentialRedacted = false;
+        try { Model.ConfigCore.Call(new { version = 1, op = "validate", source = "[qeli]\nserver=host:443\n",
+            patch = new Dictionary<string, string> { ["pass"] = "fixture-private", ["mode"] = "fixture-private" } }); }
+        catch (ArgumentException error) { credentialRedacted = !error.Message.Contains("fixture-private") && error.Message.Contains("[redacted]"); }
+        check("config-errors: patch credentials are redacted across C ABI", credentialRedacted);
+        var misplacedLogging = Model.VpnConfig.FromIni(Ini("logging.level = debug").ToIni());
+        bool misplacedLoggingRefused = false;
+        try { misplacedLogging.Validate(); } catch (ArgumentException) { misplacedLoggingRefused = true; }
+        check("ini-sections: logging field in qeli cannot alias the logging section", misplacedLoggingRefused);
+        foreach (string uri in new[] { "qeli://u:p@exa\u0007mple.com:443", "qeli://u:p@host:443?key=" + new string('0', 64) + "%07" })
+        {
+            bool refused = false;
+            try { Model.VpnConfig.FromQeliUri(uri); } catch (ArgumentException) { refused = true; }
+            check("uri-controls: endpoint and pin cannot be changed during import", refused);
+        }
+        foreach (string pin in new[] { "0", new string('0', 63), new string('0', 65) })
+        {
+            var draft = Ini("key = " + pin);
+            var reopened = Model.VpnConfig.FromIni(draft.Clone().ToIni());
+            bool refused = false;
+            try { reopened.Validate(); } catch (ArgumentException) { refused = true; }
+            bool uriRefused = false;
+            try { Model.VpnConfig.FromQeliUri("qeli://u:p@host:443?key=" + pin); }
+            catch (ArgumentException) { uriRefused = true; }
+            check("pin: malformed zero placeholder refuses activation and URI import", refused && uriRefused);
+        }
+        foreach (string endpoint in new[] { "host/path:443", "exa mple.com:443" })
+        {
+            var draft = Model.VpnConfig.FromIni("[qeli]\nserver = " + endpoint + "\n");
+            var reopened = Model.VpnConfig.FromIni(draft.Clone().ToIni());
+            bool refused = false;
+            try { reopened.Validate(); } catch (ArgumentException) { refused = true; }
+            check("endpoint: malformed host remains invalid through model save", refused);
+        }
+        var partial = Model.ConfigCore.Call(new { version = 1, op = "export", source = "[qeli]\nserver=host:wrong\n",
+            values = new Dictionary<string, string> { ["user"] = "bob" }, unresolved = Array.Empty<string>() });
+        check("partial-edit: an unsupplied invalid port is preserved", partial.GetProperty("text").GetString()!.Contains("host:wrong"));
         var nativeIni = Ini().ToTransportCoreIni();
         check("ini-native: full/split mode is explicit", nativeIni.Contains("gateway = true"));
         check("ini-native: connection timeout reaches Rust", nativeIni.Contains("timeout = 30"));
@@ -571,7 +697,7 @@ public static class WireConformance
         check("ini-manual: the bad line is shown as written",
             shown.Contains("reconnect_base_delay = bad"));
         check("ini-manual: so is the unknown key", shown.Contains("gatway = true"));
-        var reparsed = Model.VpnConfig.Parse(shown);
+        var reparsed = Model.VpnConfig.FromIni(shown);
         check("ini-manual: re-parsing what was shown re-derives the number marker",
             reparsed.UnparsedNumericKeys.Contains("reconnect_base_delay"));
         check("ini-manual: and the unknown-key marker",
@@ -760,6 +886,7 @@ public static class WireConformance
         foreach (string line in new[]
                  {
                      "include = vpn.example.com/24",
+                     "include = 192.0.2.1",
                      "exclude = 10.0.0.1/not-a-prefix",
                      "include = 10.0.0.1/33",
                      "exclude = 2001:db8::/129",
@@ -771,7 +898,7 @@ public static class WireConformance
                  {
                      "include = 10.0.0.0/8",
                      "exclude = 2001:db8::/32",
-                     "include = 192.0.2.1",
+                     "include = 192.0.2.1/32",
                  })
         {
             try { Ini(line).Validate(); } catch (ArgumentException) { cidrs = false; }

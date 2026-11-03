@@ -1,5 +1,6 @@
 # qeli vs other VPN solutions
 
+
 Not marketing. The qeli numbers are measured in our lab ([BENCHMARK.md](BENCHMARK.md)),
 the numbers for mature solutions are typical published ones on comparable hardware (2
 vCPU, a gigabit-class link).
@@ -110,7 +111,7 @@ audited code + a public CVE history → OpenVPN/WireGuard.
 | Pinning + enforcement | a peer key | CA/cert | ✅ | ✅ (`require_client_key_proof`) |
 | Authorization by interface | ✘ | ✘ | partial | ✅ |
 | UDP anti-amplification | n/a | — | — | ✅ |
-| PQ crypto (X25519MLKEM768) | ✘ | ✘ | ◐ opt. | ✅ (the inner tunnel, all modes except plain) |
+| PQ crypto (X25519MLKEM768) | ✘ | ✘ | ◐ opt. | ✅ legacy inner; REALITY TLS conditional |
 | Audit / CVE history | ★★★ | ★★★ | ★★★ | ✘ |
 | Text config | ✅ (ini-like) | ✘ (ini) | ✘ (JSON) | ✅ (flat-INI) + REST |
 | In-kernel | ✅ Linux | ✘ | ✘ | ✘ |

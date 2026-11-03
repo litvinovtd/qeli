@@ -75,7 +75,12 @@ async fn handle_authenticated_tls<S>(
     handshake_timeout: Duration,
 ) -> anyhow::Result<()>
 where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: tokio::io::AsyncRead
+        + tokio::io::AsyncWrite
+        + Unpin
+        + Send
+        + 'static
+        + crate::protocol::obfs::SplitStream,
 {
     use tokio::io::AsyncReadExt;
 
@@ -87,12 +92,18 @@ where
         .await
         .map_err(|_| anyhow::anyhow!("REALITY carrier selection timed out for {addr}"))?
         .map_err(|error| anyhow::anyhow!("REALITY carrier selection failed for {addr}: {error}"))?;
-    let stream = crate::protocol::realtls::server::PrefixedStream::new(prefix.to_vec(), stream);
+    let progress = stream.write_progress();
+    let stream = crate::protocol::realtls::server::PrefixedStream::with_write_progress(
+        prefix.to_vec(),
+        stream,
+        progress,
+    );
 
     if prefix.as_slice() == crate::protocol::h2_carrier::CLIENT_PREFACE {
-        let h2 = tokio::time::timeout(
+        let carrier_tasks = profile.tasks.spawner();
+        let (h2, pre_auth_permit) = tokio::time::timeout(
             handshake_timeout,
-            crate::protocol::h2_carrier::accept(stream),
+            crate::protocol::h2_carrier::accept_owned(stream, &carrier_tasks, pre_auth_permit),
         )
         .await
         .map_err(|_| anyhow::anyhow!("REALITY HTTP/2 carrier timed out for {addr}"))?
@@ -131,7 +142,12 @@ pub(crate) async fn handle_connection(
     // cannot mean "wait forever". (S-01 follow-up)
     let handshake_timeout =
         Duration::from_secs(pcfg.performance.connection.handshake_timeout_secs.max(5));
-    let peek_ms = pcfg.obfuscation.tls.reality_proxy.peek_timeout_ms.max(300);
+    let peek_ms = pcfg
+        .obfuscation
+        .tls
+        .reality_proxy
+        .peek_timeout_ms
+        .max(crate::config::server::REALITY_MIN_PEEK_TIMEOUT_MS);
     let header = match tokio::time::timeout(
         Duration::from_millis(peek_ms + 300),
         recv_peek(&stream, 6, peek_ms),

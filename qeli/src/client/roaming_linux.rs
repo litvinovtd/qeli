@@ -5,11 +5,11 @@
 //! addresses instead of asking a resolver which may itself be routed through a failed tunnel.
 
 use super::{carrier_candidate_ips, LinuxPathController};
+use crate::system_command::Command;
 use crate::transport_core::path::{PathResolution, PathUpdate, PathUpdateFlags, PathUpdateReason};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::net::IpAddr;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -88,6 +88,8 @@ struct AddressInfo {
     flags: Vec<String>,
 }
 
+// A generation must be able to join this blocking sampler when an ip child stalls.
+// Reuse the shared deadline/output bounds; an error must never become a path snapshot.
 fn ip_json(args: &[&str]) -> anyhow::Result<Vec<u8>> {
     let output = Command::new("ip").args(args).output()?;
     if !output.status.success() {
@@ -252,133 +254,125 @@ fn path_update_json(
 /// trigger with the shared path controller. The sampler remains the single owner of observation
 /// and update IDs, so liveness recovery cannot race route/wake detection or invent platform facts
 /// in the actor.
-pub(super) fn spawn(
+pub(super) async fn run(
     controller: Arc<LinuxPathController>,
     tunnel_interface: String,
     generation: u64,
-) -> tokio::task::JoinHandle<()> {
+    tasks: crate::transport_core::tasks::Spawner,
+) {
     let (same_network_nat_failure_tx, mut same_network_nat_failure_rx) =
         tokio::sync::mpsc::channel(1);
     controller.install_same_network_nat_failure_trigger(same_network_nat_failure_tx);
-    let task = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(SAMPLE_INTERVAL);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut last_tick = tokio::time::Instant::now();
-        let mut baseline: Option<PhysicalPath> = None;
-        let mut pending: Option<(PhysicalPath, u8)> = None;
-        let mut update_id = 0u64;
+    let mut interval = tokio::time::interval(SAMPLE_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut last_tick = tokio::time::Instant::now();
+    let mut baseline: Option<PhysicalPath> = None;
+    let mut pending: Option<(PhysicalPath, u8)> = None;
+    let mut update_id = 0u64;
 
-        loop {
-            let same_network_nat_failure = tokio::select! {
-                _ = interval.tick() => false,
-                request = same_network_nat_failure_rx.recv(),
-                    if !same_network_nat_failure_rx.is_closed() => request.is_some(),
-            };
-            let now = tokio::time::Instant::now();
-            let woke = if same_network_nat_failure {
-                false
-            } else {
-                let woke = now.duration_since(last_tick) >= WAKE_GAP;
-                last_tick = now;
-                woke
-            };
-            let remotes = carrier_candidate_ips();
-            if remotes.is_empty() {
-                continue;
-            }
-            let tun = tunnel_interface.clone();
-            let observed_remotes = remotes.clone();
-            let observed = match tokio::task::spawn_blocking(move || {
-                observe_physical_path(&tun, &observed_remotes)
-            })
+    loop {
+        let same_network_nat_failure = tokio::select! {
+            _ = interval.tick() => false,
+            request = same_network_nat_failure_rx.recv(),
+                if !same_network_nat_failure_rx.is_closed() => request.is_some(),
+        };
+        let now = tokio::time::Instant::now();
+        let woke = if same_network_nat_failure {
+            false
+        } else {
+            let woke = now.duration_since(last_tick) >= WAKE_GAP;
+            last_tick = now;
+            woke
+        };
+        let remotes = carrier_candidate_ips();
+        if remotes.is_empty() {
+            continue;
+        }
+        let tun = tunnel_interface.clone();
+        let observed_remotes = remotes.clone();
+        let observed = match tasks
+            .blocking(move || observe_physical_path(&tun, &observed_remotes))
             .await
-            {
-                Ok(Ok(Some(path))) => path,
-                Ok(Ok(None)) => continue,
-                Ok(Err(error)) => {
-                    log::debug!("Linux roaming path sample failed: {error}");
-                    continue;
-                }
-                Err(error) => {
-                    log::warn!("Linux roaming path sampler stopped unexpectedly: {error}");
-                    continue;
-                }
-            };
-            if baseline.is_none() {
-                log::debug!(
-                    "Linux roaming baseline: {} (ifindex {})",
-                    observed.interface_name,
-                    observed.interface_index
-                );
-                baseline = Some(observed.clone());
-                if !same_network_nat_failure {
-                    continue;
-                }
-            }
-            let changed = baseline
-                .as_ref()
-                .is_some_and(|current| current != &observed);
-            if !changed && !woke && !same_network_nat_failure {
-                pending = None;
+        {
+            Some(Ok(Some(path))) => path,
+            Some(Ok(None)) => continue,
+            Some(Err(error)) => {
+                log::debug!("Linux roaming path sample failed: {error}");
                 continue;
             }
-            if changed {
-                match pending.as_mut() {
-                    Some((candidate, samples)) if candidate == &observed => {
-                        *samples = samples.saturating_add(1);
-                        if *samples < STABLE_SAMPLES {
-                            continue;
-                        }
-                    }
-                    _ => {
-                        pending = Some((observed, 1));
+            None => break, // Group closed or worker panicked; no late path submission.
+        };
+        if baseline.is_none() {
+            log::debug!(
+                "Linux roaming baseline: {} (ifindex {})",
+                observed.interface_name,
+                observed.interface_index
+            );
+            baseline = Some(observed.clone());
+            if !same_network_nat_failure {
+                continue;
+            }
+        }
+        let changed = baseline
+            .as_ref()
+            .is_some_and(|current| current != &observed);
+        if !changed && !woke && !same_network_nat_failure {
+            pending = None;
+            continue;
+        }
+        if changed {
+            match pending.as_mut() {
+                Some((candidate, samples)) if candidate == &observed => {
+                    *samples = samples.saturating_add(1);
+                    if *samples < STABLE_SAMPLES {
                         continue;
                     }
                 }
-            }
-            let candidate = pending.take().map(|(path, _)| path).unwrap_or(observed);
-            update_id = update_id.saturating_add(1);
-            let reason = if same_network_nat_failure && !changed {
-                PathUpdateReason::SameNetworkNatFailure
-            } else if woke && !changed {
-                PathUpdateReason::Wake
-            } else {
-                PathUpdateReason::DefaultRouteChanged
-            };
-            let update = match path_update_json(&candidate, generation, update_id, reason, &remotes)
-            {
-                Ok(update) => update,
-                Err(error) => {
-                    log::warn!("Linux roaming PathUpdate encoding failed: {error}");
-                    baseline = Some(candidate);
+                _ => {
+                    pending = Some((observed, 1));
                     continue;
                 }
-            };
-            let path_id = candidate.interface_name.clone();
-            let submitter = controller.clone();
-            match tokio::task::spawn_blocking(move || submitter.submit_path_update(&update)).await {
-                Ok(Ok(candidate_id)) => log::info!(
-                    "Linux roaming prepared candidate {} on {} ({reason:?})",
-                    candidate_id,
-                    path_id
-                ),
-                Ok(Err(error)) => log::warn!(
-                    "Linux roaming rejected path observation on {}: {}",
-                    path_id,
-                    error
-                ),
-                Err(error) => log::warn!(
-                    "Linux roaming PathUpdate worker stopped unexpectedly on {}: {}",
-                    path_id,
-                    error
-                ),
             }
-            // Avoid a hot loop on a stable but unusable path. Carrier liveness still triggers the
-            // ordinary reconnect fallback; another route/address change or wake creates a new update.
-            baseline = Some(candidate);
         }
-    });
-    task
+        let candidate = pending.take().map(|(path, _)| path).unwrap_or(observed);
+        update_id = update_id.saturating_add(1);
+        let reason = if same_network_nat_failure && !changed {
+            PathUpdateReason::SameNetworkNatFailure
+        } else if woke && !changed {
+            PathUpdateReason::Wake
+        } else {
+            PathUpdateReason::DefaultRouteChanged
+        };
+        let update = match path_update_json(&candidate, generation, update_id, reason, &remotes) {
+            Ok(update) => update,
+            Err(error) => {
+                log::warn!("Linux roaming PathUpdate encoding failed: {error}");
+                baseline = Some(candidate);
+                continue;
+            }
+        };
+        let path_id = candidate.interface_name.clone();
+        let submitter = controller.clone();
+        match tasks
+            .blocking(move || submitter.submit_path_update(&update))
+            .await
+        {
+            Some(Ok(candidate_id)) => log::info!(
+                "Linux roaming prepared candidate {} on {} ({reason:?})",
+                candidate_id,
+                path_id
+            ),
+            Some(Err(error)) => log::warn!(
+                "Linux roaming rejected path observation on {}: {}",
+                path_id,
+                error
+            ),
+            None => break,
+        }
+        // Avoid a hot loop on a stable but unusable path. Carrier liveness still triggers the
+        // ordinary reconnect fallback; another route/address change or wake creates a new update.
+        baseline = Some(candidate);
+    }
 }
 
 #[cfg(test)]

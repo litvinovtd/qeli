@@ -8,12 +8,12 @@
 use super::buffer_pool::{BufferPool, PooledBuffer};
 use super::packet_tun::PacketTunPump;
 pub(crate) use super::packet_tun::TunWriter;
+use super::tun_workers::TunWorkers;
 use std::ffi::c_void;
 use std::io;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc as std_mpsc, Arc};
-use std::thread::JoinHandle;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -213,8 +213,7 @@ pub(crate) struct WintunPump {
     to_wintun: Option<std_mpsc::SyncSender<PooledBuffer>>,
     downlink_pool: BufferPool,
     stop: Arc<AtomicBool>,
-    reader: Option<JoinHandle<()>>,
-    writer: Option<JoinHandle<()>>,
+    workers: TunWorkers,
 }
 
 impl WintunPump {
@@ -263,8 +262,7 @@ impl WintunPump {
             to_wintun: Some(to_wintun),
             downlink_pool,
             stop,
-            reader: Some(reader),
-            writer: Some(writer),
+            workers: TunWorkers::new(vec![reader, writer]),
         })
     }
 
@@ -288,20 +286,7 @@ impl WintunPump {
 
     async fn shutdown(mut self) {
         self.request_stop();
-        let reader = self.reader.take();
-        let writer = self.writer.take();
-        let joined = tokio::task::spawn_blocking(move || {
-            if let Some(reader) = reader {
-                let _ = reader.join();
-            }
-            if let Some(writer) = writer {
-                let _ = writer.join();
-            }
-        })
-        .await;
-        if let Err(error) = joined {
-            log::warn!("Wintun worker join failed: {error}");
-        }
+        self.workers.finish().await;
     }
 
     fn request_stop(&mut self) {
@@ -314,16 +299,8 @@ impl WintunPump {
 impl Drop for WintunPump {
     fn drop(&mut self) {
         self.request_stop();
-        // Cancellation/error paths skip async shutdown, but returning from qeli_client_run is
-        // an ownership boundary: the next generation must not overlap this Wintun session.
-        // Both loops use bounded waits (250 ms reader, 100 ms writer), so joining here cannot
-        // park indefinitely and mirrors LinuxTunPump's cancellation-safe Drop contract.
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
-        }
-        if let Some(writer) = self.writer.take() {
-            let _ = writer.join();
-        }
+        // TunWorkers remains owned even when async shutdown has started. Its field Drop
+        // joins before this pump is fully destroyed, including a cancelled shutdown waiter.
     }
 }
 
@@ -500,5 +477,81 @@ impl WindowsTunPump {
             Self::Ring(pump) => pump.shutdown().await,
             Self::Packet(pump) => pump.shutdown().await,
         }
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+    use std::future::poll_fn;
+    use std::task::Poll;
+    const DEADLINE: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn cancelled_shutdown_waits_for_workers_without_opening_a_driver() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (started, ready) = tokio::sync::oneshot::channel();
+            let (unblock_pool, pool_wait) = std_mpsc::channel::<()>();
+            let blocker = tokio::task::spawn_blocking(move || {
+                started.send(()).unwrap();
+                let _ = pool_wait.recv_timeout(DEADLINE);
+            });
+            ready.await.unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let released = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let (from_wintun_tx, from_wintun) = mpsc::channel(1);
+            let (to_wintun, _output) = std_mpsc::sync_channel(1);
+            let mut releases = Vec::new();
+            let mut threads = Vec::new();
+            for _ in 0..2 {
+                let (release, wait) = std_mpsc::channel::<()>();
+                releases.push(release);
+                let released = released.clone();
+                threads.push(std::thread::spawn(move || {
+                    let _ = wait.recv_timeout(DEADLINE);
+                    released.fetch_add(1, Ordering::Release);
+                }));
+            }
+            let pump = WintunPump {
+                from_wintun,
+                to_wintun: Some(to_wintun),
+                downlink_pool: BufferPool::new(1, 2048).unwrap(),
+                stop: stop.clone(),
+                workers: TunWorkers::new(threads),
+            };
+            let mut shutdown = Box::pin(pump.shutdown());
+            poll_fn(|cx| {
+                assert!(std::future::Future::poll(shutdown.as_mut(), cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            assert!(stop.load(Ordering::Acquire));
+            assert!(from_wintun_tx.is_closed());
+            let (send, mut dropped) = tokio::sync::oneshot::channel();
+            let dropper = std::thread::spawn(move || {
+                drop(shutdown);
+                let _ = send.send(());
+            });
+            assert!(
+                tokio::time::timeout(Duration::from_millis(30), &mut dropped)
+                    .await
+                    .is_err()
+            );
+            drop(releases);
+            tokio::time::timeout(DEADLINE, dropped)
+                .await
+                .unwrap()
+                .unwrap();
+            dropper.join().unwrap();
+            assert_eq!(released.load(Ordering::Acquire), 2);
+            assert!(!blocker.is_finished());
+            drop(unblock_pool);
+            blocker.await.unwrap();
+        });
     }
 }

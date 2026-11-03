@@ -18,6 +18,7 @@ public static class Program
         return verb switch
         {
             "selftest" => SelfTest(),
+            "profile-store-race-child" => ProfileStoreProcessConformance.RunChild(rest),
             "packetbench" => PacketCodecBenchmark.Run("csharp-conformance", rest),
             _ => Usage(),
         };
@@ -104,10 +105,19 @@ public static class Program
         Check("ObfsStream XOR symmetric", TestObfs());
         Check("ObfsStream WebSocket F3 vector", ObfsStream.SelfTestWsFraming());
         LinkConformance.Run(Check);
+        ConfigBoundaryConformance.Run(Check);
+        ProfileStoreConformance.Run(Check);
+        ProfileStoreProcessConformance.Run(Check);
+        AppSettingsStoreConformance.Run(Check);
+        TrafficHistoryConformance.Run(Check);
         PrpNonceConformance.Run(Check);
         WireConformance.Run(Check);
         RoamingPathConformance.Run(Check);
         ManagementEventConformance.Run(Check);
+        NativeLifecycleConformance.Run(Check);
+        ReconnectRecoveryConformance.Run(Check);
+        UpdateMetadataConformance.Run(Check);
+        RouteReaderConformance.Run(Check);
 
         var routeLocalCaptures = RouteLocalPolicy.BuildCapturePrefixes(
             new[] { "192.168.1.27/24", "10.8.1.4/16", "203.0.113.4/24", "10.9.0.7/32" });

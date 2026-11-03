@@ -9,7 +9,6 @@
 
 use qeli::config::client::ClientConfig;
 use qeli::config::format::IniDoc;
-#[cfg(target_os = "linux")]
 use qeli::config::server::ServerConfig;
 use qeli::config::users::UsersDb;
 use qeli_core as qeli;
@@ -48,7 +47,6 @@ fn assert_explicit_auto_roaming(name: &str, doc: &IniDoc) {
     );
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn shipped_server_examples_have_no_unread_keys() {
     // The server examples the .deb installs. `server.conf` is the exhaustive
@@ -83,8 +81,15 @@ fn shipped_server_examples_have_no_unread_keys() {
         // `validate_profiles`, and the test never called it. A shipped example that parses and
         // then refuses to boot is the worst kind of green CI, because the example is exactly
         // what an operator copies. (Audit 2026-08-03, P3.)
+        #[cfg(all(target_os = "linux", feature = "server"))]
         qeli::server::validate_profiles(&cfg)
             .unwrap_or_else(|e| panic!("{name}: would refuse to start: {e}"));
+        assert!(!cfg.profiles.is_empty(), "{name}: missing server profiles");
+        assert!(
+            doc.bad_values().is_empty(),
+            "{name}: {:?}",
+            doc.bad_values()
+        );
         // Also consume any inline [user:*] / [group:*] the example might carry, so
         // their keys are not counted as unread.
         let _ = UsersDb::from_ini(&doc);
@@ -281,7 +286,7 @@ fn every_shipped_server_profile_is_explicit_dual_stack_with_a_unique_ula() {
 /// example that must not validate, and the reason it cannot simply join the loop above. Pinned
 /// so the day someone "fixes" the template by filling in a value, this says why not.
 /// (Audit 2026-08-03, P2.)
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "server"))]
 #[test]
 fn the_reality_template_refuses_its_own_placeholder() {
     let text = include_str!("../../release/reality-tls/server-reality.conf");

@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F342_OPENWRT_INI_LITERAL_ROUNDTRIP_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T18:19:21.213822+00:00",
+  "base_commit": "505c604cb9a432e7b0e062b8581f8e6011e356c3",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-openwrt-ini-roundtrip-20261006",
+  "raw_seal_sha256": "1f6ba620eff78b6115d6b1b65c690507fdfa2e71accea93421b6b0bab9c91c71",
+  "checks": [
+    {
+      "id": "inspector-build-initial",
+      "exit_code": 1,
+      "log": "inspector-build.log",
+      "note": "standalone parser module required existing log crate; link existing GNU host dependency without source edits"
+    },
+    {
+      "id": "inspector-build-qualified",
+      "command": "cd /var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006 && /root/.cargo/bin/rustc +1.97.0 --edition=2021 -A dead_code --extern log=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/deps/liblog-818c8074119d1eca.rlib ini-inspector.rs -o ini-inspector && sha256sum ini-inspector /var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/deps/liblog-818c8074119d1eca.rlib",
+      "exit_code": 0,
+      "log": "inspector-build-qualified.log"
+    },
+    {
+      "id": "busybox-baseline",
+      "command": "cd /var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006 && QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' QELI_OPENWRT_INI_INSPECTOR=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/ini-inspector QELI_OPENWRT_INI_INIT_FIXTURE=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/baseline/qeli-openwrt/files/qeli.init python3 -m unittest discover -s scripts -p 'test_openwrt_ini_roundtrip.py' -v",
+      "exit_code": 1,
+      "log": "busybox-baseline.log"
+    },
+    {
+      "id": "dash-baseline",
+      "command": "cd /var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006 && QELI_OPENWRT_TEST_SHELL=/bin/dash QELI_OPENWRT_INI_INSPECTOR=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/ini-inspector QELI_OPENWRT_INI_INIT_FIXTURE=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/baseline/qeli-openwrt/files/qeli.init python3 -m unittest discover -s scripts -p 'test_openwrt_ini_roundtrip.py' -v",
+      "exit_code": 1,
+      "log": "dash-baseline.log"
+    },
+    {
+      "id": "busybox-suite",
+      "command": "cd /var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006 && QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' QELI_OPENWRT_INI_INSPECTOR=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/ini-inspector QELI_OPENWRT_RC_COMMON_FIXTURE=/var/tmp/qeli-q31-secrets-upgrade-20261006/upstream-rc.common python3 -m unittest discover -s scripts -p 'test_openwrt_*.py' -v",
+      "exit_code": 0,
+      "log": "busybox-suite.log"
+    },
+    {
+      "id": "dash-suite",
+      "command": "cd /var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006 && QELI_OPENWRT_TEST_SHELL=/bin/dash QELI_OPENWRT_INI_INSPECTOR=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/ini-inspector QELI_OPENWRT_RC_COMMON_FIXTURE=/var/tmp/qeli-q31-secrets-upgrade-20261006/upstream-rc.common python3 -m unittest discover -s scripts -p 'test_openwrt_*.py' -v",
+      "exit_code": 0,
+      "log": "dash-suite.log"
+    },
+    {
+      "id": "luci",
+      "command": [
+        "node",
+        "scripts/test_openwrt_luci.js"
+      ],
+      "exit_code": 0,
+      "log": "luci.log"
+    },
+    {
+      "id": "recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "recipes.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    },
+    {
+      "id": "diff-staged",
+      "exit_code": 0,
+      "log": "diff-staged.log"
+    }
+  ],
+  "findings": {
+    "F342": "Bare UCI/volatile obfs_key string serialization changed values at shared parser; one checked quoted writer escapes double quotes only, used by optional/required/logging/password_file fields; bool/MTU/control policy unchanged."
+  },
+  "qualification": {
+    "busybox_ash_tests": 41,
+    "dash_tests": 41,
+    "breakdown": {
+      "init": 23,
+      "defaults": 9,
+      "saved_dispatcher": 5,
+      "roundtrip": 4
+    },
+    "roundtrip_operations_each_shell": 40,
+    "baseline_mismatches_each_shell": 13,
+    "luci_node": 11,
+    "recipes": 37,
+    "docs": "654 Markdown files,9 checks PASS",
+    "bindings_diff": "PASS",
+    "supplied_exact_git_inputs": 7,
+    "baseline_exact_git_inputs": 2,
+    "unchanged_compile_inputs": 432,
+    "rust_inspector_sha256": "afc80db31117d9db9b23ade768338e9e759172bfbaac2468be9c9127097d665f",
+    "linked_log_rlib_sha256": "964dd73fa5866bd5a5ee63db18acce206d6dc0235f3eab514e553c1d4a24d52e",
+    "saved_dispatcher_sha256": "dd8ae95c78d10cccf78cb487874f163ace4c1ee14dace05fe28393b19ba639e4",
+    "initial_failure": "missing log crate standalone compile rc1, qualified compile links existing exact GNU log rlib; parser source unchanged"
+  },
+  "limitations": {
+    "runtime": "Actual owned shell files and exact shared Rust parser via GNU inspector;UCI/procd/firewall models,saved dispatcher only,router USER_EXCLUDED.No real obfs handshake/daemon or ClientConfig semantic-validity claim.",
+    "build": "Core/native/artifacts/build recipes unchanged;fresh standalone parser fixture only,no Qeli/FFI/cross/firmware/ABI build.",
+    "historical": "All41 original dates/artifacts/evidence/status/acceptance_basis unchanged;acceptance and older supplements retained;Q29 FAIL/ENONET,Q30 exclusions/drainOPEN,D06 retained.",
+    "remaining": "Generation/ABA/last-check/firmware/cross qualification OPEN.",
+    "progress": "Q31 IN_PROGRESS28/37(75.7%),9remain,no whole checklist row closed.",
+    "operations": ".10 untouched,.11 owned execution,working services/binaries/network/sysctl unchanged;no deploy/push."
+  }
+}

@@ -127,7 +127,7 @@
     </div>
   </div>
 
-  <div class="err" id="err"></div>
+  <div class="err" id="err" role="alert"></div>
 
   <div class="field">
     <label for="username">Username</label>
@@ -152,6 +152,7 @@ const err = document.getElementById('err');
 const btn = document.getElementById('btn');
 const btnText = document.getElementById('btnText');
 const btnSpin = document.getElementById('btnSpin');
+let pendingLogin = false;
 
 function showErr(msg) { err.textContent = msg; err.classList.add('show'); }
 function busy(on) {
@@ -162,10 +163,13 @@ function busy(on) {
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (pendingLogin) return;
   err.classList.remove('show');
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   if (!username || !password) { showErr('Enter a username and password'); return; }
+  pendingLogin = true;
+  let signedIn = false;
   busy(true);
   try {
     const r = await fetch('api/login', {
@@ -173,16 +177,17 @@ form.addEventListener('submit', async (e) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
-    const d = await r.json().catch(() => ({}));
-    if (r.ok && d.ok) {
+    const d = await r.json().catch(() => null);
+    if (r.ok && d && d.ok === true) {
+      signedIn = true;
       window.location.href = '.';
       return;
     }
-    showErr(d.error || 'Sign in failed');
+    showErr(typeof d?.error === 'string' ? d.error : 'Sign in failed');
   } catch (ex) {
     showErr('Network error: ' + ex.message);
   } finally {
-    busy(false);
+    if (!signedIn) { pendingLogin = false; busy(false); }
   }
 });
 </script>

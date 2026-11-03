@@ -429,6 +429,39 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeStats(
     })
 }
 
+/// Read bounded metrics without occupying the control-plane event queue. Old native
+/// libraries omit this optional symbol; Kotlin reports telemetry as unavailable in that case.
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_TransportCore_nativeCarrierDiagnostics(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jbyteArray {
+    guard(
+        std::ptr::null_mut(),
+        || match super::ffi::carrier_diagnostics(handle as u64) {
+            Ok(payload) if payload.len() <= 64 * 1024 => env
+                .byte_array_from_slice(&payload)
+                .map(|array| array.into_raw())
+                .unwrap_or(std::ptr::null_mut()),
+            Ok(_) => {
+                let _ = env.throw_new(
+                    "java/lang/IllegalStateException",
+                    "carrier diagnostics exceeded the native size limit",
+                );
+                std::ptr::null_mut()
+            }
+            Err(code) => {
+                let _ = env.throw_new(
+                    "java/lang/IllegalStateException",
+                    format!("carrier diagnostics failed (rc={code})"),
+                );
+                std::ptr::null_mut()
+            }
+        },
+    )
+}
+
 /// Poll one control-plane event. `null` means only that the bounded queue is currently empty.
 /// Invalid handles, ABI failures, oversized payloads and panic-boundary failures raise a Java
 /// IllegalStateException, so Kotlin cannot silently confuse a broken native core with quiescence.

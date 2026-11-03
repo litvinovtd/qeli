@@ -13,12 +13,13 @@
 //! platform clients. ABI 1.14 distinguishes a reversible path-command rejection from an
 //! incomplete platform rollback that must terminate the generation. ABI 1.15 adds bounded
 //! server NOTICE and terminal KICK events without changing the fixed event header.
+//! ABI 1.16 adds the pure configuration document/schema and portable policy service.
 
 use self::path::{
     PathCandidate, PathCandidatePhase, PathCommand, PathCommandAction, PathCommandFailure,
     PathCommandOutcome, PathUpdate, PreparedPathCandidate, QueuedPathCandidate,
 };
-use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
+use crate::config::client::ClientConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use std::net::IpAddr;
@@ -31,12 +32,38 @@ use zeroize::Zeroize;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod buffer_pool;
 
+#[cfg(feature = "server")]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) mod pooled_record;
+
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) mod carrier;
+
+#[cfg_attr(
+    not(any(feature = "client", feature = "transport-core-ffi")),
+    allow(dead_code)
+)]
+pub(crate) mod client_uplink;
+
+// Compatibility-only builds expose an explicit unavailable snapshot, but do not
+// instantiate a client writer or its diagnostic accounting helpers.
+#[cfg_attr(not(any(feature = "client", test)), allow(dead_code))]
+pub(crate) mod tcp_carrier_metrics;
+
+#[cfg_attr(
+    not(any(feature = "client", feature = "transport-core-ffi")),
+    allow(dead_code)
+)]
+pub(crate) mod client_downlink;
+
+// System DNS/NSS admission and cancellation are shared by all client adapters.
+pub(crate) mod resolver;
 
 #[cfg(any(test, feature = "transport-core-ffi"))]
 pub(crate) mod diagnostic;
 
+#[cfg(feature = "transport-core-ffi")]
+mod config_jni;
 #[cfg(all(feature = "transport-core-ffi", target_pointer_width = "64"))]
 pub mod ffi;
 
@@ -89,14 +116,39 @@ pub(crate) mod wintun;
 pub(crate) mod runtime;
 // iOS moves packet batches through NEPacketTunnelFlow rather than the descriptor-backed TUN
 // writer, so the fd-only DropSink variants are intentionally dormant on that target.
+pub(crate) mod receive_queue;
 pub(crate) mod udp_batch;
 #[cfg_attr(target_os = "ios", allow(dead_code))]
 pub(crate) mod udp_buffer;
+#[cfg(any(feature = "client", test))]
 pub(crate) mod udp_client_framing;
 pub(crate) mod udp_receive;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) mod udp_source;
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod network;
+
+#[cfg(any(
+    test,
+    all(target_os = "linux", feature = "client"),
+    feature = "transport-core-ffi"
+))]
+pub(crate) mod tasks;
+
+#[cfg(any(
+    test,
+    all(
+        any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "macos",
+            target_os = "windows"
+        ),
+        any(feature = "client", feature = "transport-core-ffi")
+    )
+))]
+pub(crate) mod tun_workers;
 
 pub mod path;
 
@@ -119,7 +171,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 15;
+pub const ABI_VERSION_MINOR: u16 = 16;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -329,8 +381,8 @@ impl CoreError {
 #[cfg(unix)]
 struct AttachedTun {
     generation: u64,
-    // Kept opaque until the platform packet pump is connected. Ownership is already real:
-    // replacing the attachment, stopping or freeing the core closes this descriptor.
+    // Owns the descriptor until the platform packet pump takes it; replacing the
+    // attachment, stopping or freeing the core closes an unconsumed descriptor.
     _fd: std::os::fd::OwnedFd,
 }
 
@@ -457,6 +509,7 @@ impl NetworkDataPlaneFacts {
         }
     }
 
+    #[cfg(any(feature = "client", test))]
     pub(crate) fn set_negotiated_modes(
         &mut self,
         recordizer: Option<&crate::config::RecordizerConfig>,
@@ -888,11 +941,17 @@ pub struct CoreStats {
 /// receives a fresh owner, so a cancelled predecessor cannot write into its successor's totals.
 #[derive(Default)]
 pub(crate) struct RuntimeCounters {
+    #[cfg(any(feature = "client", test))]
+    pub tcp_carriers: tcp_carrier_metrics::Registry,
     pub tx_packets: portable_atomic::AtomicU64,
     pub tx_bytes: portable_atomic::AtomicU64,
     pub rx_packets: portable_atomic::AtomicU64,
     pub rx_bytes: portable_atomic::AtomicU64,
     pub udp: Arc<udp_buffer::UdpBufferCounters>,
+    #[cfg(any(feature = "client", test))]
+    pub tcp_uplink: client_uplink::UplinkCounters,
+    #[cfg(any(feature = "client", test))]
+    pub tcp_downlink: client_downlink::DownlinkCounters,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -954,6 +1013,9 @@ pub struct ClientCore {
     runtime_cancel: Arc<AtomicBool>,
     runtime_active: bool,
     runtime_counters: Option<Arc<RuntimeCounters>>,
+    /// One frozen bounded postmortem; no packet pools or task owners retained.
+    #[cfg(any(feature = "client", test))]
+    last_carrier_diagnostics: Option<Vec<u8>>,
     tx_packets: u64,
     tx_bytes: u64,
     rx_packets: u64,
@@ -1032,6 +1094,8 @@ impl ClientCore {
             runtime_cancel: Arc::new(AtomicBool::new(false)),
             runtime_active: false,
             runtime_counters: None,
+            #[cfg(any(feature = "client", test))]
+            last_carrier_diagnostics: None,
             tx_packets: 0,
             tx_bytes: 0,
             rx_packets: 0,
@@ -1081,7 +1145,7 @@ impl ClientCore {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[cfg(all(test, feature = "transport-core-ffi"))]
     pub(crate) fn device_id(&self) -> Option<&[u8; crate::protocol::DEVICE_ID_LEN]> {
         self.device_id.as_ref()
     }
@@ -1126,6 +1190,10 @@ impl ClientCore {
         self.runtime_cancel = Arc::new(AtomicBool::new(false));
         self.runtime_active = false;
         self.runtime_counters = None;
+        #[cfg(any(feature = "client", test))]
+        {
+            self.last_carrier_diagnostics = None;
+        }
         self.state = ClientState::Connecting;
         self.push_event(EventKind::StateChanged, None, None, None, None);
 
@@ -1625,8 +1693,6 @@ impl ClientCore {
     /// The caller retains ownership of `fd` and must keep it open until the returned receiver
     /// resolves or is cancelled by stop/free. The event sequence is the one-shot request ID;
     /// a platform must acknowledge exactly that value after its synchronous `protect(fd)` call.
-    // The native socket-opening handshake will consume this seam in the next migration slice.
-    // Until then only contract tests exercise the producer side; Android already binds the ACK.
     #[allow(dead_code)]
     pub(crate) fn request_socket_protect(
         &mut self,
@@ -2126,8 +2192,7 @@ impl ClientCore {
         Ok((sequence, receiver))
     }
 
-    /// Publish transport proof for a bound candidate. Stage 1 exposes the COMMIT contract,
-    /// but deliberately does not switch a live socket; TCP/UDP proof producers land later.
+    /// Publish transport proof for a bound candidate and request the platform COMMIT.
     #[allow(dead_code)]
     pub(crate) fn candidate_path_validated(
         &mut self,
@@ -2396,6 +2461,7 @@ impl ClientCore {
     /// the platform adapter still has to observe. Native FFI pollers continue to use `poll_event`.
     #[cfg(any(test, all(feature = "experimental-roaming", target_os = "linux")))]
     #[cfg_attr(not(feature = "experimental-roaming"), allow(dead_code))]
+    #[cfg(any(feature = "client", test))]
     pub(crate) fn poll_path_event(&mut self) -> Option<ClientEvent> {
         let position = self
             .events
@@ -2470,6 +2536,23 @@ impl ClientCore {
         self.push_event(EventKind::StateChanged, None, None, None, None);
     }
 
+    pub fn carrier_diagnostics_json(&self) -> Vec<u8> {
+        #[cfg(any(feature = "client", test))]
+        {
+            if let Some(runtime) = &self.runtime_counters {
+                return runtime.tcp_carriers.diagnostics_json();
+            }
+            if let Some(finished) = &self.last_carrier_diagnostics {
+                return finished.clone();
+            }
+            tcp_carrier_metrics::unavailable_json(true)
+        }
+        #[cfg(not(any(feature = "client", test)))]
+        {
+            tcp_carrier_metrics::unavailable_json(false)
+        }
+    }
+
     pub fn stats(&self) -> CoreStats {
         let runtime = self.runtime_counters.as_ref();
         let udp = runtime.map(|c| c.udp.snapshot());
@@ -2513,9 +2596,8 @@ impl ClientCore {
         }
     }
 
-    // The Linux transport migration will consume the parsed config through this crate-only
-    // accessor. Keep credentials away from the public API while the data plane is still
-    // being moved behind this state machine.
+    // Shared transport adapters consume parsed config through this internal accessor;
+    // credentials stay out of the public API.
     #[allow(dead_code)]
     pub(crate) fn config(&self) -> &ClientConfig {
         &self.config
@@ -2631,28 +2713,8 @@ impl ClientCore {
 }
 
 pub(crate) fn parse_config(config_text: &str) -> Result<ClientConfig, CoreError> {
-    let text = config_text.trim();
-    if text.is_empty() {
-        return Err(CoreError::InvalidConfig("configuration is empty".into()));
-    }
-    let config = if text.starts_with("qeli://") {
-        let mut link = ClientLink::from_uri(text)
-            .map_err(|error| CoreError::InvalidConfig(error.to_string()))?;
-        let config = ClientConfig::from_link(&link);
-        // `from_link` currently clones its input. Wipe the short-lived duplicate so the
-        // new shared core does not extend the lifetime of credentials merely by accepting
-        // the mobile import format. The caller still owns and must clear the source buffer.
-        link.pass.zeroize();
-        link.obfs_key.zeroize();
-        config
-    } else {
-        parse_client_config_strict(text)
-            .map_err(|error| CoreError::InvalidConfig(error.to_string()))?
-    };
-    config
-        .validate()
-        .map_err(|error| CoreError::InvalidConfig(error.to_string()))?;
-    Ok(config)
+    crate::config::editor::parse_runtime(config_text)
+        .map_err(|error| CoreError::InvalidConfig(error.to_string()))
 }
 
 #[cfg(test)]

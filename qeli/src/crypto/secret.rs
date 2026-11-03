@@ -41,67 +41,39 @@ pub const PANEL_KEY_PATH_LEGACY: &str = "/etc/qeli/panel-secret.key";
 
 /// Load the 32-byte panel key, generating+persisting it (0600) if absent.
 pub fn load_or_create_key(path: &str) -> anyhow::Result<[u8; 32]> {
-    use std::path::Path;
-    // Migration: if the new location has no key but the legacy one does, adopt it rather
-    // than generating a fresh key — a new key would make every stored `password_enc`
-    // undecryptable, i.e. silently break "re-issue this user's link".
-    if path == PANEL_KEY_PATH && !Path::new(path).exists() {
-        if let Ok(b) = std::fs::read(PANEL_KEY_PATH_LEGACY) {
-            if b.len() == 32 {
-                let mut k = [0u8; 32];
-                k.copy_from_slice(&b);
-                if let Some(parent) = Path::new(path).parent() {
-                    std::fs::create_dir_all(parent).ok();
-                }
-                match crate::util::write_atomic_private(path, &k) {
-                    Ok(()) => log::info!(
-                        "panel key moved {PANEL_KEY_PATH_LEGACY} -> {PANEL_KEY_PATH} (out of the \
-                         backed-up config directory). Delete the old file once you have \
-                         confirmed the panel still re-issues links."
-                    ),
-                    Err(e) => log::warn!(
-                        "panel key: could not write {PANEL_KEY_PATH} ({e}) — still using \
-                         {PANEL_KEY_PATH_LEGACY}"
-                    ),
-                }
-                return Ok(k);
-            }
-        }
+    load_or_create_key_at(
+        std::path::Path::new(path),
+        (path == PANEL_KEY_PATH).then(|| std::path::Path::new(PANEL_KEY_PATH_LEGACY)),
+    )
+}
+
+fn load_or_create_key_at(
+    path: &std::path::Path,
+    legacy: Option<&std::path::Path>,
+) -> anyhow::Result<[u8; 32]> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
     }
-    // `exists → generate → write` is a race: two processes starting together (supervisor
-    // and worker, or a CLI alongside a running server) both saw "absent", both generated,
-    // and the later write won — leaving the earlier one holding a key that is no longer
-    // on disk. Everything sealed under it (re-issuable passwords, panel sessions) then
-    // fails to decrypt. Serialize the create path and re-check inside the lock.
-    // Take the lock ONCE and do create-or-read entirely inside it.
-    //
-    // The previous shape was `if !exists { lock; create }` followed by a second
-    // `if exists { read } else { generate + write }` — and that trailing `else` was an
-    // UNLOCKED generate/write path, reintroducing exactly the race the lock exists to
-    // prevent. It is reachable whenever the file disappears between the two `exists()`
-    // calls (a key rotation, a parallel cleanup of /etc/qeli), and then two processes can
-    // generate and write concurrently, last writer wins, and whatever the loser sealed —
-    // re-issuable passwords, panel sessions — can never be decrypted again. It also set
-    // permissions differently from the locked branch, which relies on
-    // `write_atomic_private`. (Audit 2026-07-27, R8.)
-    if let Some(parent) = Path::new(path).parent() {
-        std::fs::create_dir_all(parent).ok();
-    }
+    // Modern load, migration and generation share one lock and re-check. Migration
+    // must never replace a modern key published while this process was waiting.
     let _lock = crate::util::FileLock::acquire(path)?;
-    if Path::new(path).exists() {
-        let b = std::fs::read(path)?;
-        if b.len() != 32 {
-            anyhow::bail!("panel secret key {} has wrong length {}", path, b.len());
+    if let Some(key) = super::key_file::read(path)? {
+        return Ok(*key);
+    }
+    if let Some(legacy) = legacy {
+        if let Some(key) = super::key_file::read(legacy)? {
+            match crate::util::write_atomic_private(path, &key[..]) {
+                Ok(()) => log::info!("panel key moved {} -> {} (outside portable backups); confirm reissue before removing the old file", legacy.display(), path.display()),
+                Err(error) => log::warn!("panel key: could not write {} ({error}); still using {}", path.display(), legacy.display()),
+            }
+            return Ok(*key);
         }
-        let mut k = [0u8; 32];
-        k.copy_from_slice(&b);
-        return Ok(k);
     }
     use rand::prelude::*;
-    let mut k = [0u8; 32];
-    rand::rng().fill_bytes(&mut k);
-    crate::util::write_atomic_private(path, &k)?;
-    Ok(k)
+    let mut key = zeroize::Zeroizing::new([0u8; 32]);
+    rand::rng().fill_bytes(&mut *key);
+    crate::util::write_atomic_private(path, &key[..])?;
+    Ok(*key)
 }
 
 /// Encrypt `plaintext` → `base64(nonce ‖ ct)`.
@@ -137,17 +109,76 @@ pub fn decrypt(key: &[u8; 32], b64: &str) -> anyhow::Result<String> {
 
 /// Convenience: encrypt with the default panel key (creating it if needed).
 pub fn encrypt_password(plaintext: &str) -> anyhow::Result<String> {
-    encrypt(&load_or_create_key(PANEL_KEY_PATH)?, plaintext)
+    encrypt(
+        &zeroize::Zeroizing::new(load_or_create_key(PANEL_KEY_PATH)?),
+        plaintext,
+    )
 }
 
 /// Convenience: decrypt with the default panel key.
 pub fn decrypt_password(b64: &str) -> anyhow::Result<String> {
-    decrypt(&load_or_create_key(PANEL_KEY_PATH)?, b64)
+    decrypt(
+        &zeroize::Zeroizing::new(load_or_create_key(PANEL_KEY_PATH)?),
+        b64,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_waits_for_modern_lock_and_keeps_the_winner() {
+        use std::sync::mpsc;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-panel-migrate-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let modern = dir.join("modern.key");
+        let legacy = dir.join("legacy.key");
+        std::fs::write(&legacy, [3; 32]).unwrap();
+        let lock = crate::util::FileLock::acquire(&modern).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let m = modern.clone();
+        let l = legacy.clone();
+        let thread =
+            std::thread::spawn(move || tx.send(load_or_create_key_at(&m, Some(&l))).unwrap());
+        assert!(rx
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .is_err());
+        crate::util::write_atomic_private(&modern, &[8; 32]).unwrap();
+        drop(lock);
+        assert_eq!(
+            rx.recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap()
+                .unwrap(),
+            [8; 32]
+        );
+        thread.join().unwrap();
+        assert_eq!(std::fs::read(&modern).unwrap(), [8; 32]);
+        std::fs::remove_file(&modern).unwrap();
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let m = modern.clone();
+                let l = legacy.clone();
+                std::thread::spawn(move || load_or_create_key_at(&m, Some(&l)).unwrap())
+            })
+            .collect();
+        for worker in workers {
+            assert_eq!(worker.join().unwrap(), [3; 32]);
+        }
+        assert_eq!(std::fs::read(&modern).unwrap(), [3; 32]);
+        std::fs::remove_file(&modern).unwrap();
+        std::fs::write(&legacy, b"damaged").unwrap();
+        assert!(load_or_create_key_at(&modern, Some(&legacy)).is_err());
+        assert!(
+            !modern.exists(),
+            "corrupt legacy must not silently replace the encryption key"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn encrypt_decrypt_roundtrip() {

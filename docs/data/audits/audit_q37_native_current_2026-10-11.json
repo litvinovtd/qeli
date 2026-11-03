@@ -1,0 +1,59 @@
+{
+  "status": "CURRENT_DESKTOP_NATIVE_REFRESH_SCOPED_PASS_ANDROID_AND_FINAL_CERT_PENDING",
+  "identity": {
+    "source_digest": "c414d270a7fa9f474afbf83ad20848d462b2bc691c773616f0811a6877befb42",
+    "source_commit": "de087865cf65609223a0a0e3970badd47e7116ed",
+    "source_dirty": false,
+    "source_date_epoch": 1791738254
+  },
+  "input_count": 327,
+  "test_only_inputs": 12,
+  "artifacts": {
+    "native-libs/windows-x64/qeli.dll": {
+      "sha256": "6a7b33da1932c1f3934d229e4c4a626c244741f9302f6086290ae0f1fa58011a",
+      "bytes": 5861888,
+      "pass_a": "desktop-a/artifacts/qeli.dll",
+      "pass_b": "desktop-b/artifacts/qeli.dll"
+    },
+    "native-libs/macos-universal/libqeli.dylib": {
+      "sha256": "0922fe11f1df7c962a9e1a65a5d9268ccd78f01bbb8f559bc49c310d50eaa940",
+      "bytes": 13407312,
+      "pass_a": "desktop-a/artifacts/libqeli.dylib",
+      "pass_b": "desktop-b/artifacts/libqeli.dylib"
+    }
+  },
+  "windows_abi_checks": 22,
+  "exact_api_exports_per_target": 33,
+  "counter_regressions_passed": 2,
+  "original_missing_test_inputs_failure_retained": true,
+  "collection_sha256": "4e5f4bf4335d8e95e3a296a8ac62402b5e3a619e458f02d2130e541d7b7c6018",
+  "retained_host_gate": "FAIL",
+  "retained_changed_fields": [
+    "legacy4"
+  ],
+  "physical_platform_runtime_qualified": false,
+  "android_current_build_qualified": false,
+  "libraries_published": true,
+  "packet_seal_sha256": "3297691c97061b633be4071630cd520dabe4663c2ebc5dc80a067bfa87b5958b",
+  "archive": {
+    "sha256": "acc6171dc1e5e2b4822d2c12336776e9284acb0a74d90853b3e7c64eb4d68b66",
+    "cookie": "2049:322049",
+    "bytes": 20981357
+  },
+  "archived_files": 407,
+  "packet_cleanup_status": "OWNED_NATIVE_ROOT_ARCHIVED_REMOVED_TEMPORARY_SWAP_RESTORED",
+  "retained_cleanup_host_gate": "FAIL",
+  "retained_cleanup_changed_fields": [
+    "legacy4"
+  ],
+  "published": {
+    "native-libs/windows-x64/qeli.dll": "6a7b33da1932c1f3934d229e4c4a626c244741f9302f6086290ae0f1fa58011a",
+    "qeli-win/QeliWin/native/qeli.dll": "6a7b33da1932c1f3934d229e4c4a626c244741f9302f6086290ae0f1fa58011a",
+    "native-libs/macos-universal/libqeli.dylib": "0922fe11f1df7c962a9e1a65a5d9268ccd78f01bbb8f559bc49c310d50eaa940",
+    "qeli-mac/QeliMac/native/libqeli.dylib": "0922fe11f1df7c962a9e1a65a5d9268ccd78f01bbb8f559bc49c310d50eaa940"
+  },
+  "desktop_evidence_sha256": "a29b6dbfddcc5cac18897ba377a5702133874aea3d4bbace00a5fdf72af5915b",
+  "global_provenance_updated": false,
+  "global_done": 30,
+  "global_total": 37
+}

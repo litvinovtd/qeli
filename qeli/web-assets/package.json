@@ -4,15 +4,19 @@
   "version": "0.0.0",
   "description": "Build pipeline for the qeli web panel's self-hosted CSS (no runtime CDN). Generated app.css is committed under ../src/web/assets/ and embedded into the binary; this package is only needed to regenerate it.",
   "scripts": {
-    "build": "tailwindcss -c tailwind.config.js -i input.css -o ../src/web/assets/app.css --minify",
-    "watch": "tailwindcss -c tailwind.config.js -i input.css -o ../src/web/assets/app.css --watch"
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch"
   },
   "devDependencies": {
-    "tailwindcss": "^3.4.17"
+    "tailwindcss": "4.3.3",
+    "@tailwindcss/node": "4.3.3",
+    "@tailwindcss/oxide": "4.3.3"
   },
-  "//overrides": "postcss arrives transitively through tailwindcss, which still accepts the vulnerable range, so it cannot be raised by bumping tailwind. Pinned here rather than added to devDependencies: it is not something this package uses directly, and declaring it as a dependency would misstate what this build needs. GHSA-r28c-9q8g-f849 (path traversal via sourceMappingURL) does not reach us — postcss only ever parses our own input.css at build time, never untrusted CSS — but a transitive dev package is cheap to keep current.",
+  "//overrides": "Pinned transitive build dependencies. The public compiler API avoids the CLI/watcher dependency chain; see the Q34 qualification report.",
   "overrides": {
     "postcss": "^8.5.18",
-    "nanoid": "^3.3.17"
+    "nanoid": "^3.3.17",
+    "postcss-selector-parser": "7.1.6",
+    "source-map-js": "1.2.2"
   }
 }

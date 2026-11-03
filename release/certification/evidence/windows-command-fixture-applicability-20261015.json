@@ -1,0 +1,15 @@
+{
+  "status": "WINDOWS_COMMAND_FIXTURE_ONLY_APPLICABILITY",
+  "prior_commit": "8e82bbdfc6e01837eceeae22e5471eb3fbdb4945",
+  "fixture_commit": "d5ee52d65f51612fe5787a70403e90ec654eca89",
+  "source_digest": "b01d9c90da3928d374c5ec9990a924e63ff7f9f8c009c0368ff1310fbb95e35d",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "scope": "Windows command self-test positive pipe fixture only; production WindowsCommand, all runtime paths, Rust/native and Linux harness unchanged.12 exact-method local assertions passed; hosted fix CI pending. Original Linux20 timestamps/artifacts/qualification rows and21physical statuses retained. Not new Linux or Windows network runtime.",
+  "fixture_evidence": "release/certification/evidence/windows-command-fixture-20261015.json",
+  "exact_source_delta": {
+    "qeli-win/QeliWin/Service/ServiceControlSelfTest.cs": "53f2a31b5c05876a3b6938f9417b78765504db219fd51085f6f6f11ffbf575f0"
+  },
+  "original_failed_CI_preserved": true,
+  "static_assets_source_commit": "8e82bbdfc6e01837eceeae22e5471eb3fbdb4945",
+  "static_assets_unchanged": true
+}

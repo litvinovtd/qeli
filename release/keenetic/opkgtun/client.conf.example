@@ -28,6 +28,9 @@ dev = opkgtun0
 # (через wan.d-хук).
 # Без dev_attach ndm залипает в connected:no и не маршрутит через интерфейс.
 dev_attach = true
+# НЕ добавляй tun.tx_queue_len: очередью внешнего opkgtun0 владеет ndm.
+# Дефолт 1000 для создаваемого Qeli TUN здесь не применяется; явное значение
+# этого ключа в обновлённом Linux-клиенте несовместимо с dev_attach=true.
 # Маршрутами и NAT владеет ndm — свой шлюз/NAT НЕ включаем.
 gateway = false
 dns = off

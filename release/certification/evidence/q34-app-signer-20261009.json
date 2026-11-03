@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_APP_SIGNER_ADMISSION_SCOPED",
+  "source_digest": "d0e653d7a168e13035ee8557f3543b2ead1a59499c17677a0986e810a8413543",
+  "qualification_source_commit": "26ddd9bde87a095e6277dd7de2d592a8ec80699a",
+  "product_source_commit": "26ddd9bde87a095e6277dd7de2d592a8ec80699a",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F496/Q34-F050"
+  ],
+  "verification": {
+    "baseline": {
+      "returncode": 1,
+      "methods": 8,
+      "expected_failures": 3,
+      "command": [
+        "C:/Python314/python.exe",
+        "-X",
+        "utf8",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_macos_app_signer.py",
+        "-v"
+      ],
+      "scope": "Actual old Bash app packager, filesystem and tar; controlled compiler/signers; no real signatures/Mac runtime"
+    },
+    "windows": {
+      "status": "PASS",
+      "methods": 57,
+      "checks": [
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_macos_app_signer.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "output": "test_codesign_failure_keeps_previous_archive (test_macos_app_signer.AppSignerTests.test_codesign_failure_keeps_previous_archive) ... ok\r\ntest_codesign_is_preferred_when_both_are_available (test_macos_app_signer.AppSignerTests.test_codesign_is_preferred_when_both_are_available) ... ok\r\ntest_codesign_path_signs_before_actual_tar_packaging (test_macos_app_signer.AppSignerTests.test_codesign_path_signs_before_actual_tar_packaging) ... ok\r\ntest_missing_signer_precedes_native_bootstrap (test_macos_app_signer.AppSignerTests.test_missing_signer_precedes_native_bootstrap) ... ok\r\ntest_missing_signer_refuses_before_build_and_keeps_outputs (test_macos_app_signer.AppSignerTests.test_missing_signer_refuses_before_build_and_keeps_outputs) ... ok\r\ntest_rcodesign_failure_keeps_previous_archive (test_macos_app_signer.AppSignerTests.test_rcodesign_failure_keeps_previous_archive) ... ok\r\ntest_rcodesign_path_signs_before_actual_tar_packaging (test_macos_app_signer.AppSignerTests.test_rcodesign_path_signs_before_actual_tar_packaging) ... ok\r\ntest_unknown_arch_refuses_before_any_build_tool (test_macos_app_signer.AppSignerTests.test_unknown_arch_refuses_before_any_build_tool) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 8 tests in 4.204s\r\n\r\nOK\r\n"
+        },
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_native_recipes.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "output": "=== pass a: Windows x86_64-pc-windows-gnu ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[win/a] rc=0 in 0s\r\n=== pass a: macOS universal2-apple-darwin ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[mac/a] rc=0 in 0s\r\n=== pass a: Android arm64-v8a + x86_64 ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[android/a] rc=0\r\ntest_active_release_scenarios_are_checkout_and_tool_path_neutral (test_native_recipes.NativeRecipeTests.test_active_release_scenarios_are_checkout_and_tool_path_neutral) ... ok\r\ntest_android_e2e_uses_current_abi_strict_ssh_and_exact_restore (test_native_recipes.NativeRecipeTests.test_android_e2e_uses_current_abi_strict_ssh_and_exact_restore) ... ok\r\ntest_apk_rebuild_uses_strict_shared_lab_connection (test_native_recipes.NativeRecipeTests.test_apk_rebuild_uses_strict_shared_lab_connection) ... ok\r\ntest_authoritative_session_teardown_joins_admission_transaction (test_native_recipes.NativeRecipeTests.test_authoritative_session_teardown_joins_admission_transaction) ... ok\r\ntest_client_subnet_admission_is_non_destructive_and_fail_closed (test_native_recipes.NativeRecipeTests.test_client_subnet_admission_is_non_destructive_and_fail_closed) ... ok\r\ntest_config_matrix_uses_strict_server_client_and_users_validation (test_native_recipes.NativeRecipeTests.test_config_matrix_uses_strict_server_client_and_users_validation) ... ok\r\ntest_desktop_ipv6_merge_keeps_persist_tun_plan_guard (test_native_recipes.NativeRecipeTests.test_desktop_ipv6_merge_keeps_persist_tun_plan_guard) ... ok\r\ntest_failed_tcp_and_udp_admission_release_restored_device_lease (test_native_recipes.NativeRecipeTests.test_failed_tcp_and_udp_admission_release_restored_device_lease) ... ok\r\ntest_fuzz_harnesses_use_the_renamed_library_crate (test_native_recipes.NativeRecipeTests.test_fuzz_harnesses_use_the_renamed_library_crate) ... ok\r\ntest_gui_connection_logs_include_sanitized_username (test_native_recipes.NativeRecipeTests.test_gui_connection_logs_include_sanitized_username) ... ok\r\ntest_independent_artifacts_still_have_distinct_storage (test_native_recipes.NativeRecipeTests.test_independent_artifacts_still_have_distinct_storage) ... ok\r\ntest_installer_e2e_fails_closed_on_any_red_case (test_native_recipes.NativeRecipeTests.test_installer_e2e_fails_closed_on_any_red_case) ... ok\r\ntest_installer_formats_ipv6_authorities_and_public_panel_bind (test_native_recipes.NativeRecipeTests.test_installer_formats_ipv6_authorities_and_public_panel_bind) ... ok\r\ntest_installer_selects_and_verifies_the_host_deb_architecture (test_native_recipes.NativeRecipeTests.test_installer_selects_and_verifies_the_host_deb_architecture) ... ok\r\ntest_installer_strictly_validates_the_final_mutated_config_before_restart (test_native_recipes.NativeRecipeTests.test_installer_strictly_validates_the_final_mutated_config_before_restart) ... ok\r\ntest_ios_retained_wire_primitives_are_test_only (test_native_recipes.NativeRecipeTests.test_ios_retained_wire_primitives_are_test_only) ... ok\r\ntest_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop (test_native_recipes.NativeRecipeTests.test_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop) ... ok\r\ntest_keenetic_recipes_resolve_the_current_checkout (test_native_recipes.NativeRecipeTests.test_keenetic_recipes_resolve_the_current_checkout) ... ok\r\ntest_lab_gate_syncs_integration_tests_and_their_release_fixture (test_native_recipes.NativeRecipeTests.test_lab_gate_syncs_integration_tests_and_their_release_fixture) ... ok\r\ntest_linux_matrix_uses_the_configured_management_route_end_to_end (test_native_recipes.NativeRecipeTests.test_linux_matrix_uses_the_configured_management_route_end_to_end) ... ok\r\ntest_macos_install_name_does_not_contain_build_pass_path (test_native_recipes.NativeRecipeTests.test_macos_install_name_does_not_contain_build_pass_path) ... ok\r\ntest_macos_packaging_batches_signing_and_accepts_adhoc_runtime_flag (test_native_recipes.NativeRecipeTests.test_macos_packaging_batches_signing_and_accepts_adhoc_runtime_flag) ... ok\r\ntest_macos_packaging_uses_checked_shared_lab_connection (test_native_recipes.NativeRecipeTests.test_macos_packaging_uses_checked_shared_lab_connection) ... ok\r\ntest_mobile_connection_properties_use_the_live_generation_snapshot (test_native_recipes.NativeRecipeTests.test_mobile_connection_properties_use_the_live_generation_snapshot) ... ok\r\ntest_mobile_update_requests_cannot_migrate_to_the_physical_network (test_native_recipes.NativeRecipeTests.test_mobile_update_requests_cannot_migrate_to_the_physical_network) ... ok\r\ntest_native_builds_use_private_sources_and_one_job (test_native_recipes.NativeRecipeTests.test_native_builds_use_private_sources_and_one_job) ... ok\r\ntest_native_client_recipes_do_not_enable_the_server_stack (test_native_recipes.NativeRecipeTests.test_native_client_recipes_do_not_enable_the_server_stack) ... ok\r\ntest_native_library_target_avoids_qeli_executable_pdb_collision (test_native_recipes.NativeRecipeTests.test_native_library_target_avoids_qeli_executable_pdb_collision) ... ok\r\ntest_native_recipes_require_the_abi_1_12_roaming_exports (test_native_recipes.NativeRecipeTests.test_native_recipes_require_the_abi_1_12_roaming_exports) ... ok\r\ntest_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys (test_native_recipes.NativeRecipeTests.test_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys) ... ok\r\ntest_rcodesign_textual_error_is_not_accepted_with_zero_exit (test_native_recipes.NativeRecipeTests.test_rcodesign_textual_error_is_not_accepted_with_zero_exit) ... ok\r\ntest_release_checksum_is_lf_only_and_installer_handles_crlf_defensively (test_native_recipes.NativeRecipeTests.test_release_checksum_is_lf_only_and_installer_handles_crlf_defensively) ... ok\r\ntest_release_server_requires_jemalloc_but_client_builds_stay_isolated (test_native_recipes.NativeRecipeTests.test_release_server_requires_jemalloc_but_client_builds_stay_isolated) ... ok\r\ntest_release_stripping_is_cross_target_safe (test_native_recipes.NativeRecipeTests.test_release_stripping_is_cross_target_safe) ... ok\r\ntest_retired_root_ssh_scenarios_exit_before_network_or_mutation (test_native_recipes.NativeRecipeTests.test_retired_root_ssh_scenarios_exit_before_network_or_mutation) ... ok\r\ntest_router_recipes_skip_unused_ffi_crate_types_and_fail_closed (test_native_recipes.NativeRecipeTests.test_router_recipes_skip_unused_ffi_crate_types_and_fail_closed) ... ok\r\ntest_tracked_python_scenarios_never_silently_trust_a_new_ssh_host (test_native_recipes.NativeRecipeTests.test_tracked_python_scenarios_never_silently_trust_a_new_ssh_host) ... ok\r\ntest_udp_idle_reaper_joins_admission_before_releasing_device_lease (test_native_recipes.NativeRecipeTests.test_udp_idle_reaper_joins_admission_before_releasing_device_lease) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 38 tests in 1.622s\r\n\r\nOK\r\n"
+        },
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_check_workflows.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "output": "test_corrupt_archive_is_rejected_before_parsing (test_check_workflows.WorkflowGateTests.test_corrupt_archive_is_rejected_before_parsing) ... ok\r\ntest_failed_atomic_install_removes_temporary_file (test_check_workflows.WorkflowGateTests.test_failed_atomic_install_removes_temporary_file) ... ok\r\ntest_missing_or_empty_inventory_refuses_before_network (test_check_workflows.WorkflowGateTests.test_missing_or_empty_inventory_refuses_before_network) ... ok\r\ntest_network_failure_is_failure (test_check_workflows.WorkflowGateTests.test_network_failure_is_failure) ... ok\r\ntest_new_yaml_and_yml_are_included (test_check_workflows.WorkflowGateTests.test_new_yaml_and_yml_are_included) ... ok\r\ntest_nonzero_lint_and_timeout_are_failures (test_check_workflows.WorkflowGateTests.test_nonzero_lint_and_timeout_are_failures) ... ok\r\ntest_unknown_cached_binary_is_not_overwritten_or_executed (test_check_workflows.WorkflowGateTests.test_unknown_cached_binary_is_not_overwritten_or_executed) ... ok\r\ntest_unsupported_platform_is_rejected (test_check_workflows.WorkflowGateTests.test_unsupported_platform_is_rejected) ... ok\r\ntest_valid_archive_installs_and_reuses_without_network (test_check_workflows.WorkflowGateTests.test_valid_archive_installs_and_reuses_without_network) ... ok\r\ntest_workflow_directory_named_yaml_is_rejected (test_check_workflows.WorkflowGateTests.test_workflow_directory_named_yaml_is_rejected) ... ok\r\ntest_wrong_extracted_binary_is_rejected (test_check_workflows.WorkflowGateTests.test_wrong_extracted_binary_is_rejected) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 11 tests in 0.073s\r\n\r\nOK\r\n"
+        },
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "scripts/check_workflows.py",
+            "--actionlint",
+            "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-fuzz-context-20261009\\actionlint.exe"
+          ],
+          "returncode": 0,
+          "output": "actionlint 1.7.12: 4 workflows PASS (Actions semantics only)\r\n"
+        }
+      ],
+      "bash_syntax": "PASS",
+      "scope": "Windows real Bash/files/tar with controlled compiler/signers; no actual Mac signing/runtime",
+      "suite_method_counts": [
+        8,
+        38,
+        11
+      ]
+    },
+    "linux": {
+      "status": "PASS_FINAL8_LINUX_METHODS",
+      "tests": 8,
+      "producer_commit": "1f4b9098b220716db5d2301a11e6131ff88401e1",
+      "source_archive_sha256": "519e80100c68a3259e4775589479826c98aed2d4ae02c6c819ac282c6ca3fb6f",
+      "qualified_files_sha256": {
+        "scripts/test_macos_app_signer.py": "6f09b6e4106ef08b66fdbe1d73fc2c2e6d1c5c6d04de14510d3abe95199ca9a9",
+        "qeli-mac/build_app.sh": "a8be51e844be4e037d1d578fe0d3fbf01e91fb9eced107fb98fd83ad08a27fd4"
+      },
+      "cleanup": {
+        "status": "PASS_KNOWN_FILES_SHA_CLEANUP",
+        "root": "/var/tmp/qeli-app-signer.zQdzUd3O",
+        "files": 3,
+        "process_fd_references": [],
+        "mount_guard": "PASS"
+      },
+      "original_service_unchanged": true,
+      "commands": [
+        {
+          "command": "systemctl is-active qeli; systemctl show qeli -p MainPID; sha256sum /usr/bin/qeli; pgrep -x qeli | sort -n",
+          "returncode": 0,
+          "log": "linux-before.log"
+        },
+        {
+          "command": "mktemp -d /var/tmp/qeli-app-signer.XXXXXXXX",
+          "returncode": 0,
+          "log": "linux-root.log"
+        },
+        {
+          "command": "sha256sum /var/tmp/qeli-app-signer.zQdzUd3O/source.tar",
+          "returncode": 0,
+          "log": "linux-upload-sha.log"
+        },
+        {
+          "command": "tar -xf /var/tmp/qeli-app-signer.zQdzUd3O/source.tar -C /var/tmp/qeli-app-signer.zQdzUd3O",
+          "returncode": 0,
+          "log": "linux-extract.log"
+        },
+        {
+          "command": "cd /var/tmp/qeli-app-signer.zQdzUd3O && python3 -B -m unittest discover -s scripts -p 'test_macos_app_signer.py' -v",
+          "returncode": 0,
+          "log": "linux-8-tests.log"
+        },
+        {
+          "command": "python3 -B -c 'from pathlib import Path\nimport os,re,json,hashlib\nroot=Path('\"'\"'/var/tmp/qeli-app-signer.zQdzUd3O'\"'\"');files={'\"'\"'scripts/test_macos_app_signer.py'\"'\"': '\"'\"'6f09b6e4106ef08b66fdbe1d73fc2c2e6d1c5c6d04de14510d3abe95199ca9a9'\"'\"', '\"'\"'qeli-mac/build_app.sh'\"'\"': '\"'\"'a8be51e844be4e037d1d578fe0d3fbf01e91fb9eced107fb98fd83ad08a27fd4'\"'\"', '\"'\"'source.tar'\"'\"': '\"'\"'519e80100c68a3259e4775589479826c98aed2d4ae02c6c819ac282c6ca3fb6f'\"'\"'}\nassert root.resolve()==root and root.parent==Path('\"'\"'/var/tmp'\"'\"') and re.fullmatch(r'\"'\"'qeli-app-signer\\.[A-Za-z0-9]{8}'\"'\"',root.name)\nentries=list(root.rglob('\"'\"'*'\"'\"'))\nassert {f.relative_to(root).as_posix() for f in entries}==set(files)|{'\"'\"'scripts'\"'\"','\"'\"'qeli-mac'\"'\"'}\nassert not any(f.is_symlink() for f in entries)\nfor name,sha in files.items():\n f=root/name;assert f.is_file()\n with f.open('\"'\"'rb'\"'\"') as incoming:assert hashlib.file_digest(incoming,'\"'\"'sha256'\"'\"').hexdigest()==sha\nusers=[]\nfor proc in Path('\"'\"'/proc'\"'\"').iterdir():\n if not proc.name.isdigit() or int(proc.name)==os.getpid():continue\n try:entries=[proc/name for name in ['\"'\"'cwd'\"'\"','\"'\"'exe'\"'\"','\"'\"'root'\"'\"']]+list((proc/'\"'\"'fd'\"'\"').iterdir())\n except OSError:continue\n for f in entries:\n  try:link=os.readlink(f).removesuffix('\"'\"' (deleted)'\"'\"')\n  except OSError:continue\n  if link==str(root) or link.startswith(str(root)+'\"'\"'/'\"'\"'):users.append([proc.name,f.name,link])\nassert not users,users\nfor line in Path('\"'\"'/proc/self/mountinfo'\"'\"').read_text().splitlines():\n point=re.sub(r'\"'\"'\\\\([0-7]{3})'\"'\"',lambda m:chr(int(m[1],8)),line.split()[4]);assert point!=str(root) and not point.startswith(str(root)+'\"'\"'/'\"'\"'),point\nfor name in files:(root/name).unlink()\nfor name in ['\"'\"'scripts'\"'\"','\"'\"'qeli-mac'\"'\"']:(root/name).rmdir()\nroot.rmdir()\nprint(json.dumps(dict(status='\"'\"'PASS_KNOWN_FILES_SHA_CLEANUP'\"'\"',root=str(root),files=len(files),process_fd_references=users,mount_guard='\"'\"'PASS'\"'\"')))\n'",
+          "returncode": 0,
+          "log": "linux-cleanup.log"
+        },
+        {
+          "command": "systemctl is-active qeli; systemctl show qeli -p MainPID; sha256sum /usr/bin/qeli; pgrep -x qeli | sort -n",
+          "returncode": 0,
+          "log": "linux-after.log"
+        }
+      ],
+      "scope": "Actual production Bash script, filesystem/tar and private fixtures; controlled compiler/signers, no real compilation/signature/Mac runtime; .10 unused"
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "qeli-mac/README.md",
+        "qeli-mac/build_app.sh",
+        "scripts/test_macos_app_signer.py"
+      ],
+      "qualified_paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "b03b979675e3f5516e70f1324d06bf4e3bced6dee764a0e2e0c23e302d4bd060",
+          "normalization": "LF"
+        },
+        {
+          "path": "qeli-mac/README.md",
+          "sha256": "a5d05776dc02475fc9acbcb1e0abad469f9c42a300d284517760aaec1ef0386d",
+          "normalization": "LF"
+        },
+        {
+          "path": "qeli-mac/build_app.sh",
+          "sha256": "a8be51e844be4e037d1d578fe0d3fbf01e91fb9eced107fb98fd83ad08a27fd4",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_macos_app_signer.py",
+          "sha256": "6f09b6e4106ef08b66fdbe1d73fc2c2e6d1c5c6d04de14510d3abe95199ca9a9",
+          "normalization": "LF"
+        }
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    },
+    "local_sdk_cleanup": {
+      "status": "PASS_EXACT_SDK_ARCHIVE_RECOVERY_CLEANUP",
+      "target": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-scratch-20261008\\q34-sdk-locks\\sdk",
+      "files": 5577,
+      "bytes": 807336133,
+      "retained_archive": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-scratch-20261008\\q34-sdk-locks\\sdk.zip",
+      "archive_sha512": "24b670ad3d923bfcf47df6c3b034152398b42f6dbc388e10d783aee1cfb5e5817d399fc0ae2a12cfa822a55e61d34830ccb15c50ef6efee437ab874bb7c79430",
+      "checks": "SEALED receipt/manifest anchor; full SHA512 ZIP; exact every extracted file SHA and file-set; resolved path containment; no reparse points; no active process reference",
+      "scope": "Only owned old extracted SDK; archive and SEALED packets retained; no shared cache removal"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-app-signer-20261009",
+    "files": 35,
+    "bytes": 1203484,
+    "manifest_sha256": "74dd6ad767b38be09ef2513e689c22c42bf4d37754e270684e7d6f30b85e5ea4",
+    "runtime_status": "PASS_Q34_APP_SIGNER_ADMISSION_SCOPED",
+    "path": "audit-debt-20260924/q34-app-signer-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F496/Q34-F050 missing app signer refusal closed. Actual old Bash script with real filesystem/tar and controlled compiler/sign tools produced unsigned archives/Done;8methods3expectedfailedassertions coverarm64/x86_64 andnativebootstrap. Early codesign/rcodesign admission before native/publish/output replacement now preservesoldbundle/archive onmissingtools; codesignpriority/selectedpath preserved, nonzerosigner stopsbeforetar andretainsoldarchive. Preparedbundle mayremainon signererror; atomicreplacement/concurrency notaddressed. DeveloperID/perapp/notary unchanged.57Windows methods8appsigner38native11workflow plus8Linux app methodsPASS; pinnedsemantic actionlint4workflows/BashsyntaxPASS, suiteaddedCI. Controlled sign/compile tools, actualfiles/tar: no payloadcompilation,real signature orMacruntime. Linux2committedsources+archive SHAqualified;3knownfiles cleaned withexactset/process/fd/mount guards; service777/845 CLI75bc unchanged,.10unused. Localdiskfree0 resolvedby deletingonly5577oldown extractedSDKfiles807336133bytes afterfullSHA512 preservedZIP/every-fileSHA+exactset andSEALEDreceipt/path/reparse/processguards; ZIP/SEALED/sharedcaches retained. Nativee3fb14SHA/qelitree/protected/OpenWrtcut unchanged, priorruntimequalification inheritedwithoutrebuild.724Markdown9checksPASS.41cases97prior supplements preservedmodulosourcedigestbookkeeping;append98. Q34IN_PROGRESS30/37DONE81.1percent7remain; otheropen/accepted/USER_EXCLUDED remain. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE",
+  "inherited_prior_post_seal_note": {
+    "path": "audit-debt-20260924/q34-publisher-certification-post-seal-note.json",
+    "sha256": "bf53e70bb3d81a02f6a8eb43f3e4c0a61ab60ecea8113bc56b9a793e09ac99a1",
+    "details": {
+      "status": "PASS_POST_SEAL_DISK_RECOVERY",
+      "packet": "q34-publisher-certification-20261009",
+      "manifest_sha256": "d11345555e523dc6296de351daf95a0a2d8b942c4d672527a7cbd43fd5c80837",
+      "scope": "Packet was already SEALED before git add failed with out-of-diskspace; no payload modified/resealed. Local docs commit resumes after owned cache cleanup.",
+      "failure": "git add index.lock write error out of diskspace; no docs commit completed at failed seal invocation",
+      "cleanup": {
+        "root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-scratch-20261008\\q34-client-supply\\wrapper-positive\\home\\wrapper\\dists\\gradle-9.7.1-bin\\bxwhr1jfbs9xrq875rhmav8st\\gradle-9.7.1",
+        "files": 712,
+        "logical_bytes": 170196887,
+        "physical_bytes_recovered_observed": 159805440,
+        "archive": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-client-supply-20261008\\gradle-9.7.1-bin.zip",
+        "archive_sha256": "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a",
+        "verification": "Every unpacked file SHA equalled exact preserved ZIP member; complete file set matched, no reparse points; absolute resolved path guard and no active private/unknown JVM; PowerShell native Remove-Item; root absent",
+        "retention": "Sealed official ZIP retained, evidence/project/shared caches untouched"
+      },
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE",
+      "recurrent_failure": "First resumed git add also failed ENOSPC before docs commit; original packet stayed immutable",
+      "additional_cleanup": {
+        "root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-scratch-20261008\\q34-sdk-locks\\publish",
+        "files": 462,
+        "logical_bytes": 337481201,
+        "recovery_archive": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-sdk-locks-20261008\\windows-recoverable.zip",
+        "archive_sha256": "3250e5022c900140f1516d649c474f3eca82c8d4126b4eb821efed840167733b",
+        "verification": "Actual ZIP SHA plus full member set/every file SHA equality, no reparse points; native PowerShell exact absolute-path/process guards; all old owned outputs removed and recovery ZIP retained",
+        "physical_free_after_docs_commit": 317804544
+      },
+      "final_docs_commit": "68757ef315424f2d0dd44238c16d4624a100e07f",
+      "approval_review": "One read-only request timed out; retry succeeded. Later read-only review service403 refused execution; same require_escalated mechanism retried and succeeded, no bypass."
+    }
+  }
+}

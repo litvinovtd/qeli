@@ -58,7 +58,7 @@ public static class DaemonCli
     /// <summary>
     /// daemon-install &lt;profileJsonPath&gt; — read the GUI-written profile, encrypt it
     /// into the shared dir (as root), then (re)install + load the LaunchDaemon so it
-    /// picks up the new profile. The temp profile file is deleted afterwards.
+    /// picks up the new profile. The GUI removes its temp profile file after the helper returns.
     /// </summary>
     private static int Install(string[] rest)
     {
@@ -68,6 +68,9 @@ public static class DaemonCli
             Console.Error.WriteLine("daemon-install: expected profile path and SHA-256 digest");
             return 2;
         }
+        if (rest.Length > 3 || (rest.Length == 3 && rest[2] is not ("0" or "1")))
+            throw new InvalidOperationException("daemon-install: invalid connection intent");
+        bool connectRequested = rest.Length == 3 && rest[2] == "1";
         var path = rest[0];
         byte[] expectedDigest;
         try
@@ -100,16 +103,10 @@ public static class DaemonCli
         // bytes read from the same descriptor it inspected. Rename, replacement or in-place
         // modification therefore fails closed instead of changing the daemon configuration.
         var profileBytes = ReadProfileHandoff(path);
-        var actualDigest = SHA256.HashData(profileBytes);
-        if (!CryptographicOperations.FixedTimeEquals(expectedDigest, actualDigest))
-            throw new InvalidOperationException(
-                "daemon-install: profile changed after authorization was requested; retry the operation");
-        var cfg = JsonSerializer.Deserialize<VpnConfig>(Encoding.UTF8.GetString(profileBytes))
-                  ?? throw new InvalidOperationException("could not parse daemon profile");
-
-        ServiceState.SaveProfile(cfg);                 // AES-GCM into /Library/Application Support/Qeli
-        ServiceManager.Uninstall();                    // no-op if absent; ensures a clean reload
-        ServiceManager.Install();                      // write plist + chown root:wheel + launchctl load -w
+        VpnConfig cfg;
+        try { cfg = ServiceProfileCodec.Handoff(profileBytes, expectedDigest); }
+        finally { CryptographicOperations.ZeroMemory(profileBytes); }
+        ServiceProfileTransition.Current.Apply(cfg, connectRequested);
 
         Console.WriteLine("OK installed");
         return 0;
@@ -154,8 +151,8 @@ public static class DaemonCli
     /// O_NOFOLLOW, validates that descriptor, and reads from the same descriptor.</summary>
     private static byte[] ReadProfileHandoff(string path)
     {
-        const int O_RDONLY = 0x0000, O_NOFOLLOW = 0x0100, O_CLOEXEC = 0x1000000;
-        int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC, 0);
+        const int O_RDONLY = 0x0000, O_NONBLOCK = 0x0004, O_NOFOLLOW = 0x0100, O_CLOEXEC = 0x1000000;
+        int fd = open(path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC, 0);
         if (fd < 0)
             throw new InvalidOperationException(
                 $"daemon-install: cannot open \"{path}\" safely: errno {Marshal.GetLastPInvokeError()}");

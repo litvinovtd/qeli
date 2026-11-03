@@ -22,6 +22,16 @@
 # reconnect on their own). There is no in-place reload for a new binary.
 #
 set -euo pipefail
+umask 077
+# Only updater-owned downloads are removed; a supplied local package is retained.
+QELI_TMP_PATHS=()
+cleanup_tmp() {
+  local p
+  for p in "${QELI_TMP_PATHS[@]}"; do rm -f -- "$p" 2>/dev/null || true; done
+}
+trap cleanup_tmp EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 REPO="${QELI_REPO:-litvinovtd/qeli}"
 SERVICE="qeli"
@@ -47,6 +57,7 @@ USAGE
 # box that happens to lack jq/curl. Runs as root; apt-get is present on the .deb
 # servers this targets. jq is only needed for the GitHub lookup, not a local .deb.
 ensure_deps() {
+  [ -z "${QELI_DEB:-}" ] || return 0
   local need=()
   command -v curl >/dev/null 2>&1 || need+=(curl)
   if ! { [ -n "${QELI_DEB:-}" ] && [ -f "${QELI_DEB}" ]; }; then
@@ -82,6 +93,25 @@ if [ "$(id -u)" -ne 0 ]; then
   die "must run as root, and 'sudo' is not installed. Switch to root and re-run:  su -"
 fi
 export DEBIAN_FRONTEND=noninteractive
+# A typo must not turn a remote download into the unverified local-input path.
+if [ -n "${QELI_DEB:-}" ] && [ ! -f "$QELI_DEB" ]; then
+  die "QELI_DEB does not name a regular package file: $QELI_DEB"
+fi
+
+# Serialize the whole transaction, including rollback; apt/dpkg locks cover
+# individual commands only. Keep the lock outside service-owned directories.
+command -v flock >/dev/null || die "flock is required for safe server updates."
+UPDATE_LOCK_DIR=/run/qeli-updater
+[ ! -L "$UPDATE_LOCK_DIR" ] || die "updater lock directory is a symlink."
+if [ ! -e "$UPDATE_LOCK_DIR" ]; then install -d -o root -g root -m 700 "$UPDATE_LOCK_DIR"; fi
+[ "$(stat -c '%u %a %F' "$UPDATE_LOCK_DIR")" = '0 700 directory' ] \
+  || die "updater lock directory must be root-owned0700."
+UPDATE_LOCK="$UPDATE_LOCK_DIR/lock"
+if [ -L "$UPDATE_LOCK" ] || { [ -e "$UPDATE_LOCK" ] && [ ! -f "$UPDATE_LOCK" ]; }; then
+  die "updater lock must be a regular nonlinked file."
+fi
+exec {UPDATE_LOCK_FD}>"$UPDATE_LOCK"
+flock -n "$UPDATE_LOCK_FD" || die "another qeli update is in progress."
 
 command -v qeli >/dev/null 2>&1 || command -v docker >/dev/null 2>&1 \
   || die "qeli is not installed — run install-qeli-server.sh first."
@@ -91,8 +121,9 @@ norm(){ printf '%s' "$1" | sed 's/^v//'; }
 
 CUR=""
 if command -v qeli >/dev/null 2>&1; then
-  CUR="$(qeli version 2>/dev/null | awk '{print $2}')"
+  CUR="$(qeli --version 2>/dev/null | awk '{print $2}')"
 fi
+PREV_PKG_VERSION="$(dpkg-query -W -f='${Version}' qeli 2>/dev/null || true)"
 echo "Installed version: ${CUR:-unknown}"
 
 # ── Docker deployment? update by pulling the image + RECREATING the container ──
@@ -172,6 +203,7 @@ fi
 
 # ── 1. resolve the .deb to install ──────────────────────────────────────────
 ensure_deps
+HOST_DEB_ARCH="$(dpkg --print-architecture)"
 LATEST_TAG=""
 CLEANUP=0
 if [ -n "${QELI_DEB:-}" ] && [ -f "${QELI_DEB}" ]; then
@@ -183,11 +215,11 @@ else
   log "Checking the latest release"
   RELEASES_JSON="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")"
   LATEST_TAG="$(printf '%s' "$RELEASES_JSON" | jq -r 'map(select(.draft|not))|.[0].tag_name // empty')"
-  DEB_URL="$(printf '%s' "$RELEASES_JSON" | jq -r 'map(select(.draft|not))|.[0].assets[]
-             | select(.name|endswith(".deb")) | .browser_download_url' | head -n1)"
+  DEB_URL="$(printf '%s' "$RELEASES_JSON" | jq -r --arg arch "$HOST_DEB_ARCH" 'map(select(.draft|not))|.[0].assets[]
+             | select(.name|endswith("_" + $arch + ".deb")) | .browser_download_url' | head -n1)"
   SHA_URL="$(printf '%s' "$RELEASES_JSON" | jq -r 'map(select(.draft|not))|.[0].assets[]
              | select(.name=="SHA256SUMS") | .browser_download_url' | head -n1)"
-  [ -n "$DEB_URL" ] || die "no .deb asset found in the latest release."
+  [ -n "$DEB_URL" ] || die "no .deb asset for Debian architecture ${HOST_DEB_ARCH} found in the latest release."
   echo "  latest release: ${LATEST_TAG:-?}"
 
   # Skip when already current (or when the installed build is NEWER than the
@@ -209,21 +241,23 @@ else
   log "Downloading the .deb"
   echo "  $DEB_URL"
   TMP_DEB="$(mktemp --suffix=.deb)"; CLEANUP=1
+  QELI_TMP_PATHS+=("$TMP_DEB")
   curl -fL --retry 3 -o "$TMP_DEB" "$DEB_URL"
   DEB_NAME="$(basename "$DEB_URL")"
 fi
 
 # ── 2. verify the download against SHA256SUMS — FAIL CLOSED (S-10) ──────────
 # A download pulled from GitHub is only trusted once its SHA256 is checked against the
-# release's signed SHA256SUMS. A missing sums file or an unlisted .deb aborts the install
+# release's SHA256SUMS. A missing sums file or an unlisted .deb aborts the install
 # unless the operator explicitly opts out with QELI_ALLOW_UNVERIFIED=1. A locally supplied
 # QELI_DEB is the operator's own artefact and is exempt.
 ALLOW_UNVERIFIED="${QELI_ALLOW_UNVERIFIED:-0}"
 if [ -n "${SHA_URL:-}" ]; then
   echo "  verifying SHA256"
   TMP_SHA="$(mktemp)"
+  QELI_TMP_PATHS+=("$TMP_SHA")
   curl -fL --retry 3 -o "$TMP_SHA" "$SHA_URL"
-  WANT="$(awk -v n="$DEB_NAME" '$2==n{print $1}' "$TMP_SHA" | head -n1)"
+  WANT="$(awk -v n="$DEB_NAME" '{sub(/\r$/, "", $2); if ($2==n) {print $1; exit}}' "$TMP_SHA")"
   GOT="$(sha256sum "$TMP_DEB" | awk '{print $1}')"
   rm -f "$TMP_SHA"
   if [ -z "$WANT" ]; then
@@ -267,11 +301,21 @@ if [ "${QELI_VERIFY_ATTESTATION:-0}" = "1" ] && [ -z "${QELI_DEB:-}" ]; then
   fi
 fi
 
+# Check the package itself before backups, cache mutation or installation.
+DEB_PACKAGE="$(dpkg-deb -f "$TMP_DEB" Package)" || die "cannot read package metadata."
+DEB_VERSION="$(dpkg-deb -f "$TMP_DEB" Version)" || die "cannot read package version."
+DEB_ARCH="$(dpkg-deb -f "$TMP_DEB" Architecture)" || die "cannot read package architecture."
+[ "$DEB_PACKAGE" = qeli ] && [ -n "$DEB_VERSION" ] || die "the supplied package is not qeli."
+case "$DEB_ARCH" in
+  "$HOST_DEB_ARCH"|all) ;;
+  *) die "package architecture ${DEB_ARCH} is incompatible with host ${HOST_DEB_ARCH}." ;;
+esac
+
 # ── 3. prepare the rollback path: the previous .deb, and the binary as a fallback ──
 # Rolling back by copying the old BINARY over the new one leaves dpkg recording the NEW
 # version, with the new package's files still on disk. The next `apt upgrade` or
 # `apt --fix-broken install` then silently puts the broken binary back, and in the
-# meantime `qeli version` disagrees with `dpkg -s qeli` — which is what made the version
+# meantime `qeli --version` disagrees with `dpkg -s qeli` — which is what made the version
 # check at the top of this script see "an update is available" on every single run.
 # So the primary rollback is a PACKAGE downgrade, and for that a copy of the previously
 # installed .deb has to exist: nothing republishes a superseded pre-release into apt.
@@ -303,15 +347,12 @@ if [ -e "$PKG_CACHE" ]; then
       ;;
   esac
 fi
-# One-time migration from the old, unsafe location. Copy only if the source is a plain
-# file we can vouch for; the old directory is then removed so it cannot be re-planted.
+# The legacy directory is service-owned. Root ownership of an entry does not
+# authorize its bytes: directory writers can replace it between find and copy.
+# Never import packages from it into a root-executed rollback cache.
 OLD_PKG_CACHE="/var/lib/qeli/packages"
-if [ -d "$OLD_PKG_CACHE" ] && [ ! -L "$OLD_PKG_CACHE" ]; then
-  install -d -o root -g root -m 700 "$PKG_CACHE"
-  find "$OLD_PKG_CACHE" -maxdepth 1 -type f -name '*.deb' -user root -exec \
-    install -o root -g root -m 600 -t "$PKG_CACHE" {} + 2>/dev/null || true
-  rm -rf "$OLD_PKG_CACHE" 2>/dev/null || true
-  echo "  moved the rollback package cache to $PKG_CACHE (root-owned)"
+if [ -e "$OLD_PKG_CACHE" ] || [ -L "$OLD_PKG_CACHE" ]; then
+  echo "  ignoring legacy service-owned rollback cache: $OLD_PKG_CACHE" >&2
 fi
 QBIN="$(command -v qeli || true)"
 BAK=""
@@ -323,7 +364,7 @@ PREV_DEB=""
 if [ -d "$PKG_CACHE" ] && [ -n "$CUR" ]; then
   # -type f (not -L) so a planted symlink never matches, and -user root so only a package
   # this script itself cached can be fed back to `apt-get install`. (Audit 2026-08-04, H-10)
-  PREV_DEB="$(find "$PKG_CACHE" -maxdepth 1 -type f -user root -name "qeli_${CUR}_*.deb" 2>/dev/null | sort | head -n1 || true)"
+  PREV_DEB="$(find "$PKG_CACHE" -maxdepth 1 -type f -user root -name "qeli_${PREV_PKG_VERSION:-$CUR}_*.deb" 2>/dev/null | sort | head -n1 || true)"
 fi
 if [ -n "$PREV_DEB" ]; then
   echo "  rollback package on hand: $PREV_DEB"
@@ -333,15 +374,25 @@ fi
 
 # ── 4. install the package (deps already satisfied from the first install) ──
 log "Installing the update"
-apt-get install -y --no-install-recommends "$TMP_DEB" \
-  || { dpkg -i "$TMP_DEB" || true; apt-get install -y --no-install-recommends -f; }
+UPDATE_INSTALLED=0
+if apt-get install -y --no-install-recommends "$TMP_DEB" \
+  || { dpkg -i "$TMP_DEB" || true; apt-get install -y --no-install-recommends -f; }; then
+  INSTALLED="$(dpkg-query -W -f='${Status} ${Version} ${Architecture}' qeli 2>/dev/null || true)"
+  if [ "$INSTALLED" = "install ok installed ${DEB_VERSION} ${DEB_ARCH}" ]; then
+    UPDATE_INSTALLED=1
+  else
+    echo "Package installation did not configure the requested qeli --version — attempting rollback." >&2
+  fi
+else
+  echo "Package installation failed — attempting rollback." >&2
+fi
 
 # Keep the package we just installed so the NEXT update can downgrade back to it as a
 # package rather than only swapping the binary (see the note in section 3). Named from
 # what dpkg now records, so the lookup pattern above always finds it. (Audit 2026-07-27, O6)
 NEW_PKG_VER="$(dpkg-query -W -f='${Version}' qeli 2>/dev/null || true)"
 NEW_PKG_ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
-if [ -n "$NEW_PKG_VER" ]; then
+if [ "$UPDATE_INSTALLED" = 1 ] && [ -n "$NEW_PKG_VER" ]; then
   # `install` creates root:root 0600 and does NOT follow a symlink at the destination,
   # unlike the `cp -a` this replaced.
   install -d -o root -g root -m 700 "$PKG_CACHE" 2>/dev/null || true
@@ -356,14 +407,19 @@ fi
 # that starts and immediately dies would look healthy and never roll back. Gate on the
 # MainPID being NON-ZERO and STABLE across a short window: if it changes (respawn) or
 # goes to 0 (dead), the update is unhealthy and we roll back. (S-19)
+service_healthy() {
+  local pid0 pid1
+  sleep 2
+  pid0="$(systemctl show -p MainPID --value "$SERVICE" 2>/dev/null)" || return 1
+  case "$pid0" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$pid0" -gt 0 ] || return 1
+  sleep 3
+  pid1="$(systemctl show -p MainPID --value "$SERVICE" 2>/dev/null)" || return 1
+  systemctl is-active --quiet "$SERVICE" && [ "$pid0" = "$pid1" ]
+}
 log "Restarting ${SERVICE}"
-systemctl restart "$SERVICE"
-sleep 2
-PID0="$(systemctl show -p MainPID --value "$SERVICE" 2>/dev/null || echo 0)"
-sleep 3
-PID1="$(systemctl show -p MainPID --value "$SERVICE" 2>/dev/null || echo 0)"
-if systemctl is-active --quiet "$SERVICE" && [ "$PID0" != "0" ] && [ "$PID0" = "$PID1" ]; then
-  NEW="$(qeli version 2>/dev/null | awk '{print $2}')"
+if [ "$UPDATE_INSTALLED" = 1 ] && systemctl restart "$SERVICE" && service_healthy; then
+  NEW="$(qeli --version 2>/dev/null | awk '{print $2}')"
   log "Done — ${CUR:-?} → ${NEW:-?}"
   [ -n "$LATEST_TAG" ] && echo "Release notes: https://github.com/${REPO}/releases/tag/${LATEST_TAG}"
   # keep only the most recent rollback binary; drop older ones
@@ -383,7 +439,14 @@ ROLLED_BACK=0
 if [ -n "$PREV_DEB" ] && [ -f "$PREV_DEB" ]; then
   echo "  reinstalling the previous package: $PREV_DEB" >&2
   systemctl stop "$SERVICE" 2>/dev/null || true
-  if apt-get install -y --allow-downgrades --no-install-recommends "$PREV_DEB"; then
+  PREV_NAME="$(dpkg-deb -f "$PREV_DEB" Package 2>/dev/null || true)"
+  PREV_VERSION="$(dpkg-deb -f "$PREV_DEB" Version 2>/dev/null || true)"
+  PREV_ARCH="$(dpkg-deb -f "$PREV_DEB" Architecture 2>/dev/null || true)"
+  if [ "$PREV_NAME" = qeli ] && [ "$PREV_VERSION" = "${PREV_PKG_VERSION:-$CUR}" ] \
+    && { [ "$PREV_ARCH" = "$HOST_DEB_ARCH" ] || [ "$PREV_ARCH" = all ]; } \
+    && apt-get install -y --allow-downgrades --no-install-recommends "$PREV_DEB" \
+    && [ "$(dpkg-query -W -f='${Status} ${Version} ${Architecture}' qeli 2>/dev/null || true)" \
+         = "install ok installed ${PREV_VERSION} ${PREV_ARCH}" ]; then
     ROLLED_BACK=1
   else
     echo "  package downgrade failed — falling back to the binary copy" >&2
@@ -397,13 +460,12 @@ if [ "$ROLLED_BACK" = "0" ] && [ -n "$BAK" ] && [ -f "$BAK" ]; then
 fi
 if [ "$ROLLED_BACK" != "0" ]; then
   systemctl restart "$SERVICE" 2>/dev/null || true
-  sleep 2
-  if systemctl is-active --quiet "$SERVICE"; then
+  if service_healthy; then
     if [ "$ROLLED_BACK" = "2" ]; then
       echo "" >&2
       echo "WARNING: only the BINARY was rolled back — dpkg still records qeli ${NEW_PKG_VER:-<new>}." >&2
       echo "         The next 'apt upgrade' or 'apt --fix-broken install' WILL restore the broken" >&2
-      echo "         binary, and 'qeli version' now disagrees with 'dpkg -s qeli'. Reinstall the" >&2
+      echo "         binary, and 'qeli --version' now disagrees with 'dpkg -s qeli'. Reinstall the" >&2
       echo "         previous package by hand as soon as you can:" >&2
       echo "           apt-get install -y --allow-downgrades ./qeli_${CUR:-<old>}_$(dpkg --print-architecture 2>/dev/null || echo amd64).deb" >&2
     fi

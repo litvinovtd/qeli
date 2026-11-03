@@ -1,0 +1,827 @@
+{
+  "scope": "Targeted Linux TCP/H2 and live PMTU; not Android or full release qualification",
+  "pmtu": [
+    {
+      "run": "initial",
+      "label": "s07-udp-faketls-4-candidate-upload-pmtu",
+      "mode": "udp-faketls",
+      "outer": 4,
+      "direction": "upload",
+      "code": 124,
+      "error": "bounded traffic timeout; raw retained",
+      "full_window_loss_percent": null,
+      "steady_samples": 0,
+      "steady_median_mbps": null,
+      "steady_max_loss_percent": null,
+      "precision": null,
+      "observed_client_uplink_budgets": [
+        1448
+      ],
+      "old_budget": null,
+      "new_budget": null,
+      "certification_seconds": null,
+      "activation_source": null,
+      "injected_drops": null,
+      "mtu_1400_datafrag": true,
+      "no_reconnect": false,
+      "post_inner_v4_v6": false,
+      "budget_change_logs": [],
+      "qualified": false
+    },
+    {
+      "run": "-ingress-r02",
+      "label": "s04-udp-faketls-4-candidate-upload-pmtu",
+      "mode": "udp-faketls",
+      "outer": 4,
+      "direction": "upload",
+      "code": 0,
+      "error": null,
+      "full_window_loss_percent": 15.008562415502478,
+      "steady_samples": 15,
+      "steady_median_mbps": 10.0,
+      "steady_max_loss_percent": 0.0,
+      "precision": "rounded server receiver text",
+      "observed_client_uplink_budgets": [
+        548
+      ],
+      "old_budget": 1448,
+      "new_budget": 548,
+      "certification_seconds": 9.554801940917969,
+      "activation_source": "controller ready timestamp; ~subsecond precision",
+      "injected_drops": 5342,
+      "mtu_1400_datafrag": true,
+      "no_reconnect": true,
+      "post_inner_v4_v6": true,
+      "budget_change_logs": [
+        "2026-10-23 13:16:56.343 INFO  qeli_core::client: UDP live PMTU changed uplink payload budget to 548 bytes (probe rung 500, revision 1)"
+      ],
+      "qualified": true
+    },
+    {
+      "run": "-ingress-r02",
+      "label": "s05-udp-faketls-4-candidate-download-pmtu",
+      "mode": "udp-faketls",
+      "outer": 4,
+      "direction": "download",
+      "code": 1,
+      "error": "unable to read from stream socket: ",
+      "full_window_loss_percent": null,
+      "steady_samples": 0,
+      "steady_median_mbps": null,
+      "steady_max_loss_percent": null,
+      "precision": "rounded server receiver text",
+      "observed_client_uplink_budgets": [
+        1448
+      ],
+      "old_budget": 1448,
+      "new_budget": 548,
+      "certification_seconds": 9.311949014663696,
+      "activation_source": "controller ready timestamp; ~subsecond precision",
+      "injected_drops": null,
+      "mtu_1400_datafrag": true,
+      "no_reconnect": true,
+      "post_inner_v4_v6": true,
+      "budget_change_logs": [
+        "2026-10-23 13:18:22.981 INFO  qeli_core::server::udp_handler: client at 172.30.82.11:41169 reverse-probe certified UDP downlink budget 548 bytes (was 1448)"
+      ],
+      "qualified": false
+    },
+    {
+      "run": "-ingress-r02",
+      "label": "s06-udp-faketls-6-candidate-upload-pmtu",
+      "mode": "udp-faketls",
+      "outer": 6,
+      "direction": "upload",
+      "code": 0,
+      "error": null,
+      "full_window_loss_percent": 15.05182514646237,
+      "steady_samples": 15,
+      "steady_median_mbps": 10.0,
+      "steady_max_loss_percent": 0.0,
+      "precision": "rounded server receiver text",
+      "observed_client_uplink_budgets": [
+        1232
+      ],
+      "old_budget": 1448,
+      "new_budget": 1232,
+      "certification_seconds": 9.605189085006714,
+      "activation_source": "controller ready timestamp; ~subsecond precision",
+      "injected_drops": 5407,
+      "mtu_1400_datafrag": true,
+      "no_reconnect": true,
+      "post_inner_v4_v6": true,
+      "budget_change_logs": [
+        "2026-10-23 13:19:02.079 INFO  qeli_core::client: UDP live PMTU changed uplink payload budget to 1232 bytes (probe rung 1184, revision 1)"
+      ],
+      "qualified": true
+    },
+    {
+      "run": "-ingress-r02",
+      "label": "s07-udp-faketls-6-candidate-download-pmtu",
+      "mode": "udp-faketls",
+      "outer": 6,
+      "direction": "download",
+      "code": 0,
+      "error": null,
+      "full_window_loss_percent": 15.001261670451678,
+      "steady_samples": 15,
+      "steady_median_mbps": 9.99496340682416,
+      "steady_max_loss_percent": 0,
+      "precision": "receiver JSON",
+      "observed_client_uplink_budgets": [
+        1448
+      ],
+      "old_budget": 1448,
+      "new_budget": 1232,
+      "certification_seconds": 9.606112003326416,
+      "activation_source": "controller ready timestamp; ~subsecond precision",
+      "injected_drops": 5448,
+      "mtu_1400_datafrag": true,
+      "no_reconnect": true,
+      "post_inner_v4_v6": true,
+      "budget_change_logs": [
+        "2026-10-23 13:20:39.400 INFO  qeli_core::server::udp_handler: client at [fd42:82:1::11]:53087 reverse-probe certified UDP downlink budget 1232 bytes (was 1448)"
+      ],
+      "qualified": true
+    },
+    {
+      "run": "-ingress-r02",
+      "label": "s08-udp-quic-4-candidate-upload-pmtu",
+      "mode": "udp-quic",
+      "outer": 4,
+      "direction": "upload",
+      "code": 0,
+      "error": null,
+      "full_window_loss_percent": 20.01982875168995,
+      "steady_samples": 15,
+      "steady_median_mbps": 10.0,
+      "steady_max_loss_percent": 0.0,
+      "precision": "rounded server receiver text",
+      "observed_client_uplink_budgets": [
+        548,
+        1457
+      ],
+      "old_budget": 1457,
+      "new_budget": 548,
+      "certification_seconds": 11.715878009796143,
+      "activation_source": "fault keeper actual INPUT activation",
+      "injected_drops": 9195,
+      "mtu_1400_datafrag": true,
+      "no_reconnect": true,
+      "post_inner_v4_v6": true,
+      "budget_change_logs": [
+        "2026-10-23 13:22:14.393 INFO  qeli_core::client: UDP live PMTU changed uplink payload budget to 548 bytes (probe rung 491, revision 1)"
+      ],
+      "qualified": true
+    },
+    {
+      "run": "-ingress-r02",
+      "label": "s09-udp-quic-4-candidate-download-pmtu",
+      "mode": "udp-quic",
+      "outer": 4,
+      "direction": "download",
+      "code": 0,
+      "error": null,
+      "full_window_loss_percent": 24.9842294036011,
+      "steady_samples": 15,
+      "steady_median_mbps": 9.994703642758395,
+      "steady_max_loss_percent": 0,
+      "precision": "receiver JSON",
+      "observed_client_uplink_budgets": [
+        1457
+      ],
+      "old_budget": 1457,
+      "new_budget": 548,
+      "certification_seconds": 13.203011274337769,
+      "activation_source": "fault keeper actual INPUT activation",
+      "injected_drops": 10211,
+      "mtu_1400_datafrag": true,
+      "no_reconnect": true,
+      "post_inner_v4_v6": true,
+      "budget_change_logs": [
+        "2026-10-23 13:23:41.837 INFO  qeli_core::server::udp_handler: client at 172.30.82.11:39677 reverse-probe certified UDP downlink budget 548 bytes (was 1457)"
+      ],
+      "qualified": true
+    },
+    {
+      "run": "-ingress-r02",
+      "label": "s10-udp-quic-6-candidate-upload-pmtu",
+      "mode": "udp-quic",
+      "outer": 6,
+      "direction": "upload",
+      "code": 0,
+      "error": null,
+      "full_window_loss_percent": 25.029292474087427,
+      "steady_samples": 15,
+      "steady_median_mbps": 10.0,
+      "steady_max_loss_percent": 0.0,
+      "precision": "rounded server receiver text",
+      "observed_client_uplink_budgets": [
+        1232,
+        1417
+      ],
+      "old_budget": 1417,
+      "new_budget": 1232,
+      "certification_seconds": 12.256375551223755,
+      "activation_source": "fault keeper actual INPUT activation",
+      "injected_drops": 9817,
+      "mtu_1400_datafrag": true,
+      "no_reconnect": true,
+      "post_inner_v4_v6": true,
+      "budget_change_logs": [
+        "2026-10-23 13:25:11.205 INFO  qeli_core::client: UDP live PMTU changed uplink payload budget to 1232 bytes (probe rung 1175, revision 1)"
+      ],
+      "qualified": true
+    },
+    {
+      "run": "-ingress-r02",
+      "label": "s11-udp-quic-6-candidate-download-pmtu",
+      "mode": "udp-quic",
+      "outer": 6,
+      "direction": "download",
+      "code": 0,
+      "error": null,
+      "full_window_loss_percent": 25.0572267983634,
+      "steady_samples": 15,
+      "steady_median_mbps": 10.003890079291999,
+      "steady_max_loss_percent": 0,
+      "precision": "receiver JSON",
+      "observed_client_uplink_budgets": [
+        1417
+      ],
+      "old_budget": 1417,
+      "new_budget": 1232,
+      "certification_seconds": 13.951398134231567,
+      "activation_source": "fault keeper actual INPUT activation",
+      "injected_drops": 11137,
+      "mtu_1400_datafrag": true,
+      "no_reconnect": true,
+      "post_inner_v4_v6": true,
+      "budget_change_logs": [
+        "2026-10-23 13:26:39.108 INFO  qeli_core::server::udp_handler: client at [fd42:82:1::11]:45105 reverse-probe certified UDP downlink budget 1232 bytes (was 1417)"
+      ],
+      "qualified": true
+    },
+    {
+      "run": "-reverse-r03",
+      "label": "s00-udp-faketls-4-candidate-download-pmtu",
+      "mode": "udp-faketls",
+      "outer": 4,
+      "direction": "download",
+      "code": 0,
+      "error": null,
+      "full_window_loss_percent": 20.039653929343906,
+      "steady_samples": 15,
+      "steady_median_mbps": 10.003630132346174,
+      "steady_max_loss_percent": 0,
+      "precision": "receiver JSON",
+      "observed_client_uplink_budgets": [
+        1448
+      ],
+      "old_budget": 1448,
+      "new_budget": 548,
+      "certification_seconds": 10.888903856277466,
+      "activation_source": "fault keeper actual INPUT activation",
+      "injected_drops": 8485,
+      "mtu_1400_datafrag": true,
+      "no_reconnect": true,
+      "post_inner_v4_v6": true,
+      "budget_change_logs": [
+        "2026-10-23 13:31:33.639 INFO  qeli_core::server::udp_handler: client at 172.30.82.11:38463 reverse-probe certified UDP downlink budget 548 bytes (was 1448)"
+      ],
+      "qualified": true
+    }
+  ],
+  "tcp": [
+    {
+      "run": "initial",
+      "session": "s00-tcp-faketls-4-candidate",
+      "mode": "tcp-faketls",
+      "binary": "candidate",
+      "write_stall_logs": [],
+      "liveness_logs": [],
+      "recovery": []
+    },
+    {
+      "run": "initial",
+      "session": "s01-tcp-obfs-4-candidate",
+      "mode": "tcp-obfs",
+      "binary": "candidate",
+      "write_stall_logs": [],
+      "liveness_logs": [],
+      "recovery": []
+    },
+    {
+      "run": "initial",
+      "session": "s02-tcp-reality-tls-4-candidate",
+      "mode": "tcp-reality-tls",
+      "binary": "candidate",
+      "write_stall_logs": [],
+      "liveness_logs": [],
+      "recovery": []
+    },
+    {
+      "run": "initial",
+      "session": "s03-tcp-faketls-4-previous",
+      "mode": "tcp-faketls",
+      "binary": "previous",
+      "write_stall_logs": [],
+      "liveness_logs": [],
+      "recovery": [
+        {
+          "label": "s03-tcp-faketls-4-previous-recovered",
+          "code": 0,
+          "mbps": 1816.494691395658
+        }
+      ]
+    },
+    {
+      "run": "initial",
+      "session": "s04-tcp-faketls-4-candidate",
+      "mode": "tcp-faketls",
+      "binary": "candidate",
+      "write_stall_logs": [],
+      "liveness_logs": [],
+      "recovery": [
+        {
+          "label": "s04-tcp-faketls-4-candidate-recovered",
+          "code": 0,
+          "mbps": 1711.3794481655234
+        }
+      ]
+    },
+    {
+      "run": "initial",
+      "session": "s05-tcp-reality-tls-4-previous",
+      "mode": "tcp-reality-tls",
+      "binary": "previous",
+      "write_stall_logs": [],
+      "liveness_logs": [],
+      "recovery": [
+        {
+          "label": "s05-tcp-reality-tls-4-previous-recovered",
+          "code": 0,
+          "mbps": 1083.7334551567042
+        }
+      ]
+    },
+    {
+      "run": "initial",
+      "session": "s06-tcp-reality-tls-4-candidate",
+      "mode": "tcp-reality-tls",
+      "binary": "candidate",
+      "write_stall_logs": [],
+      "liveness_logs": [
+        "2026-10-23 12:58:50.678 INFO  qeli_core::client: TCP carrier closed: inbound liveness deadline expired"
+      ],
+      "recovery": [
+        {
+          "label": "s06-tcp-reality-tls-4-candidate-recovered",
+          "code": 0,
+          "mbps": 1056.719815110547
+        }
+      ]
+    },
+    {
+      "run": "-ingress-r02",
+      "session": "s00-tcp-faketls-4-previous",
+      "mode": "tcp-faketls",
+      "binary": "previous",
+      "write_stall_logs": [],
+      "liveness_logs": [],
+      "recovery": [
+        {
+          "label": "s00-tcp-faketls-4-previous-recovered-1",
+          "code": 0,
+          "mbps": 1777.7701021695852
+        }
+      ]
+    },
+    {
+      "run": "-ingress-r02",
+      "session": "s01-tcp-faketls-4-candidate",
+      "mode": "tcp-faketls",
+      "binary": "candidate",
+      "write_stall_logs": [
+        "2026-10-23 13:11:37.523 WARN  qeli_core::protocol::stream_io: Carrier closed: pending write/flush made no progress for 30s"
+      ],
+      "liveness_logs": [],
+      "recovery": [
+        {
+          "label": "s01-tcp-faketls-4-candidate-recovered-1",
+          "code": 0,
+          "mbps": 1663.3907631685383
+        }
+      ]
+    },
+    {
+      "run": "-ingress-r02",
+      "session": "s02-tcp-reality-tls-4-previous",
+      "mode": "tcp-reality-tls",
+      "binary": "previous",
+      "write_stall_logs": [],
+      "liveness_logs": [],
+      "recovery": [
+        {
+          "label": "s02-tcp-reality-tls-4-previous-recovered-1",
+          "code": 1,
+          "mbps": 0.0
+        },
+        {
+          "label": "s02-tcp-reality-tls-4-previous-recovered-2",
+          "code": 0,
+          "mbps": 1126.704491421664
+        }
+      ]
+    },
+    {
+      "run": "-ingress-r02",
+      "session": "s03-tcp-reality-tls-4-candidate",
+      "mode": "tcp-reality-tls",
+      "binary": "candidate",
+      "write_stall_logs": [
+        "2026-10-23 13:15:25.077 WARN  qeli_core::protocol::stream_io: Carrier closed: pending write/flush made no progress for 30s"
+      ],
+      "liveness_logs": [],
+      "recovery": [
+        {
+          "label": "s03-tcp-reality-tls-4-candidate-recovered-1",
+          "code": 0,
+          "mbps": 1052.8136706081393
+        }
+      ]
+    }
+  ],
+  "runs": {
+    "initial": {
+      "status": "restoration_failed",
+      "raw": "/opt/qeli-release-short-network-fixes-20261023",
+      "restoration": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "mem_total_kib": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        },
+        "client": {
+          "error": "Restoration mismatch"
+        }
+      },
+      "candidate_sha256": "09d0586e03a68f2cf22aebdb8ff2dd38d04063f0c0e0b6bd1f0f271997a177bd"
+    },
+    "-ingress-r02": {
+      "status": "complete",
+      "raw": "/opt/qeli-release-short-network-fixes-20261023-ingress-r02",
+      "restoration": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "mem_total_kib": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        },
+        "client": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "mem_total_kib": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        }
+      },
+      "candidate_sha256": "09d0586e03a68f2cf22aebdb8ff2dd38d04063f0c0e0b6bd1f0f271997a177bd"
+    },
+    "-reverse-r03": {
+      "status": "complete",
+      "raw": "/opt/qeli-release-short-network-fixes-20261023-reverse-r03",
+      "restoration": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "mem_total_kib": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        },
+        "client": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "mem_total_kib": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        }
+      },
+      "candidate_sha256": "09d0586e03a68f2cf22aebdb8ff2dd38d04063f0c0e0b6bd1f0f271997a177bd"
+    }
+  },
+  "qualified_pmtu_keys": [
+    [
+      "udp-faketls",
+      4,
+      "download"
+    ],
+    [
+      "udp-faketls",
+      4,
+      "upload"
+    ],
+    [
+      "udp-faketls",
+      6,
+      "download"
+    ],
+    [
+      "udp-faketls",
+      6,
+      "upload"
+    ],
+    [
+      "udp-quic",
+      4,
+      "download"
+    ],
+    [
+      "udp-quic",
+      4,
+      "upload"
+    ],
+    [
+      "udp-quic",
+      6,
+      "download"
+    ],
+    [
+      "udp-quic",
+      6,
+      "upload"
+    ]
+  ],
+  "provenance": {
+    "base_commit": "fb741e204cc82f8e0c43172d5746c1a6afa78607",
+    "original_manifest_base": "be4429ae8c870c88b2682619ba8246fae3f8a4b4",
+    "source_archive_sha256": "672fa8ca6aafbeb2dcc767deaff15c5286b68371bd0c14ef146ea2fe833afa2b",
+    "overlay": [
+      {
+        "path": "qeli-android/app/src/main/kotlin/com/qeli/AndroidCarrierRecovery.kt",
+        "before_sha256": null,
+        "candidate_sha256": "6dcd512751dfe6d050dfe3886762c360a5659ebcc75ed04751bfd8b85c8701cd"
+      },
+      {
+        "path": "qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt",
+        "before_sha256": "767a34080bccb4212012cbaf1048a6c80062605829a41188de47e6a4bb7b527d",
+        "candidate_sha256": "329c184979852f68048e348b4ceeefef6bfefb5eae8a37f89cb496f69c3e9e6f"
+      },
+      {
+        "path": "qeli-android/app/src/test/kotlin/com/qeli/AndroidCarrierRecoveryTest.kt",
+        "before_sha256": null,
+        "candidate_sha256": "d7aa8530ae093d4f92d24d8ca0fb326138379b69ad185ad278eda126b66b9924"
+      },
+      {
+        "path": "qeli/src/client/mod.rs",
+        "before_sha256": "98c62a865444e297c600e507a5aa3119633b7db82dae6994878b766919fa73f5",
+        "candidate_sha256": "8e95606ca7cd104199449248180f7f78e8048674a0b5bf3575618df4b7688a4f"
+      },
+      {
+        "path": "qeli/src/protocol/data_frag.rs",
+        "before_sha256": "7426e41090b7b50db22829a108138a911dd592798da38f9ded89d130c8eb2e13",
+        "candidate_sha256": "628607630a80d7864e5e44c32fdfde50e0896974bc4879714db74ba06e13618b"
+      },
+      {
+        "path": "qeli/src/protocol/h2_carrier.rs",
+        "before_sha256": "9c9fa9a1326b280471759bb88a73f2c7e8df10f8dcb8e3e0031d4db61d6cdbf8",
+        "candidate_sha256": "c76a044570d8624b7e9b0113272a7e29e50fc95c0142c02ebc486c325946a8ab"
+      },
+      {
+        "path": "qeli/src/protocol/mod.rs",
+        "before_sha256": "8ee929a80bb7b98f87e4f3d48fcc903a3a071b94efa7dfc4373e35ea37b8ca83",
+        "candidate_sha256": "081a56798a0e240c0f0616033428f7d4f0b912c9ef53caeea993a614d4ea45b9"
+      },
+      {
+        "path": "qeli/src/protocol/obfs.rs",
+        "before_sha256": "3e01af3a356721b5cb15c2abe294b6dcac31e743a21de75f310ab669defaedd4",
+        "candidate_sha256": "08564b96d6864eb911a9aad2a4d17962ab519ae1ca10edb636d10d35550e1a8f"
+      },
+      {
+        "path": "qeli/src/protocol/pmtu.rs",
+        "before_sha256": null,
+        "candidate_sha256": "d9cf54b3cd56e0b739ce7668aee529b86ce26ef2402f4e9561f56ff720cb3338"
+      },
+      {
+        "path": "qeli/src/protocol/realtls/server.rs",
+        "before_sha256": "694328c1d892f105a5a955e7717da6b9513e2ddbbdb8c4c0157cdf4a5f72c885",
+        "candidate_sha256": "6dda64ca364a51082013bdd68d2a4ede36b85635ea39d1cfc46a32cd053b291c"
+      },
+      {
+        "path": "qeli/src/protocol/realtls/stream.rs",
+        "before_sha256": "4fe07493dbf88fbdc94fbe997bba7651380208ca0aceeee1de17d5abce0ab53b",
+        "candidate_sha256": "ff19b32d1f9f011b0be4acf11dec49d392cc7b8f8e4295d1f03b23cbbc2b8a1d"
+      },
+      {
+        "path": "qeli/src/protocol/stream_io.rs",
+        "before_sha256": "ccbf115312974b37b8833ad2c8bf32c04493bcc5bad1bd0b40d0a114a2afa241",
+        "candidate_sha256": "f5cfb5b1b2132815ff033403601b8721c1fce3f134ff4551d903f67106b3c980"
+      },
+      {
+        "path": "qeli/src/server/handler.rs",
+        "before_sha256": "dae2ef0f453fd0c41ebf122aa92b765c2527f1f4cc25047b8c2fd9d54920c771",
+        "candidate_sha256": "4b548c33cff14c487ef0cf28d488680c0fce053cc81651ae461f54d09523bf25"
+      },
+      {
+        "path": "qeli/src/server/reality.rs",
+        "before_sha256": "f02e78f5c5f475212d40e60206446361805de4d4d3e5cb5232aa899452305629",
+        "candidate_sha256": "24983ed47018494e97b36302abd5b813bc54178ed33b25af265888c1b46f0f7e"
+      },
+      {
+        "path": "qeli/src/server/udp_handler.rs",
+        "before_sha256": "bc480ab9c2f97a0a7fad322ba900721631894d7b7045b2fbc79f456f93e36822",
+        "candidate_sha256": "cb923d0340867e206adb7d80b99861ab284ee73a647a37432b57c3d5a745212c"
+      },
+      {
+        "path": "qeli/src/transport_core/mod.rs",
+        "before_sha256": "6074df1ac8a03b501ac8e9ba96ff7765f49e1d8e0b66cd927835683c8e591d65",
+        "candidate_sha256": "d27ff90cc04899f5c86600a708bfabb3c10bfc2710c48b2eca2bf409b6139791"
+      },
+      {
+        "path": "qeli/src/transport_core/pooled_record.rs",
+        "before_sha256": null,
+        "candidate_sha256": "6b7c1a547f384c5d1a51e625b6b75b74e2871af945a91a03d9786c9122565f08"
+      }
+    ],
+    "old_binary_sha256": "95cf32f8a9bd76de855e1e599c88fc9feb94a677ccef99c61b35762f27d467f7"
+  },
+  "build": {
+    "status": "PASS",
+    "stages": [
+      {
+        "label": "candidate",
+        "command": [
+          "cargo",
+          "build",
+          "--frozen",
+          "--release",
+          "--features",
+          "jemalloc",
+          "--bin",
+          "qeli"
+        ],
+        "started_utc": "2026-10-23T09:37:42.138125+00:00",
+        "exit_code": 0,
+        "finished_utc": "2026-10-23T09:43:52.010228+00:00"
+      },
+      {
+        "label": "test-build",
+        "command": [
+          "cargo",
+          "test",
+          "--frozen",
+          "--lib",
+          "--features",
+          "transport-core-ffi",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "started_utc": "2026-10-23T09:43:52.066668+00:00",
+        "exit_code": 0,
+        "finished_utc": "2026-10-23T09:45:30.657275+00:00"
+      }
+    ],
+    "started_utc": "2026-10-23T09:37:39.652485+00:00",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: x86_64-unknown-linux-gnu\nrelease: 1.97.0\nLLVM version: 22.1.6\n",
+    "cargo_home": "/opt/qeli-release-dev-083-20261021/tools/cargo",
+    "source_archive_sha256": "672fa8ca6aafbeb2dcc767deaff15c5286b68371bd0c14ef146ea2fe833afa2b",
+    "candidate": {
+      "sha256": "09d0586e03a68f2cf22aebdb8ff2dd38d04063f0c0e0b6bd1f0f271997a177bd",
+      "bytes": 19275368,
+      "version": "qeli 0.8.3"
+    },
+    "linux_tests": {
+      "sha256": "7c37b758b76b3deb2dd090d57d781c5053a08bfa92c2698d58bff1ad50350cc1",
+      "bytes": 146059696
+    },
+    "finished_utc": "2026-10-23T09:45:31.047248+00:00"
+  },
+  "local_integrity": {
+    "preserved_repository_files": {
+      "release/RELEASE_NOTES_0.8.3.md": true,
+      "scripts/build_site_static.py": true,
+      "docs/data/benchmarks/release_short_083_required_2026-10-22.json": true
+    },
+    "old_local_binary_unchanged": true,
+    "source_archive_unchanged": true,
+    "candidate_unchanged": true,
+    "tests_unchanged": true
+  },
+  "initial_restoration_recovery": {
+    "status": "PASS",
+    "checks": {
+      "boot_id": true,
+      "protected_files": true,
+      "sysctls": true,
+      "hostname": true,
+      "kernel": true,
+      "cpus": true,
+      "mem_total_kib": true,
+      "processes": true,
+      "links": true,
+      "addresses": true,
+      "routes4": true,
+      "routes6": true,
+      "rules4": true,
+      "rules6": true,
+      "qdiscs": true,
+      "iptables": true,
+      "ip6tables": true
+    },
+    "repair": {
+      "removed_owned_empty_tables": [
+        "ip"
+      ]
+    },
+    "initial_failure_preserved": true
+  },
+  "unique_linux_component_tests": 37,
+  "primary_failures": [
+    {
+      "case": "initial UDP OUTPUT DROP",
+      "error": "EPERM on local send; carrier closed",
+      "accepted": false,
+      "change": "Receiver INPUT used; initial raw retained"
+    },
+    {
+      "case": "FakeTLS IPv4 download, ingress r02 s05",
+      "error": "client iperf control-stream read error; server raw has about9s DATA",
+      "accepted": false,
+      "recheck": "reverse-r03 full60s passed; original failed window retained; universal application timeout recovery not established"
+    },
+    {
+      "case": "old H2 ingress r02 recovery",
+      "error": "first iperf recovery failed; second succeeded",
+      "accepted": false
+    },
+    {
+      "case": "initial cleanup",
+      "error": "empty test-created nftables table remained",
+      "accepted": false,
+      "recovery": "proven empty accept-only table removed; separate17/17 recovery receipt; original FAIL preserved"
+    }
+  ]
+}

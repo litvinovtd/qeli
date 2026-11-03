@@ -1,11 +1,30 @@
 #!/bin/bash
 set -e
+umask 077
+
+SEED_TMP=''
+cleanup_seed() { [ -z "$SEED_TMP" ] || rm -f -- "$SEED_TMP"; }
+trap cleanup_seed EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # debconf: read the operator's choice of service user (asked by DEBIAN/config).
 . /usr/share/debconf/confmodule
 
 case "$1" in
     configure)
+        # Reject unsafe package state before any pathname-based writes/chown.
+        for state in /etc/qeli /etc/qeli/client-links /var/log/qeli /var/lib/qeli; do
+            if [ -L "$state" ] || { [ -e "$state" ] && [ ! -d "$state" ]; }; then
+                echo "qeli: refusing linked/non-directory state path: $state" >&2
+                exit 1
+            fi
+        done
+        if [ -L /etc/qeli/users.conf ] || { [ -e /etc/qeli/users.conf ] && [ ! -f /etc/qeli/users.conf ]; }; then
+            echo 'qeli: refusing linked/nonregular /etc/qeli/users.conf' >&2
+            exit 1
+        fi
+
         if ! getent passwd qeli > /dev/null 2>&1; then
             adduser --system --group --no-create-home qeli
         fi
@@ -17,7 +36,17 @@ case "$1" in
         # Users live in a separate file (auth.users_file, default here). Create it
         # empty so `qeli add-client` can append (it errors if the file is missing).
         # Never seed users.conf.example — it carries a sample user with a KNOWN hash.
-        [ -f /etc/qeli/users.conf ] || : > /etc/qeli/users.conf
+        if [ ! -f /etc/qeli/users.conf ]; then
+            SEED_TMP="$(mktemp /etc/qeli/users.conf.qeli-XXXXXX)"
+            if ! ln -T -- "$SEED_TMP" /etc/qeli/users.conf 2>/dev/null; then
+                [ ! -L /etc/qeli/users.conf ] && [ -f /etc/qeli/users.conf ] || {
+                    echo 'qeli: could not publish empty users.conf safely' >&2
+                    exit 1
+                }
+            fi
+            cleanup_seed
+            SEED_TMP=''
+        fi
 
         # NO file capability on /usr/bin/qeli. It is 0755 root:root, so `setcap
         # cap_net_admin+ep` handed CAP_NET_ADMIN to EVERY local user: anyone could
@@ -34,7 +63,14 @@ case "$1" in
         # `setcap` on a copy you control), which is the correct trade.
         setcap -r /usr/bin/qeli 2>/dev/null || true
 
-        chown -R qeli:qeli /etc/qeli /var/log/qeli /var/lib/qeli
+        # Keep administrator receipts/journals/backups out of daemon ownership.
+        find -P /etc/qeli -path /etc/qeli/client-links -prune -o -name '*.bak-*' -prune \
+            -o -exec chown -h qeli:qeli '{}' +
+        if [ -d /etc/qeli/client-links ]; then
+            chown -h root:root /etc/qeli/client-links
+            chmod 700 /etc/qeli/client-links
+        fi
+        chown -h -R -P qeli:qeli /var/log/qeli /var/lib/qeli
         chmod 755 /etc/qeli
 
         systemctl daemon-reload 2>/dev/null || true
@@ -42,15 +78,28 @@ case "$1" in
         # Apply the run-as choice (default 'qeli'). `set-service-user` writes/removes a
         # systemd drop-in override (never edits the packaged unit) and is idempotent, so
         # re-running it on every upgrade just re-asserts the current answer.
-        db_get qeli/run-as 2>/dev/null || true
-        RUN_AS="${RET:-qeli}"
+        RUN_AS=qeli
+        if db_get qeli/run-as 2>/dev/null; then RUN_AS="${RET:-qeli}"; fi
         case "$RUN_AS" in
-            root) /usr/bin/qeli set-service-user root 2>/dev/null || true ;;
-            *)    /usr/bin/qeli set-service-user qeli 2>/dev/null || true ;;
+            root|qeli) ;;
+            *) echo "qeli: invalid service user answer: $RUN_AS" >&2; exit 1 ;;
         esac
+        RUN_AS_APPLIED=1
+        if ! /usr/bin/qeli set-service-user "$RUN_AS"; then
+            # The CLI also asks systemd to reload. In a nonbooted chroot/container
+            # this can fail; retain an explicit warning instead of claiming success.
+            if [ -d /run/systemd/system ]; then
+                echo "qeli: could not apply service user $RUN_AS" >&2
+                exit 1
+            fi
+            RUN_AS_APPLIED=0
+            echo "qeli: service-user application not confirmed; retry after boot: qeli set-service-user $RUN_AS" >&2
+        fi
 
         echo "qeli configured successfully."
-        echo "Service runs as: ${RUN_AS}   (change later: qeli set-service-user root|qeli)"
+        if [ "$RUN_AS_APPLIED" = 1 ]; then
+            echo "Service runs as: ${RUN_AS}   (change later: qeli set-service-user root|qeli)"
+        fi
         echo "Examples in /etc/qeli/ (flat-INI):"
         echo "  server.conf.example              - exhaustive single-profile reference (every key)"
         echo "  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)"
@@ -70,7 +119,7 @@ case "$1" in
         echo "as the service user:"
         echo "    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf"
         echo "or restore ownership once you are done:"
-        echo "    chown -R qeli:qeli /etc/qeli"
+        echo "    qeli set-service-user qeli"
         echo ""
         echo "Start: systemctl start qeli"
         ;;

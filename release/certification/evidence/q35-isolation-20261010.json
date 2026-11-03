@@ -1,0 +1,386 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS_SCOPED_NETNS_ISOLATION",
+  "source_digest": "36b9b68be1304c87de411244d790ce5b9646dcff7c2dfafbed7b8da88b94a32d",
+  "qualification_source_commit": "ae8c17447d83a4a3cd6c758030e8c40aaa6d8466",
+  "product_source_commit": "ae8c17447d83a4a3cd6c758030e8c40aaa6d8466",
+  "findings_closed": [
+    "F508/Q35-F005"
+  ],
+  "verification": {
+    "windows": {
+      "status": "PASS",
+      "tests": 11,
+      "docs": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n",
+      "workflow_count": 4,
+      "actionlint_sha256": "54ca21be3de4c7cfa26914aa8b61bd76bf573ef3caac5f80d110558cdf241718",
+      "checks": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_check_workflows.py"
+          ],
+          "return_code": 0,
+          "output": "...........\r\n----------------------------------------------------------------------\r\nRan 11 tests in 0.048s\r\n\r\nOK\r\n"
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "return_code": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-fuzz-context-20261009\\actionlint.exe",
+            "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\.github\\workflows\\ci.yml",
+            "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\.github\\workflows\\dco.yml",
+            "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\.github\\workflows\\docker-publish.yml",
+            "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\.github\\workflows\\release-attest.yml"
+          ],
+          "return_code": 0,
+          "output": ""
+        }
+      ],
+      "scope": "11 Windows workflow contract methods; actual pinned actionlint4 semantic workflows;9docs tests/724Markdown; PythonAST syntax. Linux Bash/kernel methods separately qualified, Windows skips are not counted."
+    },
+    "linux": {
+      "status": "PASS_LINUX_KERNEL_ISOLATION",
+      "tests": 35,
+      "kernel_tests": 7,
+      "qualified_files_sha256": {
+        ".github/workflows/ci.yml": "43d17fa2037b7d1fda0aafc5d2449d3374b703e52ad9f13beb151210dfa0c595",
+        "scripts/linux_roaming_release_soak.sh": "b176ed09a53b68638c635452d86407458134b23c6f9181ebbc2178f58603e8ed",
+        "scripts/roaming_control_stats.py": "cc7a454a07e6e92ae8b003a8a1fdc3088acb222328e8846549559236e3e55b57",
+        "scripts/roaming_netns_e2e.sh": "27e32b51a5eea36b0e91ece6d1e60a4f7a909326c6f7f42da150c99161728496",
+        "scripts/roaming_netns_isolation.sh": "307a7197418ac50da2565775b34b2c62af30d3e9ea71a7243381af0749358364",
+        "scripts/roaming_netns_supervisor.py": "480aef283101a434cc7de0885873e7184463fc1b25cab45b623464b746c13ed8",
+        "scripts/roaming_process_probe.sh": "38f937792c40e8112da4f51163d664708757bb1f3b6292cd7092fc695a38c261",
+        "scripts/roaming_resource_release_gate.sh": "9d976819505b02d4a8ed702bd8b3ac0f18e909e05170c1ef35a2410d56a78d5d",
+        "scripts/roaming_soak_parameters.sh": "e044320fe7ea072ad617e1aecf0f611263144702287310de20067201ae9ed14c",
+        "scripts/roaming_tcp_netns_soak_case.sh": "d1f5cd01419e6994f941503454321d5166c0ef2ba5f9d5a9786a9af66d405132",
+        "scripts/roaming_udp_netns_e2e.sh": "3bcb432ff22f0bebd8cd82e7caa4d52bd0d905521acc47d1a8f7b576bc909421",
+        "scripts/roaming_udp_netns_soak_case.sh": "8cc52e73832512bfa19341a74787512913f265ec1ee094d8a087b0daffd58016",
+        "scripts/roaming_udp_resource_soak_netns_gate.sh": "f405bb673345d2c7d74c0ade6fa5fbb1a88e540bb6c1f6cbffb79aba92c06242",
+        "scripts/test_roaming_control_stats.py": "a58f20a8cd2436e61ea4fc3246a570616b0d49ce03973de5c9a8fd9f587e8174",
+        "scripts/test_roaming_netns_isolation.py": "56d561db17f8b44cf1ea6199d8a63bc8a178c1699fdc6622ef6f1ca6ce33ac82",
+        "scripts/test_roaming_netns_isolation_kernel.py": "4d217c300b574b8ce3d9cff6792019b4ba59fe842025d7bf4e941355715f9a75",
+        "scripts/test_roaming_process_probe.py": "a68ad45999efbe406d465cce1ebbf3393fdd46067e24c8b3fe7cbf2ad49af9ec",
+        "scripts/test_roaming_resource_release_gate.py": "8733cc5bae6181e3999540fe171cb997b55b8ee6566f5d0b609ba31b241c70a9",
+        "scripts/test_roaming_soak_parameters.py": "ffdcbecd3dd0d13dffdb28865e6ad17682feac612c35674fb767b40511646661",
+        "scripts/test_roaming_udp_resource_soak_netns_gate.py": "6f1c8088aff196a3abaffed37b40d81240fa79cce857a4b771c83cc9e531c2c9",
+        "baseline/scripts/roaming_netns_e2e.sh": "d63f3ff250d0e914764e011fe311e3560bdb918e478bbe455479fb70b6f353fe",
+        "baseline/scripts/roaming_udp_netns_e2e.sh": "6498bf4110d2923bf29f92ed7b80cc8d131099d5701dfe24ca7b4745fec3bf9e",
+        "outer-isolation.sh": "48763b199e2498a1cfe11b010eac50fedb410aefaaeae37154abfe1f17577f49",
+        "baseline-check.py": "0ff7c4c39d37ed163db2ae40e454f550d7271ad433b26eb12e82207c3a88adc2",
+        "source.tar": "f9c8116e8487f8f22c54cf1b6ecdce98fcb551b3bf5a671c0ed7e1f7feec1753"
+      },
+      "original_service": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+      "service_unchanged": true,
+      "host_preserved": true,
+      "host_comparison": "Exact textual snapshot after replacing only builtin chain packet/byte counters; raw before/after/diff preserved",
+      "cleanup": {
+        "status": "PASS_SHA_BACKED_KNOWN_FILES_CLEANUP",
+        "files": 25
+      },
+      "commands": [
+        {
+          "command": "systemctl show qeli -p MainPID --value; pgrep -x qeli | sort -n; sha256sum /usr/bin/qeli",
+          "label": "original service",
+          "output": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+          "return_code": 0
+        },
+        {
+          "command": "ip netns list; ip -j link show; ip route show; ip -6 route show; iptables-save | sed '/^#/d'; ip6tables-save | sed '/^#/d'; cat /proc/sys/net/ipv4/ip_forward /proc/sys/net/ipv6/conf/all/forwarding; sha256sum /etc/hosts /etc/resolv.conf; find /etc/netns -maxdepth 2 -type f -exec sha256sum {} \\; 2>/dev/null; cat /proc/self/mountinfo",
+          "label": "read only host preservation snapshot",
+          "output": "[{\"ifindex\":1,\"ifname\":\"lo\",\"flags\":[\"LOOPBACK\",\"UP\",\"LOWER_UP\"],\"mtu\":65536,\"qdisc\":\"noqueue\",\"operstate\":\"UNKNOWN\",\"linkmode\":\"DEFAULT\",\"group\":\"default\",\"txqlen\":1000,\"link_type\":\"loopback\",\"address\":\"00:00:00:00:00:00\",\"broadcast\":\"00:00:00:00:00:00\"},{\"ifindex\":2,\"ifname\":\"ens18\",\"flags\":[\"BROADCAST\",\"MULTICAST\",\"UP\",\"LOWER_UP\"],\"mtu\":1500,\"qdisc\":\"fq\",\"operstate\":\"UP\",\"linkmode\":\"DEFAULT\",\"group\":\"default\",\"txqlen\":1000,\"link_type\":\"ether\",\"address\":\"bc:24:11:f1:57:4a\",\"broadcast\":\"ff:ff:ff:ff:ff:ff\",\"altnames\":[\"enp0s18\",\"enxbc2411f1574a\"]},{\"ifindex\":4,\"ifname\":\"vpn0\",\"flags\":[\"POINTOPOINT\",\"MULTICAST\",\"NOARP\",\"UP\",\"LOWER_UP\"],\"mtu\":1280,\"qdisc\":\"mq\",\"operstate\":\"UNKNOWN\",\"linkmode\":\"DEFAULT\",\"group\":\"default\",\"txqlen\":1000,\"link_type\":\"none\"}]\ndefault via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nfe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\n# Warning: iptables-legacy tables present, use iptables-legacy-save to see them\n*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [9:769]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [49548:3885073]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT\n*filter\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\nCOMMIT\n1\n0\n76ebc292e8a109b9f19c35116899bd8b595872348d7a2bf98f921539c2b007f4  /etc/hosts\nd9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf\n24 30 0:22 / /sys rw,nosuid,nodev,noexec,relatime shared:6 - sysfs sysfs rw\n25 30 0:23 / /proc rw,nosuid,nodev,noexec,relatime shared:11 - proc proc rw\n26 30 0:6 / /dev rw,nosuid,relatime shared:2 - devtmpfs udev rw,size=981916k,nr_inodes=245479,mode=755,inode64\n27 26 0:24 / /dev/pts rw,nosuid,noexec,relatime shared:3 - devpts devpts rw,gid=5,mode=600,ptmxmode=000\n28 30 0:25 / /run rw,nosuid,nodev,noexec,relatime shared:5 - tmpfs tmpfs rw,size=202096k,mode=755,inode64\n30 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw,errors=remount-ro\n31 24 0:7 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime shared:7 - securityfs securityfs rw\n32 26 0:27 / /dev/shm rw,nosuid,nodev shared:4 - tmpfs tmpfs rw,inode64\n33 24 0:28 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime shared:8 - cgroup2 cgroup2 rw,nsdelegate,memory_recursiveprot\n34 24 0:29 / /sys/fs/pstore rw,nosuid,nodev,noexec,relatime shared:9 - pstore pstore rw\n35 24 0:30 / /sys/fs/bpf rw,nosuid,nodev,noexec,relatime shared:10 - bpf bpf rw,mode=700\n36 25 0:31 / /proc/sys/fs/binfmt_misc rw,relatime shared:12 - autofs systemd-1 rw,fd=41,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=2768\n37 26 0:32 / /dev/hugepages rw,nosuid,nodev,relatime shared:13 - hugetlbfs hugetlbfs rw,pagesize=2M\n38 26 0:21 / /dev/mqueue rw,nosuid,nodev,noexec,relatime shared:14 - mqueue mqueue rw\n39 28 0:33 / /run/lock rw,nosuid,nodev,noexec,relatime shared:15 - tmpfs tmpfs rw,size=5120k,inode64\n40 24 0:8 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime shared:16 - debugfs debugfs rw\n41 24 0:13 / /sys/kernel/tracing rw,nosuid,nodev,noexec,relatime shared:17 - tracefs tracefs rw\n44 28 0:34 / /run/credentials/systemd-journald.service ro,nosuid,nodev,noexec,relatime,nosymfollow shared:27 - tmpfs tmpfs rw,size=1024k,nr_inodes=1024,mode=700,inode64,noswap\n43 24 0:36 / /sys/fs/fuse/connections rw,nosuid,nodev,noexec,relatime shared:45 - fusectl fusectl rw\n50 24 0:38 / /sys/kernel/config rw,nosuid,nodev,noexec,relatime shared:49 - configfs configfs rw\n95 28 0:35 / /run/credentials/systemd-resolved.service ro,nosuid,nodev,noexec,relatime,nosymfollow shared:43 - tmpfs tmpfs rw,size=1024k,nr_inodes=1024,mode=700,inode64,noswap\n42 30 0:40 / /tmp rw,nosuid,nodev shared:18 - tmpfs tmpfs rw,size=1010468k,nr_inodes=1048576,inode64\n51 36 0:46 / /proc/sys/fs/binfmt_misc rw,nosuid,nodev,noexec,relatime shared:22 - binfmt_misc binfmt_misc rw\n264 28 0:48 / /run/credentials/getty@tty1.service ro,nosuid,nodev,noexec,relatime,nosymfollow shared:181 - tmpfs tmpfs rw,size=1024k,nr_inodes=1024,mode=700,inode64,noswap\n59 28 0:49 / /run/user/0 rw,nosuid,nodev,relatime shared:211 - tmpfs tmpfs rw,size=202092k,nr_inodes=50523,mode=700,inode64\n65 28 0:25 /netns /run/netns rw,nosuid,nodev,noexec,relatime shared:5 - tmpfs tmpfs rw,size=202096k,mode=755,inode64",
+          "return_code": 0
+        },
+        {
+          "command": "test -d /var/tmp/qeli-isolation.NWduCXnP && test ! -L /var/tmp/qeli-isolation.NWduCXnP && sha256sum /var/tmp/qeli-isolation.NWduCXnP/source.tar",
+          "label": "recover exact owned root",
+          "output": "748193921875329c523e7581a5d63aeb7ec4b1a4c099f36b69d96121d8ce2edb  /var/tmp/qeli-isolation.NWduCXnP/source.tar",
+          "return_code": 0
+        },
+        {
+          "command": "sha256sum /var/tmp/qeli-isolation.NWduCXnP/source.tar",
+          "label": "archive hash",
+          "output": "f9c8116e8487f8f22c54cf1b6ecdce98fcb551b3bf5a671c0ed7e1f7feec1753  /var/tmp/qeli-isolation.NWduCXnP/source.tar",
+          "return_code": 0
+        },
+        {
+          "command": "cd /var/tmp/qeli-isolation.NWduCXnP && tar -xf source.tar",
+          "label": "extract private inputs",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "cd /var/tmp/qeli-isolation.NWduCXnP && timeout 55s unshare --mount --net --pid --fork --mount-proc --kill-child=KILL bash outer-isolation.sh \"$(readlink /proc/self/ns/mnt)\" \"$(readlink /proc/self/ns/net)\" \"$(readlink /proc/self/ns/pid)\" /var/tmp/qeli-isolation.NWduCXnP",
+          "label": "independent private kernel fixtures and baseline",
+          "output": "{\"baseline\": \"roaming_netns_e2e.sh\", \"status\": \"CONFIRMED_FIXED_NAME_CLEANUP_KILLS_EXISTING_PRIVATE_SENTINEL\", \"sentinel_return_code\": -9}\n{\"baseline\": \"roaming_udp_netns_e2e.sh\", \"status\": \"CONFIRMED_FIXED_NAME_CLEANUP_KILLS_EXISTING_PRIVATE_SENTINEL\", \"sentinel_return_code\": -15}\nBASELINE_ISOLATION_DEFECTS_CONFIRMED_IN_PRIVATE_OUTER_NAMESPACES\ntest_actual_cleanup_preserves_existing_names_processes_hosts_and_exit_status (test_roaming_netns_isolation_kernel.KernelIsolationTests.test_actual_cleanup_preserves_existing_names_processes_hosts_and_exit_status) ... {\"mode\": \"tcp-cleanup\", \"ready\": {\"ids\": {\"mnt\": \"mnt:[4026532453]\", \"net\": \"net:[4026532455]\", \"pid\": \"pid:[4026532454]\"}, \"args\": [\"tcp-cleanup\", \"/var/tmp/qeli-isolation.NWduCXnP/isolation-kernel-gdni8y7v/tcp-cleanup\"], \"cwd\": \"/var/tmp/qeli-isolation.NWduCXnP\"}}\n{\"mode\": \"udp-cleanup\", \"ready\": {\"ids\": {\"mnt\": \"mnt:[4026532453]\", \"net\": \"net:[4026532455]\", \"pid\": \"pid:[4026532454]\"}, \"args\": [\"udp-cleanup\", \"/var/tmp/qeli-isolation.NWduCXnP/isolation-kernel-gdni8y7v/udp-cleanup\"], \"cwd\": \"/var/tmp/qeli-isolation.NWduCXnP\"}}\nok\ntest_args_environment_and_working_directory_survive (test_roaming_netns_isolation_kernel.KernelIsolationTests.test_args_environment_and_working_directory_survive) ... {\"mode\": \"args\", \"ready\": {\"ids\": {\"mnt\": \"mnt:[4026532327]\", \"net\": \"net:[4026532329]\", \"pid\": \"pid:[4026532328]\"}, \"args\": [\"args\", \"/var/tmp/qeli-isolation.NWduCXnP/isolation-kernel-ffyebpiq/args\", \"binary with spaces\", \"literal;$(no-command)\"], \"cwd\": \"/var/tmp/qeli-isolation.NWduCXnP\"}}\nok\ntest_kernel_permission_failure_refuses_before_payload (test_roaming_netns_isolation_kernel.KernelIsolationTests.test_kernel_permission_failure_refuses_before_payload) ... ok\ntest_overlay_mount_failure_refuses_before_payload (test_roaming_netns_isolation_kernel.KernelIsolationTests.test_overlay_mount_failure_refuses_before_payload) ... ok\ntest_parallel_identical_names_have_distinct_namespaces (test_roaming_netns_isolation_kernel.KernelIsolationTests.test_parallel_identical_names_have_distinct_namespaces) ... {\"mode\": \"one\", \"ready\": {\"ids\": {\"mnt\": \"mnt:[4026532327]\", \"net\": \"net:[4026532329]\", \"pid\": \"pid:[4026532328]\"}, \"args\": [\"one\", \"/var/tmp/qeli-isolation.NWduCXnP/isolation-kernel-rwsx9qve/one\"], \"cwd\": \"/var/tmp/qeli-isolation.NWduCXnP\"}}\n{\"mode\": \"two\", \"ready\": {\"ids\": {\"mnt\": \"mnt:[4026532641]\", \"net\": \"net:[4026532643]\", \"pid\": \"pid:[4026532642]\"}, \"args\": [\"two\", \"/var/tmp/qeli-isolation.NWduCXnP/isolation-kernel-rwsx9qve/two\"], \"cwd\": \"/var/tmp/qeli-isolation.NWduCXnP\"}}\nok\ntest_supervisor_sigkill_removes_descendants (test_roaming_netns_isolation_kernel.KernelIsolationTests.test_supervisor_sigkill_removes_descendants) ... {\"mode\": \"hard-interrupt\", \"ready\": {\"ids\": {\"mnt\": \"mnt:[4026532453]\", \"net\": \"net:[4026532455]\", \"pid\": \"pid:[4026532454]\"}, \"args\": [\"hard-interrupt\", \"/var/tmp/qeli-isolation.NWduCXnP/isolation-kernel-hy8shfip/hard-interrupt\"], \"cwd\": \"/var/tmp/qeli-isolation.NWduCXnP\"}}\nok\ntest_supervisor_sigterm_removes_descendants (test_roaming_netns_isolation_kernel.KernelIsolationTests.test_supervisor_sigterm_removes_descendants) ... {\"mode\": \"interrupt-15\", \"ready\": {\"ids\": {\"mnt\": \"mnt:[4026532389]\", \"net\": \"net:[4026532391]\", \"pid\": \"pid:[4026532390]\"}, \"args\": [\"interrupt-15\", \"/var/tmp/qeli-isolation.NWduCXnP/isolation-kernel-ak641j0o/interrupt-15\"], \"cwd\": \"/var/tmp/qeli-isolation.NWduCXnP\"}}\n{\"mode\": \"interrupt-2\", \"ready\": {\"ids\": {\"mnt\": \"mnt:[4026532389]\", \"net\": \"net:[4026532391]\", \"pid\": \"pid:[4026532390]\"}, \"args\": [\"interrupt-2\", \"/var/tmp/qeli-isolation.NWduCXnP/isolation-kernel-ak641j0o/interrupt-2\"], \"cwd\": \"/var/tmp/qeli-isolation.NWduCXnP\"}}\nok\n\n----------------------------------------------------------------------\nRan 7 tests in 2.860s\n\nOK",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/baseline/scripts/roaming_netns_e2e.sh",
+          "label": "Bash syntax baseline/scripts/roaming_netns_e2e.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/baseline/scripts/roaming_udp_netns_e2e.sh",
+          "label": "Bash syntax baseline/scripts/roaming_udp_netns_e2e.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/outer-isolation.sh",
+          "label": "Bash syntax outer-isolation.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/scripts/linux_roaming_release_soak.sh",
+          "label": "Bash syntax scripts/linux_roaming_release_soak.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/scripts/roaming_netns_e2e.sh",
+          "label": "Bash syntax scripts/roaming_netns_e2e.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/scripts/roaming_netns_isolation.sh",
+          "label": "Bash syntax scripts/roaming_netns_isolation.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/scripts/roaming_process_probe.sh",
+          "label": "Bash syntax scripts/roaming_process_probe.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/scripts/roaming_resource_release_gate.sh",
+          "label": "Bash syntax scripts/roaming_resource_release_gate.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/scripts/roaming_soak_parameters.sh",
+          "label": "Bash syntax scripts/roaming_soak_parameters.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/scripts/roaming_tcp_netns_soak_case.sh",
+          "label": "Bash syntax scripts/roaming_tcp_netns_soak_case.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/scripts/roaming_udp_netns_e2e.sh",
+          "label": "Bash syntax scripts/roaming_udp_netns_e2e.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/scripts/roaming_udp_netns_soak_case.sh",
+          "label": "Bash syntax scripts/roaming_udp_netns_soak_case.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "bash -n /var/tmp/qeli-isolation.NWduCXnP/scripts/roaming_udp_resource_soak_netns_gate.sh",
+          "label": "Bash syntax scripts/roaming_udp_resource_soak_netns_gate.sh",
+          "output": "",
+          "return_code": 0
+        },
+        {
+          "command": "cd /var/tmp/qeli-isolation.NWduCXnP && PYTHONPATH=scripts python3 -B -m unittest -v test_roaming_netns_isolation test_roaming_soak_parameters test_roaming_udp_resource_soak_netns_gate test_roaming_resource_release_gate test_roaming_process_probe test_roaming_control_stats",
+          "label": "Linux soak admission methods",
+          "output": "test_both_runners_require_isolation_before_initial_cleanup (test_roaming_netns_isolation.IsolationAdmissionTests.test_both_runners_require_isolation_before_initial_cleanup) ... ok\ntest_environment_flag_cannot_skip_launcher (test_roaming_netns_isolation.IsolationAdmissionTests.test_environment_flag_cannot_skip_launcher) ... ok\ntest_internal_launcher_rejects_invalid_invocation (test_roaming_netns_isolation.IsolationAdmissionTests.test_internal_launcher_rejects_invalid_invocation) ... ok\ntest_missing_helper_refuses_before_mktemp_and_ip (test_roaming_netns_isolation.IsolationAdmissionTests.test_missing_helper_refuses_before_mktemp_and_ip) ... ok\ntest_missing_supervisor_refuses_before_mutation (test_roaming_netns_isolation.IsolationAdmissionTests.test_missing_supervisor_refuses_before_mutation) ... ok\ntest_mount_failure_refuses_before_payload (test_roaming_netns_isolation.IsolationAdmissionTests.test_mount_failure_refuses_before_payload) ... ok\ntest_namespace_verification_refuses_same_parent (test_roaming_netns_isolation.IsolationAdmissionTests.test_namespace_verification_refuses_same_parent) ... ok\ntest_bad_sample_and_missing_intermediate_sampling_refuse (test_roaming_soak_parameters.SoakAdmissionTests.test_bad_sample_and_missing_intermediate_sampling_refuse) ... ok\ntest_bounded_child_failure_cannot_report_pass (test_roaming_soak_parameters.SoakAdmissionTests.test_bounded_child_failure_cannot_report_pass) ... ok\ntest_bounded_release_preserves_100_flips (test_roaming_soak_parameters.SoakAdmissionTests.test_bounded_release_preserves_100_flips) ... ok\ntest_bounded_release_rejects_bad_counts_before_children (test_roaming_soak_parameters.SoakAdmissionTests.test_bounded_release_rejects_bad_counts_before_children) ... ok\ntest_canonical_boundaries (test_roaming_soak_parameters.SoakAdmissionTests.test_canonical_boundaries) ... ok\ntest_direct_cases_refuse_before_resource_probes (test_roaming_soak_parameters.SoakAdmissionTests.test_direct_cases_refuse_before_resource_probes) ... ok\ntest_endurance_wrapper_rejects_downgrades_before_first_phase (test_roaming_soak_parameters.SoakAdmissionTests.test_endurance_wrapper_rejects_downgrades_before_first_phase) ... ok\ntest_missing_shared_helper_refuses (test_roaming_soak_parameters.SoakAdmissionTests.test_missing_shared_helper_refuses) ... ok\ntest_noncanonical_and_overflow_refuse (test_roaming_soak_parameters.SoakAdmissionTests.test_noncanonical_and_overflow_refuse) ... ok\ntest_parent_runners_refuse_before_mktemp_or_ip (test_roaming_soak_parameters.SoakAdmissionTests.test_parent_runners_refuse_before_mktemp_or_ip) ... ok\ntest_requested_release_minimum (test_roaming_soak_parameters.SoakAdmissionTests.test_requested_release_minimum) ... ok\ntest_udp_defaults_report_full_matrix (test_roaming_soak_parameters.SoakAdmissionTests.test_udp_defaults_report_full_matrix) ... ok\ntest_udp_invalid_counts_do_not_start_any_child (test_roaming_soak_parameters.SoakAdmissionTests.test_udp_invalid_counts_do_not_start_any_child) ... ok\ntest_udp_reduced_counts_report_only_smoke (test_roaming_soak_parameters.SoakAdmissionTests.test_udp_reduced_counts_report_only_smoke) ... ok\ntest_defaults_use_one_representative_10k_and_three_adapter_1k_runs (test_roaming_udp_resource_soak_netns_gate.RoamingUdpResourceSoakGateTests.test_defaults_use_one_representative_10k_and_three_adapter_1k_runs) ... ok\ntest_failure_stops_later_modes (test_roaming_udp_resource_soak_netns_gate.RoamingUdpResourceSoakGateTests.test_failure_stops_later_modes) ... ok\ntest_iteration_overrides_are_forwarded (test_roaming_udp_resource_soak_netns_gate.RoamingUdpResourceSoakGateTests.test_iteration_overrides_are_forwarded) ... ok\ntest_rejects_invalid_iteration_count (test_roaming_udp_resource_soak_netns_gate.RoamingUdpResourceSoakGateTests.test_rejects_invalid_iteration_count) ... ok\ntest_binary_mutation_is_detected_before_next_phase (test_roaming_resource_release_gate.RoamingResourceReleaseGateTests.test_binary_mutation_is_detected_before_next_phase) ... ok\ntest_child_failure_prevents_every_later_phase (test_roaming_resource_release_gate.RoamingResourceReleaseGateTests.test_child_failure_prevents_every_later_phase) ... ok\ntest_operator_supplied_hash_is_enforced_before_first_phase (test_roaming_resource_release_gate.RoamingResourceReleaseGateTests.test_operator_supplied_hash_is_enforced_before_first_phase) ... ok\ntest_runs_every_phase_in_release_order (test_roaming_resource_release_gate.RoamingResourceReleaseGateTests.test_runs_every_phase_in_release_order) ... ok\ntest_accepts_long_config_flag (test_roaming_process_probe.RoamingProcessProbeTests.test_accepts_long_config_flag) ... ok\ntest_missing_worker_fails_closed (test_roaming_process_probe.RoamingProcessProbeTests.test_missing_worker_fails_closed) ... ok\ntest_multiple_exact_workers_fail_closed (test_roaming_process_probe.RoamingProcessProbeTests.test_multiple_exact_workers_fail_closed) ... ok\ntest_selects_only_exact_worker_binary_and_config (test_roaming_process_probe.RoamingProcessProbeTests.test_selects_only_exact_worker_binary_and_config) ... ok\ntest_extracts_requested_fields_in_order (test_roaming_control_stats.RoamingControlStatsTests.test_extracts_requested_fields_in_order) ... ok\ntest_rejects_missing_duplicate_or_non_integer_counters (test_roaming_control_stats.RoamingControlStatsTests.test_rejects_missing_duplicate_or_non_integer_counters) ... ok\n\n----------------------------------------------------------------------\nRan 35 tests in 0.471s\n\nOK",
+          "return_code": 0
+        },
+        {
+          "command": "python3 -B -c 'from pathlib import Path;import hashlib,json;root=Path('\"'\"'/var/tmp/qeli-isolation.NWduCXnP'\"'\"');items=list(root.rglob('\"'\"'*'\"'\"'));assert not any(f.is_symlink() for f in items);print(json.dumps(dict(files={f.relative_to(root).as_posix():hashlib.sha256(f.read_bytes()).hexdigest() for f in items if f.is_file()},dirs=[f.relative_to(root).as_posix() for f in items if f.is_dir()])))'",
+          "label": "exact inventory",
+          "output": "{\"files\": {\"source.tar\": \"f9c8116e8487f8f22c54cf1b6ecdce98fcb551b3bf5a671c0ed7e1f7feec1753\", \"outer-isolation.sh\": \"48763b199e2498a1cfe11b010eac50fedb410aefaaeae37154abfe1f17577f49\", \"baseline-check.py\": \"0ff7c4c39d37ed163db2ae40e454f550d7271ad433b26eb12e82207c3a88adc2\", \"scripts/roaming_udp_resource_soak_netns_gate.sh\": \"f405bb673345d2c7d74c0ade6fa5fbb1a88e540bb6c1f6cbffb79aba92c06242\", \"scripts/test_roaming_netns_isolation_kernel.py\": \"4d217c300b574b8ce3d9cff6792019b4ba59fe842025d7bf4e941355715f9a75\", \"scripts/test_roaming_soak_parameters.py\": \"ffdcbecd3dd0d13dffdb28865e6ad17682feac612c35674fb767b40511646661\", \"scripts/roaming_udp_netns_e2e.sh\": \"3bcb432ff22f0bebd8cd82e7caa4d52bd0d905521acc47d1a8f7b576bc909421\", \"scripts/test_roaming_netns_isolation.py\": \"56d561db17f8b44cf1ea6199d8a63bc8a178c1699fdc6622ef6f1ca6ce33ac82\", \"scripts/roaming_netns_e2e.sh\": \"27e32b51a5eea36b0e91ece6d1e60a4f7a909326c6f7f42da150c99161728496\", \"scripts/roaming_netns_isolation.sh\": \"307a7197418ac50da2565775b34b2c62af30d3e9ea71a7243381af0749358364\", \"scripts/roaming_netns_supervisor.py\": \"480aef283101a434cc7de0885873e7184463fc1b25cab45b623464b746c13ed8\", \"scripts/roaming_soak_parameters.sh\": \"e044320fe7ea072ad617e1aecf0f611263144702287310de20067201ae9ed14c\", \"scripts/roaming_resource_release_gate.sh\": \"9d976819505b02d4a8ed702bd8b3ac0f18e909e05170c1ef35a2410d56a78d5d\", \"scripts/roaming_tcp_netns_soak_case.sh\": \"d1f5cd01419e6994f941503454321d5166c0ef2ba5f9d5a9786a9af66d405132\", \"scripts/roaming_process_probe.sh\": \"38f937792c40e8112da4f51163d664708757bb1f3b6292cd7092fc695a38c261\", \"scripts/test_roaming_resource_release_gate.py\": \"8733cc5bae6181e3999540fe171cb997b55b8ee6566f5d0b609ba31b241c70a9\", \"scripts/roaming_control_stats.py\": \"cc7a454a07e6e92ae8b003a8a1fdc3088acb222328e8846549559236e3e55b57\", \"scripts/test_roaming_control_stats.py\": \"a58f20a8cd2436e61ea4fc3246a570616b0d49ce03973de5c9a8fd9f587e8174\", \"scripts/test_roaming_process_probe.py\": \"a68ad45999efbe406d465cce1ebbf3393fdd46067e24c8b3fe7cbf2ad49af9ec\", \"scripts/roaming_udp_netns_soak_case.sh\": \"8cc52e73832512bfa19341a74787512913f265ec1ee094d8a087b0daffd58016\", \"scripts/test_roaming_udp_resource_soak_netns_gate.py\": \"6f1c8088aff196a3abaffed37b40d81240fa79cce857a4b771c83cc9e531c2c9\", \"scripts/linux_roaming_release_soak.sh\": \"b176ed09a53b68638c635452d86407458134b23c6f9181ebbc2178f58603e8ed\", \".github/workflows/ci.yml\": \"43d17fa2037b7d1fda0aafc5d2449d3374b703e52ad9f13beb151210dfa0c595\", \"baseline/scripts/roaming_udp_netns_e2e.sh\": \"6498bf4110d2923bf29f92ed7b80cc8d131099d5701dfe24ca7b4745fec3bf9e\", \"baseline/scripts/roaming_netns_e2e.sh\": \"d63f3ff250d0e914764e011fe311e3560bdb918e478bbe455479fb70b6f353fe\"}, \"dirs\": [\"baseline\", \"scripts\", \".github\", \"baseline/scripts\", \".github/workflows\"]}",
+          "return_code": 0
+        },
+        {
+          "command": "python3 -B - <<'CLEANUP'\nfrom pathlib import Path\nimport os,re,hashlib,json\nroot=Path('/var/tmp/qeli-isolation.NWduCXnP');inv={'files': {'source.tar': 'f9c8116e8487f8f22c54cf1b6ecdce98fcb551b3bf5a671c0ed7e1f7feec1753', 'outer-isolation.sh': '48763b199e2498a1cfe11b010eac50fedb410aefaaeae37154abfe1f17577f49', 'baseline-check.py': '0ff7c4c39d37ed163db2ae40e454f550d7271ad433b26eb12e82207c3a88adc2', 'scripts/roaming_udp_resource_soak_netns_gate.sh': 'f405bb673345d2c7d74c0ade6fa5fbb1a88e540bb6c1f6cbffb79aba92c06242', 'scripts/test_roaming_netns_isolation_kernel.py': '4d217c300b574b8ce3d9cff6792019b4ba59fe842025d7bf4e941355715f9a75', 'scripts/test_roaming_soak_parameters.py': 'ffdcbecd3dd0d13dffdb28865e6ad17682feac612c35674fb767b40511646661', 'scripts/roaming_udp_netns_e2e.sh': '3bcb432ff22f0bebd8cd82e7caa4d52bd0d905521acc47d1a8f7b576bc909421', 'scripts/test_roaming_netns_isolation.py': '56d561db17f8b44cf1ea6199d8a63bc8a178c1699fdc6622ef6f1ca6ce33ac82', 'scripts/roaming_netns_e2e.sh': '27e32b51a5eea36b0e91ece6d1e60a4f7a909326c6f7f42da150c99161728496', 'scripts/roaming_netns_isolation.sh': '307a7197418ac50da2565775b34b2c62af30d3e9ea71a7243381af0749358364', 'scripts/roaming_netns_supervisor.py': '480aef283101a434cc7de0885873e7184463fc1b25cab45b623464b746c13ed8', 'scripts/roaming_soak_parameters.sh': 'e044320fe7ea072ad617e1aecf0f611263144702287310de20067201ae9ed14c', 'scripts/roaming_resource_release_gate.sh': '9d976819505b02d4a8ed702bd8b3ac0f18e909e05170c1ef35a2410d56a78d5d', 'scripts/roaming_tcp_netns_soak_case.sh': 'd1f5cd01419e6994f941503454321d5166c0ef2ba5f9d5a9786a9af66d405132', 'scripts/roaming_process_probe.sh': '38f937792c40e8112da4f51163d664708757bb1f3b6292cd7092fc695a38c261', 'scripts/test_roaming_resource_release_gate.py': '8733cc5bae6181e3999540fe171cb997b55b8ee6566f5d0b609ba31b241c70a9', 'scripts/roaming_control_stats.py': 'cc7a454a07e6e92ae8b003a8a1fdc3088acb222328e8846549559236e3e55b57', 'scripts/test_roaming_control_stats.py': 'a58f20a8cd2436e61ea4fc3246a570616b0d49ce03973de5c9a8fd9f587e8174', 'scripts/test_roaming_process_probe.py': 'a68ad45999efbe406d465cce1ebbf3393fdd46067e24c8b3fe7cbf2ad49af9ec', 'scripts/roaming_udp_netns_soak_case.sh': '8cc52e73832512bfa19341a74787512913f265ec1ee094d8a087b0daffd58016', 'scripts/test_roaming_udp_resource_soak_netns_gate.py': '6f1c8088aff196a3abaffed37b40d81240fa79cce857a4b771c83cc9e531c2c9', 'scripts/linux_roaming_release_soak.sh': 'b176ed09a53b68638c635452d86407458134b23c6f9181ebbc2178f58603e8ed', '.github/workflows/ci.yml': '43d17fa2037b7d1fda0aafc5d2449d3374b703e52ad9f13beb151210dfa0c595', 'baseline/scripts/roaming_udp_netns_e2e.sh': '6498bf4110d2923bf29f92ed7b80cc8d131099d5701dfe24ca7b4745fec3bf9e', 'baseline/scripts/roaming_netns_e2e.sh': 'd63f3ff250d0e914764e011fe311e3560bdb918e478bbe455479fb70b6f353fe'}, 'dirs': ['baseline', 'scripts', '.github', 'baseline/scripts', '.github/workflows']}\nassert root.resolve()==root and root.parent==Path('/var/tmp') and re.fullmatch(r'qeli-isolation\\.[A-Za-z0-9]{8}',root.name)\nitems=list(root.rglob('*'));assert not any(f.is_symlink() for f in items)\nassert {f.relative_to(root).as_posix() for f in items if f.is_file()}==set(inv['files'])\nassert {f.relative_to(root).as_posix() for f in items if f.is_dir()}==set(inv['dirs'])\nfor name,digest in inv['files'].items():assert hashlib.sha256((root/name).read_bytes()).hexdigest()==digest\nfor proc in Path('/proc').iterdir():\n if not proc.name.isdigit() or proc.name==str(os.getpid()):continue\n targets=[proc/'cwd',proc/'exe',proc/'root']\n try:targets+=list((proc/'fd').iterdir())\n except (FileNotFoundError,PermissionError):pass\n for link in targets:\n  try:value=os.readlink(link)\n  except OSError:continue\n  assert value!=str(root) and not value.startswith(str(root)+'/'),(proc,link)\nassert str(root) not in Path('/proc/self/mountinfo').read_text()\nfor name in inv['files']:(root/name).unlink()\nfor name in sorted(inv['dirs'],key=lambda x:len(Path(x).parts),reverse=True):(root/name).rmdir()\nroot.rmdir()\nprint(json.dumps(dict(status='PASS_SHA_BACKED_KNOWN_FILES_CLEANUP',files=len(inv['files']))))\n\nCLEANUP",
+          "label": "guarded own cleanup",
+          "output": "{\"status\": \"PASS_SHA_BACKED_KNOWN_FILES_CLEANUP\", \"files\": 25}",
+          "return_code": 0
+        },
+        {
+          "command": "systemctl show qeli -p MainPID --value; pgrep -x qeli | sort -n; sha256sum /usr/bin/qeli",
+          "label": "original service after",
+          "output": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+          "return_code": 0
+        },
+        {
+          "command": "ip netns list; ip -j link show; ip route show; ip -6 route show; iptables-save | sed '/^#/d'; ip6tables-save | sed '/^#/d'; cat /proc/sys/net/ipv4/ip_forward /proc/sys/net/ipv6/conf/all/forwarding; sha256sum /etc/hosts /etc/resolv.conf; find /etc/netns -maxdepth 2 -type f -exec sha256sum {} \\; 2>/dev/null; cat /proc/self/mountinfo",
+          "label": "host preservation after",
+          "output": "[{\"ifindex\":1,\"ifname\":\"lo\",\"flags\":[\"LOOPBACK\",\"UP\",\"LOWER_UP\"],\"mtu\":65536,\"qdisc\":\"noqueue\",\"operstate\":\"UNKNOWN\",\"linkmode\":\"DEFAULT\",\"group\":\"default\",\"txqlen\":1000,\"link_type\":\"loopback\",\"address\":\"00:00:00:00:00:00\",\"broadcast\":\"00:00:00:00:00:00\"},{\"ifindex\":2,\"ifname\":\"ens18\",\"flags\":[\"BROADCAST\",\"MULTICAST\",\"UP\",\"LOWER_UP\"],\"mtu\":1500,\"qdisc\":\"fq\",\"operstate\":\"UP\",\"linkmode\":\"DEFAULT\",\"group\":\"default\",\"txqlen\":1000,\"link_type\":\"ether\",\"address\":\"bc:24:11:f1:57:4a\",\"broadcast\":\"ff:ff:ff:ff:ff:ff\",\"altnames\":[\"enp0s18\",\"enxbc2411f1574a\"]},{\"ifindex\":4,\"ifname\":\"vpn0\",\"flags\":[\"POINTOPOINT\",\"MULTICAST\",\"NOARP\",\"UP\",\"LOWER_UP\"],\"mtu\":1280,\"qdisc\":\"mq\",\"operstate\":\"UNKNOWN\",\"linkmode\":\"DEFAULT\",\"group\":\"default\",\"txqlen\":1000,\"link_type\":\"none\"}]\ndefault via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nfe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\n# Warning: iptables-legacy tables present, use iptables-legacy-save to see them\n*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [9:769]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [49550:3885327]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT\n*filter\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\nCOMMIT\n1\n0\n76ebc292e8a109b9f19c35116899bd8b595872348d7a2bf98f921539c2b007f4  /etc/hosts\nd9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf\n24 30 0:22 / /sys rw,nosuid,nodev,noexec,relatime shared:6 - sysfs sysfs rw\n25 30 0:23 / /proc rw,nosuid,nodev,noexec,relatime shared:11 - proc proc rw\n26 30 0:6 / /dev rw,nosuid,relatime shared:2 - devtmpfs udev rw,size=981916k,nr_inodes=245479,mode=755,inode64\n27 26 0:24 / /dev/pts rw,nosuid,noexec,relatime shared:3 - devpts devpts rw,gid=5,mode=600,ptmxmode=000\n28 30 0:25 / /run rw,nosuid,nodev,noexec,relatime shared:5 - tmpfs tmpfs rw,size=202096k,mode=755,inode64\n30 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw,errors=remount-ro\n31 24 0:7 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime shared:7 - securityfs securityfs rw\n32 26 0:27 / /dev/shm rw,nosuid,nodev shared:4 - tmpfs tmpfs rw,inode64\n33 24 0:28 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime shared:8 - cgroup2 cgroup2 rw,nsdelegate,memory_recursiveprot\n34 24 0:29 / /sys/fs/pstore rw,nosuid,nodev,noexec,relatime shared:9 - pstore pstore rw\n35 24 0:30 / /sys/fs/bpf rw,nosuid,nodev,noexec,relatime shared:10 - bpf bpf rw,mode=700\n36 25 0:31 / /proc/sys/fs/binfmt_misc rw,relatime shared:12 - autofs systemd-1 rw,fd=41,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=2768\n37 26 0:32 / /dev/hugepages rw,nosuid,nodev,relatime shared:13 - hugetlbfs hugetlbfs rw,pagesize=2M\n38 26 0:21 / /dev/mqueue rw,nosuid,nodev,noexec,relatime shared:14 - mqueue mqueue rw\n39 28 0:33 / /run/lock rw,nosuid,nodev,noexec,relatime shared:15 - tmpfs tmpfs rw,size=5120k,inode64\n40 24 0:8 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime shared:16 - debugfs debugfs rw\n41 24 0:13 / /sys/kernel/tracing rw,nosuid,nodev,noexec,relatime shared:17 - tracefs tracefs rw\n44 28 0:34 / /run/credentials/systemd-journald.service ro,nosuid,nodev,noexec,relatime,nosymfollow shared:27 - tmpfs tmpfs rw,size=1024k,nr_inodes=1024,mode=700,inode64,noswap\n43 24 0:36 / /sys/fs/fuse/connections rw,nosuid,nodev,noexec,relatime shared:45 - fusectl fusectl rw\n50 24 0:38 / /sys/kernel/config rw,nosuid,nodev,noexec,relatime shared:49 - configfs configfs rw\n95 28 0:35 / /run/credentials/systemd-resolved.service ro,nosuid,nodev,noexec,relatime,nosymfollow shared:43 - tmpfs tmpfs rw,size=1024k,nr_inodes=1024,mode=700,inode64,noswap\n42 30 0:40 / /tmp rw,nosuid,nodev shared:18 - tmpfs tmpfs rw,size=1010468k,nr_inodes=1048576,inode64\n51 36 0:46 / /proc/sys/fs/binfmt_misc rw,nosuid,nodev,noexec,relatime shared:22 - binfmt_misc binfmt_misc rw\n264 28 0:48 / /run/credentials/getty@tty1.service ro,nosuid,nodev,noexec,relatime,nosymfollow shared:181 - tmpfs tmpfs rw,size=1024k,nr_inodes=1024,mode=700,inode64,noswap\n59 28 0:49 / /run/user/0 rw,nosuid,nodev,relatime shared:211 - tmpfs tmpfs rw,size=202092k,nr_inodes=50523,mode=700,inode64\n65 28 0:25 /netns /run/netns rw,nosuid,nodev,noexec,relatime shared:5 - tmpfs tmpfs rw,size=202096k,mode=755,inode64",
+          "return_code": 0
+        }
+      ],
+      "scope": "Exact previous TCP/UDP cleanup really kills preexisting test sentinel (-9/-15) inside independently isolated outer net/mnt/PID. Current launcher+exact current cleanup: seven real kernel methods, concurrent same names/private veth/etc hosts, exit37 preserved, actual EPERM, controlled overlay failure, SIGINT/TERM/KILL no descendants.35 actual Linux script methods incl7new admission+28prior, no skips. Real kernel namespaces and mounts; Qeli binary not executed, no fresh actualVPN100/10k/30min/8h or sampled peaks. Private source/TAR readback assertions passed before guarded exact28file cleanup. Host route/link/firewall/sysctl/resolver/mount structure/service777845/CLI75bc unchanged. Counters changed49548:3885073->49550:3885327; do not claim idle traffic. .10unused. No core/native builds."
+    },
+    "qualified_source": {
+      "status": "PASS_EXACT_LINUX_TESTED_INPUTS",
+      "paths": [
+        ".github/workflows/ci.yml",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/plans/ROAMING.md",
+        "docs/eng/reports/AUDIT-Q34-RELEASE-SOAK.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/plans/ROAMING.md",
+        "docs/ru/reports/AUDIT-Q34-RELEASE-SOAK.md",
+        "scripts/roaming_netns_e2e.sh",
+        "scripts/roaming_netns_isolation.sh",
+        "scripts/roaming_netns_supervisor.py",
+        "scripts/roaming_udp_netns_e2e.sh",
+        "scripts/test_roaming_netns_isolation.py",
+        "scripts/test_roaming_netns_isolation_kernel.py"
+      ],
+      "normalized_lf_sha256": {
+        ".github/workflows/ci.yml": "43d17fa2037b7d1fda0aafc5d2449d3374b703e52ad9f13beb151210dfa0c595",
+        "scripts/linux_roaming_release_soak.sh": "b176ed09a53b68638c635452d86407458134b23c6f9181ebbc2178f58603e8ed",
+        "scripts/roaming_control_stats.py": "cc7a454a07e6e92ae8b003a8a1fdc3088acb222328e8846549559236e3e55b57",
+        "scripts/roaming_netns_e2e.sh": "27e32b51a5eea36b0e91ece6d1e60a4f7a909326c6f7f42da150c99161728496",
+        "scripts/roaming_netns_isolation.sh": "307a7197418ac50da2565775b34b2c62af30d3e9ea71a7243381af0749358364",
+        "scripts/roaming_netns_supervisor.py": "480aef283101a434cc7de0885873e7184463fc1b25cab45b623464b746c13ed8",
+        "scripts/roaming_process_probe.sh": "38f937792c40e8112da4f51163d664708757bb1f3b6292cd7092fc695a38c261",
+        "scripts/roaming_resource_release_gate.sh": "9d976819505b02d4a8ed702bd8b3ac0f18e909e05170c1ef35a2410d56a78d5d",
+        "scripts/roaming_soak_parameters.sh": "e044320fe7ea072ad617e1aecf0f611263144702287310de20067201ae9ed14c",
+        "scripts/roaming_tcp_netns_soak_case.sh": "d1f5cd01419e6994f941503454321d5166c0ef2ba5f9d5a9786a9af66d405132",
+        "scripts/roaming_udp_netns_e2e.sh": "3bcb432ff22f0bebd8cd82e7caa4d52bd0d905521acc47d1a8f7b576bc909421",
+        "scripts/roaming_udp_netns_soak_case.sh": "8cc52e73832512bfa19341a74787512913f265ec1ee094d8a087b0daffd58016",
+        "scripts/roaming_udp_resource_soak_netns_gate.sh": "f405bb673345d2c7d74c0ade6fa5fbb1a88e540bb6c1f6cbffb79aba92c06242",
+        "scripts/test_roaming_control_stats.py": "a58f20a8cd2436e61ea4fc3246a570616b0d49ce03973de5c9a8fd9f587e8174",
+        "scripts/test_roaming_netns_isolation.py": "56d561db17f8b44cf1ea6199d8a63bc8a178c1699fdc6622ef6f1ca6ce33ac82",
+        "scripts/test_roaming_netns_isolation_kernel.py": "4d217c300b574b8ce3d9cff6792019b4ba59fe842025d7bf4e941355715f9a75",
+        "scripts/test_roaming_process_probe.py": "a68ad45999efbe406d465cce1ebbf3393fdd46067e24c8b3fe7cbf2ad49af9ec",
+        "scripts/test_roaming_resource_release_gate.py": "8733cc5bae6181e3999540fe171cb997b55b8ee6566f5d0b609ba31b241c70a9",
+        "scripts/test_roaming_soak_parameters.py": "ffdcbecd3dd0d13dffdb28865e6ad17682feac612c35674fb767b40511646661",
+        "scripts/test_roaming_udp_resource_soak_netns_gate.py": "6f1c8088aff196a3abaffed37b40d81240fa79cce857a4b771c83cc9e531c2c9"
+      },
+      "scope": "Actual Linux archive inputs match final source bytes; report snapshots precede seal anchor addition only. Real kernel/private mount/PID/network execution and controlled fixture process cleanup; no Qeli VPN execution or core/native build claim."
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": [
+        {
+          "path": "native-libs/android/arm64-v8a/libqeli.so",
+          "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+        },
+        {
+          "path": "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+          "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+        },
+        {
+          "path": "native-libs/android/x86_64/libqeli.so",
+          "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+        },
+        {
+          "path": "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+          "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+        },
+        {
+          "path": "native-libs/windows-x64/qeli.dll",
+          "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+        },
+        {
+          "path": "qeli-win/QeliWin/native/qeli.dll",
+          "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+        },
+        {
+          "path": "native-libs/macos-universal/libqeli.dylib",
+          "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+        },
+        {
+          "path": "qeli-mac/QeliMac/native/libqeli.dylib",
+          "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+        },
+        {
+          "path": "native-libs/third-party/windows-x64/wintun.dll",
+          "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+        },
+        {
+          "path": "qeli-win/QeliWin/wintun/wintun.dll",
+          "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+        },
+        {
+          "path": "native-libs/third-party/windows-x64/windivert/WinDivert.dll",
+          "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+        },
+        {
+          "path": "qeli-win/QeliWin/windivert/WinDivert.dll",
+          "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+        },
+        {
+          "path": "native-libs/third-party/windows-x64/windivert/WinDivert64.sys",
+          "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+        },
+        {
+          "path": "qeli-win/QeliWin/windivert/WinDivert64.sys",
+          "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+        }
+      ],
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "openwrt_cut": "Existing qualified mirrorSHA9b4b unchanged; execution inherited",
+      "scope": "Reverified native source digest14 artifact/protected SHA/qeli tree/existing SDK cut SHA. Core/native runtime and earlier exact offline OpenWrt cut preparation inherited; no builds or new VPN soak."
+    },
+    "harness": {
+      "status": "FINAL_PASS_WITH_RETAINED_EARLY_FAILURES",
+      "files": [
+        "harness-attempt1-failure.json",
+        "prototype-failures.json",
+        "linux-commands-current-attempt-attempt2.json",
+        "linux-commands-current-attempt-attempt3.json",
+        "linux-commands-current-attempt-attempt4.json",
+        "host-snapshot-diff.log",
+        "host-preservation-reconciliation.json",
+        "actionlint-invocation-failure.json"
+      ],
+      "details": "Generator syntax beforewrite; incomplete upload dependencies; actual unshare TERM blocked; prototype Popen.wait handler deadlock; exact host comparison refused live chain counters, normalized structural comparison independently proved and raw retained. No failed attempt called PASS; final42Linuxmethods/no skips and exact protected/native inputs passed. One owned root reused, exact SHA/readback guarded cleanup and absence confirmed."
+    }
+  },
+  "raw_packet": {
+    "name": "q35-isolation-20261010",
+    "files": 48,
+    "bytes": 3037712,
+    "manifest_sha256": "cf6b60799473f333c870bd94b412462b9abac406cee18c6ff92c9b4710f3cd83",
+    "runtime_status": "PASS_SCOPED_NETNS_ISOLATION",
+    "path": "audit-debt-20260924/q35-isolation-20261010",
+    "status": "SEALED"
+  },
+  "scope": "F508/Q35-F005 closes TCP/UDP fixed namespace cleanup/concurrency/global family-switch hosts isolation. Exact prior cleanup actually killed existing sentinels(-9/-15) and deleted names in independently guarded outer net/mnt/PID lab. Shared launcher required before mktemp/initialcleanup; privateNET/MNT/PID with inodechecks/private propagation,/run tmpfs,/etc overlay,/sys; wrappers inherit allcases, missinghelper/supervisor/Python/privilege/mount fails closed and no environment optout. Python one-job supervisor preservesexit37, signal handler unwinds Popen.wait before kill/wait to avoid reentrantlock; maskedfork setup and Linux parentdeath SIGKILL chain supervisor->unshare->PIDinit->descendants. Seven actual Linux kernel methods including same-name concurrent veth/hosts, neighbor sentinels, actual EPERM, controlled overlayfailure, SIGINT130/SIGTERM143 statuses, SIGKILL no descendants;35actualLinuxscriptmethods7new+28dependent no skips,11Windowsworkflowmethods/actionlint4/9docs724Markdown PASS. No Qeli binary executed/newVPN100/10k/30min/8h or peakclaim. Raw baseline/prototypes/incomplete source upload/actionlintargumentfailure retained; final source/TARreadback and guarded exactownedfile cleanup +absenceconfirmed. Stricthostsnapshot counterdelta onlyNATchain49548:3885073->49550:3885327, normalizeonlybuiltinpacketbyte counters; rawdiff/structuralchecks preserve rules/routes/links/sysctl/resolver/hosts/mounts/service777845/CLI75bc,.10unused.15productdocspaths and2cert transferred. Nativee3fb14/protected/qelitree/SDKcutSHA unchanged, old execution inherited no rebuild.41cases104priorsupplements preserved modulo source digest,append105.72SEALEDmanifestanchors/newpayloadSHA checked priorpayload/execution inherited. Q34/Q35IN_PROGRESS/Q36TODO30/37DONE81.1percent7remain, Q29SIGKILL/ENONET,Q30/Q31,F459,D06accepted/USER_EXCLUDED/publication remain. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

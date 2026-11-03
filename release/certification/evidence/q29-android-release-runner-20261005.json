@@ -1,0 +1,1643 @@
+{
+  "schema": 1,
+  "status": "SCOPED_INSTRUMENTED_RELEASE_RUNNER_PASS_Q29_IN_PROGRESS",
+  "date": "2026-10-05",
+  "qualified_at": "2026-10-05T18:21:05.594144+00:00",
+  "base_commit": "7be82e7b46a232982c9343fd6b8eaa540280714a",
+  "source_digest": "6788973305ac9c15f118d3a8dde3d2d6f8c9a291597e67356f2441cbbf198d49",
+  "source_proof": {
+    "native_source_digest": "68902e1ef699d7e356bb558e709b6d5e7258cdafb2bd6460d7a66f8d5fc7d74b",
+    "native_sha256_rows": [
+      {
+        "path": "native-libs/android/arm64-v8a/libqeli.so",
+        "sha256": "ba21ee1783e523dc044356ef92509536e5bb1db78ed6b324c8ecbd7b1f6f3d11"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+        "sha256": "ba21ee1783e523dc044356ef92509536e5bb1db78ed6b324c8ecbd7b1f6f3d11"
+      },
+      {
+        "path": "native-libs/android/x86_64/libqeli.so",
+        "sha256": "125f9022c4af0dc8e3bc4cda29608fd26781eaed4acae64257c232609364d57b"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+        "sha256": "125f9022c4af0dc8e3bc4cda29608fd26781eaed4acae64257c232609364d57b"
+      },
+      {
+        "path": "native-libs/windows-x64/qeli.dll",
+        "sha256": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7"
+      },
+      {
+        "path": "qeli-win/QeliWin/native/qeli.dll",
+        "sha256": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7"
+      },
+      {
+        "path": "native-libs/macos-universal/libqeli.dylib",
+        "sha256": "e28fac551bb09e8136b98b79e8a8f41610b5493be62b9739a5b9be625f63fff2"
+      },
+      {
+        "path": "qeli-mac/QeliMac/native/libqeli.dylib",
+        "sha256": "e28fac551bb09e8136b98b79e8a8f41610b5493be62b9739a5b9be625f63fff2"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "qeli-win/QeliWin/wintun/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      }
+    ],
+    "managed_artifacts": {
+      "qeli-mac/QeliMac/bin/Release/net10.0/QeliMac.dll": "2ff8c7b366ed1d48a4fbf37503bdd2154de630af92e493f7e4989f5118c77f1d",
+      "qeli-mac/QeliMac/bin/Release/net10.0/QeliShared.dll": "10cc31c52a9d405283b9faf1904d693e6d7e6d05720cce84eae970c813fd7d83",
+      "qeli-mac/QeliMac/bin/Release/net10.0/qeli.dll": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7",
+      "qeli-win/QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll": "74bc21b95709c2b061d1f8b120f1241b66f176bf508fa57f2411318dfd60b056",
+      "qeli-win/QeliWin/bin/Release/net10.0-windows/win-x64/QeliShared.dll": "10cc31c52a9d405283b9faf1904d693e6d7e6d05720cce84eae970c813fd7d83",
+      "qeli-shared/QeliConformance/bin/Release/net10.0/QeliConformance.dll": "67729d45e940a71e141bc691ba4056239af922c2d6de4fb2ddcafe0ace1cba5a",
+      "qeli-shared/QeliConformance/bin/Release/net10.0/QeliShared.dll": "10cc31c52a9d405283b9faf1904d693e6d7e6d05720cce84eae970c813fd7d83"
+    },
+    "linux_server": {
+      "path": "/root/qeli-src/target/release/qeli",
+      "sha256": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0",
+      "fresh_build": false,
+      "prior_qualified_full_cli": true
+    },
+    "source_inputs": {
+      "qeli-android/.gitignore": "2b0d51bcd723005efeacaf6ae183df12bf170213c9997ae67375afbbad72e20b",
+      "qeli-android/LICENSE": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04",
+      "qeli-android/README.md": "9fab15bd60e832f65c6a18f6e673522d5c7fee9d0a8ba07ee38a7fe509bd1862",
+      "qeli-android/app/build.gradle.kts": "be74a7a5f3209d33db9b5805d71a82540950cd382c736b5526e8afbc8b65318c",
+      "qeli-android/app/proguard-rules.pro": "5937a535e578d27f60a544cfcea14e7016824f0a95a3a06fef4cc873d52c23ed",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/ConfigCoreInstrumentedTest.kt": "5b8b1e2a43177cd677d2766a4e61f46a804092ba77e87de18ad2bb1417693d55",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/DiagnosticLogStoreInstrumentedTest.kt": "45087512fdb906c6436d73374618dcdf49ef680eeea5335da2abad265b9f8d39",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/ForegroundServiceLifecycleInstrumentedTest.kt": "95971bd6b6aaf03e36893c04e980b91349316bacb1a288a92d127474b277e89a",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/LegacyProfileRecoveryInstrumentedTest.kt": "109ff334bfa955b74af984640af805d9f4d6da599e34bac9f3382e83763f1c4b",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/ManifestInstrumentedTest.kt": "d3957e51670d4d03bb8e0f1687fd9a4ac37a4c9899fc9f47bf7515382e393dd3",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/ProfileStoreInstrumentedTest.kt": "d72f8e307fb51be8f80629b629b3f813004d2a96c05ee748b753127457c6b200",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/TransportLifecycleInstrumentedTest.kt": "15420dcdc4907ce63b321e6b27035c5ec91b71ccc094fadc0229731b09ab436a",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/TunBuilderInstrumentedTest.kt": "4428093b4fbec04bbe156036e0eb52514cf76fab3486e2933c22919bb353e253",
+      "qeli-android/app/src/main/AndroidManifest.xml": "ef56a42d47f6d8e5b007d3ac9b0c3c2b6a59a88410c937947e83abc6147df8b1",
+      "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "ba21ee1783e523dc044356ef92509536e5bb1db78ed6b324c8ecbd7b1f6f3d11",
+      "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "125f9022c4af0dc8e3bc4cda29608fd26781eaed4acae64257c232609364d57b",
+      "qeli-android/app/src/main/kotlin/com/qeli/AndroidKillSwitchPolicy.kt": "e53ad72a2107c6c6dbbf5435c4862e13abf8e32a72857e4923efda0a06abaf1b",
+      "qeli-android/app/src/main/kotlin/com/qeli/AndroidRoamingPolicy.kt": "12020273563fe85c0c622b0943c63d44c181b30ac8d11f770ad49c35a19ab557",
+      "qeli-android/app/src/main/kotlin/com/qeli/AndroidSessionContinuity.kt": "f2187f429077a25e6df38e8a60d3e4d6216d6621f3ad09ea149dc72a44522e23",
+      "qeli-android/app/src/main/kotlin/com/qeli/BootReceiver.kt": "0338d3b509a3377a721c05207181b3456b72d5b54d3991b0918c75de89151e46",
+      "qeli-android/app/src/main/kotlin/com/qeli/ConfigCore.kt": "94a4c646a976e6fea6d2c1f27f71259262f0f5777b059fc2a846ebf7c7072975",
+      "qeli-android/app/src/main/kotlin/com/qeli/DiagnosticLogStore.kt": "43ee5721db6891de30be19cc37cda8eb3679e89285398543768993b5f5541e9d",
+      "qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt": "6783fc455151d1e5b3633a67e9a66ab5dc3a1d8fa69b097c8a0a11aa0680a112",
+      "qeli-android/app/src/main/kotlin/com/qeli/ProfileAppsEditor.kt": "cbc255a227f9888813a000abebec23c07bbf0076f352e2618808914177678806",
+      "qeli-android/app/src/main/kotlin/com/qeli/ProfileAutoProbePolicy.kt": "fef69deca74028b65c129a51f39220b8ef35f4b728ad4accb29ffbb412f7a983",
+      "qeli-android/app/src/main/kotlin/com/qeli/ProfileLimits.kt": "5531564cec4162b5c7f55a34452c2ebec8b27810815e4c9c34f30b93efba2b4e",
+      "qeli-android/app/src/main/kotlin/com/qeli/ProfileStore.kt": "188b4afb23a1e7ba14625628fb9f9943edf90ede844be283fc819fc201991398",
+      "qeli-android/app/src/main/kotlin/com/qeli/QeliApp.kt": "5f1b01f16ee8b58b4ae86762b4288caba6a966ed6e5b4227e1ae1dbc7c1fdf0b",
+      "qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt": "7011b5e5abd633cc3c24d24a4e6219a4c1dc2a11e7c84039f1c8a5d73c4641bb",
+      "qeli-android/app/src/main/kotlin/com/qeli/QeliTileService.kt": "8a8725eed6f626b982bc7328972897ac5a66024fcbfbb0826ac180dc7d20fc72",
+      "qeli-android/app/src/main/kotlin/com/qeli/QeliWidgetProvider.kt": "63771014bb7430358fd63ca89e8e46d371a95edff2b95e6e09c1970707985981",
+      "qeli-android/app/src/main/kotlin/com/qeli/QrCaptureActivity.kt": "cb6e38378166446e0c846db44a8b3106c01bc7626a2dd213938e7d8290866205",
+      "qeli-android/app/src/main/kotlin/com/qeli/RouteComplements.kt": "7f5cf5e9928c52b1ab9a3ab337ab0135dda7274fc91027c2e7059a509eb8b0ae",
+      "qeli-android/app/src/main/kotlin/com/qeli/StrictUtf8.kt": "c19ea62fb980b370029cee798b08b6e3b16a132ceae17cfd6f910e76ce6f09ee",
+      "qeli-android/app/src/main/kotlin/com/qeli/TransportCore.kt": "6eb6ea3f923b0f0cad3336251b4bcb5f2a2a3daee380df7f2fb96884b74c6772",
+      "qeli-android/app/src/main/kotlin/com/qeli/TransportCoreEvent.kt": "ed4aa48946137605182d72b7f76ef99e75766ee70ac7dd578f1920afa173bdcb",
+      "qeli-android/app/src/main/kotlin/com/qeli/TransportCoreEventDispatcher.kt": "8f297a9cd8cbe17124112ef3780a579607ebd89a32485618153fe3afa2269a78",
+      "qeli-android/app/src/main/kotlin/com/qeli/TrustedWifiPolicy.kt": "a9f59caf84b34218d81999f7ce55daab30d71759a9c1401e41068e7c564e3c23",
+      "qeli-android/app/src/main/kotlin/com/qeli/UpdateChecker.kt": "d757e13e22b6d4667ddf32c04fb04f061a24eca37dca8acbdc52fb28b5b19449",
+      "qeli-android/app/src/main/kotlin/com/qeli/crypto/BackupCrypto.kt": "abf819f1f5bd19e4e58ce65dba2f55b2e562e4d610a6898d65ea1eba939c565b",
+      "qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt": "deb12ac6bd27eda6afd7ac64c5f8909077de719dde10facfad31c9e4b09c0f5d",
+      "qeli-android/app/src/main/kotlin/com/qeli/model/ConfigProjection.kt": "81166e1ea0bd0e35af4735fb2f1d4fc8ce0d49feba12f7ac16ec7760d53d2bf4",
+      "qeli-android/app/src/main/kotlin/com/qeli/model/Protection.kt": "a671276f8073db21e50b202391ec108487669928f0f1d79ddd778fd33f103eac",
+      "qeli-android/app/src/main/res/color/tab_text.xml": "b0d95741ba3a11e70c5d9bba7ecb6db7d2476cd061161229681e429c23685007",
+      "qeli-android/app/src/main/res/drawable-nodpi/ic_logo.png": "87a4defc1dd94e8efcae29049659de3188a89bfcfd7f06ff7936fa9611a25774",
+      "qeli-android/app/src/main/res/drawable/bg_qr_scanner.xml": "b939567238d464f9d231b969a894e224412161731b84a14979d15f6c0f83dc60",
+      "qeli-android/app/src/main/res/drawable/bg_row.xml": "bd901632eaa159d1d39714f5a66ebc17a6d730af42721b73448ffb9d39a4da0a",
+      "qeli-android/app/src/main/res/drawable/bg_row_active.xml": "0784de4d232935a06e07fc6113d8f6fea78a58c99eb95d317767daea9a88b40d",
+      "qeli-android/app/src/main/res/drawable/connect_ring.xml": "21b8083169086564bcce75d2b041341e052adba60c4f3ef0446c5bf68d3a62c5",
+      "qeli-android/app/src/main/res/drawable/dot.xml": "03fcfe3a98d3cbc597f6c22a88e39e82b79974b84f1845ebacb408b839c633dc",
+      "qeli-android/app/src/main/res/drawable/ic_moon.xml": "a0b03d66c2b5709a71dfde79d00ed703c66ed28e790abf7a2ea2d67086cbb73e",
+      "qeli-android/app/src/main/res/drawable/ic_power.xml": "f8b124d80b277f507643ed422ea63e71491c5ad80eb687a22232c8f9ed4c62dc",
+      "qeli-android/app/src/main/res/drawable/ic_settings.xml": "df6f1a18f21a6ca66896f688d34f41da6b947bbb3030796710ac2c504b2674b3",
+      "qeli-android/app/src/main/res/drawable/ic_sun.xml": "a957d9ae2ebca808e443419fcd874b14c196b539dc23e4bdb94873f8c366f740",
+      "qeli-android/app/src/main/res/drawable/tab_indicator_pill.xml": "84f9de33b5adbaae0917bab357fd1032070fff21f8562ca21f62c873ad9350ab",
+      "qeli-android/app/src/main/res/drawable/widget_bg.xml": "3b14a10bea2cd5b1e7f829b9aaeb78d77f0f4d765ebedce800631e9fb1b49044",
+      "qeli-android/app/src/main/res/layout/activity_main.xml": "ef29a79d6a3f33b102897bf7f04f0ea4dc97e2dfca4b457b6770fb01b4db60e9",
+      "qeli-android/app/src/main/res/layout/activity_qr_scanner.xml": "6f72417e2cb7ce18fbceeef05f3864aca2aa80255962590cc2b99e132e1e564b",
+      "qeli-android/app/src/main/res/layout/dialog_config_editor.xml": "d5c30db86fc07d73b6b6f6e31e7cefc6875e9914d2e622cbb474649be863dbae",
+      "qeli-android/app/src/main/res/layout/item_profile.xml": "d02157c7bcb48f3787d7fff98d21e78177ec37735a5e9eecf4870263f31805c5",
+      "qeli-android/app/src/main/res/layout/widget_qeli.xml": "f2581f0c2017d1031dfbd9ff617d58e9344a31a88bfa1ce9b15a6f5194b23e7c",
+      "qeli-android/app/src/main/res/mipmap-hdpi/ic_launcher.png": "6f5e36bc87d0e546cc06dff754bb03c2da2c604842778a41f8033375c124ce38",
+      "qeli-android/app/src/main/res/mipmap-mdpi/ic_launcher.png": "58a8035ede90e5bad7dd07fccf8d9a0fbdbc37001d0275da78fbd2c489e8a9d8",
+      "qeli-android/app/src/main/res/mipmap-xhdpi/ic_launcher.png": "834b7e4bf2d06ba1143d637ac5df56e20ba61dd17f8d6ad41199e1a0e2b36e1d",
+      "qeli-android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png": "98ccb633ab665547be964076cedf3c910dcb99cd912514453472aa4f7858140d",
+      "qeli-android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png": "87a4defc1dd94e8efcae29049659de3188a89bfcfd7f06ff7936fa9611a25774",
+      "qeli-android/app/src/main/res/values-night/bools.xml": "20b837dc20c64286ea0a7e8814e2a0bee5931933a18190a5938a7670540e9f00",
+      "qeli-android/app/src/main/res/values-night/colors.xml": "42eace51bd86e36e9169e806b67f208ece62b605d5e03e44965a60e9641638df",
+      "qeli-android/app/src/main/res/values-ru/strings.xml": "101fb05ecd124d0d086c995156b0fce42eef02ac2b062a9fdcbe42172e958068",
+      "qeli-android/app/src/main/res/values-sw360dp/dimens.xml": "9ec5ba0b2973f708fab30269d2a2319b5a21e164d601606eb08901079c395404",
+      "qeli-android/app/src/main/res/values/bools.xml": "5938202c85589c29085fa3462f7c5e362872bbaf95a20ecbe0cd4e409af25720",
+      "qeli-android/app/src/main/res/values/colors.xml": "09ddca74de1faf01efccd1474e76b03558cc39ca4f7725e4bc5d0f365508de24",
+      "qeli-android/app/src/main/res/values/dimens.xml": "8e1754ef156c1142901bde4c9c770cb920b3ddb0bf8557bccb513ff0ccf20868",
+      "qeli-android/app/src/main/res/values/strings.xml": "37433adcf5b32db257ce247a506c6aca0da4a0cec282d4fe8698fba83d456040",
+      "qeli-android/app/src/main/res/values/themes.xml": "c132c951227c59656ad1d90bee13b15fdb1dde52b3b7cc6e0849295a65490df1",
+      "qeli-android/app/src/main/res/xml/qeli_data_extraction_rules.xml": "7863b9a5af6c9b65ca65cfe9a4fa814470ea12021249ff0c8e20e309d28349b3",
+      "qeli-android/app/src/main/res/xml/qeli_widget_info.xml": "e70a5167d8ce6c7666066daa0ef676069021ae04c79c45efdd1d616c6ca2f518",
+      "qeli-android/app/src/test/kotlin/com/qeli/AndroidKillSwitchPolicyTest.kt": "522fab3be86538359bfaa026bcfc957e1bfec21d1b07e5e5064e04f0a2188177",
+      "qeli-android/app/src/test/kotlin/com/qeli/AndroidRoamingPolicyTest.kt": "718877e54f7dc2553d5f7d1b8af51cbef3f0317a56586964619030217445dfed",
+      "qeli-android/app/src/test/kotlin/com/qeli/AndroidSessionContinuityTest.kt": "3b55274104820befa88adf02574dec472ef6c4c0d793e2ac0152930a0171288c",
+      "qeli-android/app/src/test/kotlin/com/qeli/ConfigHardeningTest.kt": "28f16dcb7e6bbaa7f6c66c8de208fb2223b9d28b8d85e3bfdf3cdbfbe8dfd79e",
+      "qeli-android/app/src/test/kotlin/com/qeli/ConfigImportRangesTest.kt": "d73bfa96d67d4cfcaa5e7282f5c856b747efe7ff8757dbf025f9a229d17f504d",
+      "qeli-android/app/src/test/kotlin/com/qeli/DiagnosticLogStoreTest.kt": "1026fc19681d57cbef5ac4fa8dc4097f27893e5e9d93c9b4cb510d10ceae2cd5",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProfileAppsEditorTest.kt": "86b149c48f436e45c72d941f10d8d7c3097c4c8a598ddbafbe982358c3c330b8",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProfileAutoProbePolicyTest.kt": "ae247965ad0fe9696191789d64a24f889c78ddc6facf05f946957132d0731905",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProfileStoreActiveIndexTest.kt": "403d85c230d1d6fefbed443ef88223b11892825abb011144309d869ece995d9c",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProfileStoreBoundsTest.kt": "7c6f1c5d9dc3e3b80910a959303593480d6f776f9a5270ff564db0353fc335c8",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProfileStoreUtf8Test.kt": "8652b497453f8bea34022ac57bc38d1b609386b77077525e298480ef513ab4ef",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProtectionSummaryTest.kt": "0906c5c0d5515cef2a7586c614924f3a66df19b0d37785456f10633383e86c2f",
+      "qeli-android/app/src/test/kotlin/com/qeli/QeliLinkConformanceTest.kt": "7947b59919c496cf91a07a482ee20f5517a66748b0f1cb361839ee8d42341654",
+      "qeli-android/app/src/test/kotlin/com/qeli/ReconnectPolicyTest.kt": "52a4c6ff9dfa82511342b6e438a92a18b28d5504adee13b957c3f6014e88be3d",
+      "qeli-android/app/src/test/kotlin/com/qeli/RouteComplementsTest.kt": "21540a64a483fbad2e558f9d467cf1e93b33e83c1cc7f732960788070c53a65f",
+      "qeli-android/app/src/test/kotlin/com/qeli/TransportCoreEventDispatcherTest.kt": "4e532ad7d28d8a141111b7b0e7af2fe7c229dff1b0af0711a69a2dd475a2c4da",
+      "qeli-android/app/src/test/kotlin/com/qeli/TransportCoreEventTest.kt": "517e342ae22667f7e1134183ca40bde30de234c3bc743c8c76abaace62ead5af",
+      "qeli-android/app/src/test/kotlin/com/qeli/TrustedWifiPolicyTest.kt": "3cb963947741c8e0d64a09cb43aaa20f425ff7dd8ab565193938c003845e74f3",
+      "qeli-android/app/src/test/kotlin/com/qeli/UpdatePrivacyTest.kt": "336dd0f1ae40848e26a74ed18f496c5f5fc8bd60e7453bb5360d8e438696f53d",
+      "qeli-android/app/src/test/kotlin/com/qeli/crypto/BackupCryptoTest.kt": "5da8d9d1f02aca2957715e01000e18aaf110a4785f75c1ee92b45a96963eac86",
+      "qeli-android/build.gradle.kts": "f910768e9bc5e98cdfce2e6a9bf1f5c5c4558c69dc318340250b93fcb0281a57",
+      "qeli-android/generate_icons.py": "0fc7a553e811bc19dfc21961dd051d44a9342e7b40d51a480064fc19f1073eb8",
+      "qeli-android/gradle.properties": "678c35a27eeda302d6a960484179d118d08fb1edf05c1b40745bc7aed6e88f03",
+      "qeli-android/gradle/wrapper/gradle-wrapper.jar": "7a9ce74cff467ca1bf60a4fcd9f05185acceda4d0f382434d393e17864262c5d",
+      "qeli-android/gradle/wrapper/gradle-wrapper.properties": "d01b41913834fb3cb14e71f69a08898e6a47e663b08f5c9b8c7e0772c38889d2",
+      "qeli-android/gradlew": "a5a5c199ba02189ae8c46a334223371a20599d9c298ef65e7540ede4a3f72d59",
+      "qeli-android/gradlew.bat": "d539676c48b596afda64c963ec8f7ee56c7b3fe7e3b81d1dbe2d1a1e3dd9e9f8",
+      "qeli-android/keystore.properties.example": "7b6acc074783eb9719f33cacedc08b2f13d4cb9dcc17a35fc8f921d0d59247ec",
+      "qeli-android/settings.gradle.kts": "74b6fd5f7976ea04241055bf169c5a7a3de585b45782f03980d2048c8a6fb706",
+      "qeli-mac/QeliMac/AboutWindow.axaml": "22a3e23378011ee4cda706f50939fc75184c286dd1ab271db9e9fa781016971b",
+      "qeli-mac/QeliMac/AboutWindow.axaml.cs": "2b40de64a21bc5003c39552423e8de75290026978800a8ed782add70a79bd2b3",
+      "qeli-mac/QeliMac/App.axaml": "462b9cd574accf3f0c70064bca69a1544609fad157f7c29f6763e2bf64c12682",
+      "qeli-mac/QeliMac/App.axaml.cs": "fe773412b7b10068cb820a9722bb5763d95991d7136ebf3595af09d372383c05",
+      "qeli-mac/QeliMac/AutoStartManager.cs": "f35806b52fc4f8f58a8624b16b0b3923bc7156008a448211cc70dd52292154d2",
+      "qeli-mac/QeliMac/Branding.cs": "46d99177208279534b2ca1f231682561c851501dd9984ea05eaf5ced373db22f",
+      "qeli-mac/QeliMac/CliRunner.cs": "dc47e2a52aeb005972101ce61d6d6d222a7d51a59961c00c589c0b6346681479",
+      "qeli-mac/QeliMac/ConfigEditorWindow.axaml": "7367e7e4c894ecc03ebf33ea06b51b7dbe62bd1ad523233471760c75bce1ad1d",
+      "qeli-mac/QeliMac/ConfigEditorWindow.axaml.cs": "c7af32d3020a25530358fbb00b153f8e4a063499841cb48620d340d4e5e5a7d3",
+      "qeli-mac/QeliMac/Dialogs.cs": "6b8d5c91992384f6a29da7a1b83de6bd7061f2460cc9bcb093c6dfbbfddf3003",
+      "qeli-mac/QeliMac/InputDialog.cs": "208af3d7c2a5e93e992600e075192c8fd3dc8993cedccf64648adc05961a2a73",
+      "qeli-mac/QeliMac/Loc.cs": "b33f3c3155444bafa4eb507168a6d7e561bfc5e07840f4346ec090b85451c0ae",
+      "qeli-mac/QeliMac/MacAppPickerWindow.axaml": "87347ea36b528b519f1ac9972a8b577a6939f51cf594bd0d1de3ded01782575c",
+      "qeli-mac/QeliMac/MacAppPickerWindow.axaml.cs": "c8d6ab2a96a2c24e6db47d3a25351349e5913cfb403579565624ab3aa9f1c234",
+      "qeli-mac/QeliMac/MainWindow.axaml": "bc4dcdcf24ca7d89773837554a5ce936cfb2b760a76e71fb1e603ad10a48188d",
+      "qeli-mac/QeliMac/MainWindow.axaml.cs": "ff74354b887e8cdef5fd87a4d63a80ef233f5cb8193cf548f1aa51a2534f5987",
+      "qeli-mac/QeliMac/Model/AppSettings.cs": "5b62793124075aeaf9aa945ec62a40d5a72fab9c636d4845623ffbb9d1f77375",
+      "qeli-mac/QeliMac/Model/BoundedStorage.cs": "90fe1d9f8018d2366f1c65321ba98aa6d39b726c3037d47e37f06f423fdda43f",
+      "qeli-mac/QeliMac/Model/EncryptedEnvelope.cs": "6f54dce836e5e101dac1a5da329e1524504a89652bba213272d3607cef8220c2",
+      "qeli-mac/QeliMac/Model/MacKeychain.cs": "58a95fef119d2c01c04faef24ff289d01e279b77279f4bc04705a29dd1d115a9",
+      "qeli-mac/QeliMac/Model/MacStorageSelfTest.cs": "d5efa5bf0797517c87c0ddadaae280a3efcd170cd84eb6cec90edce4e70d5051",
+      "qeli-mac/QeliMac/Model/Paths.cs": "3fc02e95c2376ad233c1e3e3d8cc67a3cc55d38f330bd53853b5fb4c7bbc5a68",
+      "qeli-mac/QeliMac/Model/ProfileKeyCoordinator.cs": "010651ee2c914f48dacb3573fa592ab1b51adb5a8f269b5b36af167251f00eba",
+      "qeli-mac/QeliMac/Model/ProfileStore.cs": "c1236032f566c6655d837be8a06f7cd826631024e0ad47e0390616f88f0229ad",
+      "qeli-mac/QeliMac/Model/SecureKey.cs": "c5eb481ec63a94e1ce4e787dcce095fdac940ae245b17f8cb9aa95890cd94f34",
+      "qeli-mac/QeliMac/Program.cs": "e6b2a0272a2a46bf5d6cdcee8632065cec6339ab25dcca06d7ec2f3818646ad7",
+      "qeli-mac/QeliMac/QeliMac.csproj": "b55c0b2a7026aec926257b9d2cacc403c484f3e89e7f2441061237096698f353",
+      "qeli-mac/QeliMac/QrShareWindow.axaml": "a392c763ae72c07d6298097ce750cf2f1ab9e29a0c9286c4c5b6e6a61e3378aa",
+      "qeli-mac/QeliMac/QrShareWindow.axaml.cs": "91658f1ef390d3ef12a22be5142f88b5fb89ae2248097b5542b5c10b7ffe9680",
+      "qeli-mac/QeliMac/ReachabilityToBrushConverter.cs": "4631aaaac336fd1e22679245c19ec0e9c83d4db4984d1b5366d2d552eea78ae7",
+      "qeli-mac/QeliMac/Service/DaemonCli.cs": "c2d0821f12cfe45223ee98d42f3b4f6201216503868c74ed2454eaf4df0ed722",
+      "qeli-mac/QeliMac/Service/DaemonLifecycle.cs": "20eb5885f1cce07c6e662d2431b893c82aab0b59826abc7df219ef00e02b9a29",
+      "qeli-mac/QeliMac/Service/PlistRegistration.cs": "b3719bcb139bef747d5aaab0a4f012b8b2643a3589583164b2f6545c4d034c21",
+      "qeli-mac/QeliMac/Service/ServiceControlLock.cs": "c94a069bb89813384f5039c5d7875043f476467725b7460d4aeaadadfc6c7b04",
+      "qeli-mac/QeliMac/Service/ServiceControlSelfTest.cs": "11a6a7551e8b098ff70b9fab0d42e88417ed9d539a20d405423c92a34da1dd26",
+      "qeli-mac/QeliMac/Service/ServiceHost.cs": "539ce5728eea31cdf6bc74de396ea5942eb9e5a7fda474c2ca8da59ee2c964c0",
+      "qeli-mac/QeliMac/Service/ServiceManager.cs": "5c09e90457acc71aa19437ab8e63fdc559d7859a2ee7f052889da508019968ba",
+      "qeli-mac/QeliMac/Service/ServiceObservation.cs": "bfb2c62e0a092cc04523d0263be8bbdf839053d6f9d520ce3b3bdb947eebc948",
+      "qeli-mac/QeliMac/Service/ServiceProfileCodec.cs": "abd7886f86e001415215436819ee4f47870acd74aed40c181fb87f854a5816a7",
+      "qeli-mac/QeliMac/Service/ServiceProfileTransition.cs": "4209b0eecd2fd287775c43070877534557b1fe9c8e29406d713757538e1e5430",
+      "qeli-mac/QeliMac/Service/ServiceState.cs": "03999f9e3ec828f2cf6071a196e38b6a27349a75f3528abc804e640a09f00d38",
+      "qeli-mac/QeliMac/SettingsWindow.axaml": "fd062c71d3d4ac5b2c86b3abe3b10e4267776408fb36545fc7900674ceb9eda6",
+      "qeli-mac/QeliMac/SettingsWindow.axaml.cs": "9d5f56465ddd235c72992e680110405766221d3de859d6ab0a63b9231d79c47e",
+      "qeli-mac/QeliMac/Styles/Controls.axaml": "c0633be8ffea20b179eecece6838d87bdb6d016190591d0b72ffdd435787bfe4",
+      "qeli-mac/QeliMac/ThemeManager.cs": "be1e2ba705bbe3482bd72e43dc8a320f903203511714bb4f2e337d8cb7585862",
+      "qeli-mac/QeliMac/Toast.cs": "4ff57d56f926b9a609b663a93ffd9fe43123129450482c3eafa3eebb2b04cbf1",
+      "qeli-mac/QeliMac/ToolProcess.cs": "488d78e4fc28afa2b2c66760a69798a8495cffead1109d9850ec2bc1764b59f6",
+      "qeli-mac/QeliMac/TrayController.cs": "bbff28d2c079ff69c8d0b7cad27d12f7448575ce8c1c610603009bab34a9559c",
+      "qeli-mac/QeliMac/Ui.cs": "70b68309410d4b3dab168c87f4bdc0069de5d4ba6559aae33961d62426c6f7f8",
+      "qeli-mac/QeliMac/UiShot.cs": "9b0ad6f6f49402cfc7a03214ef79107d8ead0570003efdcb219469019d84ed90",
+      "qeli-mac/QeliMac/Vpn/DnsJournal.cs": "7efef9d8b896896d0571fc287730006ab595d06645ff2e23bb104831cbdf5938",
+      "qeli-mac/QeliMac/Vpn/ForwardingJournal.cs": "93571bb3a83be27edd9a0894035c760441479c26c82de6248009a7a7c71e05f0",
+      "qeli-mac/QeliMac/Vpn/KillSwitch.cs": "9a69e9238e45d75e8acba5548ee6e66b376e1295211e0366678c8c484206bb61",
+      "qeli-mac/QeliMac/Vpn/MacForwardingSelfTest.cs": "7cff4facc0094a2a04d5bd3dda2c819d0331700e4d2305239cb6a20bed4c5b13",
+      "qeli-mac/QeliMac/Vpn/MacNetworkSelfTest.cs": "bdb2db3faa17a9c0c69058a11c09cad6eac4dcbf29c9196b02c13b3e11a32dff",
+      "qeli-mac/QeliMac/Vpn/MacPerAppSelfTest.cs": "f9774a2d9c4a168a964abe689595eb65d975518534481b45f4cc13d47fb34cd7",
+      "qeli-mac/QeliMac/Vpn/MacRoamingSocket.cs": "be87531ea6720c0e48bc5c347136fe58ea75f5505b89a86d7c26c28e08a83f15",
+      "qeli-mac/QeliMac/Vpn/NetworkConfigurator.Roaming.cs": "6e46ca2e2df06392a522fb4de11d3013887854e7b0c4106722bcf63175467c12",
+      "qeli-mac/QeliMac/Vpn/NetworkConfigurator.cs": "2c76655e90c7e29c632556b1d4277192793dae890c49acd08a9acbc22d1d4e32",
+      "qeli-mac/QeliMac/Vpn/PerAppController.cs": "915c6b0a6ec5bcf0ca10e40e0008730a49ba3423b3c7b5c5c350239632f38b71",
+      "qeli-mac/QeliMac/Vpn/PfRecovery.cs": "869268dd0ac5e5156f36a4541587c12d9431fc26e641f88c41fb0cb93dd0a0c6",
+      "qeli-mac/QeliMac/Vpn/UtunDevice.cs": "dab94207840fde6aabbf7d27a244cde338788565265c5e0d8709570e4e151c66",
+      "qeli-mac/QeliMac/Vpn/VpnTunnel.Roaming.cs": "68105e967ad599299b577a5d54befbb5338090a688b463d35a8868dd4903d015",
+      "qeli-mac/QeliMac/Vpn/VpnTunnel.cs": "d9a84d7b3acf0a2aa0e6629343713ea67432a0fef183ce5709d2aeb24bb51905",
+      "qeli-mac/build_app.sh": "8c5c358e4ce189e0a54be237e6052b5f48a454c89d074056738bac3fb5f0be03",
+      "qeli-mac/build_dylib.sh": "b53b99a406092cc561ed13cb381c35b1d14164941e7310bbeb1754fb7fc06cd0",
+      "qeli-mac/per-app/Common/RelayRegistry.swift": "ddfd68a29aae0a1df019dd4ee7337c36027d0413cac01a4ca79ae8f55eecf5ad",
+      "qeli-mac/per-app/Common/RelayWork.swift": "a9d7fdae83fb66028f0e247ad558bee19d4101537a67f025156c52335d0bd78d",
+      "qeli-mac/per-app/Common/RoutingState.swift": "ffb34ef1c8095ca774008b208f1dd2c7d3b6fb6042b40a03419f00fa79b7d053",
+      "qeli-mac/per-app/Common/SocketRelay.swift": "6a434384ba56c19d3dc2eba1d0ee4941ee19f9fd6f949a76851cb443c608d6ba",
+      "qeli-mac/per-app/Config/Extension.entitlements": "84e25b022bf343252f50f9bf8bc0304bcf52c452e4b5048450cc375f467e0c82",
+      "qeli-mac/per-app/Config/Host.entitlements": "fab3977772b9a0e1be293bcb058b0af25e3e8b045939c213860224429cf74a8e",
+      "qeli-mac/per-app/DNSProxyExtension/DNSProxyProvider.swift": "f507277074cc5f835c954bab0ae1b2e4dd4126d1dcd53712140970a80e0b362f",
+      "qeli-mac/per-app/Helper/main.swift": "65bdfd3db8e29327f48bdf5507e48e308dde4dc41836c4cd651ed9d8bd4f42d0",
+      "qeli-mac/per-app/ProxyExtension/TransparentProxyProvider.swift": "f0e68591448d4e88e427ff995b316fb5b05703ee8e390f6e0f1266cb702e91ff",
+      "qeli-mac/per-app/ProxyExtension/main.swift": "b8db9309a98eecbf4ab3b617b325d86bd1c6625fd781d49b311a1efd698e2a95",
+      "qeli-mac/per-app/Tests/main.swift": "422205a8cee8cb51b57ac0c200ea6a4426f420c62835b6d011b1671fa370d6f4",
+      "qeli-mac/per-app/build.sh": "183721e39cdcce342f1443c9eaa86418258fd468b0d3984bc4a4e3edaa911fba",
+      "qeli-mac/per-app/generate_project.sh": "72b23fc0bff92d45bbd82f69309dd595d30dd3f2450f165abc885590d985f6ef",
+      "qeli-mac/per-app/project.yml": "ea3f4ecb1f73f8c1c6a64c91b59025e84436e4d4bc09066409de90d4128ddf71",
+      "qeli-shared/QeliConformance/AppSettingsStoreConformance.cs": "7155030faf73f890b8fcd0771e0d5528d5fd7692d360cf1b857251879e208243",
+      "qeli-shared/QeliConformance/ConfigBoundaryConformance.cs": "93bdd54018b7cd9c19e002e7856a8fd449240be346b0db31a8185f17f6ae563b",
+      "qeli-shared/QeliConformance/ManagementEventConformance.cs": "3dcc5b776c40a93522dfffa99d886ff21359a5ad25399821b3a79e88094c61cc",
+      "qeli-shared/QeliConformance/NativeLifecycleConformance.cs": "3eb5a062479c12a942e180c68d9112f717baf8c03bd43c1477ac0c6f065f8205",
+      "qeli-shared/QeliConformance/NetworkPolicyConformance.cs": "64ed0a13d14369e507b35fd02cc7b23f2ff746792024de2686d97b20349ce088",
+      "qeli-shared/QeliConformance/ProfileStoreConformance.cs": "fad9d918d72bc43e5e1c6fb4ae2150b12974671b97e1a232162dfaed310ed65b",
+      "qeli-shared/QeliConformance/ProfileStoreProcessConformance.cs": "f143ea05267a2b2a42aabc53e64ac0e27d25fcb8ac2318b94291bc5c3fad91ea",
+      "qeli-shared/QeliConformance/Program.cs": "47d9fe0200e9453f5dc68990d41599069ae24054ad39b3ac73779fcdc35f72f8",
+      "qeli-shared/QeliConformance/QeliConformance.csproj": "40602fd3412fe56b544288d67ed95b0d08248d146bf00d32e2c17cdcec4bfd24",
+      "qeli-shared/QeliConformance/RoamingPathConformance.cs": "d2dc8eab25e4aeef6f88486edfe6501ca9a28ab83ea18c84eac936cdf1243d36",
+      "qeli-shared/QeliConformance/RouteReaderConformance.cs": "061f52ee2e3db4a4678dfe3c50e35f0764a7cd1f9f5f05ab124c7fe32f92415f",
+      "qeli-shared/QeliConformance/UpdateMetadataConformance.cs": "9eea6974428e222ededabbda91286589d167489f1752d4134115a53ccec91b8d",
+      "qeli-shared/QeliShared/BrandPalette.cs": "c74a813519805af9f7d20d4fa077a02cadd6c0a9515f8f23bd8ca38eba11b97d",
+      "qeli-shared/QeliShared/Crypto/KeyDerivation.cs": "71f04d0512a837a0838a0c58934d5ea63a73cd162a1ca07da0db2d9a186291a8",
+      "qeli-shared/QeliShared/Crypto/KeyExchange.cs": "d8c17cc05ebfeca1a14bb6e83205220de01e7b95967697fd0afa0659dbdc91c8",
+      "qeli-shared/QeliShared/Crypto/PacketCipher.cs": "9ac7bdadf645a61245041c4b6a82dffecb7401046671a385b7cc9042a3c8d3c7",
+      "qeli-shared/QeliShared/Loc.cs": "a38a8c7ab6c08fdbd43cf8ae69edc825039f979285e526da9a0a1ec43f1a8455",
+      "qeli-shared/QeliShared/LogTime.cs": "44cd60d3500b3e84f0d2384e91911ab8452b37a1d068a731df9daf562e5ef867",
+      "qeli-shared/QeliShared/Model/AppSettingsStore.cs": "e6df76c504971e8379c054973f389eb2262d0622e151a7d45857c9379fde7754",
+      "qeli-shared/QeliShared/Model/ConfigCore.cs": "f75f0ef9309edda42ad229e9482392bca8518342cd05b8e74615ae50e164999f",
+      "qeli-shared/QeliShared/Model/DesktopServiceProfileTransition.cs": "4e67227af6c758ebf995efad5fb537655e4202e53fc0636bf2789deafb043962",
+      "qeli-shared/QeliShared/Model/DesktopServiceStatus.cs": "a1b05bbcb1b9332bd5f89a8500ccf0ce2fce1ae97e99c70399bb76f09b4be5e9",
+      "qeli-shared/QeliShared/Model/LinkConformance.cs": "bcd6b5c969698b02746b98981a52e2386b873b3d4724fc1941683fa6e37cade6",
+      "qeli-shared/QeliShared/Model/PairPresetSelection.cs": "4e87449d35758c2c3956e80cea793ccdf69355fa2fe7184c43c0ba20a2a97fa6",
+      "qeli-shared/QeliShared/Model/ProfileStoreFile.cs": "423fdc207c8cca68aa387322995b0e06a1340057b5a992ad9dd620249edd3014",
+      "qeli-shared/QeliShared/Model/ProfileStorePayload.cs": "0d77787f00cea59f52f79f0c55a3d6eafc61a2772b0faafd291fde47e98d7b06",
+      "qeli-shared/QeliShared/Model/ProfileStoreRecovery.cs": "f3d05dd1e8e67eea0a29811478bd0c7e06449bf3435a1c7f1b0e68fdc18c4ec3",
+      "qeli-shared/QeliShared/Model/TransportWireLimits.cs": "13ec3fd380be7f85d73f0f706f118a03fa3d0d0c40d86243d393f5f3e7929573",
+      "qeli-shared/QeliShared/Model/VpnConfig.Native.g.cs": "96b37209f936191e28e3fbd5595d8ae52f1834caaaa4e9ca2050206421d8ef0a",
+      "qeli-shared/QeliShared/Model/VpnConfig.cs": "5c4aa13920fe4a51021827c69b0bfd48fbe2f6cf0554d88c529fe9b77108ab06",
+      "qeli-shared/QeliShared/Protocol/CtrlFrame.cs": "a5220b1529362a8f26471aff06f446cdbce5a1e67738d6559dd7b8f079207249",
+      "qeli-shared/QeliShared/Protocol/ObfsStream.cs": "9493f54dd6107d8825c798fe242691ac9d86b138cfa5b0c91a00b94110976c9c",
+      "qeli-shared/QeliShared/Protocol/PacketCodec.cs": "2bd8d7ad212e51357b7b90cdc6a569bef983d6c31dfb45dd949fa4448fc0d3bd",
+      "qeli-shared/QeliShared/Protocol/PacketCodecBenchmark.cs": "6b85b5f19b11f3275b4c72a35469c565b0a34d2a5ce98bce5b255e8c1155fb4d",
+      "qeli-shared/QeliShared/Protocol/PrpNonceConformance.cs": "00bdaaa79371f9b48404c4c9a5f8d10fa37a5fcf4d94b361e9df5cb1c0f6865b",
+      "qeli-shared/QeliShared/Protocol/Quic.cs": "0a57d673894032e6e46c93e2a4042e211c9a9c0278dd425e95a0e111a3d8030b",
+      "qeli-shared/QeliShared/Protocol/TlsHandshake.cs": "094236618d808ae8ebac044c9983ac2ca938aaabeb53c7570d2f48a67e53f365",
+      "qeli-shared/QeliShared/Protocol/UdpFrag.cs": "f0447e88a1e3cff8f10cef4f91de7ac891e4a61fd741452a5db22925bb11c2b9",
+      "qeli-shared/QeliShared/Protocol/WireConformance.cs": "c1c246f9932969f3b1af86a8d294ec4571b4639b296420b76f304515e614dbbc",
+      "qeli-shared/QeliShared/QeliShared.csproj": "c6b2458f812b911d6f6a4bd73eb882f0b645bef6d4b68d7ec3d64ef70ba90216",
+      "qeli-shared/QeliShared/Update/SemVer.cs": "1f5a7e217f4eb41eb6654dd4bf4492789548f91c69173b6b8f24e958c03f4c4a",
+      "qeli-shared/QeliShared/Update/UpdateChecker.cs": "93f6364d4f3a9c2bf26df316abf25dcb9293727c4bad97b4b09ba52f24f253ee",
+      "qeli-shared/QeliShared/Vpn/NativeRoamingPath.cs": "67f9644bb57e8d06011e789615d98e01dfccbc1f86852ea61fa376a9e8dce4ec",
+      "qeli-shared/QeliShared/Vpn/NativeRoamingPlatformStateUnknownException.cs": "e54083733c20c501fb1de0b92b8f76d8d92873b52f49911126db38e8d74daa7f",
+      "qeli-shared/QeliShared/Vpn/NativeTransportCore.cs": "7b5aa16924a445983ec1e0c7dee68536626911bd6cf5945ea6fb75f71a442fab",
+      "qeli-shared/QeliShared/Vpn/NativeWorkerLifetime.cs": "a237fa6ac941ad9982f31cac1642de48a9e0eb62fa7b46a7dc114a551b60a3e5",
+      "qeli-shared/QeliShared/Vpn/PhysicalDnsPolicy.cs": "2a5fe976bbeae4cf4ec39e285934597bfe61df1594aa6ad10d857cfc46973bdc",
+      "qeli-shared/QeliShared/Vpn/RouteFileParser.cs": "1ad690b38cf61415cc297120ca432401b73509b00470b2910c6e32ef5c89369f",
+      "qeli-shared/QeliShared/Vpn/RouteLocalPolicy.cs": "b56997dabc7d5fa82017bfb0ef5e6e63a47b9a63b7f0a300618e0aefb5031743",
+      "qeli-shared/QeliShared/Vpn/TunDevice.cs": "cb631f04252188a21e283ffd310eb6cf6f4ddde695bbaf7c8a4f23948bfc18af",
+      "qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs": "c4bc1929865f03f5eed8a412d74e4be864d7454b180d332a6b3ebc090dd4b706",
+      "qeli-win/QeliWin/AboutWindow.xaml.cs": "be6c9f21f3dcdb13eeb9b7f6819caaf4cc9bbf554f5a3293c62ca6a111a55f16",
+      "qeli-win/QeliWin/App.xaml.cs": "7b0a2355f31ef91729600da380f50495ee392ae818da4288b1cec77514c01f7b",
+      "qeli-win/QeliWin/AppPickerWindow.xaml.cs": "3b761119574e8464f16cbf9a8abb5daad7e8be8d97c6b9ad666f036b6329ab42",
+      "qeli-win/QeliWin/AutoStartManager.cs": "b275b61d580aabadae65ec6019623de62b1f9adbb24d55c7dda11605f2a25b24",
+      "qeli-win/QeliWin/Branding.cs": "6d7655c4cd9aae73729e4bdcda95b1bebc5aed711e48c76596e08671f4195cf0",
+      "qeli-win/QeliWin/CliRunner.cs": "ad8cab3e9dfbb274bc19ad6ce738537f13b1b5bba3d861393016a8bb233626d0",
+      "qeli-win/QeliWin/ConfigEditorWindow.xaml.cs": "2c4f41c1b50b23551b078afd97600e1e1994311bb85418bc63d80a548a89762e",
+      "qeli-win/QeliWin/InputDialog.cs": "5ff1b8b3c02a9eacbebedd4c069a2dad461d3dbef13f370279fd5970ebc82b3d",
+      "qeli-win/QeliWin/Loc.cs": "aea654fb2f708364ffe2d6d0b8a100fe3c3c383f40344767a017b26a264d13a7",
+      "qeli-win/QeliWin/MainWindow.xaml.cs": "f103925dde5bac083f828df8c73355497a597d470f34dc0a8576af1a97461ab0",
+      "qeli-win/QeliWin/Model/AppSettings.cs": "19c0232996d3c3d83a70fc8289a8019a2db1d57f170dd31421daa8ee16eeff07",
+      "qeli-win/QeliWin/Model/ProfileStore.cs": "c7ebfa438107f69c6ccea089b62ce24b2ef487cf0b034f08125e5ed6c2cafa64",
+      "qeli-win/QeliWin/Model/ProfileStoreSelfTest.cs": "878c337335a9dc27036c3cab12bb610de0f0d81c1f521450d426a428e78b8d66",
+      "qeli-win/QeliWin/Program.cs": "567710e34db56dba7f3edc4d242a7933a9c7c56de5793bbe606aa7c5ae35ebd2",
+      "qeli-win/QeliWin/QeliWin.csproj": "598b18e38dd5ae20c51d775de443ad14e4bf6f343dc486a7223cc0d1952cd8b7",
+      "qeli-win/QeliWin/QrShareWindow.xaml.cs": "a25e7354857fb553f2e9256873c0627699d58ad01334d0398d0081b32a122870",
+      "qeli-win/QeliWin/ReachabilityToBrushConverter.cs": "04043a14791f09b543071280585522786a4d0fb33264539bd55fa00036c59396",
+      "qeli-win/QeliWin/Service/ServiceControlSelfTest.cs": "91884a06e96ca689ff6dcec2bd5fa4981d751250e6b0d03c042f83b3536e0020",
+      "qeli-win/QeliWin/Service/ServiceHost.cs": "61e8fde79322141d48d7911110e263cda02e50a8deaeb5fc7b2df35198f4b995",
+      "qeli-win/QeliWin/Service/ServiceManager.cs": "911ef8f34f1e6562a0b6e68ae20320ee0828019d95aa95f8515931cb822a573e",
+      "qeli-win/QeliWin/Service/ServiceObservation.cs": "d46caf4c7a8016e49e0285580be86500f166c174a727d95f1b937d1b3f82a6bf",
+      "qeli-win/QeliWin/Service/ServiceObservationSelfTest.cs": "daec5ffe320377ad012370bcc5614681fb3d376bc8d33d1a1e2f4e6b4bbaa4cc",
+      "qeli-win/QeliWin/Service/ServiceProfileSelfTest.cs": "21855bdf0305f0b0ce382c0a7b9fb087876a013273f8ef59eddd5e14f644d994",
+      "qeli-win/QeliWin/Service/ServiceProfileTransition.cs": "559bbea13cb17cec58b85d09f1ebcbfd5f7e47cad6e172f904a0e752ff5bc64b",
+      "qeli-win/QeliWin/Service/ServiceRegistration.cs": "464e3017f331d1dbb49ba6aecc6cf55aa4db83884372024e286d325659a74ef6",
+      "qeli-win/QeliWin/Service/ServiceSecuritySelfTest.cs": "b1951f5363b649c423af94d203c2c2c1010ae2a2ab409a9edd849daf6baeb9df",
+      "qeli-win/QeliWin/Service/ServiceState.cs": "9269070c747697b8d350743fe83fb95962c7b7a090f9a3ef64b6d629d4a994e3",
+      "qeli-win/QeliWin/SettingsWindow.xaml.cs": "f19dc414a856d235205efeb3deb9ce2a212238fdcdfeca49774c5163b7390c31",
+      "qeli-win/QeliWin/SystemPaths.cs": "d087d5ee59f00d2ec817afa5988bcb566c3b952f25c47239384a6d446bcaab6c",
+      "qeli-win/QeliWin/ThemeManager.cs": "c51a4c584fd0800737a493ab5772d49a56443cb54d2956b3cedb9d48643d26c0",
+      "qeli-win/QeliWin/Toast.cs": "12a72f17c21c5bee57517ba957c1d0cd16e826ed55cf2a4f6d45952ca0e03763",
+      "qeli-win/QeliWin/TrayController.cs": "65507ce3ae62b10c7bfdf65f0b503dd666ae6a7a7faedf828dc4e9c02b3f1fd8",
+      "qeli-win/QeliWin/Ui.cs": "c33affd1506446a0d243b99cc2f824ecef5b3eb59b2a756988e62396f5a11f4b",
+      "qeli-win/QeliWin/Vpn/DriverResourceSelfTest.cs": "ffcc54010b5540b868ede5d2036d33efb25a07beac1912659db6fecda7370c54",
+      "qeli-win/QeliWin/Vpn/KillSwitch.cs": "24ad69007321ce2d8f98b046b06df93a54e99678ea0e4f33df35a6dfb7e8ec1e",
+      "qeli-win/QeliWin/Vpn/NativeLoader.cs": "5f88e9648853e43509397dafb7b96e944e3e40ce62e129bdfc357383e6bc854f",
+      "qeli-win/QeliWin/Vpn/NativeModuleCache.cs": "cb03a1efc7dfc52f3b78358cafa8027dffd1fd0c741af8de4deb6a2cd7a22fac",
+      "qeli-win/QeliWin/Vpn/NetworkConfigurator.cs": "00b3cc16eea7337e247a81dbc191af3ed965fbd0006f91823ff8f175447c3a8d",
+      "qeli-win/QeliWin/Vpn/PendingFragmentBuffer.cs": "cbb2ec5e9850b626d00a2ee8281fdf5a101e0dfa9149e23b6d936be6c71113d9",
+      "qeli-win/QeliWin/Vpn/ProcessAppMap.cs": "05ad67668a55c82543d050364cb26e2bc8efbb9da44c2402e59aa3240f839263",
+      "qeli-win/QeliWin/Vpn/RetainedDriverGates.cs": "0f714d541ddbd04fded21492a94bd9daef47c4c5e4321a0a7143220af9fb05cb",
+      "qeli-win/QeliWin/Vpn/VpnTunnel.cs": "1be48abff2243d6a0d18affd980412881d80ac2ccb7d6919856a35a36fbfc2d8",
+      "qeli-win/QeliWin/Vpn/WinDivertAdapter.cs": "20c733ef71dc3eb5a4a6616e5e16daa1996904806c99e01e1f4fc8cd6120ba4e",
+      "qeli-win/QeliWin/Vpn/WinDivertDestinationPolicy.cs": "e2cfbcb1d24d7f8507e5711210527383b974b1b6c58327d858bf7c3d403d770b",
+      "qeli-win/QeliWin/Vpn/WinDivertFlowTable.cs": "881b52b879827ec7b2a5f3eb4a985886d475574acfe024d961ae17f1f0498fb9",
+      "qeli-win/QeliWin/Vpn/WinDivertKillSwitchGate.cs": "112d756e06a57088f00d3de80365eef1ea56261ef1661cc52d1832575071538e",
+      "qeli-win/QeliWin/Vpn/WinDivertNative.cs": "9ae309425d4ead53b94e4499ba5934bb5bd9ca7a2aeba0956919dec2b91b7c73",
+      "qeli-win/QeliWin/Vpn/WinDivertRuntime.cs": "9e2975f7013438ae8206d1b8a845f11189243b49e6fd147094b55b1358bf2e00",
+      "qeli-win/QeliWin/Vpn/WinDivertSelfTest.cs": "5927e6f2c2d4091b9e57f46d05baeb18d32456944f1fc142e1eeb2728c8ad513",
+      "qeli-win/QeliWin/Vpn/WindowsRoamingSocket.cs": "6df2bcb311def95c5ad7d227b88a6028bd6897be2bc41c81ab78ec5f7a53e94c",
+      "qeli-win/QeliWin/Vpn/Wintun.cs": "1aa5c9bbe1f31d833c8f47733b001df243718101125b655e31ff69862bb11484",
+      "qeli-win/QeliWin/WindowsCommand.cs": "967dd2d041fb43a58d5f9fa85cc509c4022a5269a5dd42c4b34b19d477460df4",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/VpnDataPlaneInstrumentedTest.kt": "27857813163c9b874fbf00a2c83054433156166ab46a4a67cba7279acdf1156d",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/VpnSystemLifecycleInstrumentedTest.kt": "31c17002a8d52f1425963196275da715f4d66ee6cd8c59f2e73f1afa4af07980",
+      "qeli-android/app/src/androidTest/AndroidManifest.xml": "208f0c049906bbbd329ba092c27fb660967fc1be6ed4b55a29dab775d86dea52",
+      "qeli-android/app/src/androidTest/java/com/qeli/SystemNetworkProbeReceiver.java": "ff82efb09f6b17458c89ca3d5b5b1bd51aef8e047e1d109c858aa53c1e3ac112",
+      "scripts/fixtures/android_restart_control/AndroidManifest.xml": "d4d76837167053bb0507f776715c2ee75d38a1489e0e3d5b813519a66dfa14d4",
+      "scripts/fixtures/android_restart_control/ControlService.java": "2dae88592f9b127f36631a90b00e75d679ecd613e4365a63d5093ea9bd27baa6",
+      "scripts/fixtures/android_restart_control/ModeReceiver.java": "4950fce9939ce989b3e0e0a2225190c7f93b8c574efde2be529475fafecfdc05",
+      "qeli-android/app/src/main/kotlin/com/qeli/AndroidVpnPublication.kt": "36b42098137025073654bd27f56d810ecfe9c2f91f2de63ab2a542fd68daf138",
+      "qeli-android/app/src/test/kotlin/com/qeli/AndroidVpnPublicationTest.kt": "253f7e0bde47904f837472a0d1ee71c73fdfa5906b3f3f714d5139faed4a4bb5",
+      "qeli-android/app/instrumentation-abi.pro": "6b9ae45024a7c26ad8f1b9089d0951c2b973ddf5f9dc411dde3d6d925af92a49"
+    },
+    "changed_source_inputs": [
+      "qeli-android/README.md",
+      "qeli-android/app/build.gradle.kts"
+    ],
+    "new_source_inputs": [
+      "qeli-android/app/instrumentation-abi.pro"
+    ],
+    "auxiliary_inputs": {
+      "scripts/android_lab_ui.py": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1",
+      "scripts/audit_android_data_plane_lab.py": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746",
+      "scripts/audit_android_nat64.py": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78",
+      "scripts/audit_android_network_handover.py": "7b2ebafad969d3f65754696b12d1b6c59a9dacf1b891e24c6b5e5eb3daaf4934",
+      "scripts/audit_android_power_lifecycle.py": "452eb0ed92ecb21c7e8482f32bfc32952dd78eb68b812771358a6fd4101d4f31",
+      "scripts/audit_android_release_ui.py": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0",
+      "scripts/audit_android_restart_control.py": "95c532b1e6ffece95f541171bd6dad008d29a92b696e356a6fa72488eeda6fa9",
+      "scripts/audit_android_udp_recovery.py": "8e36d45275307e4757e4d18bb5fc077240beed09e13c3d7578e994bfc76007d0",
+      "scripts/audit_udp_handshake_contracts.py": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510",
+      "scripts/build_android_restart_control.py": "e776434758ab2fc18c6db811c1ee3ea6c12f57cb601fd4d496518dead116da83",
+      "scripts/roaming_android_sleep_wake_gate.py": "1146d19a20109516e3412026391b584489e32f3283901b3fc27dd045b00c631c",
+      "scripts/test_macos_build_paths.py": "894195974d095b4fb47c020c36a2e5e2e678fd2e86e84ba3b79852f176234332",
+      "scripts/audit_android_leak_bursts.py": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3",
+      "scripts/audit_android_startup_dns.py": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc",
+      "scripts/check_android_instrumentation_abi.py": "20d4c7fe11532710fadc8ecc744a81506d6b0b3687c4bdce7422e5a8efc8f15e",
+      "scripts/generate_android_instrumentation_abi.py": "7ee2daff9a756280dad4eb969edb962209ac94b660e77a12d18f271988b8b3dc"
+    },
+    "changed_auxiliary_inputs": [],
+    "new_auxiliary_inputs": [
+      "scripts/check_android_instrumentation_abi.py",
+      "scripts/generate_android_instrumentation_abi.py"
+    ],
+    "regression_test_inputs": {
+      "scripts/test_android_startup_state.py": "d4eb9109ea97402e8c5574a7e3214a33af35f65b7e6ed7fba56af56ee797ebfa",
+      "scripts/test_android_resolver_diagnostics.py": "086daf4dcd4439a64d2677ebb6032ad3029083fa871d4d689b61741861d16a3c"
+    },
+    "reuse": {
+      "prior_raw_directory": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q29-android-connected-gate-20261005",
+      "prior_source_proof_sha256": "fdc5abf560147ba1d0a390052813a40559f0170732bba94bac12d3464568f880",
+      "prior_raw_seal_sha256": "be12d159894c7be8551469c255c0e3f86f8c7a1c222ccc95744b864c669144b5",
+      "unit_tests": "172 previous PASS, relevant Kotlin/JVM/native inputs unchanged; not rerun",
+      "lint": "previous 0 errors/55 warnings, no main Kotlin/manifest/resource changes; not rerun"
+    },
+    "android_apk_artifacts": {
+      "trace-only-apks/app-release-androidTest.apk": "25f31824b84fe86e2298bf759e8f02d9b77b52d0332157c4cc204823c113034c",
+      "trace-only-apks/app-release.apk": "e881e16919e61d1c3b40bb085c0cb5fd55878c34f9792e1cec011c10cbf98d0e",
+      "inferred-no-access-apks/app-release-androidTest.apk": "bd255eda0027f6a4f42c4d1ff8e32acaaa86aa42c0e1bcb83355d0ce0a9c62e0",
+      "inferred-no-access-apks/app-release.apk": "63590433d3688af39cbd35ce161897a1900217ee18ed76f0ab1b65abece7884a",
+      "final-apks/app-release-androidTest.apk": "a4fd4d375292894fa1ed639791de4ff824db0c854274dcd7c2bfb5b61ccc3ee7",
+      "final-apks/app-release.apk": "b6a2165d3fa9763c0f251e3af0dbd7fe9e50ee4ca680d5b152fe58f531809d1a"
+    },
+    "mapping_artifacts": {
+      "trace-only-mapping.txt": "ec6822fbfb13f854368947f881b8ff783a130c3e07e9259152194549e414bf56",
+      "no-access-mapping.txt": "8644b6b6d9629419fbcd66102ceb8b67341d516a0c5f0422449cc8ebb85f7593",
+      "final-mapping.txt": "48fe01c3cea3a28a439ec7042ea1b109cc2b314f2a58f1dc86fe7ba8e58c833f"
+    },
+    "inference_inputs": {
+      "status": "PASS",
+      "class_counts": {
+        "target": 9564,
+        "source": 832
+      },
+      "known_platform_stub_diagnostics": [
+        "Missing class android.test.AndroidTestCase (referenced from: void androidx.test.internal.runner.junit3.AndroidTestResult.run(junit.framework.TestCase))",
+        "Missing method void android.test.AndroidTestCase.setContext(android.content.Context) (referenced from: void androidx.test.internal.runner.junit3.AndroidTestResult.run(junit.framework.TestCase))",
+        "Missing class android.test.InstrumentationTestCase (referenced from: void androidx.test.internal.runner.junit3.AndroidTestResult.run(junit.framework.TestCase))",
+        "Missing method void android.test.InstrumentationTestCase.injectInstrumentation(android.app.Instrumentation) (referenced from: void androidx.test.internal.runner.junit3.AndroidTestResult.run(junit.framework.TestCase))",
+        "Missing method android.app.Instrumentation$ActivityResult androidx.test.internal.runner.hidden.ExposedInstrumentationApi.execStartActivity(android.content.Context, android.os.IBinder, android.os.IBinder, android.app.Activity, android.content.Intent, int) (referenced from: android.app.Instrumentation$ActivityResult androidx.test.runner.MonitoringInstrumentation.execStartActivity(android.content.Context, android.os.IBinder, android.os.IBinder, android.app.Activity, android.content.Intent, int))",
+        "Missing method android.app.Instrumentation$ActivityResult androidx.test.internal.runner.hidden.ExposedInstrumentationApi.execStartActivity(android.content.Context, android.os.IBinder, android.os.IBinder, android.app.Activity, android.content.Intent, int, android.os.Bundle) (referenced from: android.app.Instrumentation$ActivityResult androidx.test.runner.MonitoringInstrumentation.execStartActivity(android.content.Context, android.os.IBinder, android.os.IBinder, android.app.Activity, android.content.Intent, int, android.os.Bundle))",
+        "Missing method android.app.Instrumentation$ActivityResult androidx.test.internal.runner.hidden.ExposedInstrumentationApi.execStartActivity(android.content.Context, android.os.IBinder, android.os.IBinder, android.app.Activity, android.content.Intent, int, android.os.Bundle, android.os.UserHandle) (referenced from: android.app.Instrumentation$ActivityResult androidx.test.runner.MonitoringInstrumentation.execStartActivity(android.content.Context, android.os.IBinder, android.os.IBinder, android.app.Activity, android.content.Intent, int, android.os.Bundle, android.os.UserHandle))",
+        "Missing method android.app.Instrumentation$ActivityResult androidx.test.internal.runner.hidden.ExposedInstrumentationApi.execStartActivity(android.content.Context, android.os.IBinder, android.os.IBinder, android.app.Fragment, android.content.Intent, int, android.os.Bundle) (referenced from: android.app.Instrumentation$ActivityResult androidx.test.runner.MonitoringInstrumentation.execStartActivity(android.content.Context, android.os.IBinder, android.os.IBinder, android.app.Fragment, android.content.Intent, int, android.os.Bundle))",
+        "Missing method android.app.Instrumentation$ActivityResult androidx.test.internal.runner.hidden.ExposedInstrumentationApi.execStartActivity(android.content.Context, android.os.IBinder, android.os.IBinder, java.lang.String, android.content.Intent, int, android.os.Bundle) (referenced from: android.app.Instrumentation$ActivityResult androidx.test.runner.MonitoringInstrumentation.execStartActivity(android.content.Context, android.os.IBinder, android.os.IBinder, java.lang.String, android.content.Intent, int, android.os.Bundle))",
+        "Missing class java.lang.invoke.StringConcatFactory (referenced from: void androidx.test.core.app.InstrumentationActivityInvoker.startActivity(android.content.Intent, android.os.Bundle) and 110 other contexts)",
+        "Missing method java.lang.invoke.CallSite java.lang.invoke.StringConcatFactory.makeConcatWithConstants(java.lang.invoke.MethodHandles$Lookup, java.lang.String, java.lang.invoke.MethodType, java.lang.String, java.lang.Object[]) (referenced from: void androidx.test.core.app.InstrumentationActivityInvoker.startActivity(android.content.Intent, android.os.Bundle) and 110 other contexts)"
+      ],
+      "artifact_sha256": {
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.activity\\activity\\1.8.0\\4266e2118d565daa20212d1726e11f41e1a4d0ca\\activity-1.8.0.aar": "d3a676709dea04f2a8506e2ae85052fff763db526ac7f16b04de50fdd05b0720",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.annotation\\annotation-experimental\\1.4.1\\7851235e2a16ce50270a74b555edaf9209b42864\\annotation-experimental-1.4.1.aar": "6bd4c7c7476f8260cd3bdbb81183583e93fc9f790c27dea7dc314181cbf87aa0",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.annotation\\annotation-jvm\\1.10.0\\388cfaa79001d0f024d28f6a13d5a3dfc2f0e18f\\annotation-jvm-1.10.0.jar": "ddd072ddbb553178e205517ce777b2f05aa9e412982d9ecb4eedc74f1212f697",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.appcompat\\appcompat-resources\\1.8.0\\898003a0ec0d6faa6bf117cd8b76b726aec57a46\\appcompat-resources-1.8.0.aar": "3fe48cc3df409bed03063a4f5f5f9f8c51f1d63ea9e88d41e6489bf58495a5af",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.appcompat\\appcompat\\1.8.0\\23eefa68662dbae82240634abb9b14d98f7aec6f\\appcompat-1.8.0.aar": "773f79306eb0ca2447af8752e923ce6269e201e7fe6b275cc76e2998ee87e838",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.arch.core\\core-common\\2.2.0\\5e1b8b81dfd5f52c56a8d53b18ca759c19a301f3\\core-common-2.2.0.jar": "65308a06b1c00ee186cb9e19321383f043b993813f1522c47f4a3e3303bdba41",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.arch.core\\core-runtime\\2.2.0\\39705982680d78556b679ef9d5400d4f17509b0b\\core-runtime-2.2.0.aar": "a1be5e0caa2b07623862af6ae21b3ab0718123245184d0e30dea81b53f990a47",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.cardview\\cardview\\1.0.0\\158dbc2e2bc502815821191b04446b8f663c1874\\cardview-1.0.0.aar": "1193c04c22a3d6b5946dae9f4e8c59d6adde6a71b6bd5d87fb99d82dda1afec7",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.collection\\collection-jvm\\1.5.0\\7ba2c69414d46ebc2dd76598bdd0a75c54281a57\\collection-jvm-1.5.0.jar": "70b35924e4babcdffa37d0e575ee039c56a2d97123342624c48b603233704341",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.concurrent\\concurrent-futures\\1.1.0\\50b7fb98350d5f42a4e49704b03278542293ba48\\concurrent-futures-1.1.0.jar": "0ce067c514a0d1049d1bebdf709e344ed3266fe9744275682937cdcb13334e9e",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.constraintlayout\\constraintlayout-core\\1.1.2\\f7ab6170b99b9421bd4942846426ff820b552f7d\\constraintlayout-core-1.1.2.jar": "3c2054328328831eb6e69b4014f6ef9faa117fd4b811929f3a91d3db375f2c02",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.constraintlayout\\constraintlayout\\2.2.2\\eda57cf01f93977b83e8f7b9fed527f505ba715\\constraintlayout-2.2.2.aar": "0393b0bf7b11057e13b5330e862afb453cd31eba25c8309b6d2a7d345ca7be69",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.coordinatorlayout\\coordinatorlayout\\1.1.0\\8eeb7baf75b9595d017642a460df5af3bb9fa4e1\\coordinatorlayout-1.1.0.aar": "44a9e30abf56af1025c52a0af506fee9c4131aa55efda52f9fd9451211c5e8cb",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.core\\core-ktx\\1.19.0\\48a8a2699bc34907f4ed3b1739ce912602b32417\\core-ktx-1.19.0.aar": "db1ae24b15c36358ad46497d561b19c325642565432d56479ebe47ee3baa0d7e",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.core\\core-viewtree\\1.0.0\\449ba4f495b4d10d18edd01f32f9328be40d5749\\core-viewtree-1.0.0.aar": "dc1b678d58ebcf2bfa1587be68ff826694ce3d221251b9ef30d4d4b36297e6de",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.core\\core\\1.19.0\\d02fce1ab8daa45d29ffc2f52f2046d71acdcb80\\core-1.19.0.aar": "55445ad0ff025963929892569a0bfc6b4c68e60d8b7c965dcffba09048c36c8e",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.cursoradapter\\cursoradapter\\1.0.0\\74014983a86b83cbce534dec4e7aa9312f5f5d82\\cursoradapter-1.0.0.aar": "a81c8fe78815fa47df5b749deb52727ad11f9397da58b16017f4eb2c11e28564",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.customview\\customview\\1.2.0\\2cc4c923ced9c6545b9251d2e3c02c5ad42a25f0\\customview-1.2.0.aar": "40e98bb388cdf5c53a52699b1f78a5abdcf22de1e7c1be43b2c12fd6eadc6f9d",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.databinding\\viewbinding\\9.2.1\\a8037c711d43faf51c2d675f14e2a9aa1716e04\\viewbinding-9.2.1.aar": "1dd2f9789743660202e6fa865c55c67391e49f3a2d1569a64ba0efcf434f4b26",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.drawerlayout\\drawerlayout\\1.1.1\\1b2b049e1e88589510ddd4d93f2699b46ecd73dd\\drawerlayout-1.1.1.aar": "2c5f0dca378eb78ca2c4403f9889c77daa3059302260f26a07fe9f63c08926fe",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.dynamicanimation\\dynamicanimation\\1.1.0\\fafa4d2b35188c1fc4bfbc7b9f474e25793041b7\\dynamicanimation-1.1.0.aar": "9062cc6637136a49ad17f8603c72519052ff9a569e617fc1b6db7086304da88f",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.emoji2\\emoji2-views-helper\\1.3.0\\7bef7c1117bb40ef41ee0641cd1d2d605e2d607c\\emoji2-views-helper-1.3.0.aar": "9a1351295a4f739df0efe8344adaa9afb34856c3af584d4a9afbec105a45b90b",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.emoji2\\emoji2\\1.3.0\\37ed42991ddf77924510472dba632314aab1c9d9\\emoji2-1.3.0.aar": "2bf23818b23a996ddaa1b5fd5bb32129daff6bbb2dce15166e2fccdd2010b1a5",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.fragment\\fragment\\1.5.4\\de58ea6b5ffbf3ede9ba6919eb448e23353f1e19\\fragment-1.5.4.aar": "bc3c2431dda42e94bb9511c587eae890d276e4aafe393a8da7b00169186dafde",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.graphics\\graphics-shapes-android\\1.0.1\\ded3e866d7abfae45cf454b31522b374b838ef11\\graphics-shapes-release.aar": "7171269a4122feabb071768df46d10b362e47ac75fd0aa8dbcafa1f44f61b40c",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.interpolator\\interpolator\\1.0.0\\8a01fa254a23b9388571eb6334b03707c7d122d7\\interpolator-1.0.0.aar": "33193135a64fe21fa2c35eec6688f1a76e512606c0fc83dc1b689e37add7732a",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.lifecycle\\lifecycle-common-jvm\\2.11.0\\2c4f7d92f1fd723121d394c93455f50158403ad9\\lifecycle-common-jvm-2.11.0.jar": "e6a66e67b9f63a0fb6344f165c1d872376e5fe6d235bffb138af45122cf452a9",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.lifecycle\\lifecycle-livedata-core-ktx\\2.11.0\\75597dce15d7448d06a23cc7e3e3692616618ceb\\lifecycle-livedata-core-ktx-2.11.0.aar": "408fac99b61a7ca9d0620f4f24891f85c14ee007cfd027abc3df759a31b0086a",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.lifecycle\\lifecycle-livedata-core\\2.11.0\\eee2966766006333a2c90ad1e24e5fbce746ef30\\lifecycle-livedata-core-2.11.0.aar": "39b26ef1e081fc88d7054ff1a63d0a5d71876373c33a711ab789c8228d025ad1",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.lifecycle\\lifecycle-livedata\\2.11.0\\19c601364962a0a1e0a74a218b00445e7c46403e\\lifecycle-livedata-2.11.0.aar": "1bc28e40e06ff5e0478b9276ca6287ce6993415b70910745ac916b14dec9b72f",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.lifecycle\\lifecycle-process\\2.11.0\\b4e7d3efe9cedb0165c48cbc7ac041176c6b1e77\\lifecycle-process-2.11.0.aar": "9743f0c7baf27d34497b7e9a1cd497d8260251b03124507963abfaad66c3f552",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.lifecycle\\lifecycle-runtime-android\\2.11.0\\4db234395dbd79ab62ab80840421c858d9b65b21\\lifecycle-runtime.aar": "8711865f8d3603bc05decc03bb42aab2faa8d8bc55b3b12a0a8e516b562b60ca",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.lifecycle\\lifecycle-runtime-ktx-android\\2.11.0\\135c1ac37592967a109d5290409534d206bc6696\\lifecycle-runtime-ktx.aar": "1fead96607f8b4ebd2bc5840c6fcf08b09fc47ceb1665e4b381dce80b19f32a0",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.lifecycle\\lifecycle-viewmodel-android\\2.11.0\\1ac7d4172a592c7b416f9bcd2b3724cdb0f4b0b3\\lifecycle-viewmodel.aar": "509aa5c0711e61a1571024b4f8431dc9aa20960d23cbadb01f21a33fd864352a",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.lifecycle\\lifecycle-viewmodel-savedstate-android\\2.11.0\\fb3904b4ca214d822d10abfe741e48db718c971d\\lifecycle-viewmodel-savedstate.aar": "1761707c1ddee002bd97e1a0889a5016f7cd6bd8e0b6b069bcba8b2523d63723",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.lifecycle\\lifecycle-viewmodel\\2.11.0\\b96d5a503c79113267ed4b20c100c7d0de00c5b6\\lifecycle-viewmodel-2.11.0.aar": "4b809cf9eb7323d200504e95921feb777ff080215cadb8237742d5ed0ba5b792",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.loader\\loader\\1.0.0\\8af8b6cec0da85c207d03e15840e0722cbc71e70\\loader-1.0.0.aar": "11f735cb3b55c458d470bed9e25254375b518b4b1bad6926783a7026db0f5025",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.profileinstaller\\profileinstaller\\1.4.0\\6b6262e9ca50d1f75a496f3b64ebeb092a9d42eb\\profileinstaller-1.4.0.aar": "d502141fcce902430f62b674c32aecd0f75262e7ee2cd15c74adb617cd13130a",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.recyclerview\\recyclerview\\1.2.1\\7f5235de0ec08c31d4f6cccdd0dcaa58b7f9ef6b\\recyclerview-1.2.1.aar": "a1ea0329ee6d938305dfd0f8ce5c48dea2aac14e5606d23e7fb60afcfb655d6e",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.resourceinspection\\resourceinspection-annotation\\1.0.1\\8c21f8ff5d96d5d52c948707f7e4d6ca6773feef\\resourceinspection-annotation-1.0.1.jar": "8cff870ec6fb31db48a52f4a792335b4bf8de07e03bd37823181526433ccd5cb",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.savedstate\\savedstate-android\\1.4.0\\8cf8663a8d810d4d50110ff135b3cd1d7227c867\\savedstate.aar": "1656ce62cd233d488bdbbd42e533b80b22435b7a690acae6dbe7302392512c14",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.startup\\startup-runtime\\1.1.1\\9d4ba67056aff98b69eadc1477c19a1e67cb9470\\startup-runtime-1.1.1.aar": "e0a6329a371262fe4c450372b70fdaf33b769ef6917094723787cfce896b1dd3",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.tracing\\tracing\\1.2.0\\a6ac2cc501278fdc99c56b428548e0cd1e9300f7\\tracing-1.2.0.aar": "6faa90390d1fdbf0adb9a99bf99de67b94c6c6f35aea9510593a9d17973736a2",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.transition\\transition\\1.5.0\\747173f40c7d98cdb6890a25aa60edcbefeb9c95\\transition-1.5.0.aar": "0aa66a0ea406d25a1091f96a3b753b4b12e44fdc43b91ec52c17831e9c31f54b",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.vectordrawable\\vectordrawable-animated\\1.1.0\\fcda1161354501471c30a4e077af6b5c4d4eddc6\\vectordrawable-animated-1.1.0.aar": "76da2c502371d9c38054df5e2b248d00da87809ed058f3363eae87ce5e2403f8",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.vectordrawable\\vectordrawable\\1.1.0\\eac7a364fff534035a2a6cb17770a1288315f69f\\vectordrawable-1.1.0.aar": "46fd633ac01b49b7fcabc263bf098c5a8b9e9a69774d234edcca04fb02df8e26",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.versionedparcelable\\versionedparcelable\\1.1.1\\18e18071e7715679e0593c570217edeb5ca48b9e\\versionedparcelable-1.1.1.aar": "57e8d93260d18d5b9007c9eed3c64ad159de90c8609ebfc74a347cbd514535a4",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.viewpager2\\viewpager2\\1.0.0\\91c378a09ddff66e1bb73e90edeac53487d2832b\\viewpager2-1.0.0.aar": "e95c0031d4cc247cd48196c6287e58d2cee54d9c79b85afea7c90920330275af",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.viewpager\\viewpager\\1.0.0\\1f90e13820f96c2fb868f9674079a551678d68b2\\viewpager-1.0.0.aar": "147af4e14a1984010d8f155e5e19d781f03c1d70dfed02a8e0d18428b8fc8682",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\com.google.android.material\\material\\1.14.0\\b44cfc942dbe846c607aa50738e2bb1272796f8c\\material-1.14.0.aar": "19e8fab43df6870f8e4322059624384be0279da56dc910529ff591dc674008cd",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\com.google.code.findbugs\\jsr305\\3.0.2\\25ea2e8b0c338a877313bd4672d3fe056ea78f0d\\jsr305-3.0.2.jar": "766ad2a0783f2687962c8ad74ceecc38a28b9f72a2d085ee438b7813e928d0c7",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\com.google.code.gson\\gson\\2.13.2\\48b8230771e573b54ce6e867a9001e75977fe78e\\gson-2.13.2.jar": "dd0ce1b55a3ed2080cb70f9c655850cda86c206862310009dcb5e5c95265a5e0",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\com.google.crypto.tink\\tink-android\\1.23.0\\bb0539111f2fa652289783066b5a31c5680663e7\\tink-android-1.23.0.jar": "c656918451b01c45ce5b20c7b6d4c388f956f61b3a3528e769048c8944c42f9e",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\com.google.errorprone\\error_prone_annotations\\2.41.0\\4381275efdef6ddfae38f002c31e84cd001c97f0\\error_prone_annotations-2.41.0.jar": "a56e782b5b50811ac204073a355a21d915a2107fce13ec711331ad036f660fcc",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\com.google.guava\\listenablefuture\\1.0\\c949a840a6acbc5268d088e47b04177bf90b3cad\\listenablefuture-1.0.jar": "e4ad7607e5c0477c6f890ef26a49cb8d1bb4dffb650bab4502afee64644e3069",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\com.google.zxing\\core\\3.4.1\\1869da97e9b2b60b5ff2fcaf55899174b93ae25d\\core-3.4.1.jar": "acfa30338c26267b6cab665509c2251bb96e8350bfcad89d59b949ba77011f8d",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\com.journeyapps\\zxing-android-embedded\\4.3.0\\148ce3deba556cc15fd0b2b32fd3d0c842d91f28\\zxing-android-embedded-4.3.0.aar": "4ab03353127c34e55cbb80fbc9a34031decbcfb1ec5e8f991944d2d494621a33",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-stdlib\\2.2.20\\5380b19fa1924399b62ce3a1faffebb2b4f82272\\kotlin-stdlib-2.2.20.jar": "8836ccffd3585fadda9901244b20d42901d2f3cd581058d8434e2ffabcf3a3e7",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlinx\\kotlinx-coroutines-android\\1.11.0\\51ffb50a6478872fbbac6cbd48f09553bf4e9e7d\\kotlinx-coroutines-android-1.11.0.jar": "c2cb206d27017c7d1bf5ff179787397543d13748dbabb0d7237e1585e0b29044",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlinx\\kotlinx-coroutines-core-jvm\\1.11.0\\3d57dc678bd8d72a60e7adf0eca5c54e3f4f4b79\\kotlinx-coroutines-core-jvm-1.11.0.jar": "d1d75aa01dffbb4d1c520e67e4c4e7f5f6174718e7cb4632412503f2f0e604fa",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlinx\\kotlinx-serialization-core-jvm\\1.7.3\\1f226780b845ff9206474c05159245d861556249\\kotlinx-serialization-core-jvm-1.7.3.jar": "f0adde45864144475385cf4aa7e0b7feb27f61fcf9472665ed98cc971b06b1eb",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains\\annotations\\23.0.0\\8cc20c07506ec18e0834947b84a864bfc094484e\\annotations-23.0.0.jar": "7b0f19724082cbfcbc66e5abea2b9bc92cf08a1ea11e191933ed43801eb3cd05",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\org.jspecify\\jspecify\\1.0.0\\7425a601c1c7ec76645a78d22b8c6a627edee507\\jspecify-1.0.0.jar": "1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\runtime_app_classes_jar\\release\\bundleReleaseClassesToRuntimeJar\\classes.jar": "f2f8674a91d92a3119e00ea27b65741cad711313986f9b1a05733f78af355292",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\compile_and_runtime_r_class_jar\\release\\processReleaseResources\\R.jar": "7e238e689489e20bbb0f6fd49a141edb65208483770df7660d27940eb029c4ba",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.concurrent\\concurrent-futures-ktx\\1.2.0\\13b49fdb58c74bdfb12eb131b5e22d6d09683e30\\concurrent-futures-ktx-1.2.0.jar": "e1f3e17bb4358ccd6c77ca45f70635c9aba237261f19eaa4f64a0218c00e2a3e",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.test.ext\\junit\\1.3.0\\1461515f981eb6342553074fc9ffa0528c083f86\\junit-1.3.0.aar": "3363df84da4540ba8daff02c3f7cd65471037a6a5370591a7e6deba377b36e7f",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.test.services\\storage\\1.6.0\\25ee07e80508898ef0fb74ddec44f56fd7221011\\storage-1.6.0.aar": "f97e3cf6aaf4e3fb97ef219d37a9c0a0720183c1f6db87b37642521e26fb6d30",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.test\\core\\1.7.0\\442a8eec92a3a26cd48e9605b161611520efd586\\core-1.7.0.aar": "f4dacd8edceeec48e0c76ecf28339b28f4b4f6b74f8e34e9e59b472c27d9eb81",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.test\\monitor\\1.8.0\\3b49e700fa301ccfc2126d60d0a2064836cfec85\\monitor-1.8.0.aar": "56cb7496a06d9f2dca7d3ff76c50a8a30bd18e00a24a3b267d5a31437b278e67",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\androidx.test\\runner\\1.7.0\\ad0c5f9cec6021f875a7bd1ed9599083b144f58d\\runner-1.7.0.aar": "970311c47119928a2e406a88892a3d270387cc5a49a181a1c44511105b41b818",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\junit\\junit\\4.13.2\\8ac9e16d933b6fb43bc7f576336b8f4d7eb5ba12\\junit-4.13.2.jar": "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3",
+        "C:\\Users\\litvi\\.gradle\\caches\\modules-2\\files-2.1\\org.hamcrest\\hamcrest-core\\1.3\\42a25dc3219429f0e5d060061f71acb49bf010a0\\hamcrest-core-1.3.jar": "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9",
+        "C:\\Android\\Sdk\\build-tools\\36.0.0\\lib\\d8.jar": "4097ff9c46c185c6e7214da7fe9b1befb5adeea5cc9ca349270e0249904f9240",
+        "C:\\Android\\Sdk\\platforms\\android-37.0\\android.jar": "bf1b4387cc7ca94fc6ef684f040d9d16fbf16248e181819f020736ea2053f177"
+      },
+      "class_sha256": {
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\ConfigCoreInstrumentedTest.class": "e97c25fe4e72094717416236661384eb2316fa4ddf47e07e23ee958cd2be385e",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\DiagnosticLogStoreInstrumentedTest.class": "1c18313936b0f91f92d13f4f8731f008b83ed968abb9adde5b55a2289241eab4",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\ForegroundServiceLifecycleInstrumentedTest$StallPeer.class": "8170f923b8b8f4d6d3c23bc743b23445e646a750085e644f259e905b357571e5",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\ForegroundServiceLifecycleInstrumentedTest.class": "1ad4ad1199fe10960147473617c45807b398e23cdbb9b53b2a18e4a6ed98cd05",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\LegacyProfileRecoveryInstrumentedTest.class": "7edda0f737e635b00906d7242255b9857ee3e318745a02a78b4e0bddb4e75243",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\ManifestInstrumentedTest.class": "83859e2301838152b6861780d4956fb1d9239d1db79a1174bc3fdb499e57a568",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\ProfileStoreInstrumentedTest.class": "e1113635f623e4651a2e3cca9ad16e505e2687b8e2fcb105fb347dafabf509c1",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\TransportLifecycleInstrumentedTest.class": "e0ba2ef2b572d1a51ecbfd1a7b6b9aa21398474bb9a4704abba69a3fa9eb1a76",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\TunBuilderInstrumentedTest.class": "e65199d56a824785b86ba37a9186f6e8dd4497d642848f268eb3b25864ae3c8e",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\VpnDataPlaneInstrumentedTest.class": "3d986a3592e5dbc575d053634d0e316a9a111d6aee135f1ca3c983cbd9818f74",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\built_in_kotlinc\\releaseAndroidTest\\compileReleaseAndroidTestKotlin\\classes\\com\\qeli\\VpnSystemLifecycleInstrumentedTest.class": "3a5de71951c443d08807cb29c64f49cbfe6d29b4dcb1a40bfc83f658377a6f86",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\javac\\releaseAndroidTest\\compileReleaseAndroidTestJavaWithJavac\\classes\\com\\qeli\\SystemNetworkProbeReceiver$1.class": "4d47886393765b34de057e5d978dc625c80d7c7375c81e0336fce21c96a0075b",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\javac\\releaseAndroidTest\\compileReleaseAndroidTestJavaWithJavac\\classes\\com\\qeli\\SystemNetworkProbeReceiver$2.class": "df2e678366077958abed9129bb7f4ec3acd1fc3decbb7acc3ca51865da907666",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\app\\build\\intermediates\\javac\\releaseAndroidTest\\compileReleaseAndroidTestJavaWithJavac\\classes\\com\\qeli\\SystemNetworkProbeReceiver.class": "fa0f90edb718eeda12fb61d7e38a86d1d8ef69e25c4314c528987bfc146f0051"
+      },
+      "generated_rules_sha256": "6b9ae45024a7c26ad8f1b9089d0951c2b973ddf5f9dc411dde3d6d925af92a49"
+    },
+    "executed_source_sets": {
+      "final-executed-": {
+        "final-executed-android_lab_ui.py": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1",
+        "final-executed-audit_android_data_plane_lab.py": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746",
+        "final-executed-audit_android_leak_bursts.py": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3",
+        "final-executed-audit_android_nat64.py": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78",
+        "final-executed-audit_android_network_handover.py": "7b2ebafad969d3f65754696b12d1b6c59a9dacf1b891e24c6b5e5eb3daaf4934",
+        "final-executed-audit_android_release_ui.py": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0",
+        "final-executed-audit_android_startup_dns.py": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc",
+        "final-executed-audit_udp_handshake_contracts.py": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      "full-executed-": {
+        "full-executed-android_lab_ui.py": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1",
+        "full-executed-audit_android_data_plane_lab.py": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746",
+        "full-executed-audit_android_leak_bursts.py": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3",
+        "full-executed-audit_android_nat64.py": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78",
+        "full-executed-audit_android_network_handover.py": "7b2ebafad969d3f65754696b12d1b6c59a9dacf1b891e24c6b5e5eb3daaf4934",
+        "full-executed-audit_android_release_ui.py": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0",
+        "full-executed-audit_android_startup_dns.py": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc",
+        "full-executed-audit_udp_handshake_contracts.py": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      "access-executed-": {
+        "access-executed-android_lab_ui.py": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1",
+        "access-executed-audit_android_data_plane_lab.py": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746",
+        "access-executed-audit_android_leak_bursts.py": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3",
+        "access-executed-audit_android_nat64.py": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78",
+        "access-executed-audit_android_network_handover.py": "7b2ebafad969d3f65754696b12d1b6c59a9dacf1b891e24c6b5e5eb3daaf4934",
+        "access-executed-audit_android_release_ui.py": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0",
+        "access-executed-audit_android_startup_dns.py": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc",
+        "access-executed-audit_udp_handshake_contracts.py": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      }
+    }
+  },
+  "checks": {
+    "instrumentation_tests": 7,
+    "echo_receipts": 72,
+    "answered_DNS_questions": 12,
+    "runtime_attempts": {
+      "routed": {
+        "status": "FAIL",
+        "elapsed_seconds": 81.98,
+        "host_service_userdata": "UNCHANGED",
+        "cleanup": "PASS"
+      },
+      "routed-full": {
+        "status": "FAIL",
+        "elapsed_seconds": 84.92,
+        "host_service_userdata": "UNCHANGED",
+        "cleanup": "PASS"
+      },
+      "routed-access": {
+        "status": "PASS",
+        "elapsed_seconds": 106.28,
+        "host_service_userdata": "UNCHANGED",
+        "cleanup": "PASS"
+      }
+    },
+    "packaged_abi": "PASS",
+    "default_production_rules": "UNCHANGED",
+    "variant": "OPT_IN_INSTRUMENTED_RELEASE_R8",
+    "historical_FAILs": "RETAINED",
+    "prior_unit_lint": "REUSED_UNCHANGED_INPUTS"
+  },
+  "raw_directory": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q29-android-release-runner-20261005",
+  "raw_seal": {
+    "immutable_after": "qualification",
+    "excluded": "raw-seal,certification-before,qualification/commit/transfer outputs",
+    "files": [
+      {
+        "path": "access-build.log",
+        "size": 5452,
+        "sha256": "40505311e1db3f8f7e8ce4a8881c88d093bcdc6b3ec156841b81b2a0c3dd1aa7"
+      },
+      {
+        "path": "access-driver.log",
+        "size": 123,
+        "sha256": "e7c213a9c4a3555736705c71487e95ecc7cbd6ce1ba1658af51c93154dddaee4"
+      },
+      {
+        "path": "access-executed-android_lab_ui.py",
+        "size": 7087,
+        "sha256": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1"
+      },
+      {
+        "path": "access-executed-audit_android_data_plane_lab.py",
+        "size": 43884,
+        "sha256": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746"
+      },
+      {
+        "path": "access-executed-audit_android_leak_bursts.py",
+        "size": 7317,
+        "sha256": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3"
+      },
+      {
+        "path": "access-executed-audit_android_nat64.py",
+        "size": 11650,
+        "sha256": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78"
+      },
+      {
+        "path": "access-executed-audit_android_network_handover.py",
+        "size": 8338,
+        "sha256": "7b2ebafad969d3f65754696b12d1b6c59a9dacf1b891e24c6b5e5eb3daaf4934"
+      },
+      {
+        "path": "access-executed-audit_android_release_ui.py",
+        "size": 4619,
+        "sha256": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0"
+      },
+      {
+        "path": "access-executed-audit_android_startup_dns.py",
+        "size": 8350,
+        "sha256": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc"
+      },
+      {
+        "path": "access-executed-audit_udp_handshake_contracts.py",
+        "size": 19012,
+        "sha256": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      {
+        "path": "access-generator-check.log",
+        "size": 82,
+        "sha256": "3d4201867274ad68c521a4ac1f08a0ed60ed1fa1e5d038ab0b0dc15416be3a8d"
+      },
+      {
+        "path": "access-host-before.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "after-configuration.txt",
+        "size": 38942,
+        "sha256": "a6898d82c9f67a3ebf7c397ad6c9193b486c5a3693139219079a94e1a6ccc4b0"
+      },
+      {
+        "path": "after-mapping.txt",
+        "size": 13921014,
+        "sha256": "ec6822fbfb13f854368947f881b8ff783a130c3e07e9259152194549e414bf56"
+      },
+      {
+        "path": "after-seeds.txt",
+        "size": 183159,
+        "sha256": "56fa65f981cfaa70a36178d162c47b60a89f5a84b555697e87ac74b787437aca"
+      },
+      {
+        "path": "after-usage.txt",
+        "size": 2710505,
+        "sha256": "0bf253c3b9812ff82f62b6cb34296700b11d51ebda2586637b93a621230407f8"
+      },
+      {
+        "path": "base-commit.txt",
+        "size": 42,
+        "sha256": "93f6b27338a72854cd5c0676a03704904d8f525a19c116ad7e70c1897e7a4bcf"
+      },
+      {
+        "path": "baseline-abi.json",
+        "size": 279,
+        "sha256": "692c5ad296592897f11d1c959ebd2ba0087b3fc4ede139865ddeff0d08bb635d"
+      },
+      {
+        "path": "baseline-abi.log",
+        "size": 279,
+        "sha256": "692c5ad296592897f11d1c959ebd2ba0087b3fc4ede139865ddeff0d08bb635d"
+      },
+      {
+        "path": "baseline-packaged-abi.json",
+        "size": 310,
+        "sha256": "028c308ec9e77f27a3174e800eba5ab8372abf08daa2892635f5f4b9e59b4f18"
+      },
+      {
+        "path": "baseline-packaged-abi.log",
+        "size": 310,
+        "sha256": "028c308ec9e77f27a3174e800eba5ab8372abf08daa2892635f5f4b9e59b4f18"
+      },
+      {
+        "path": "before-configuration.txt",
+        "size": 38442,
+        "sha256": "6e705836d188214624ef7ca8d3ecba157a2f2aed35986b42a4b9e1972a63605c"
+      },
+      {
+        "path": "before-mapping.txt",
+        "size": 13919413,
+        "sha256": "77c1cd1c4a57c433dc4aed17464dba469b9bae8e66c767fe5321169ead28abe3"
+      },
+      {
+        "path": "before-usage.txt",
+        "size": 2710603,
+        "sha256": "0b2bddcc332a6232afd78bd6da48a71f27623efd232767bf9b6b314b7619c40d"
+      },
+      {
+        "path": "bindings.log",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "build.log",
+        "size": 5710,
+        "sha256": "558593384f74f375da3ab11884439a55ffc11adc2ce77dc59e153ef1fdaeed1b"
+      },
+      {
+        "path": "check_dex.py",
+        "size": 2739,
+        "sha256": "2577ccc1cdd29dbf91e2ef45b464c31b1eb36855209ee5944981f63d96a00236"
+      },
+      {
+        "path": "checks.json",
+        "size": 798,
+        "sha256": "01bb74a8a3e7f4609f3a216a8a1a7d4dd6c097796a82c218c965d3bc41c01ed5"
+      },
+      {
+        "path": "classpath.init.gradle",
+        "size": 401,
+        "sha256": "3f2531cfd6a39777ac80286cf96e40054aa2cd4aba31736572eb58fc6df98a2a"
+      },
+      {
+        "path": "classpath.log",
+        "size": 14808,
+        "sha256": "b07e9b345b3df20f8ab0c1a9b1665c9948c09a7b022afacefe4db8d8cdc7af44"
+      },
+      {
+        "path": "dex-proof.json",
+        "size": 1472,
+        "sha256": "9020c6225767abf7f62b6f4f4dbd53b9d6023e8dc1b9bae3c225b01ba6ce2032"
+      },
+      {
+        "path": "dex.log",
+        "size": 1472,
+        "sha256": "9020c6225767abf7f62b6f4f4dbd53b9d6023e8dc1b9bae3c225b01ba6ce2032"
+      },
+      {
+        "path": "docs.log",
+        "size": 179,
+        "sha256": "429f8f0e5176f8a28e6fe5a39b8d35cba6fcbd43e2513f14157f17751e3d2c31"
+      },
+      {
+        "path": "driver.log",
+        "size": 3832,
+        "sha256": "cd434785fedc1b32b5f107ddce92212896bd4cc96b6aa12668a9d7a2eeb33901"
+      },
+      {
+        "path": "failed-init-path.log",
+        "size": 820,
+        "sha256": "61c4256d56aa8aed4f85a28f1cf7e91fc588796c03ce6060de829c4ff2c178cf"
+      },
+      {
+        "path": "final-abi.json",
+        "size": 161,
+        "sha256": "5e51f87b22423b77c90ecc61313380acf0bf2242dfa304bd0f6111a53ab9fb5f"
+      },
+      {
+        "path": "final-abi.log",
+        "size": 161,
+        "sha256": "5e51f87b22423b77c90ecc61313380acf0bf2242dfa304bd0f6111a53ab9fb5f"
+      },
+      {
+        "path": "final-apks/app-release-androidTest.apk",
+        "size": 723481,
+        "sha256": "a4fd4d375292894fa1ed639791de4ff824db0c854274dcd7c2bfb5b61ccc3ee7"
+      },
+      {
+        "path": "final-apks/app-release.apk",
+        "size": 10499436,
+        "sha256": "b6a2165d3fa9763c0f251e3af0dbd7fe9e50ee4ca680d5b152fe58f531809d1a"
+      },
+      {
+        "path": "final-apks/manifest.json",
+        "size": 382,
+        "sha256": "9e1d115d66839deef335b6ac9d146c2c6ad949c19509171703e899172df0ef4d"
+      },
+      {
+        "path": "final-build.log",
+        "size": 19698,
+        "sha256": "c424b5f8f3401b1b3bcab1ea1da71bb4f4072843b7e8a4cd4bacada1df54a6c1"
+      },
+      {
+        "path": "final-configuration.txt",
+        "size": 61157,
+        "sha256": "d36ef10712686ceabab5f75ac9f39990dbe5840fb03e02291ccfcdbe2d33b356"
+      },
+      {
+        "path": "final-executed-android_lab_ui.py",
+        "size": 7087,
+        "sha256": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1"
+      },
+      {
+        "path": "final-executed-audit_android_data_plane_lab.py",
+        "size": 43884,
+        "sha256": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746"
+      },
+      {
+        "path": "final-executed-audit_android_leak_bursts.py",
+        "size": 7317,
+        "sha256": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3"
+      },
+      {
+        "path": "final-executed-audit_android_nat64.py",
+        "size": 11650,
+        "sha256": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78"
+      },
+      {
+        "path": "final-executed-audit_android_network_handover.py",
+        "size": 8338,
+        "sha256": "7b2ebafad969d3f65754696b12d1b6c59a9dacf1b891e24c6b5e5eb3daaf4934"
+      },
+      {
+        "path": "final-executed-audit_android_release_ui.py",
+        "size": 4619,
+        "sha256": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0"
+      },
+      {
+        "path": "final-executed-audit_android_startup_dns.py",
+        "size": 8350,
+        "sha256": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc"
+      },
+      {
+        "path": "final-executed-audit_udp_handshake_contracts.py",
+        "size": 19012,
+        "sha256": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      {
+        "path": "final-generator-check.log",
+        "size": 82,
+        "sha256": "3d4201867274ad68c521a4ac1f08a0ed60ed1fa1e5d038ab0b0dc15416be3a8d"
+      },
+      {
+        "path": "final-host-before.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "final-mapping.txt",
+        "size": 13749612,
+        "sha256": "48fe01c3cea3a28a439ec7042ea1b109cc2b314f2a58f1dc86fe7ba8e58c833f"
+      },
+      {
+        "path": "final-packaged-abi.json",
+        "size": 197,
+        "sha256": "e34e68b1a44e33d8107ae1ba51e91b5afaa49d6bb953210bd65bf1d02f801325"
+      },
+      {
+        "path": "final-seeds.txt",
+        "size": 205161,
+        "sha256": "ba2a769cc7f130209c7372da40a8a2f42f60bb382ead6dd87158b20758d37788"
+      },
+      {
+        "path": "final-usage.txt",
+        "size": 2706289,
+        "sha256": "b149182ec8ff8e7bb4e967425a9db1f76b54e8c54f41d539897ca1c02bf99ce3"
+      },
+      {
+        "path": "full-driver.log",
+        "size": 4430,
+        "sha256": "4b8653e57b36f81e566131019d83b01f9d0d989d6fd71ef175394b7b138fc5f3"
+      },
+      {
+        "path": "full-executed-android_lab_ui.py",
+        "size": 7087,
+        "sha256": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1"
+      },
+      {
+        "path": "full-executed-audit_android_data_plane_lab.py",
+        "size": 43884,
+        "sha256": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746"
+      },
+      {
+        "path": "full-executed-audit_android_leak_bursts.py",
+        "size": 7317,
+        "sha256": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3"
+      },
+      {
+        "path": "full-executed-audit_android_nat64.py",
+        "size": 11650,
+        "sha256": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78"
+      },
+      {
+        "path": "full-executed-audit_android_network_handover.py",
+        "size": 8338,
+        "sha256": "7b2ebafad969d3f65754696b12d1b6c59a9dacf1b891e24c6b5e5eb3daaf4934"
+      },
+      {
+        "path": "full-executed-audit_android_release_ui.py",
+        "size": 4619,
+        "sha256": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0"
+      },
+      {
+        "path": "full-executed-audit_android_startup_dns.py",
+        "size": 8350,
+        "sha256": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc"
+      },
+      {
+        "path": "full-executed-audit_udp_handshake_contracts.py",
+        "size": 19012,
+        "sha256": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      {
+        "path": "full-host-before.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "generated-access/command.json",
+        "size": 828,
+        "sha256": "2c23f4bed7793a64268d2068c3b512f0783cd7c1c9141b5280f599d345399e77"
+      },
+      {
+        "path": "generated-access/proof.json",
+        "size": 26924,
+        "sha256": "6ccd8668ffe092b928506101fea7e77b93e39bfad8c5701a7fc50bf84bfae395"
+      },
+      {
+        "path": "generated-access/shared-abi.pro",
+        "size": 19379,
+        "sha256": "54327e1465c573cf762737287396411a8e2d1aed97c6badda68a0752ea60cdd1"
+      },
+      {
+        "path": "generated-access/source.jar",
+        "size": 1046957,
+        "sha256": "16599962b5a1c188bbd9b4ef112787ad112111b1900e935cb1a6f21686971cbc"
+      },
+      {
+        "path": "generated-access/target.jar",
+        "size": 17676316,
+        "sha256": "93f346112f81961778130eef9b8c515ce05b40a1d70fca4f4e69df88a9b58537"
+      },
+      {
+        "path": "generated-access/trace.log",
+        "size": 4016,
+        "sha256": "51fe920e3560a76650f8f7f3b8f8527ae2ebc8cc002e59d84d0024090b6dbbd6"
+      },
+      {
+        "path": "generated-access-check/command.json",
+        "size": 846,
+        "sha256": "5f206aaa63bc6a788dc25297c76de42e29ac2afd6fc608f42c134c91d80b6ff8"
+      },
+      {
+        "path": "generated-access-check/proof.json",
+        "size": 26924,
+        "sha256": "6ccd8668ffe092b928506101fea7e77b93e39bfad8c5701a7fc50bf84bfae395"
+      },
+      {
+        "path": "generated-access-check/shared-abi.pro",
+        "size": 19379,
+        "sha256": "54327e1465c573cf762737287396411a8e2d1aed97c6badda68a0752ea60cdd1"
+      },
+      {
+        "path": "generated-access-check/source.jar",
+        "size": 1046957,
+        "sha256": "16599962b5a1c188bbd9b4ef112787ad112111b1900e935cb1a6f21686971cbc"
+      },
+      {
+        "path": "generated-access-check/target.jar",
+        "size": 17676316,
+        "sha256": "93f346112f81961778130eef9b8c515ce05b40a1d70fca4f4e69df88a9b58537"
+      },
+      {
+        "path": "generated-access-check/trace.log",
+        "size": 4016,
+        "sha256": "51fe920e3560a76650f8f7f3b8f8527ae2ebc8cc002e59d84d0024090b6dbbd6"
+      },
+      {
+        "path": "generated-check/command.json",
+        "size": 825,
+        "sha256": "d8a1d5deff635105539e9328837efbfd599abd05dc80abff1555c36bfd1ab7ca"
+      },
+      {
+        "path": "generated-check/proof.json",
+        "size": 26924,
+        "sha256": "30fc581d2b381abfa942d141e93df9ff87034f6a01e0606dddb69e01c0ebe389"
+      },
+      {
+        "path": "generated-check/shared-abi.pro",
+        "size": 19379,
+        "sha256": "54327e1465c573cf762737287396411a8e2d1aed97c6badda68a0752ea60cdd1"
+      },
+      {
+        "path": "generated-check/source.jar",
+        "size": 1046957,
+        "sha256": "16599962b5a1c188bbd9b4ef112787ad112111b1900e935cb1a6f21686971cbc"
+      },
+      {
+        "path": "generated-check/target.jar",
+        "size": 17676316,
+        "sha256": "93f346112f81961778130eef9b8c515ce05b40a1d70fca4f4e69df88a9b58537"
+      },
+      {
+        "path": "generated-check/trace.log",
+        "size": 4016,
+        "sha256": "51fe920e3560a76650f8f7f3b8f8527ae2ebc8cc002e59d84d0024090b6dbbd6"
+      },
+      {
+        "path": "generated-final-check/command.json",
+        "size": 843,
+        "sha256": "43693fd7b3b16da7f0f1df48a26c436c6f8d586f9e9846a80a808947bc4fb09e"
+      },
+      {
+        "path": "generated-final-check/proof.json",
+        "size": 26924,
+        "sha256": "6ccd8668ffe092b928506101fea7e77b93e39bfad8c5701a7fc50bf84bfae395"
+      },
+      {
+        "path": "generated-final-check/shared-abi.pro",
+        "size": 19379,
+        "sha256": "54327e1465c573cf762737287396411a8e2d1aed97c6badda68a0752ea60cdd1"
+      },
+      {
+        "path": "generated-final-check/source.jar",
+        "size": 1046957,
+        "sha256": "16599962b5a1c188bbd9b4ef112787ad112111b1900e935cb1a6f21686971cbc"
+      },
+      {
+        "path": "generated-final-check/target.jar",
+        "size": 17676316,
+        "sha256": "93f346112f81961778130eef9b8c515ce05b40a1d70fca4f4e69df88a9b58537"
+      },
+      {
+        "path": "generated-final-check/trace.log",
+        "size": 4016,
+        "sha256": "51fe920e3560a76650f8f7f3b8f8527ae2ebc8cc002e59d84d0024090b6dbbd6"
+      },
+      {
+        "path": "generator-check.log",
+        "size": 82,
+        "sha256": "3d4201867274ad68c521a4ac1f08a0ed60ed1fa1e5d038ab0b0dc15416be3a8d"
+      },
+      {
+        "path": "host-after-routed-access.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "host-after-routed-full.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "host-after-routed.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "inference/command.json",
+        "size": 987,
+        "sha256": "b19578e55d757ba8aac15ae121fd7e73bc14c38e8f7eba1a02777a8bd399c4ba"
+      },
+      {
+        "path": "inference/failed-platform-path.log",
+        "size": 2460,
+        "sha256": "2b8b7bfb93f95110b71c549d896d799277bbfe462a7b36d2f1341ca3a011b3f1"
+      },
+      {
+        "path": "inference/shared-abi.pro",
+        "size": 3031,
+        "sha256": "1f5c75fb694b86bd8faa8ab6ec87b482b93fa4e42c52cf428ce3c9a8c0cab0b7"
+      },
+      {
+        "path": "inference/trace.log",
+        "size": 41688,
+        "sha256": "4846a8426b78bd7479d4de660382ea4c591120ae18baacb39674f64893d98ff7"
+      },
+      {
+        "path": "inference/tracing.jar",
+        "size": 4175,
+        "sha256": "ba2884d7e9f4e315fe99de295592280a8846a4c8bb4b7eefa5ed1aa52d6b468b"
+      },
+      {
+        "path": "inference-full/command.json",
+        "size": 806,
+        "sha256": "e7ccc01e872d0eadb89ad8be8cb0444fd4469e49f8a7486ed3a56721405d27b6"
+      },
+      {
+        "path": "inference-full/inputs.json",
+        "size": 13037,
+        "sha256": "75cdf42a6b0669d60fafe1d497d9d380ef0a06a3d26be28dfa5fa02b42adca13"
+      },
+      {
+        "path": "inference-full/shared-abi.pro",
+        "size": 19379,
+        "sha256": "54327e1465c573cf762737287396411a8e2d1aed97c6badda68a0752ea60cdd1"
+      },
+      {
+        "path": "inference-full/source.jar",
+        "size": 1046957,
+        "sha256": "c17502465425182f43f4c5a51f4fba80ac53f1a1ae259e0fb17f9a58fa5a515d"
+      },
+      {
+        "path": "inference-full/strict-hidden-api-diagnostics.log",
+        "size": 19080,
+        "sha256": "7a804517dacf58538345e60d55c65e16ad153fa88c146029bd0395c1fd107c14"
+      },
+      {
+        "path": "inference-full/target.jar",
+        "size": 17676316,
+        "sha256": "c76e76cd740a0136e0fbcc74364850637c13dded696f6482e9b92eeebcf86fbd"
+      },
+      {
+        "path": "inference-full/trace.log",
+        "size": 4016,
+        "sha256": "51fe920e3560a76650f8f7f3b8f8527ae2ebc8cc002e59d84d0024090b6dbbd6"
+      },
+      {
+        "path": "inferred-no-access-apks/app-release-androidTest.apk",
+        "size": 723481,
+        "sha256": "bd255eda0027f6a4f42c4d1ff8e32acaaa86aa42c0e1bcb83355d0ce0a9c62e0"
+      },
+      {
+        "path": "inferred-no-access-apks/app-release.apk",
+        "size": 10499436,
+        "sha256": "63590433d3688af39cbd35ce161897a1900217ee18ed76f0ab1b65abece7884a"
+      },
+      {
+        "path": "inferred-no-access-apks/manifest.json",
+        "size": 382,
+        "sha256": "1b9c15a4b876f99c55555ed553b93b05697fff12b2c31634b91ed04cea9335ed"
+      },
+      {
+        "path": "no-access-abi.pro",
+        "size": 19542,
+        "sha256": "c78d7a29122296611b0375c8c0895ebf217d274b1ed668bd19c4a32c1a123a3b"
+      },
+      {
+        "path": "no-access-configuration.txt",
+        "size": 58304,
+        "sha256": "3ef929b389f0590c4bc586ebe1a2a056e0e1c51388e75d630506a8118c4ba152"
+      },
+      {
+        "path": "no-access-mapping.txt",
+        "size": 13745645,
+        "sha256": "8644b6b6d9629419fbcd66102ceb8b67341d516a0c5f0422449cc8ebb85f7593"
+      },
+      {
+        "path": "no-access-packaged-abi.json",
+        "size": 319,
+        "sha256": "97435ad1936dccd9ce5f32e0f129d6a1d594bf2486b4f4df956e3662570988c0"
+      },
+      {
+        "path": "no-access-seeds.txt",
+        "size": 205161,
+        "sha256": "9c70911fc7c7c8cc1afff4dbb6bc4b2b8d4dc713f327697bf461af35176ec146"
+      },
+      {
+        "path": "no-access-usage.txt",
+        "size": 2706286,
+        "sha256": "10c8848258ddddb2ced7812f82eec5dfad5cd3400d133f5ab932c909d7ad8ec1"
+      },
+      {
+        "path": "qualify.py",
+        "size": 10264,
+        "sha256": "be696a7ebe0f9a7a4f8d6970210f5888236c66413abc990f531f1754d2bbdad4"
+      },
+      {
+        "path": "remote-root-routed-access.txt",
+        "size": 65,
+        "sha256": "3b14db0e4f2828f473b74927e509ea5aeb97db7bc8fb298090930e0302183f2a"
+      },
+      {
+        "path": "remote-root-routed-full.txt",
+        "size": 63,
+        "sha256": "9d4a2b2ec07bb951516d475f4b6cafae7a57814d107bb1d8293c647441cf7b53"
+      },
+      {
+        "path": "remote-root-routed.txt",
+        "size": 58,
+        "sha256": "6064e3c03c9bdb67fbd562d19bda73c54a8f5cc1ef2534b8f2db7a8531fb9a7c"
+      },
+      {
+        "path": "routed-access-runner.log",
+        "size": 97,
+        "sha256": "0d25ea57f539f009bcd37bd2ce6d27de498623af97f42a2374e1b5db4c15cfde"
+      },
+      {
+        "path": "routed-full-runner.log",
+        "size": 3954,
+        "sha256": "8d86bd80934e1d8cf5f3d70d35f43d3f697ac243a23499d5d22cdb5983e38615"
+      },
+      {
+        "path": "routed-runner.log",
+        "size": 3371,
+        "sha256": "21beeca4c1ce1fdf2a818b655438042353c5af0c3b9601e4aa9b23910b9d68c5"
+      },
+      {
+        "path": "runtime-access.py",
+        "size": 3391,
+        "sha256": "6bee417dc68e87bc99884d01d6a7efeb149cfd27e2f4cd6c44ab321d4c6111cc"
+      },
+      {
+        "path": "runtime-full.py",
+        "size": 3385,
+        "sha256": "fd813d34208134bca07ab04952433af4da234e3f2931b5c7920c96a20caf0352"
+      },
+      {
+        "path": "runtime-routed/avd-userdata-after.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-routed/avd-userdata-before.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-routed/connectivity-command-help.txt",
+        "size": 170,
+        "sha256": "7c4083d25d14bb7ab740096df7ff59379b7494edfa90268c4cced75ebc00153d"
+      },
+      {
+        "path": "runtime-routed/emulator-command.json",
+        "size": 265,
+        "sha256": "cffb48a76bd40e29d3cd52636869ef9ea08319c9e48497e9d7ef8f2cde308ba1"
+      },
+      {
+        "path": "runtime-routed/emulator.log",
+        "size": 8656,
+        "sha256": "9e910cd4b171d25f3780e3869ceef56c403293ba77b5cb809e88ebeab17d6cd2"
+      },
+      {
+        "path": "runtime-routed/failure-vpn-logcat.log",
+        "size": 51627,
+        "sha256": "bacfe5d996fdb4439bbe5b84b245004472010affe9f31746549badd6b15ef412"
+      },
+      {
+        "path": "runtime-routed/fixed-app-release-androidTest.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-routed/fixed-app-release.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-routed/fixed-instrumentation.log",
+        "size": 2868,
+        "sha256": "70632b3df713f38d97c292d67d3c5139bdf8043c3fff77f340c76b257e970183"
+      },
+      {
+        "path": "runtime-routed/fixed-package.txt",
+        "size": 8582,
+        "sha256": "6565d2160759c395826de172a29230d4cfdbe0b436090c3af7f35b41012ffaaa"
+      },
+      {
+        "path": "runtime-routed/fixed-run-as.txt",
+        "size": 41,
+        "sha256": "51df9b29e6a68d3a48ee405f4fb073f200476b5b56523c6e307e68b0c8b9753e"
+      },
+      {
+        "path": "runtime-routed/fixed-vpn-logcat.log",
+        "size": 2337,
+        "sha256": "5385091735dcf23c358fcbd890d8189fa684dfd3cdbbb5b25a5a225e26a9ad7b"
+      },
+      {
+        "path": "runtime-routed/namespace-identities.json",
+        "size": 90,
+        "sha256": "34ef469437038728a8c4473256998b60aae0381f8ca369729df435b7f53cfba7"
+      },
+      {
+        "path": "runtime-routed/namespace-network-after.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-routed/namespace-network-before.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-routed/result.json",
+        "size": 7604,
+        "sha256": "b307f3db2f5c2be8ae2c94e87850e179d8d8531fb26e4392aeeca25bc5034088"
+      },
+      {
+        "path": "runtime-routed/server-public-keys.txt",
+        "size": 278,
+        "sha256": "75af26e8f370fc4a1347ee6236a7b16b1de6438da89508a646ddd5b5dac87c57"
+      },
+      {
+        "path": "runtime-routed/server.log",
+        "size": 6366,
+        "sha256": "24a782ec977e9e9b1c87d9049b2295c57affa99a6d0112e2c4a93c93fe811b52"
+      },
+      {
+        "path": "runtime-routed/system-vpn-policy.txt",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "runtime-routed/tcp-tun.pcap",
+        "size": 3303,
+        "sha256": "fe1a25361a00fea701f50fd0c419d09af9c8012d3f3247950fa8453b22c5165a"
+      },
+      {
+        "path": "runtime-routed/tcpdump.log",
+        "size": 161,
+        "sha256": "54a63fcd85a96130a00107f6862f2db1f88c99b0252ab74a8c9223b3708c7b8c"
+      },
+      {
+        "path": "runtime-routed-access/android-links-after.txt",
+        "size": 2409,
+        "sha256": "579d7d9b028ddb98fb3e1359304c69d5fd889fc911439e7327ac32b5741dfef6"
+      },
+      {
+        "path": "runtime-routed-access/android-runtime.log",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "runtime-routed-access/android-services-after.txt",
+        "size": 1775,
+        "sha256": "6f0a8d334a47dd39ecf232d0c239d3f76c5838ae1f9d687fa12060ca007f2b1d"
+      },
+      {
+        "path": "runtime-routed-access/avd-userdata-after.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-routed-access/avd-userdata-before.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-routed-access/connectivity-command-help.txt",
+        "size": 170,
+        "sha256": "7c4083d25d14bb7ab740096df7ff59379b7494edfa90268c4cced75ebc00153d"
+      },
+      {
+        "path": "runtime-routed-access/dns-receipts.json",
+        "size": 2717,
+        "sha256": "0518b5f925e70239c007010f7bc6141c0cb8578689b41f57e9c1a9942fec8018"
+      },
+      {
+        "path": "runtime-routed-access/echo-receipts.json",
+        "size": 14567,
+        "sha256": "79c6fc992115fdb47d188063be6b74ecc67c6c11dd542d3e7b80ca873394c1e2"
+      },
+      {
+        "path": "runtime-routed-access/emulator-command.json",
+        "size": 265,
+        "sha256": "cffb48a76bd40e29d3cd52636869ef9ea08319c9e48497e9d7ef8f2cde308ba1"
+      },
+      {
+        "path": "runtime-routed-access/emulator.log",
+        "size": 8656,
+        "sha256": "1dd81d43d24aad3bfa2f422056310661332938ead5df9cc38b7af24c8b148362"
+      },
+      {
+        "path": "runtime-routed-access/fixed-app-release-androidTest.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-routed-access/fixed-app-release.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-routed-access/fixed-instrumentation.log",
+        "size": 4367,
+        "sha256": "5c44e643f0bebd1a01dbc2f5be3cbdec54e0f25d40915d7c000ef6819cef84f7"
+      },
+      {
+        "path": "runtime-routed-access/fixed-package.txt",
+        "size": 8253,
+        "sha256": "88ebbaaca42d5297f064f40c964c1b47ab51b0ba51ac103dce4f27fc39fb5958"
+      },
+      {
+        "path": "runtime-routed-access/fixed-run-as.txt",
+        "size": 41,
+        "sha256": "51df9b29e6a68d3a48ee405f4fb073f200476b5b56523c6e307e68b0c8b9753e"
+      },
+      {
+        "path": "runtime-routed-access/fixed-vpn-logcat.log",
+        "size": 30383,
+        "sha256": "faaeae80d5f3ab8ce9c6ae024558e07ddfcf0b326af9672e261687ac17ed48f1"
+      },
+      {
+        "path": "runtime-routed-access/namespace-identities.json",
+        "size": 90,
+        "sha256": "34ef469437038728a8c4473256998b60aae0381f8ca369729df435b7f53cfba7"
+      },
+      {
+        "path": "runtime-routed-access/namespace-network-after.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-routed-access/namespace-network-before.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-routed-access/result.json",
+        "size": 5848,
+        "sha256": "57c11d9009106785a3c079233714251b3b2215c9bac5548c4b893d4ad2a4267a"
+      },
+      {
+        "path": "runtime-routed-access/server-public-keys.txt",
+        "size": 278,
+        "sha256": "401ccbd42073ef95dab7e82ab826d222312446e7a4ee27854399eb61ce50e1a4"
+      },
+      {
+        "path": "runtime-routed-access/server.log",
+        "size": 17228,
+        "sha256": "25694686f50b8faa88bc7e9a6769554cb33fbf22a3e4dd549ca209f47d48c162"
+      },
+      {
+        "path": "runtime-routed-access/system-vpn-policy.txt",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "runtime-routed-access/tcp-tun.pcap",
+        "size": 243682,
+        "sha256": "582c388a5ab8b057260d80a99ab0fad50bdd0f090ad77e8136ba3436d7b3f6f1"
+      },
+      {
+        "path": "runtime-routed-access/tcpdump.log",
+        "size": 163,
+        "sha256": "cf02c930795acdc8f3595b52e724a84d1c879eb86ba687724fbc61bb8e3d1307"
+      },
+      {
+        "path": "runtime-routed-access.tgz",
+        "size": 30230,
+        "sha256": "a6d3a122372c4dfee585764ddc38384bf33c230b11877a432183d8617c8751f7"
+      },
+      {
+        "path": "runtime-routed-full/avd-userdata-after.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-routed-full/avd-userdata-before.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-routed-full/connectivity-command-help.txt",
+        "size": 170,
+        "sha256": "7c4083d25d14bb7ab740096df7ff59379b7494edfa90268c4cced75ebc00153d"
+      },
+      {
+        "path": "runtime-routed-full/emulator-command.json",
+        "size": 265,
+        "sha256": "cffb48a76bd40e29d3cd52636869ef9ea08319c9e48497e9d7ef8f2cde308ba1"
+      },
+      {
+        "path": "runtime-routed-full/emulator.log",
+        "size": 8656,
+        "sha256": "0fd1b2612da2666b26e8c70eac922be51c4965437e104fe35d9d3b7443d2daf3"
+      },
+      {
+        "path": "runtime-routed-full/failure-vpn-logcat.log",
+        "size": 39353,
+        "sha256": "63e8188b73aac0166a629b47e7a0bd37a42fafe5a02589b133839fe6b4047700"
+      },
+      {
+        "path": "runtime-routed-full/fixed-app-release-androidTest.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-routed-full/fixed-app-release.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-routed-full/fixed-instrumentation.log",
+        "size": 3442,
+        "sha256": "2af22882fadc2fde9fd71cf08aba8287dde836df18439ed17ff37c13d098860a"
+      },
+      {
+        "path": "runtime-routed-full/fixed-package.txt",
+        "size": 8577,
+        "sha256": "1984cef3a0bc5046dd40397eaad38e33cf6d2d9244e3f457b5de5034477d6e91"
+      },
+      {
+        "path": "runtime-routed-full/fixed-run-as.txt",
+        "size": 41,
+        "sha256": "51df9b29e6a68d3a48ee405f4fb073f200476b5b56523c6e307e68b0c8b9753e"
+      },
+      {
+        "path": "runtime-routed-full/fixed-vpn-logcat.log",
+        "size": 2722,
+        "sha256": "1c3bba8aa6a33376b21d2405284132bd97c8588ff60a3ecb305ef1951d1eeb97"
+      },
+      {
+        "path": "runtime-routed-full/namespace-identities.json",
+        "size": 90,
+        "sha256": "34ef469437038728a8c4473256998b60aae0381f8ca369729df435b7f53cfba7"
+      },
+      {
+        "path": "runtime-routed-full/namespace-network-after.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-routed-full/namespace-network-before.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-routed-full/result.json",
+        "size": 8789,
+        "sha256": "246e44ad5d7f97aa2ebd5d5c5b3aa6025799602c9747d36718f0f4f92a84c965"
+      },
+      {
+        "path": "runtime-routed-full/server-public-keys.txt",
+        "size": 278,
+        "sha256": "128e6a1fe24388a044d460126ce14bd699e53452dd36946743279e1dd293659e"
+      },
+      {
+        "path": "runtime-routed-full/server.log",
+        "size": 6396,
+        "sha256": "429747dc2fafe5cb19a70ce99dcb23bf0909a8f65143720471802e959a6ff401"
+      },
+      {
+        "path": "runtime-routed-full/system-vpn-policy.txt",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "runtime-routed-full/tcp-tun.pcap",
+        "size": 7862,
+        "sha256": "2862407c227329e443b221ddd97cfb7cc018561765c8ef28609be6a186343875"
+      },
+      {
+        "path": "runtime-routed-full/tcpdump.log",
+        "size": 161,
+        "sha256": "f1f93b9996d4d2eb91362497566c2bc6c8bebd0738d208fe68a46abaa12ad2f5"
+      },
+      {
+        "path": "runtime-routed-full.tgz",
+        "size": 17192,
+        "sha256": "b546b1755fca89234081163b9d171f611fa603ffb35f4c7b1c842a2a8332b912"
+      },
+      {
+        "path": "runtime-routed.tgz",
+        "size": 18439,
+        "sha256": "49675bbe41e89e59a14c4995834466c1f6e6b476ce4a6ffc59f98d7f732fdbda"
+      },
+      {
+        "path": "runtime.py",
+        "size": 3382,
+        "sha256": "11c8069eca0b2b44a585151ba51652f9697c16f22329cdbf750bc49ae57c152d"
+      },
+      {
+        "path": "server-routed-access.ini",
+        "size": 1538,
+        "sha256": "170ffd8abe11f8b80f653b1290a5f8f2f6cda88787b7db948ffad52fe5373ca9"
+      },
+      {
+        "path": "server-routed-full.ini",
+        "size": 1532,
+        "sha256": "9736f040f25e49c8e40a219b8e5fb726c83ce26792d42e131000ec1f0f4be4fc"
+      },
+      {
+        "path": "server-routed.ini",
+        "size": 1517,
+        "sha256": "b32d391061474613aa54360c33e1a72e516c7ff0e79489df11a723f67dd25ed2"
+      },
+      {
+        "path": "source-proof.json",
+        "size": 75169,
+        "sha256": "1691b94a5e518fca8644abab042ca659ff61606824a38ea91806cc7e0d158ccb"
+      },
+      {
+        "path": "source.patch",
+        "size": 53884,
+        "sha256": "d04d993c9d4b4f36f96fb9995ba76d9159df580ddc4e5c43490b787c50d4ad69"
+      },
+      {
+        "path": "trace-only-apks/app-release-androidTest.apk",
+        "size": 724261,
+        "sha256": "25f31824b84fe86e2298bf759e8f02d9b77b52d0332157c4cc204823c113034c"
+      },
+      {
+        "path": "trace-only-apks/app-release.apk",
+        "size": 10416742,
+        "sha256": "e881e16919e61d1c3b40bb085c0cb5fd55878c34f9792e1cec011c10cbf98d0e"
+      },
+      {
+        "path": "trace-only-apks/manifest.json",
+        "size": 370,
+        "sha256": "b0c8fdf527889177be939bb29d3c7472eb487714e737421dfe3cb762946789ed"
+      },
+      {
+        "path": "trace-only-mapping.txt",
+        "size": 13921014,
+        "sha256": "ec6822fbfb13f854368947f881b8ff783a130c3e07e9259152194549e414bf56"
+      }
+    ]
+  },
+  "scope": "Q29 matching instrumented Release runner:pre-R8 TraceReferences infers shared cross-APK ABI,allowaccessmodification prevents Kotlin package-private superclass failure. Opt-in qeliTestBuildType=release only,R8/minification/resource shrinking/nondebuggable app with labkey;default production rules unchanged. 7instrumentation PASS,TCP/UDP/QUIC split/full off-pool IPv4/IPv6TCPUDP/DNS,72echo receipts/12A-AAAA questions,and fullkill refuses withoutOSlockdown. Preflight used,immediate first packet not qualified. Initial Trace-only LazyKtFAIL and inferred-no-access IllegalAccessErrorFAIL pairs/mappings/logs retained;all3attempts host/service/firewall/routes/userdata unchanged/cleanupPASS,.10untouched. 299source inputs2changed1new,16aux2new,mainKotlin/tests/native14/managed7 unchanged;prior172JVM/lint reused notfresh. PackagedDEX negative baselineTrace+Kotlinaccess checks and finalPASS. API28/29/arm64/OEM notexecuted,SIGKILL/auto-nullDnsResolverENONET/PrivateDNS/perapp/longpowerflapping remain;IN_PROGRESS28/37,USER_SKIPPED/D06 unchanged."
+}

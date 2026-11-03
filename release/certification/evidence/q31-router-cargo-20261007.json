@@ -1,0 +1,385 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "source_digest": "7383b3a74e38f2158380a3c29afd4b4acaeb25a6a8c47da7d964e4dfdea5bf9e",
+  "base_worktree_commit": "803e3d65276d2bf053530e67b9c23bd6502369fc",
+  "base_dev_commit": "af4c961b577f1ae8e8700f1bd4741c54edf0153a",
+  "status": "F356_F357_SCOPED_PASS_Q31_IN_PROGRESS",
+  "findings": [
+    "F356",
+    "F357"
+  ],
+  "raw_packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-router-cargo-20261007",
+  "raw_seal_sha256": "7f1e0d7403263b22ab94832f0cd22bae318f2b0da3511a7e65d4e0c2bee59094",
+  "checks": {
+    "lab": [
+      {
+        "id": "baseline",
+        "command": "cd /var/tmp/qeli-q31-router-cargo-20261007/source && QELI_ROUTER_CARGO_RUNTIME=1 QELI_CARGO_BASELINE=/var/tmp/qeli-q31-router-cargo-20261007/baseline QELI_CARGO_RUNTIME_RECEIPTS=/var/tmp/qeli-q31-router-cargo-20261007/baseline-final-receipts.jsonl PYTHONPATH=scripts python3 -m unittest test_router_cargo_runtime.CargoRuntimeTests.test_router_compiler_configuration_cannot_redirect_pinned_rustc test_router_cargo_runtime.CargoRuntimeTests.test_router_config_and_environment_cannot_redirect_intermediates test_router_cargo_runtime.CargoRuntimeTests.test_host_gate_compiler_configuration_cannot_redirect_pinned_rustc test_router_cargo_runtime.CargoRuntimeTests.test_host_gate_config_and_environment_cannot_redirect_intermediates -v",
+        "rc": 1
+      },
+      {
+        "id": "host-gate",
+        "command": "cd /var/tmp/qeli-q31-router-cargo-20261007/source && python3 -m unittest discover -s scripts -p test_keenetic_verify.py -v",
+        "rc": 0
+      },
+      {
+        "id": "ci-syntax",
+        "command": "for file in /var/tmp/qeli-q31-router-cargo-20261007/ci-fixture/*.sh; do bash -n \"$file\" || exit; done; printf \"16 rendered router steps: bash -n PASS\\n\"",
+        "rc": 0
+      },
+      {
+        "id": "tool-identities",
+        "command": "rustc +1.97.0 --version --verbose; cargo +1.97.0 --version; cargo +1.97.0 clippy --version; rustup which --toolchain 1.97.0 rustc",
+        "rc": 0
+      },
+      {
+        "id": "router-final",
+        "command": "cd /var/tmp/qeli-q31-router-cargo-20261007/source && QELI_ROUTER_CARGO_RUNTIME=1 QELI_CARGO_RUNTIME_RECEIPTS=/var/tmp/qeli-q31-router-cargo-20261007/fixed-canonical-receipts.jsonl python3 -m unittest discover -s scripts -p \"test_router_*.py\" -v",
+        "rc": 0
+      }
+    ],
+    "router_methods_passed": 59,
+    "host_gate_methods_passed": 19,
+    "new_real_Cargo_methods": 7,
+    "skipped": 0,
+    "baseline_methods": 4,
+    "baseline_expected_subtest_failures": 9,
+    "actual_receipts": {
+      "baseline_successful_builds": 9,
+      "baseline_configured_compiler_receipts": 3,
+      "baseline_redirected_intermediate_dirs": 6,
+      "fixed_builds": 9,
+      "fixed_test_clippy_graph_commands": 3,
+      "final_runtime_methods": 7,
+      "baseline_methods": 4,
+      "baseline_assertion_failures": 9,
+      "git_inputs_verified": 17,
+      "CI_steps_verified": 16,
+      "fresh_Qeli_or_Zig_or_cross_build": false
+    },
+    "local": [
+      {
+        "id": "recipes",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_native_recipes.py",
+          "-v"
+        ],
+        "rc": 0,
+        "log": "recipes.log"
+      },
+      {
+        "id": "luci",
+        "command": [
+          "node",
+          "scripts/test_openwrt_luci.js"
+        ],
+        "rc": 0,
+        "log": "luci.log"
+      },
+      {
+        "id": "docs",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/check_docs.py"
+        ],
+        "rc": 0,
+        "log": "docs.log"
+      },
+      {
+        "id": "bindings",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/gen_config_bindings.py",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "bindings.log"
+      },
+      {
+        "id": "diff",
+        "command": [
+          "git",
+          "diff",
+          "--cached",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "diff.log"
+      }
+    ],
+    "CI": "ci-syntax.log:16rendered bash-n, PyYAML6.0.3, no GitHubActions execution"
+  },
+  "input_proof": {
+    "base_worktree": "803e3d65276d2bf053530e67b9c23bd6502369fc",
+    "base_dev": "af4c961b577f1ae8e8700f1bd4741c54edf0153a",
+    "source_stage_tree_before_certification": "1891d20de9a3cfce0b44ed644f18f735d69a5efb",
+    "source_digest": "7383b3a74e38f2158380a3c29afd4b4acaeb25a6a8c47da7d964e4dfdea5bf9e",
+    "staged_inputs": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "sha256": "eea6c8cafdbec2c9f0046e12985a173569c5eced2edf6095c86d30c6361c22c2",
+        "size": 42570
+      },
+      {
+        "path": "docs/eng/manuals/KEENETIC-DEPLOY.md",
+        "sha256": "d3fa46c9be8608462eede594176e25b71b0464ef12cd1ee336f17713a1b012be",
+        "size": 22936
+      },
+      {
+        "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "dd01c73f7e80395d04f8949060e1115e1b3876c0f4e8e0731b854c438c326a92",
+        "size": 203011
+      },
+      {
+        "path": "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "d0464dcd9a26d17c24a7bdbe931c061aa1cbafe344bb3260624992861a605915",
+        "size": 101840
+      },
+      {
+        "path": "docs/ru/manuals/KEENETIC-DEPLOY.md",
+        "sha256": "ec522187c95e0951e6f6c15e34c9dcffe48f6f5df8c1517c5be440628c19c1fe",
+        "size": 35453
+      },
+      {
+        "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "519248f549d1babd2318e89215c558e28880815e6d05b42c1cbf902fecf52593",
+        "size": 280657
+      },
+      {
+        "path": "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "987d90009df1c19825d7379e8fb51422fa09b942d3a4836b76467e7fd3052861",
+        "size": 142208
+      },
+      {
+        "path": "qeli-openwrt/INSTALL.md",
+        "sha256": "a4c78ee467d73ae5920e905327325581d69302e3eb8f8fafd54ab4d3b0123888",
+        "size": 19750
+      },
+      {
+        "path": "qeli-openwrt/README.md",
+        "sha256": "f9cd271ae895d4b3ae252df17a2cf64be284e653bde0545904f7e3949ece2183",
+        "size": 19181
+      },
+      {
+        "path": "release/keenetic/README.md",
+        "sha256": "61bc04689a4d300f41b05c4f533716dc34d45c78098b8e389cd1a75db9f32fb1",
+        "size": 16148
+      },
+      {
+        "path": "scripts/keenetic_verify.py",
+        "sha256": "9b72ea6199f405716a66d7904d7e6f2452635dee5e073b06d30191812653d4b5",
+        "size": 5481
+      },
+      {
+        "path": "scripts/router_toolchain.py",
+        "sha256": "7b6119af726687f3c3ac15fa8e27454741943e0efe7e9aa5d47e617ecac5f174",
+        "size": 6421
+      },
+      {
+        "path": "scripts/test_keenetic_verify.py",
+        "sha256": "f842ab0c53db96ef77fc53b3fb60f441c8e116df33c456e6a5c6c0ab63aaabf0",
+        "size": 9644
+      },
+      {
+        "path": "scripts/test_router_cargo_runtime.py",
+        "sha256": "ed17b81f8c58b9f8bc074f3670663c4ec48833dafbd2b45a68d0945fbe70ebe5",
+        "size": 10309
+      },
+      {
+        "path": "scripts/test_router_toolchain.py",
+        "sha256": "260daefe7b55003c109c64e9752fdbdb49c5834371223456a2b4cebcd9d45cc6",
+        "size": 7066
+      }
+    ],
+    "git_lab_inputs_verified": 17,
+    "CI_rendered_inputs_verified": 16,
+    "human_content_sha256": {
+      "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+      "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+    },
+    "production_core_native_artifacts_unchanged": true
+  },
+  "runtime": {
+    "inputs": [
+      {
+        "path": "qeli-openwrt/build/build_openwrt.py",
+        "sha256": "c2ec5d1e083602eae5a3a13ffbf708e1a6eb4d7cf606aef0c12de83b42f4a1f1",
+        "size": 6071
+      },
+      {
+        "path": "scripts/build_keenetic.py",
+        "sha256": "365e7c9e2b0db328b566f68c0db556047a755d964d5aa07b82dae3585e366397",
+        "size": 6167
+      },
+      {
+        "path": "scripts/keenetic_verify.py",
+        "sha256": "9b72ea6199f405716a66d7904d7e6f2452635dee5e073b06d30191812653d4b5",
+        "size": 5481
+      },
+      {
+        "path": "scripts/lab_common.py",
+        "sha256": "0f4f179ee679c7eda362febe52209fe3dffc4cc83f559e7acd244a03369ceaf8",
+        "size": 3143
+      },
+      {
+        "path": "scripts/native_lab.py",
+        "sha256": "e6da33cbfe6a2c958e8eb132cb591b50bc13748e96cf22102e67ac9713db88f6",
+        "size": 9669
+      },
+      {
+        "path": "scripts/native_repro.py",
+        "sha256": "e32ad480e15b61b2edbcce942a7c88f8b32a11203d7427676aed106f04d8c660",
+        "size": 16493
+      },
+      {
+        "path": "scripts/router_artifact.py",
+        "sha256": "076002a68ddfdf397af567982735434be1ca3d9c4584a2e9dee0034b69033c1a",
+        "size": 4743
+      },
+      {
+        "path": "scripts/router_source.py",
+        "sha256": "a0f34491d0474f98ea5a8f47e8a77a1ab0a88acd68aae73035285b307e422ed2",
+        "size": 3208
+      },
+      {
+        "path": "scripts/router_toolchain.py",
+        "sha256": "7b6119af726687f3c3ac15fa8e27454741943e0efe7e9aa5d47e617ecac5f174",
+        "size": 6421
+      },
+      {
+        "path": "scripts/ssh_hostkey.py",
+        "sha256": "c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39",
+        "size": 1882
+      },
+      {
+        "path": "scripts/test_keenetic_verify.py",
+        "sha256": "f842ab0c53db96ef77fc53b3fb60f441c8e116df33c456e6a5c6c0ab63aaabf0",
+        "size": 9644
+      },
+      {
+        "path": "scripts/test_router_artifact.py",
+        "sha256": "eb256a79a99b120e21c8f98bbd3da21b50b040574a46a0add3412ae9c42ca7ed",
+        "size": 7893
+      },
+      {
+        "path": "scripts/test_router_build.py",
+        "sha256": "8ae1ead8babb5f7df73af64b5b9ab5123cd034955ccfc8c593fa1f000f2015b3",
+        "size": 11342
+      },
+      {
+        "path": "scripts/test_router_cargo_runtime.py",
+        "sha256": "ed17b81f8c58b9f8bc074f3670663c4ec48833dafbd2b45a68d0945fbe70ebe5",
+        "size": 10309
+      },
+      {
+        "path": "scripts/test_router_checkout.py",
+        "sha256": "8a2d32c9e069e46ef0c30106dbaff5bd3c19a050db50ceacb5bab4e14530f7c9",
+        "size": 4382
+      },
+      {
+        "path": "scripts/test_router_source.py",
+        "sha256": "066e89a5a558fd457a01623d53ad26410dfb869735f21ec28d49a1a20fa17bc6",
+        "size": 6943
+      },
+      {
+        "path": "scripts/test_router_toolchain.py",
+        "sha256": "260daefe7b55003c109c64e9752fdbdb49c5834371223456a2b4cebcd9d45cc6",
+        "size": 7066
+      }
+    ],
+    "ci_inputs": [
+      {
+        "file": "aarch64-3.sh",
+        "sha256": "e54eb487cae89e602ab25f3294439f266e65d372d4ef17f3f4720bb6ae3eb171"
+      },
+      {
+        "file": "aarch64-5.sh",
+        "sha256": "520adc1dc907f185ad71c5eb30ab45b1249d6aaf009656ad02520c42f18d101d"
+      },
+      {
+        "file": "aarch64-6.sh",
+        "sha256": "e235c31ee38c327e6e495a44a51be9cdf0f45a9910d55c7ce23db92414af8a34"
+      },
+      {
+        "file": "aarch64-7.sh",
+        "sha256": "539b851d1fcad622086ce3fd0c74e260eb9dc9cb1539874cf9e294e4da64a85f"
+      },
+      {
+        "file": "armv7-3.sh",
+        "sha256": "ab45932087c0373ed484133fa850139dabfa69e85412219eefb260e9b367ffa9"
+      },
+      {
+        "file": "armv7-5.sh",
+        "sha256": "520adc1dc907f185ad71c5eb30ab45b1249d6aaf009656ad02520c42f18d101d"
+      },
+      {
+        "file": "armv7-6.sh",
+        "sha256": "9dcb90fab16b5f8172de36aea2cf44c16e4d58c6613620077f99b76a97095697"
+      },
+      {
+        "file": "armv7-7.sh",
+        "sha256": "539b851d1fcad622086ce3fd0c74e260eb9dc9cb1539874cf9e294e4da64a85f"
+      },
+      {
+        "file": "mipsel-3.sh",
+        "sha256": "c7bb47cc78b0e21ce0641749b723f2b14e406c076b741dbb708029838d198463"
+      },
+      {
+        "file": "mipsel-5.sh",
+        "sha256": "17b8988aa97bef54665bc378002a53c7556ebefebcb8ccb7a7bad4f8ef7ba4e2"
+      },
+      {
+        "file": "mipsel-6.sh",
+        "sha256": "8670f1ee0a0cb0eebb8fab07b2c33ba86aaafb0dfc6a4c5aa2cf123595d349f9"
+      },
+      {
+        "file": "mipsel-7.sh",
+        "sha256": "539b851d1fcad622086ce3fd0c74e260eb9dc9cb1539874cf9e294e4da64a85f"
+      },
+      {
+        "file": "x86_64-musl-3.sh",
+        "sha256": "c542d7f920e1917176f0effa7c40a09ac5812b32b6f19453d1dc9b4781e2e119"
+      },
+      {
+        "file": "x86_64-musl-5.sh",
+        "sha256": "520adc1dc907f185ad71c5eb30ab45b1249d6aaf009656ad02520c42f18d101d"
+      },
+      {
+        "file": "x86_64-musl-6.sh",
+        "sha256": "ddfed23dfb51d9f685794c7369033ff4c73537ab1a682b7e8eeb41944924b12d"
+      },
+      {
+        "file": "x86_64-musl-7.sh",
+        "sha256": "539b851d1fcad622086ce3fd0c74e260eb9dc9cb1539874cf9e294e4da64a85f"
+      }
+    ],
+    "active_fixture_processes": [],
+    "remaining_probe_roots": [],
+    "rustc_sha256": "df13f58759c0662831983e3a6501c63c1fc12ea60ec4e1d1ac35e5fe43c500c0",
+    "scope": "no actual Zig/cross/current Qeli build; private CARGO_HOME probes only"
+  },
+  "tool_identity_log": "tool-identities.log",
+  "scope": "F356/F357: cargo +pin previously selected pinned Cargo but unset compiler variables admitted configured build.rustc; CARGO_TARGET_DIR alone admitted config/ambient intermediate build-dir redirection. Both router variants and captured actual host client command reproduce two defects with actual dependency-free Cargo probes: same final baseline4methods9expected subtestFAIL (3compiler receipts redirected,6intermediate directories), no errors. Shared policy resolves selected rustc using rustup which and executable guard, explicitly sets RUSTC and CARGO_TARGET_DIR/CARGO_BUILD_BUILD_DIR. Both router helpers/host gate/router CI aligned; host gate now namedRust1.97.0/Clippy and shared wrapper/flags policy. Failed/nonexecutable lookup stops before Cargo.59router methods including7realCargo and new host-prefix model,19hostgate models PASS without skips.9fixed build/execute receipts pinned/noexternalintermediates,3actual tiny test1PASS/Clippy-Dwarnings/graph commands PASS. Full Qeli units/graph not qualified. Real Rust1.97/Cargo1.97/Clippy/compilerSHA retained. PyYAML6.0.3 parses CI,16rendered four-target steps bash-n PASS; GitHubActions NOT_RUN.17exact Git/lab inputs/16CI files verified; temporary probe roots/processes absent; private CARGO_HOME only. Initial preparation missinglocalbaseline stopped before tests; firstbaseline8FAIL1harnessERROR from tempfile underscore rejected by production root validation; CRLF-only one source mismatch retained/canonicalized and59suite repeated. All diagnostics/logs retained.37recipes/14LuCI/docs9/bindings/diff PASS. Project Rust/core/native/schema/ABI/published artifacts unchanged; no actual Zig/fresh Qeli/cross/SDK build, no toolchain install or default change. .11 free532MiB/RAM2GiB; no dependency downloads. Host services/network/firewall/globalconfig and .10 untouched.41historic fields/acceptance unchanged except source_digest; scoped supplement only. Q31 IN_PROGRESS28/37(75.7%),9remain;Q29SIGKILLFAIL/auto-nullENONET,Q30callbackdrainOPEN/Appleexclusions,D06ACCEPTED retained. Full hermetic Cargo home/ancestor/forcedenv/profile/source/linker/PATH/cache and clean independent Qeli A/B OPEN; source release-cut/full SDK build/install/compiler compatibility,core plan/generation/ABA/admin replacement,SIGKILL/powerloss transaction OPEN;firmware USER_EXCLUDED. No push/deploy.",
+  "remaining": [
+    "full hermetic Cargo config/forcedenv/profile/source/linker/PATH/cache and actual Qeli A/B OPEN",
+    "full Qeli SDK Rust/build/install/compiler compatibility/source release-cut OPEN",
+    "core plan/generation/ABA and root/admin runtime replacement OPEN",
+    "SIGKILL/powerloss transaction OPEN",
+    "firmware USER_EXCLUDED",
+    "no actual Zig/fresh full Qeli/native/ABI/cross build or GitHubActions"
+  ]
+}

@@ -24,69 +24,141 @@ export QELI_KNOWN_HOSTS=/opt/etc/qeli/known_hosts
 export QELI_TUNIP_FILE="$PLAN_STATE"
 export PATH=/opt/sbin:/opt/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-config_value() {
-  awk -F= -v wanted="$1" '
-    /^[[:space:]]*\[/ { section=$0; gsub(/[[:space:]]/, "", section); next }
-    section == "[qeli]" {
-      key=$1; gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
-      if (key == wanted) {
-        $1=""; sub(/^=/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print; exit
-      }
-    }
-  ' "$CONF" 2>/dev/null
-}
-
-core_manages_gateway() {
-  case "$(config_value gateway_nat):$(config_value forward)" in
-    true:*|yes:*|1:*|*:true|*:yes|*:1) return 0 ;;
-    *) return 1 ;;
+# One pre-launch canonical query; never parse INI in the shell.
+GATEWAY_OWNER=""
+load_gateway_owner() {
+  GATEWAY_OWNER=""
+  EXPECT_ROUTER_ATTACH=false
+  [ -z "$OPKGTUN" ] || EXPECT_ROUTER_ATTACH=true
+  GATEWAY_OWNER="$("$BIN" --config "${QELI_LAUNCH_CONF:-$CONF}" --print-gateway-owner \
+    --expect-router-device "$TUN" --expect-router-attach "$EXPECT_ROUTER_ATTACH")" || {
+    echo "qeli-client: cannot admit router interface/gateway ownership; check INI and upgrade binary/template together"; return 1;
+  }
+  case "$GATEWAY_OWNER" in
+    core|legacy) return 0 ;;
+    *) echo "qeli-client: invalid gateway ownership response"; return 1 ;;
   esac
 }
+core_manages_gateway() { [ "$GATEWAY_OWNER" = core ]; }
 
 legacy_ipv4_enabled() { grep -q '^ipv4=' "$PLAN_STATE" 2>/dev/null; }
 legacy_ipv6_enabled() { grep -q '^ipv6=' "$PLAN_STATE" 2>/dev/null; }
 
 ipv6_wan_if() {
-  ip -6 route show default 2>/dev/null | awk '
+  routes6="$(ip -6 route show default 2>/dev/null)" || return 1
+  printf '%s\n' "$routes6" | awk '
     { for (i=1; i<NF; i++) if ($i == "dev") { print $(i+1); exit } }
   '
 }
 
 save_forwarding_state() {
-  [ -f "$SYSCTL_STATE" ] && return 0
-  wan6="$(ipv6_wan_if)"
-  case "$wan6" in *[!A-Za-z0-9_.:-]*) wan6="" ;; esac
-  {
-    echo "ipv4=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)"
-    echo "ipv6=$(cat /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null)"
-    echo "wan6=$wan6"
-    [ -z "$wan6" ] || echo "accept_ra6=$(cat "/proc/sys/net/ipv6/conf/$wan6/accept_ra" 2>/dev/null)"
-  } > "$SYSCTL_STATE"
+  if [ -f "$SYSCTL_STATE" ]; then
+    grep -q '^version=2$' "$SYSCTL_STATE" || return 1
+    read_forwarding_state || return 1
+    saved_tun="$(sed -n 's/^tun=//p' "$SYSCTL_STATE" | head -n1)"
+    saved_lan="$(sed -n 's/^lan=//p' "$SYSCTL_STATE" | head -n1)"
+    [ "$saved_tun" = "$TUN" ] && [ "$saved_lan" = "$LAN_IF" ] || return 1
+    return 0
+  fi
+  old4=""; old6=""; oldra6=""
+  if legacy_ipv4_enabled; then
+    old4="$(cat /proc/sys/net/ipv4/ip_forward)" || return 1
+    case "$old4" in 0|1) ;; *) return 1 ;; esac
+  fi
+  if legacy_ipv6_enabled; then
+    old6="$(cat /proc/sys/net/ipv6/conf/all/forwarding)" || return 1
+    case "$old6" in 0|1) ;; *) return 1 ;; esac
+  fi
+  wan6=""
+  if [ -n "$old6" ]; then wan6="$(ipv6_wan_if)" || return 1; fi
+  case "$wan6" in *[!A-Za-z0-9_.:-]*) return 1 ;; esac
+  if [ -n "$wan6" ] && [ -e "/proc/sys/net/ipv6/conf/$wan6/accept_ra" ]; then
+    oldra6="$(cat "/proc/sys/net/ipv6/conf/$wan6/accept_ra")" || return 1
+    case "$oldra6" in 0|1|2) ;; *) return 1 ;; esac
+  fi
+  case "$TUN:$LAN_IF" in *[!A-Za-z0-9_.:-]*|:*) return 1 ;; esac
+  [ -n "$TUN" ] && [ -n "$LAN_IF" ] || return 1
+  state_tmp="$(mktemp "$SYSCTL_STATE.XXXXXX")" || return 1
+  chmod 600 "$state_tmp" &&
+    printf 'version=2\nipv4=%s\nipv6=%s\nwan6=%s\naccept_ra6=%s\ntun=%s\nlan=%s\n' \
+      "$old4" "$old6" "$wan6" "$oldra6" "$TUN" "$LAN_IF" > "$state_tmp" &&
+    mv -f "$state_tmp" "$SYSCTL_STATE" || {
+      rm -f "$state_tmp"; return 1;
+    }
 }
 
-restore_forwarding_state() {
-  [ -f "$SYSCTL_STATE" ] || return 0
+read_forwarding_state() {
   old4="$(sed -n 's/^ipv4=//p' "$SYSCTL_STATE" | head -n1)"
   old6="$(sed -n 's/^ipv6=//p' "$SYSCTL_STATE" | head -n1)"
   wan6="$(sed -n 's/^wan6=//p' "$SYSCTL_STATE" | head -n1)"
   oldra6="$(sed -n 's/^accept_ra6=//p' "$SYSCTL_STATE" | head -n1)"
   touched6="$(sed -n 's/^ipv6_touched=//p' "$SYSCTL_STATE" | head -n1)"
-  [ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" != 1 ] || \
-    [ -z "$old4" ] || echo "$old4" > /proc/sys/net/ipv4/ip_forward
-  [ "$(cat /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null)" != 1 ] || \
-    [ -z "$old6" ] || echo "$old6" > /proc/sys/net/ipv6/conf/all/forwarding
-  if [ "$touched6" = 1 ] && [ -n "$wan6" ] && [ -n "$oldra6" ] && \
-     [ "$(cat "/proc/sys/net/ipv6/conf/$wan6/accept_ra" 2>/dev/null)" = 2 ]; then
-    echo "$oldra6" > "/proc/sys/net/ipv6/conf/$wan6/accept_ra"
+  touchedra6="$(sed -n 's/^ra6_touched=//p' "$SYSCTL_STATE" | head -n1)"
+  case "$old4" in ''|0|1) ;; *) return 1 ;; esac
+  case "$old6" in ''|0|1) ;; *) return 1 ;; esac
+  case "$wan6" in *[!A-Za-z0-9_.:-]*) return 1 ;; esac
+  case "$oldra6" in ''|0|1|2) ;; *) return 1 ;; esac
+  case "$touched6" in ''|1) ;; *) return 1 ;; esac
+  case "$touchedra6" in ''|1) ;; *) return 1 ;; esac
+  touched4="$(sed -n 's/^ipv4_touched=//p' "$SYSCTL_STATE" | head -n1)"
+  case "$touched4" in ''|1) ;; *) return 1 ;; esac
+  if [ "$touched4" = 1 ]; then [ -n "$old4" ] || return 1; fi
+  if [ "$touched6" = 1 ]; then
+    [ -n "$old6" ] || return 1
   fi
+  if [ "$touchedra6" = 1 ]; then
+    [ "$touched6" = 1 ] && [ -n "$wan6" ] && [ -n "$oldra6" ] || return 1
+  fi
+}
+
+restore_forwarding_state() {
+  [ -f "$SYSCTL_STATE" ] || return 0
+  read_forwarding_state || return 1
+  if [ "$touched4" = 1 ]; then
+    current4="$(cat /proc/sys/net/ipv4/ip_forward)" || return 1
+    case "$current4" in 0|1) ;; *) return 1 ;; esac
+    if [ "$current4" = 1 ]; then
+      echo "$old4" > /proc/sys/net/ipv4/ip_forward || return 1
+    fi
+  fi
+  if [ "$touched6" = 1 ] && [ -n "$old6" ]; then
+    current6="$(cat /proc/sys/net/ipv6/conf/all/forwarding)" || return 1
+    case "$current6" in 0|1) ;; *) return 1 ;; esac
+    if [ "$current6" = 1 ]; then
+      echo "$old6" > /proc/sys/net/ipv6/conf/all/forwarding || return 1
+    fi
+  fi
+  if [ "$touchedra6" = 1 ]; then
+    currentra6="$(cat "/proc/sys/net/ipv6/conf/$wan6/accept_ra")" || return 1
+    case "$currentra6" in 0|1|2) ;; *) return 1 ;; esac
+    if [ "$currentra6" = 2 ]; then
+      echo "$oldra6" > "/proc/sys/net/ipv6/conf/$wan6/accept_ra" || return 1
+    fi
+  fi
+  # Only a completely successful restore may forget the retry checkpoint.
   rm -f "$SYSCTL_STATE"
+}
+
+add_owned_rule() {
+  firewall="$1"; table="$2"; chain="$3"; shift 3
+  "$firewall" -t "$table" -C "$chain" "$@" -m comment --comment qeli-keenetic-legacy 2>/dev/null
+  rule_status=$?
+  case "$rule_status" in
+    0) return 0 ;;
+    1) "$firewall" -t "$table" -A "$chain" "$@" -m comment --comment qeli-keenetic-legacy ;;
+    *) return 1 ;;
+  esac
 }
 
 nat_up() {
   [ "$GATEWAY" = yes ] || return 0
   # Современный qeli сам управляет обеими семьями, lifecycle sysctl и capability gate.
   # Внешние правила остаются только как совместимость со старыми client.conf.
-  core_manages_gateway && return 0
+  case "$GATEWAY_OWNER" in
+    core) return 0 ;;
+    legacy) ;;
+    *) echo "qeli-client: gateway ownership not admitted"; return 1 ;;
+  esac
   if ! legacy_ipv4_enabled && ! legacy_ipv6_enabled; then
     echo "qeli-client: в $PLAN_STATE нет согласованных IPv4/IPv6 адресов"
     return 1
@@ -96,35 +168,29 @@ nat_up() {
     command -v iptables >/dev/null 2>&1 || {
       echo "qeli-client: согласованный IPv4 legacy gateway требует iptables"; return 1;
     }
+    echo "ipv4_touched=1" >> "$SYSCTL_STATE" || return 1
     echo 1 > /proc/sys/net/ipv4/ip_forward || return 1
-    iptables -t nat -C POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null || \
-      iptables -t nat -A POSTROUTING -o "$TUN" -j MASQUERADE || return 1
-    iptables -C FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null || \
-      iptables -A FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT || return 1
-    iptables -C FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
-      iptables -A FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT || return 1
-    iptables -t mangle -C FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
-      iptables -t mangle -A FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || return 1
+    add_owned_rule iptables nat POSTROUTING -o "$TUN" -j MASQUERADE || return 1
+    add_owned_rule iptables filter FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT || return 1
+    add_owned_rule iptables filter FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT || return 1
+    add_owned_rule iptables mangle FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || return 1
   fi
   if legacy_ipv6_enabled; then
     command -v ip6tables >/dev/null 2>&1 || {
       echo "qeli-client: согласованный IPv6 legacy gateway требует ip6tables"; return 1;
     }
     wan6="$(sed -n 's/^wan6=//p' "$SYSCTL_STATE" | head -n1)"
+    echo "ipv6_touched=1" >> "$SYSCTL_STATE" || return 1
     if [ -n "$wan6" ] && [ -e "/proc/sys/net/ipv6/conf/$wan6/accept_ra" ]; then
+      echo "ra6_touched=1" >> "$SYSCTL_STATE" || return 1
       # Linux otherwise stops accepting upstream RAs when forwarding becomes 1.
       echo 2 > "/proc/sys/net/ipv6/conf/$wan6/accept_ra" || return 1
     fi
-    echo "ipv6_touched=1" >> "$SYSCTL_STATE"
     echo 1 > /proc/sys/net/ipv6/conf/all/forwarding || return 1
-    ip6tables -t nat -C POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null || \
-      ip6tables -t nat -A POSTROUTING -o "$TUN" -j MASQUERADE || return 1
-    ip6tables -C FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null || \
-      ip6tables -A FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT || return 1
-    ip6tables -C FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
-      ip6tables -A FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT || return 1
-    ip6tables -t mangle -C FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
-      ip6tables -t mangle -A FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || return 1
+    add_owned_rule ip6tables nat POSTROUTING -o "$TUN" -j MASQUERADE || return 1
+    add_owned_rule ip6tables filter FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT || return 1
+    add_owned_rule ip6tables filter FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT || return 1
+    add_owned_rule ip6tables mangle FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || return 1
   fi
 }
 
@@ -139,66 +205,217 @@ wait_for_network_plan() {
   return 1
 }
 
+delete_owned_rule() {
+  firewall="$1"; table="$2"; chain="$3"; shift 3
+  "$firewall" -t "$table" -C "$chain" "$@" -m comment --comment qeli-keenetic-legacy 2>/dev/null
+  rule_status=$?
+  case "$rule_status" in
+    0) "$firewall" -t "$table" -D "$chain" "$@" -m comment --comment qeli-keenetic-legacy ;;
+    1) return 0 ;; # iptables -C: rule absent
+    *) return 1 ;;
+  esac
+}
+
 nat_down() {
-  [ "$GATEWAY" = yes ] || return 0
-  # Удаляем и старые внешние правила даже после миграции на gateway_nat=true.
-  iptables -t nat -D POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null
-  iptables -D FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null
-  iptables -D FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
-  iptables -t mangle -D FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null
-  if command -v ip6tables >/dev/null 2>&1; then
-    ip6tables -t nat -D POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null
-    ip6tables -D FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null
-    ip6tables -D FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
-    ip6tables -t mangle -D FORWARD -o "$TUN" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null
-  fi
+  [ -f "$SYSCTL_STATE" ] || return 0
+  version="$(sed -n 's/^version=//p' "$SYSCTL_STATE" | head -n1)"
+  case "$version" in
+    2) ;;
+    '') echo "qeli-client: old untagged legacy firewall needs manual review; checkpoint retained"; return 1 ;;
+    *) echo "qeli-client: unknown forwarding checkpoint version"; return 1 ;;
+  esac
+  read_forwarding_state || return 1
+  cleanup_tun="$(sed -n 's/^tun=//p' "$SYSCTL_STATE" | head -n1)"
+  cleanup_lan="$(sed -n 's/^lan=//p' "$SYSCTL_STATE" | head -n1)"
+  case "$cleanup_tun:$cleanup_lan" in *[!A-Za-z0-9_.:-]*|:*) return 1 ;; esac
+  [ -n "$cleanup_tun" ] && [ -n "$cleanup_lan" ] || return 1
+  # Checkpoint ownership survives GATEWAY/OPKGTUN configuration changes.
+  # Never delete an administrator's matching untagged rule.
+  for firewall in iptables ip6tables; do
+    case "$firewall" in iptables) family=ipv4 ;; ip6tables) family=ipv6 ;; esac
+    grep -q "^${family}_touched=1$" "$SYSCTL_STATE" || continue
+    if ! command -v "$firewall" >/dev/null 2>&1; then
+      return 1
+    fi
+    delete_owned_rule "$firewall" nat POSTROUTING -o "$cleanup_tun" -j MASQUERADE || return 1
+    delete_owned_rule "$firewall" filter FORWARD -i "$cleanup_lan" -o "$cleanup_tun" -j ACCEPT || return 1
+    delete_owned_rule "$firewall" filter FORWARD -i "$cleanup_tun" -o "$cleanup_lan" -m state --state RELATED,ESTABLISHED -j ACCEPT || return 1
+    delete_owned_rule "$firewall" mangle FORWARD -o "$cleanup_tun" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || return 1
+  done
   restore_forwarding_state
 }
 
-is_running() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
+# PID record: decimal pid + Linux /proc start ticks. No process-group signals.
+read_pid() {
+  record="$(cat "$PIDFILE" 2>/dev/null)" || return 2
+  IFS=' ' read -r PROC_PID PROC_START extra <<EOF
+$record
+EOF
+  [ "$record" = "$PROC_PID $PROC_START" ] && [ -z "$extra" ] || return 2
+  case "$PROC_PID" in ''|0*|1|*[!0-9]*) return 2 ;; esac
+  [ "${#PROC_PID}" -le 10 ] || return 2
+  case "$PROC_START" in ''|*[!0-9]*) return 2 ;; esac
+}
+
+read_proc_stat() {
+  stat="$(cat "/proc/$PROC_PID/stat" 2>/dev/null)" || return 2
+  # Strip comm through its last closing parenthesis: comm may contain spaces/').
+  tail="${stat##*) }"
+  PROC_STATE="$(printf '%s\n' "$tail" | awk '{print $1}')"
+  seen_start="$(printf '%s\n' "$tail" | awk '{print $20}')"
+  case "$seen_start" in ''|*[!0-9]*) return 2 ;; esac
+  [ -n "$PROC_STATE" ] || return 2
+}
+
+owned_process_status() {
+  [ -d "/proc/$PROC_PID" ] || return 1
+  read_proc_stat || { [ ! -d "/proc/$PROC_PID" ] && return 1; return 2; }
+  [ "$seen_start" = "$PROC_START" ] || return 2
+  case "$PROC_STATE" in Z|X) return 1 ;; esac
+  exe="$(readlink "/proc/$PROC_PID/exe" 2>/dev/null)" || {
+    [ ! -d "/proc/$PROC_PID" ] && return 1
+    # A live stat can become a zombie before exe lookup; reread identity/state.
+    read_proc_stat || { [ ! -d "/proc/$PROC_PID" ] && return 1; return 2; }
+    [ "$seen_start" = "$PROC_START" ] || return 2
+    case "$PROC_STATE" in Z|X) return 1 ;; *) return 2 ;; esac
+  }
+  expected_exe="$(readlink -f "$BIN")" || return 2
+  case "$exe" in "$expected_exe"|"$expected_exe (deleted)") return 0 ;; *) return 2 ;; esac
+}
+
+is_running() { [ -f "$PIDFILE" ] && read_pid && owned_process_status; }
+
+terminate_owned_process() {
+  owned_process_status; process_status=$?
+  case "$process_status" in
+    1) return 0 ;;
+    2) echo "qeli-client: refusing unverified PID $PROC_PID"; return 1 ;;
+  esac
+  if ! kill -TERM "$PROC_PID"; then
+    owned_process_status; [ $? = 1 ] || return 1
+    return 0
+  fi
+  waited=0
+  while [ "$waited" -lt 15 ]; do
+    owned_process_status; process_status=$?
+    case "$process_status" in
+      1) return 0 ;;
+      2) echo "qeli-client: PID identity changed during stop; state retained"; return 1 ;;
+    esac
+    waited=$((waited + 1)); sleep 1
+  done
+  owned_process_status; [ $? = 1 ] && return 0
+  echo "qeli-client: TERM timeout; process and recovery state retained"
+  return 1
+}
+
+stop_process() {
+  if [ ! -e "$PIDFILE" ]; then
+    for pending in "$PIDFILE".*; do
+      [ -e "$pending" ] || continue
+      echo "qeli-client: pending PID publication; stop refused"; return 1
+    done
+    return 0
+  fi
+  read_pid || { echo "qeli-client: invalid/old PID record; manual identity review required"; return 1; }
+  terminate_owned_process
+}
 
 start() {
-  if is_running; then echo "qeli-client уже запущен (pid $(cat "$PIDFILE"))"; return 0; fi
-  if [ ! -e /dev/net/tun ]; then
-    echo "нет /dev/net/tun — включи компонент VPN в KeeneticOS"; exit 1
+  qeli_install_ready || return 1
+  if [ -e "$PIDFILE" ]; then
+    read_pid || { echo "qeli-client: invalid/old PID record; start refused"; return 1; }
+    owned_process_status; process_status=$?
+    case "$process_status" in
+      0) echo "qeli-client already running (pid $PROC_PID)"; return 0 ;;
+      2) echo "qeli-client: unverified PID; start refused"; return 1 ;;
+    esac
   fi
-  mkdir -p /opt/var/run /opt/var/log /opt/etc/qeli
-  # Recover only qeli's stale compatibility state from an unclean previous stop.
-  [ -f "$SYSCTL_STATE" ] && nat_down
-  rm -f "$PLAN_STATE"
+  for pending in "$PIDFILE".*; do
+    [ -e "$pending" ] || continue
+    echo "qeli-client: pending PID publication $pending; review required"; return 1
+  done
+  [ -x "$BIN" ] && [ -s "$CONF" ] && command -v readlink >/dev/null 2>&1 || {
+    echo "qeli-client: executable/config/readlink missing"; return 1;
+  }
+  [ -e /dev/net/tun ] || { echo "нет /dev/net/tun — включи компонент VPN в KeeneticOS"; return 1; }
+  qeli_export_state_directory || { echo "qeli-client: cannot resolve firmware /var state root"; return 1; }
+  mkdir -p /opt/var/run /opt/var/log || return 1
+  qeli_prepare_launch_config "$CONF" || return 1
+  load_gateway_owner || return 1
+  if [ -f "$SYSCTL_STATE" ]; then nat_down || return 1; fi
+  rm -f "$PIDFILE" "$PLAN_STATE" || return 1
+  PID_TMP="$(mktemp "$PIDFILE.XXXXXX")" || return 1
+  chmod 600 "$PID_TMP" || { rm -f "$PID_TMP"; return 1; }
   echo "qeli-client: старт"
-  "$BIN" --config "$CONF" >> "$LOG" 2>&1 &
-  echo $! > "$PIDFILE"
-  if [ "$GATEWAY" = yes ] && ! core_manages_gateway && ! wait_for_network_plan; then
+  "$BIN" --config "$QELI_LAUNCH_CONF" >> "$LOG" 2>&1 &
+  PROC_PID=$!
+  if ! read_proc_stat; then
+    if [ -d "/proc/$PROC_PID" ]; then
+      echo "qeli-client: cannot inspect launched pid $PROC_PID; $PID_TMP retained"
+    else
+      wait "$PROC_PID" 2>/dev/null; rm -f "$PID_TMP"
+    fi
+    return 1
+  fi
+  PROC_START="$seen_start"
+  if ! printf '%s %s\n' "$PROC_PID" "$PROC_START" > "$PID_TMP" || ! mv -f "$PID_TMP" "$PIDFILE"; then
+    sleep 1
+    if terminate_owned_process; then
+      rm -f "$PID_TMP" "$PLAN_STATE"
+    else
+      echo "qeli-client: launched pid $PROC_PID; recovery record $PID_TMP retained"
+    fi
+    return 1
+  fi
+  # Detect exec/immediate exit. This is process admission, not authentication readiness.
+  sleep 1
+  if ! is_running; then echo "qeli-client: launch failed"; stop; return 1; fi
+  if [ -z "$OPKGTUN" ] && [ "$GATEWAY" = yes ] && \
+     ! core_manages_gateway && ! wait_for_network_plan; then
     echo "qeli-client: за 60с не получен подтверждённый NetworkPlan"
-    kill "$(cat "$PIDFILE")" 2>/dev/null
-    rm -f "$PIDFILE" "$PLAN_STATE"
-    exit 1
+    stop; return 1
   fi
   if ! nat_up; then
     echo "qeli-client: не удалось применить legacy gateway firewall"
-    nat_down
-    kill "$(cat "$PIDFILE")" 2>/dev/null
-    rm -f "$PIDFILE" "$PLAN_STATE"
-    exit 1
+    stop; return 1
   fi
+  if ! is_running; then stop; return 1; fi
 }
 
 stop() {
   echo "qeli-client: стоп"
-  nat_down
-  if [ -f "$PIDFILE" ]; then
-    kill "$(cat "$PIDFILE")" 2>/dev/null
-    rm -f "$PIDFILE"
-  fi
-  rm -f "$PLAN_STATE"
-  ip link del "$TUN" 2>/dev/null   # подчистить tun, если остался
+  # The client must finish its own NetworkPlan teardown before wrapper recovery.
+  stop_process || return 1
+  nat_down || return 1
+  qeli_clear_launch_config || return 1
+  rm -f "$PLAN_STATE" || return 1
+  # Kernel/core/ndm own TUN lifetime; never delete a possibly foreign/persistent link.
+  rm -f "$PIDFILE"
 }
 
+# Serialize the whole action, including restart and internal failure cleanup.
 case "$1" in
-  start)   start ;;
-  stop)    stop ;;
-  restart) stop; sleep 1; start ;;
-  status)  is_running && echo "running (pid $(cat "$PIDFILE"))" || echo "stopped" ;;
+  start|stop|restart)
+    . /opt/etc/qeli/lifecycle.sh || exit 1
+    qeli_lock_acquire || exit 1
+    trap 'qeli_lock_release' 0
+    trap 'exit 1' HUP INT TERM
+    ;;
+esac
+
+case "$1" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop && start ;;
+  status)
+    if [ ! -e "$PIDFILE" ]; then echo stopped; exit 3; fi
+    read_pid || { echo "unverified PID record"; exit 4; }
+    owned_process_status; process_status=$?
+    case "$process_status" in
+      0) echo "running (pid $PROC_PID)" ;;
+      1) echo stopped; exit 3 ;;
+      *) echo "unverified PID identity"; exit 4 ;;
+    esac ;;
   *) echo "usage: $0 {start|stop|restart|status}"; exit 1 ;;
 esac

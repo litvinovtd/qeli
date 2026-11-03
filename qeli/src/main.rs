@@ -19,6 +19,8 @@ compile_error!("release qeli server builds require --features jemalloc");
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+mod embedded_licenses;
+
 // Server builds (`--features jemalloc`) swap in jemalloc as the global allocator.
 // glibc malloc retains freed arenas → the data-plane worker's RSS plateaus around
 // ~180 MB under handshake churn (up to 8 arenas × ~20 MB, never returned to the OS).
@@ -40,6 +42,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// View or export the original license texts embedded in this executable.
+    Licenses {
+        #[arg(long, conflicts_with_all = ["export", "list"])]
+        file: Option<String>,
+        #[arg(long, conflicts_with = "list")]
+        export: Option<PathBuf>,
+        #[arg(long)]
+        list: bool,
+    },
     /// Run in server mode
     Server {
         #[arg(short, long, default_value = "/etc/qeli/server.conf")]
@@ -293,97 +304,82 @@ enum Commands {
 /// Read just the `logging` section from a config file so the logger can be set
 /// up before the rest of the config is parsed. Falls back to (info, stderr) on
 /// any error — the real parse later will surface config problems.
-fn peek_logging(path: &PathBuf) -> (String, Option<String>, String) {
-    if let Ok(s) = std::fs::read_to_string(path) {
+fn peek_logging(path: &PathBuf) -> (String, Option<String>, String, String) {
+    if let Ok(source) = server::read_config_source(path) {
         // The only config format is flat INI: read its `[logging]` section.
-        if let Ok(doc) = config::format::IniDoc::parse(&s) {
+        if let Ok(doc) = config::format::IniDoc::parse(source.text()) {
             if let Some(log) = doc.section("logging") {
                 let level = log.get_or("level", "info").to_string();
                 let file = log
                     .get("file")
                     .filter(|f| !f.is_empty())
-                    .map(str::to_string);
+                    .map(str::to_string)
+                    .and_then(
+                        |path| match source.require_trusted_file_output("logging.file") {
+                            Ok(()) => Some(path),
+                            Err(error) => {
+                                eprintln!("qeli: ignoring logging.file — {error}");
+                                None
+                            }
+                        },
+                    );
                 let time_format = log.get_or("time_format", "datetime").to_string();
-                return (level, file, time_format);
+                return (
+                    level,
+                    file,
+                    time_format,
+                    log.get_or("format", "plain").to_string(),
+                );
             }
         }
     }
-    ("info".to_string(), None, "datetime".to_string())
+    (
+        "info".to_string(),
+        None,
+        "datetime".to_string(),
+        "plain".to_string(),
+    )
 }
 
-// The timestamp renderer lives in `qeli::util::log_timestamp` so the server and the
-// router/headless client (`client_main.rs`) honour the same `[logging] time_format`.
-
-/// Initialise env_logger at `level`, writing to `file` if given (creating its
-/// parent directory), otherwise to stderr (captured by journald under systemd).
-/// `RUST_LOG` still overrides the level when set.
-fn init_logging(level: &str, file: Option<&str>, time_format: &str) {
-    let mut builder =
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level));
-    // `time_format = none` drops the prefix entirely (journald/logread/logcat already
-    // stamp the line) — emit no leading space in that case.
-    let tf = time_format.to_string();
-    builder.format(move |buf, record| {
-        use std::io::Write;
-        let ts = qeli::util::log_timestamp(&tf);
-        if ts.is_empty() {
-            writeln!(
-                buf,
-                "{:<5} {}: {}",
-                record.level(),
-                record.target(),
-                record.args()
-            )
-        } else {
-            writeln!(
-                buf,
-                "{} {:<5} {}: {}",
-                ts,
-                record.level(),
-                record.target(),
-                record.args()
-            )
-        }
-    });
-    if let Some(path) = file {
-        if let Some(parent) = std::path::Path::new(path).parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        match std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        {
-            Ok(f) => {
-                builder.target(env_logger::Target::Pipe(Box::new(f)));
-            }
-            Err(e) => eprintln!(
-                "qeli: cannot open log file {}: {} — logging to stderr",
-                path, e
-            ),
-        }
-    }
-    builder.init();
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let mut builder = if matches!(&cli.command, Commands::Client { .. }) {
+        tokio::runtime::Builder::new_current_thread()
+    } else {
+        tokio::runtime::Builder::new_multi_thread()
+    };
+    builder.enable_all().build()?.block_on(run_cli(cli))
+}
+
+async fn run_cli(cli: Cli) -> anyhow::Result<()> {
+    // Legal inspection must not read configs, initialize tracing or change network state.
+    if let Commands::Licenses { file, export, list } = &cli.command {
+        embedded_licenses::run(file.as_deref(), export.as_deref(), *list)?;
+        return Ok(());
+    }
 
     // Configure logging from the config's `logging` section (level + optional
     // file) so server/client logs land where the operator expects.
-    let (level, log_file, time_format) = match &cli.command {
-        Commands::Server { config } | Commands::Worker { config } | Commands::Client { config } => {
-            peek_logging(config)
+    let (level, log_file, time_format, log_format) = match &cli.command {
+        Commands::Server { config } | Commands::Worker { config } => peek_logging(config),
+        Commands::Client { config } => {
+            let (level, file, time) = qeli::client::peek_logging(config);
+            (level, file, time, "plain".to_string())
         }
-        _ => ("info".to_string(), None, "datetime".to_string()),
+        _ => (
+            "info".to_string(),
+            None,
+            "datetime".to_string(),
+            "plain".to_string(),
+        ),
     };
-    init_logging(&level, log_file.as_deref(), &time_format);
+    qeli::logging::init(&level, log_file.as_deref(), &time_format, &log_format);
     // After logging, so arming announces itself. No-op unless QELI_TRACE is set.
     #[cfg(all(target_os = "linux", any(feature = "client", feature = "server")))]
     qeli::trace::init();
 
     match cli.command {
+        Commands::Licenses { .. } => unreachable!("handled before startup side effects"),
         Commands::Server { config } => {
             log::info!(
                 "Starting server (supervisor) with config: {}",
@@ -408,7 +404,7 @@ async fn main() -> anyhow::Result<()> {
                 let config_str = config.to_str().ok_or_else(|| {
                     anyhow::anyhow!("config path is not valid UTF-8: {}", config.display())
                 })?;
-                server::run_worker(config_str).await?;
+                server::run_worker_process(config_str).await?;
             }
         }
 
@@ -514,8 +510,26 @@ async fn main() -> anyhow::Result<()> {
 
         Commands::CheckConfig { config, client } => {
             let path = config.display().to_string();
-            let text = std::fs::read_to_string(&config)
-                .map_err(|e| anyhow::anyhow!("cannot read {}: {}", path, e))?;
+            let server_source = if client {
+                None
+            } else {
+                Some(
+                    server::read_config_source(&config)
+                        .map_err(|e| anyhow::anyhow!("cannot read {}: {}", path, e))?,
+                )
+            };
+            let text = match &server_source {
+                Some(source) => zeroize::Zeroizing::new(source.text().to_owned()),
+                None => qeli::client::read_config_text(&config)
+                    .map_err(|e| anyhow::anyhow!("cannot read {}: {}", path, e))?,
+            };
+
+            if client {
+                config::parse_client_config_strict(&text)
+                    .map_err(|e| anyhow::anyhow!("{}: {}", path, e))?;
+                println!("{}: OK", path);
+                return Ok(());
+            }
 
             // Parse the document ourselves rather than going through
             // parse_*_config(), because the unread-key report needs the same
@@ -524,29 +538,36 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{}: {}", path, e))?;
 
             let mut problems = 0usize;
-            if client {
-                let cfg = config::client::ClientConfig::from_ini(&doc)
-                    .map_err(|e| anyhow::anyhow!("{}: {}", path, e))?;
-                // The same enum checks `run_client` runs, so this command and a real start
-                // agree — mirroring what the server branch below already does.
-                cfg.validate()
-                    .map_err(|e| anyhow::anyhow!("{}: {}", path, e))?;
-            } else {
+            {
                 let cfg = config::server::ServerConfig::from_ini(&doc)
                     .map_err(|e| anyhow::anyhow!("{}: {}", path, e))?;
                 // The same schema checks the data-plane worker runs at startup,
                 // so `check-config` and a real start agree.
                 #[cfg(target_os = "linux")]
                 server::validate_profiles(&cfg)?;
-                // The supervisor also parses the external users database before it starts
-                // the worker. `check-config` used to stop at the main INI, so a malformed or
-                // missing users.conf produced "OK" here and then refused the real start.
-                // Use the same loader and the same strict outcome as run_supervisor: a missing
-                // file is accepted only when inline users/groups make that valid inside the
-                // loader itself.
+                if let Some(source) = &server_source {
+                    source.validate_users_file_trust(&cfg)?;
+                    source.validate_tls_paths_trust(&cfg)?;
+                    for profile in &cfg.profiles {
+                        source.validate_identity_key_trust(profile)?;
+                    }
+                }
                 #[cfg(target_os = "linux")]
-                server::load_users_db(&cfg).map_err(|e| {
-                    anyhow::anyhow!("{}: users database '{}': {}", path, cfg.auth.users_file, e)
+                qeli::web::tls::check_config_files(&cfg.web)
+                    .map_err(|e| anyhow::anyhow!("{}: panel TLS: {}", path, e))?;
+                // The supervisor also parses the external users database before it starts
+                // the worker. `check-config` must apply the same admission rule.
+                // Use the same runtime loader as supervisor and worker: a genuinely
+                // missing file with no inline entries is a valid first-run empty DB;
+                // unreadable or malformed files still fail.
+                #[cfg(target_os = "linux")]
+                server::load_users_db_for_runtime(&cfg).map_err(|e| {
+                    anyhow::anyhow!(
+                        "{}: users database '{}': {}",
+                        path,
+                        cfg.auth.users_file,
+                        config::users::users_error_message(&e)
+                    )
                 })?;
                 // Pre-flight the addressing against THIS host, so `check-config` on the
                 // server answers the question that matters before a first start: would
@@ -565,10 +586,6 @@ async fn main() -> anyhow::Result<()> {
             // Keys nothing read: not a parse error, never surfaced at runtime,
             // and the reason a misspelling silently keeps the default.
             //
-            // A client config is shared with the Windows/macOS clients, which have
-            // their own parser and implement a few keys this binary does not. Those
-            // are perfectly valid here — reporting them as typos would be a lie —
-            // so they are listed separately and do not fail the check.
             // Keys removed in 0.7.12 because they never had any effect. An existing
             // config may still carry them, and calling those a "typo" would send the
             // operator hunting for a spelling mistake that isn't there. Name them for
@@ -579,24 +596,10 @@ async fn main() -> anyhow::Result<()> {
             // could never be reported here — listing it would promise a message that
             // can't happen. It is marked "not implemented" in CONFIG.md instead.
 
-            let (gui_only, rest): (Vec<_>, Vec<_>) = doc
+            let (retired, unknown): (Vec<_>, Vec<_>) = doc
                 .unread_keys()
                 .into_iter()
-                .partition(|(section, key)| client && config::is_gui_only_client_key(section, key));
-            let (retired, unknown): (Vec<_>, Vec<_>) = rest
-                .into_iter()
                 .partition(|(section, key)| config::is_retired_key(section, key));
-
-            if !gui_only.is_empty() {
-                println!(
-                    "{}: {} key(s) used only by the Windows/macOS clients (ignored here):",
-                    path,
-                    gui_only.len()
-                );
-                for (section, key) in &gui_only {
-                    println!("  {} {}", section, key);
-                }
-            }
 
             if !retired.is_empty() {
                 println!(
@@ -620,10 +623,7 @@ async fn main() -> anyhow::Result<()> {
                 for (section, key) in &unknown {
                     eprintln!("  {} {}", section, key);
                 }
-                eprintln!(
-                    "An unknown key is not an error: it is simply ignored, and the setting \
-                     keeps its default."
-                );
+                eprintln!("Unknown keys prevent startup; correct or remove the reported fields.");
             }
 
             // Values that were PRESENT but not understood. `unread_keys` above only finds
@@ -655,8 +655,11 @@ async fn main() -> anyhow::Result<()> {
         Commands::ShowIdentity { config } => {
             #[cfg(target_os = "linux")]
             {
-                let s = std::fs::read_to_string(&config)?;
-                let cfg: config::server::ServerConfig = config::parse_server_config(&s)?;
+                let source = server::read_config_source(&config)?;
+                let cfg: config::server::ServerConfig = config::parse_server_config(source.text())?;
+                for profile in &cfg.profiles {
+                    source.validate_identity_key_trust(profile)?;
+                }
                 println!(
                     "{:<14} {:<22} SERVER PUBLIC KEY (pin on client)",
                     "PROFILE", "BIND"
@@ -678,8 +681,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::RotateIdentity { profile, config } => {
             #[cfg(target_os = "linux")]
             {
-                let s = std::fs::read_to_string(&config)?;
-                let cfg: config::server::ServerConfig = config::parse_server_config(&s)?;
+                let source = server::read_config_source(&config)?;
+                let cfg: config::server::ServerConfig = config::parse_server_config(source.text())?;
                 let p = cfg
                     .profiles
                     .iter()
@@ -687,6 +690,7 @@ async fn main() -> anyhow::Result<()> {
                     .ok_or_else(|| {
                         anyhow::anyhow!("profile '{}' not found in {}", profile, config.display())
                     })?;
+                source.validate_identity_key_trust(p)?;
                 let kp = server::generate_profile_key(p)?;
                 let hex: String = kp
                     .public
@@ -935,11 +939,66 @@ fn install_polkit(unit: String, user: String, dry_run: bool) -> anyhow::Result<(
     Ok(())
 }
 
+/// Repair writable daemon state without transferring administrator credentials/backups.
+#[cfg(target_os = "linux")]
+fn repair_service_state_ownership() -> anyhow::Result<()> {
+    let links = std::path::Path::new("/etc/qeli/client-links");
+    for path in [std::path::Path::new("/etc/qeli"), links] {
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_dir() => {}
+            Err(error) if path == links && error.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(_) => anyhow::bail!(
+                "refusing linked/non-directory state path: {}",
+                path.display()
+            ),
+            Err(error) => {
+                return Err(anyhow::anyhow!(
+                    "cannot inspect {}: {error}",
+                    path.display()
+                ))
+            }
+        }
+    }
+    run_admin_command(
+        "find",
+        &[
+            "-P",
+            "/etc/qeli",
+            "-path",
+            "/etc/qeli/client-links",
+            "-prune",
+            "-o",
+            "-name",
+            "*.bak-*",
+            "-prune",
+            "-o",
+            "-exec",
+            "chown",
+            "-h",
+            "qeli:qeli",
+            "{}",
+            "+",
+        ],
+        "cannot hand daemon state back to the qeli service account",
+    )?;
+    if links.exists() {
+        run_admin_command(
+            "chown",
+            &["-h", "root:root", "/etc/qeli/client-links"],
+            "cannot protect installer credentials directory",
+        )?;
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(links, std::fs::Permissions::from_mode(0o700))
+            .map_err(|error| anyhow::anyhow!("cannot protect {}: {error}", links.display()))?;
+    }
+    Ok(())
+}
+
 /// Implement `qeli set-service-user`: pick whether the systemd service runs as the
 /// unprivileged `qeli` user (default) or as root, via a drop-in override so the choice
 /// survives package upgrades. Must run as root. For `root` it writes User=root/Group=root;
 /// for `qeli` it removes the override (the packaged unit already runs as qeli) and hands
-/// /etc/qeli ownership back so the unprivileged service can write it.
+/// daemon-state ownership back, preserving administrator receipts and backups.
 #[cfg(target_os = "linux")]
 fn set_service_user(user: String, unit: String, dry_run: bool) -> anyhow::Result<()> {
     validate_service_unit(&unit)?;
@@ -955,7 +1014,10 @@ fn set_service_user(user: String, unit: String, dry_run: bool) -> anyhow::Result
          # a bounded capability set) still applies on top of root.\n\
          [Service]\n\
          User=root\n\
-         Group=root\n"
+         Group=root\n\
+         # Root must still read/update private state owned by the qeli account.\n\
+         CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER\n\
+         AmbientCapabilities=\n"
     );
 
     if dry_run {
@@ -963,7 +1025,7 @@ fn set_service_user(user: String, unit: String, dry_run: bool) -> anyhow::Result
             println!("# would write {dropin}:\n{content}");
         } else {
             println!(
-                "# would run: chown -R qeli:qeli /etc/qeli,\n# then remove {dropin} \
+                "# would repair daemon state ownership (preserving installer credentials/backups),\n# then remove {dropin} \
                  (if present) → revert to the packaged default (User=qeli)"
             );
         }
@@ -995,11 +1057,7 @@ fn set_service_user(user: String, unit: String, dry_run: bool) -> anyhow::Result
         // keeps its last known-working root configuration instead of being switched to an
         // account that cannot read or update its own state.
         if unit == "qeli.service" {
-            run_admin_command(
-                "chown",
-                &["-R", "qeli:qeli", "/etc/qeli"],
-                "cannot hand /etc/qeli back to the qeli service account",
-            )?;
+            repair_service_state_ownership()?;
         }
         match std::fs::remove_file(&dropin) {
             Ok(_) => {
@@ -1069,10 +1127,11 @@ fn add_client(
     use config::users::{UserEntry, UsersDb};
 
     // Resolve the users file from the server config.
-    let cfg_str = std::fs::read_to_string(&config)
+    let source = server::read_config_source(&config)
         .map_err(|e| anyhow::anyhow!("cannot read server config {}: {}", config.display(), e))?;
-    let server_cfg: config::server::ServerConfig = config::parse_server_config(&cfg_str)?;
+    let server_cfg: config::server::ServerConfig = config::parse_server_config(source.text())?;
     let users_file = server_cfg.auth.users_file.clone();
+    source.validate_users_file_trust(&server_cfg)?;
 
     // Resolve and validate the optional link target before hashing or appending the user. An
     // unusable IPv6 endpoint must not leave behind an account after the command ultimately
@@ -1101,6 +1160,9 @@ fn add_client(
     } else {
         None
     };
+    if let Some((profile_index, _, _)) = &prepared_link {
+        source.validate_identity_key_trust(&server_cfg.profiles[*profile_index])?;
+    }
 
     // Load the existing users DB, or start an empty one when the file doesn't exist yet
     // (first user on a fresh install). Read only — the actual append happens under the
@@ -1254,7 +1316,13 @@ fn set_web_password(
     enable: bool,
     config: PathBuf,
 ) -> anyhow::Result<()> {
-    let cfg_str = std::fs::read_to_string(&config)
+    // The panel uses this same sidecar lock around its read-modify-write.
+    // Canonicalize so a CLI alias cannot acquire a different lock name.
+    let config = std::fs::canonicalize(&config)
+        .map_err(|e| anyhow::anyhow!("cannot resolve server config {}: {}", config.display(), e))?;
+    let _file_write_guard =
+        qeli::util::FileLock::acquire_timeout(&config, std::time::Duration::from_secs(5))?;
+    let cfg_str = server::read_config_text(&config)
         .map_err(|e| anyhow::anyhow!("cannot read server config {}: {}", config.display(), e))?;
     // Validate the existing file parses before we touch it, so we never overwrite
     // a broken config (and so the [web] section we edit is well-formed).
@@ -1287,6 +1355,11 @@ fn set_web_password(
     // Re-parse the edited config as a safety net before writing it back.
     config::parse_server_config(&new_cfg)
         .map_err(|e| anyhow::anyhow!("internal error: edited config no longer parses: {}", e))?;
+    anyhow::ensure!(
+        new_cfg.len() as u64 <= server::MAX_SERVER_INI_BYTES,
+        "edited server config exceeds {} bytes",
+        server::MAX_SERVER_INI_BYTES
+    );
     qeli::util::write_atomic_private(&config, new_cfg.as_bytes())
         .map_err(|e| anyhow::anyhow!("cannot write {}: {}", config.display(), e))?;
 
@@ -1329,9 +1402,9 @@ fn share_link(
     reset: bool,
     config: PathBuf,
 ) -> anyhow::Result<()> {
-    let cfg_str = std::fs::read_to_string(&config)
+    let source = server::read_config_source(&config)
         .map_err(|e| anyhow::anyhow!("cannot read {}: {}", config.display(), e))?;
-    let server_cfg: config::server::ServerConfig = config::parse_server_config(&cfg_str)?;
+    let server_cfg: config::server::ServerConfig = config::parse_server_config(source.text())?;
 
     let profile = match &profile_name {
         Some(name) => server_cfg
@@ -1351,6 +1424,8 @@ fn share_link(
             .first()
             .ok_or_else(|| anyhow::anyhow!("no profiles defined in {}", config.display()))?,
     };
+
+    source.validate_identity_key_trust(profile)?;
 
     // Host: --host wins, else web.public_host — the same fallback the panel uses, so an
     // operator who set it once needn't repeat it per link.
@@ -1390,6 +1465,7 @@ fn share_link(
             username
         ),
         None => {
+            source.validate_users_file_trust(&server_cfg)?;
             let new_pw = generate_password(20);
             let hash = qeli::crypto::hash_password(new_pw.as_bytes())
                 .map_err(|e| anyhow::anyhow!("hashing failed: {}", e))?;
@@ -1655,6 +1731,34 @@ fn format_bytes(bytes: u64) -> String {
 mod tests {
     use super::{validate_service_unit, validate_service_user};
     use qeli_core::config::set_section_keys;
+
+    #[test]
+    fn untrusted_logging_file_is_ignored_before_logger_initialization() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-log-trust-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let config = dir.join("server.conf");
+        let target = dir.join("unwanted.log");
+        std::fs::write(
+            &config,
+            format!("[logging]\nfile = {}\nformat = json\n", target.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let (_, file, _, format) = super::peek_logging(&config);
+        assert!(file.is_none());
+        assert_eq!(format, "json");
+        assert!(!target.exists());
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let (_, file, _, format) = super::peek_logging(&config);
+        assert_eq!(file.as_deref(), target.to_str());
+        assert_eq!(format, "json");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     fn ups() -> Vec<(&'static str, String)> {
         vec![

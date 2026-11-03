@@ -8,8 +8,7 @@
 //! contains the exact `/128` lease or a non-default IPv6 `client_subnet` covering the target.
 
 use crate::server::ProfileRuntime;
-use std::collections::HashMap;
-use std::ffi::CString;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::Ipv6Addr;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -31,16 +30,91 @@ const RATE_WINDOW: Duration = Duration::from_secs(1);
 const GLOBAL_RESPONSES_PER_WINDOW: u32 = 4_096;
 const RESPONSES_PER_MAC_PER_WINDOW: u32 = 256;
 const MAX_RATE_SOURCES: usize = 4_096;
+const MAX_KNOWN_TARGETS: usize = 1_024;
+const ANNOUNCEMENTS_PER_TICK: usize = 16;
+const MEMBERSHIP_REFRESH: Duration = Duration::from_secs(1);
 
 pub(crate) struct NdpProxy {
     fd: AsyncFd<OwnedFd>,
     interface: String,
     ifindex: i32,
     mac: [u8; 6],
+    memberships: OwnedFd,
 }
 
-impl NdpProxy {
-    pub(crate) fn bind(interface: &str) -> anyhow::Result<Self> {
+/// A socket created in the worker's network namespace, before Tokio registration.
+/// If startup is cancelled before adoption, its fd closes on that worker.
+struct BoundNdpProxy {
+    fd: OwnedFd,
+    interface: String,
+    ifindex: i32,
+    mac: [u8; 6],
+}
+
+/// Keep the responder's startup requirement independent from firewall ownership.
+pub(crate) async fn start(
+    profile: &str,
+    mode: crate::config::server::Ipv6NdpProxyMode,
+    interface: Option<&str>,
+) -> anyhow::Result<Option<NdpProxy>> {
+    use crate::config::server::Ipv6NdpProxyMode;
+    if mode == Ipv6NdpProxyMode::Off {
+        return Ok(None);
+    }
+    let worker_profile = profile.to_owned();
+    let worker_interface = interface.map(str::to_owned);
+    let bound = crate::profile_teardown::blocking("qeli-profile-ndp-bind", move || {
+        start_with(
+            &worker_profile,
+            mode,
+            worker_interface.as_deref(),
+            BoundNdpProxy::bind,
+        )
+    })
+    .await??;
+    match bound {
+        None => Ok(None),
+        Some(bound) => match NdpProxy::register(bound) {
+            Ok(proxy) => Ok(Some(proxy)),
+            Err(error) if mode == Ipv6NdpProxyMode::Auto => {
+                log::warn!("Profile '{profile}': IPv6 NDP proxy auto mode is unavailable: {error} — continuing without it");
+                Ok(None)
+            }
+            Err(error) => anyhow::bail!("profile '{profile}': routing.ipv6.ndp_proxy = required but the responder could not start: {error}"),
+        },
+    }
+}
+
+fn start_with<T>(
+    profile: &str,
+    mode: crate::config::server::Ipv6NdpProxyMode,
+    interface: Option<&str>,
+    bind: impl FnOnce(&str) -> anyhow::Result<T>,
+) -> anyhow::Result<Option<T>> {
+    use crate::config::server::Ipv6NdpProxyMode;
+    if mode == Ipv6NdpProxyMode::Off {
+        return Ok(None);
+    }
+    let result = interface
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no IPv6 uplink was detected; set routing.ipv6.ndp_proxy_interface explicitly"
+            )
+        })
+        .and_then(bind);
+    match result {
+        Ok(proxy) => Ok(Some(proxy)),
+        Err(error) if mode == Ipv6NdpProxyMode::Auto => {
+            log::warn!("Profile '{profile}': IPv6 NDP proxy auto mode is unavailable: {error} — continuing without it");
+            Ok(None)
+        }
+        Err(error) => anyhow::bail!("profile '{profile}': routing.ipv6.ndp_proxy = required but the responder could not start: {error}"),
+    }
+}
+
+impl BoundNdpProxy {
+    fn bind(interface: &str) -> anyhow::Result<Self> {
         let interface = interface.trim();
         if interface.is_empty()
             || interface.len() > 15
@@ -51,24 +125,12 @@ impl NdpProxy {
         {
             anyhow::bail!("invalid NDP proxy interface name '{interface}'");
         }
-        let c_name = CString::new(interface)
-            .map_err(|_| anyhow::anyhow!("invalid NDP proxy interface name"))?;
-        let ifindex = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
-        if ifindex == 0 {
-            return Err(anyhow::anyhow!(
-                "interface '{interface}' does not exist: {}",
-                io::Error::last_os_error()
-            ));
+        let (ifindex, mac) = crate::network_interface::ethernet(interface).map_err(|error| {
+            anyhow::anyhow!("cannot inspect NDP interface '{interface}': {error}")
+        })?;
+        if mac == [0; 6] || mac[0] & 1 != 0 {
+            anyhow::bail!("interface '{interface}' has no usable unicast MAC address");
         }
-        let link_type = std::fs::read_to_string(format!("/sys/class/net/{interface}/type"))
-            .map_err(|error| anyhow::anyhow!("cannot read link type for '{interface}': {error}"))?;
-        if link_type.trim() != "1" {
-            anyhow::bail!(
-                "interface '{interface}' is not an Ethernet-compatible link (ARPHRD type {})",
-                link_type.trim()
-            );
-        }
-        let mac = read_mac(interface)?;
         let protocol = i32::from(ETH_P_IPV6.to_be());
         let raw = unsafe {
             libc::socket(
@@ -144,13 +206,34 @@ impl NdpProxy {
                 std::mem::size_of_val(&one) as libc::socklen_t,
             );
         }
-        let fd = AsyncFd::new(owned)
-            .map_err(|error| anyhow::anyhow!("cannot register NDP socket: {error}"))?;
         Ok(Self {
-            fd,
+            fd: owned,
             interface: interface.to_string(),
             ifindex: ifindex as i32,
             mac,
+        })
+    }
+}
+
+impl NdpProxy {
+    fn register(bound: BoundNdpProxy) -> anyhow::Result<Self> {
+        // SAFETY: OwnedFd owns the open socket. NdpProxy never replaces or closes
+        // its inner descriptor while registered; I/O only borrows it through
+        // get_ref(), and dropping AsyncFd deregisters before dropping OwnedFd.
+        let fd = unsafe { AsyncFd::register(bound.fd) }
+            .map_err(|error| anyhow::anyhow!("cannot register NDP socket: {error}"))?;
+        assigned_source(bound.ifindex)?;
+        let raw = unsafe { libc::socket(libc::AF_INET6, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, 0) };
+        if raw < 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        let memberships = unsafe { OwnedFd::from_raw_fd(raw) };
+        Ok(Self {
+            fd,
+            interface: bound.interface,
+            ifindex: bound.ifindex,
+            mac: bound.mac,
+            memberships,
         })
     }
 
@@ -163,13 +246,60 @@ impl NdpProxy {
         );
         let mut frame = vec![0u8; MAX_FRAME_SIZE];
         let mut limiter = NdpRateLimiter::new(Instant::now());
+        let mut refresh = tokio::time::interval(MEMBERSHIP_REFRESH);
+        refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut announced = HashMap::<Ipv6Addr, u64>::new();
+        let mut groups = HashSet::new();
+        let mut source = assigned_source(self.ifindex).ok();
         loop {
-            let (length, outgoing) = loop {
-                let mut ready = self.fd.readable().await?;
-                match ready.try_io(|inner| recv_frame(inner.get_ref().as_raw_fd(), &mut frame)) {
-                    Ok(result) => break result?,
-                    Err(_) => continue,
+            let incoming = tokio::select! {
+                _ = refresh.tick() => {
+                    // A replacement interface with the same name is not this socket's owner.
+                    let (index, mac) = crate::network_interface::ethernet(&self.interface)?;
+                    if index != self.ifindex as u32 || mac != self.mac {
+                        anyhow::bail!("NDP uplink '{}' was replaced", self.interface);
+                    }
+                    let next_source = assigned_source(self.ifindex).ok();
+                    if source.is_some() && next_source.is_none() {
+                        log::warn!("Profile '{}': NDP paused: no usable IPv6 source on '{}'", profile.name, self.interface);
+                    }
+                    if source != next_source { announced.clear(); }
+                    source = next_source;
+                    let targets = {
+                        let sessions = profile.sessions.read().await;
+                        known_targets(&sessions)
+                    };
+                    let desired: HashSet<_> = targets.keys().copied().map(solicited_node_multicast).collect();
+                    // Remove before joining to respect the membership bound during churn.
+                    for group in groups.difference(&desired) {
+                        update_membership(self.memberships.as_raw_fd(), self.ifindex, *group, false)?;
+                    }
+                    for group in desired.difference(&groups) {
+                        update_membership(self.memberships.as_raw_fd(), self.ifindex, *group, true)?;
+                    }
+                    groups = desired;
+                    announced.retain(|address, owner| targets.get(address) == Some(owner));
+                    if let Some(source) = source {
+                        let pending: Vec<_> = targets.iter().filter(|(address, owner)| announced.get(address) != Some(owner))
+                            .map(|(address, owner)| (*address, *owner)).take(ANNOUNCEMENTS_PER_TICK).collect();
+                        for (target, owner) in pending {
+                            if !limiter.allow(self.mac, Instant::now()) { break; }
+                            let response = build_unsolicited(target, source, self.mac);
+                            if self.send_owned(&profile, target, owner, &response).await? {
+                                announced.insert(target, owner);
+                            }
+                        }
+                    }
+                    continue;
                 }
+                ready = self.fd.readable() => ready?,
+            };
+            let mut incoming = incoming;
+            let (length, outgoing) = match incoming
+                .try_io(|inner| recv_frame(inner.get_ref().as_raw_fd(), &mut frame))
+            {
+                Ok(result) => result?,
+                Err(_) => continue,
             };
             if outgoing {
                 continue;
@@ -177,14 +307,17 @@ impl NdpProxy {
             let Some(request) = parse_solicitation(&frame[..length]) else {
                 continue;
             };
-            let owned = profile
+            let Some(source) = source else {
+                continue;
+            };
+            let owner = profile
                 .sessions
                 .read()
                 .await
-                .owns_ipv6_neighbor_target(request.target);
-            if !owned {
+                .ipv6_neighbor_owner(request.target);
+            let Some(owner) = owner else {
                 continue;
-            }
+            };
             if !limiter.allow(request.source_mac, Instant::now()) {
                 if limiter.take_warning() {
                     log::warn!(
@@ -195,44 +328,149 @@ impl NdpProxy {
                 }
                 continue;
             }
-            let response = build_advertisement(&frame[..length], request, self.mac);
-            loop {
-                let mut ready = self.fd.writable().await?;
-                match ready.try_io(|inner| {
-                    send_frame(
-                        inner.get_ref().as_raw_fd(),
-                        self.ifindex,
-                        response.destination_mac,
-                        &response.bytes,
-                    )
-                }) {
-                    Ok(result) => {
-                        result?;
-                        break;
-                    }
-                    Err(_) => continue,
+            let response = build_advertisement(&frame[..length], request, self.mac, source);
+            self.send_owned(&profile, request.target, owner, &response)
+                .await?;
+        }
+    }
+
+    async fn send_owned(
+        &self,
+        profile: &ProfileRuntime,
+        target: Ipv6Addr,
+        owner: u64,
+        response: &Advertisement,
+    ) -> anyhow::Result<bool> {
+        // Never retain the session read guard across writable(). Recheck the exact
+        // generation after every readiness wait; keep the guard through nonblocking send.
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+        loop {
+            let mut ready = match tokio::time::timeout_at(deadline, self.fd.writable()).await {
+                Ok(ready) => ready?,
+                Err(_) => return Ok(false),
+            };
+            let sessions = profile.sessions.read().await;
+            if sessions.ipv6_neighbor_owner(target) != Some(owner) {
+                return Ok(false);
+            }
+            match ready.try_io(|inner| {
+                send_frame(
+                    inner.get_ref().as_raw_fd(),
+                    self.ifindex,
+                    response.destination_mac,
+                    &response.bytes,
+                )
+            }) {
+                Ok(result) => {
+                    result?;
+                    return Ok(true);
                 }
+                Err(_) => continue,
             }
         }
     }
 }
 
-fn read_mac(interface: &str) -> anyhow::Result<[u8; 6]> {
-    let text = std::fs::read_to_string(format!("/sys/class/net/{interface}/address"))
-        .map_err(|error| anyhow::anyhow!("cannot read MAC for '{interface}': {error}"))?;
-    let parts: Vec<&str> = text.trim().split(':').collect();
-    if parts.len() != 6 {
-        anyhow::bail!("interface '{interface}' has an unsupported MAC address");
+fn usable_source_rows(rows: &str, ifindex: i32) -> Option<Ipv6Addr> {
+    let mut choices = Vec::new();
+    for row in rows.lines() {
+        let fields: Vec<_> = row.split_whitespace().collect();
+        if fields.len() != 6 || u32::from_str_radix(fields[1], 16).ok() != Some(ifindex as u32) {
+            continue;
+        }
+        let Some(flags) = u32::from_str_radix(fields[4], 16).ok() else {
+            continue;
+        };
+        // Do not borrow tentative, DAD-failed, deprecated or optimistic addresses.
+        if flags & (0x08 | 0x20 | 0x40 | 0x04) != 0 {
+            continue;
+        }
+        let Some(bits) = u128::from_str_radix(fields[0], 16).ok() else {
+            continue;
+        };
+        let address = Ipv6Addr::from(bits);
+        if address.is_unspecified()
+            || address.is_loopback()
+            || address.is_multicast()
+            || address.to_ipv4_mapped().is_some()
+        {
+            continue;
+        }
+        choices.push(address);
     }
-    let mut mac = [0u8; 6];
-    for (slot, part) in mac.iter_mut().zip(parts) {
-        *slot = u8::from_str_radix(part, 16)
-            .map_err(|_| anyhow::anyhow!("interface '{interface}' has an invalid MAC address"))?;
+    choices.sort_by_key(|a| (!a.is_unicast_link_local(), *a));
+    choices.into_iter().next()
+}
+
+fn assigned_source(ifindex: i32) -> anyhow::Result<Ipv6Addr> {
+    // procfs reflects the current worker network namespace, not the startup namespace.
+    let rows = std::fs::read_to_string("/proc/thread-self/net/if_inet6")?;
+    usable_source_rows(&rows, ifindex)
+        .ok_or_else(|| anyhow::anyhow!("NDP uplink has no usable assigned IPv6 source"))
+}
+
+fn update_membership(fd: i32, ifindex: i32, group: Ipv6Addr, join: bool) -> io::Result<()> {
+    let request = libc::ipv6_mreq {
+        ipv6mr_multiaddr: libc::in6_addr {
+            s6_addr: group.octets(),
+        },
+        ipv6mr_interface: ifindex as u32,
+    };
+    let option = if join {
+        libc::IPV6_ADD_MEMBERSHIP
+    } else {
+        libc::IPV6_DROP_MEMBERSHIP
+    };
+    let result = unsafe {
+        libc::setsockopt(
+            fd,
+            libc::IPPROTO_IPV6,
+            option,
+            (&request as *const libc::ipv6_mreq).cast(),
+            std::mem::size_of_val(&request) as libc::socklen_t,
+        )
+    };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
     }
-    if mac == [0; 6] || mac[0] & 1 != 0 {
-        anyhow::bail!("interface '{interface}' has no usable unicast MAC address");
-    }
-    Ok(mac)
+    Ok(())
+}
+
+fn known_targets(sessions: &crate::server::SessionMap) -> HashMap<Ipv6Addr, u64> {
+    use std::sync::atomic::Ordering;
+    // Only concrete, fully admitted leases. Never enumerate a delegated prefix.
+    let mut targets: Vec<_> = sessions
+        .by_address
+        .iter()
+        .filter_map(|(address, session)| {
+            let std::net::IpAddr::V6(address) = address else {
+                return None;
+            };
+            (proxyable_target(*address)
+                && session.ndp_ready.load(Ordering::Acquire)
+                && sessions.ipv6_neighbor_owner(*address) == Some(session.session_id))
+            .then_some((*address, session.session_id))
+        })
+        .collect();
+    targets.sort_unstable();
+    targets.into_iter().take(MAX_KNOWN_TARGETS).collect()
+}
+
+fn build_unsolicited(target: Ipv6Addr, source: Ipv6Addr, proxy_mac: [u8; 6]) -> Advertisement {
+    let mut ethernet = [0u8; 14];
+    ethernet[12..14].copy_from_slice(&ETH_P_IPV6.to_be_bytes());
+    build_advertisement(
+        &ethernet,
+        Solicitation {
+            l3_offset: 14,
+            source_mac: [0; 6],
+            source_ip: Ipv6Addr::UNSPECIFIED,
+            target,
+            dad: true,
+        },
+        proxy_mac,
+        source,
+    )
 }
 
 fn format_mac(mac: [u8; 6]) -> String {
@@ -354,6 +592,11 @@ fn parse_solicitation(frame: &[u8]) -> Option<Solicitation> {
         return None;
     }
     let dad = source_ip.is_unspecified();
+    // RFC 4861 section 7.1.1: source :: is valid only for DAD addressed to
+    // the target's solicited-node multicast group, never a unicast destination.
+    if dad && destination_ip != solicited_node_multicast(target) {
+        return None;
+    }
     let mut options = &icmp[24..];
     while !options.is_empty() {
         if options.len() < 2 {
@@ -407,6 +650,7 @@ fn build_advertisement(
     request_frame: &[u8],
     request: Solicitation,
     proxy_mac: [u8; 6],
+    source: Ipv6Addr,
 ) -> Advertisement {
     // RFC 4861 sections 7.2.4 and 7.2.8: a solicited proxy advertisement MUST clear
     // Override so a real on-link owner can take precedence. DAD replies are unsolicited
@@ -430,7 +674,7 @@ fn build_advertisement(
     ipv6[4..6].copy_from_slice(&32u16.to_be_bytes());
     ipv6[6] = ICMPV6_NEXT_HEADER;
     ipv6[7] = 255;
-    ipv6[8..24].copy_from_slice(&request.target.octets());
+    ipv6[8..24].copy_from_slice(&source.octets());
     ipv6[24..40].copy_from_slice(&destination_ip.octets());
     frame.extend_from_slice(&ipv6);
 
@@ -441,7 +685,7 @@ fn build_advertisement(
     icmp[24] = 2; // Target Link-Layer Address
     icmp[25] = 1; // 8-byte option
     icmp[26..32].copy_from_slice(&proxy_mac);
-    let checksum = icmpv6_checksum(request.target, destination_ip, &icmp);
+    let checksum = icmpv6_checksum(source, destination_ip, &icmp);
     icmp[2..4].copy_from_slice(&checksum.to_be_bytes());
     frame.extend_from_slice(&icmp);
     Advertisement {
@@ -479,6 +723,7 @@ struct NdpRateLimiter {
     global: u32,
     by_mac: HashMap<[u8; 6], u32>,
     warning_pending: bool,
+    warning_reported: bool,
 }
 
 impl NdpRateLimiter {
@@ -488,6 +733,7 @@ impl NdpRateLimiter {
             global: 0,
             by_mac: HashMap::new(),
             warning_pending: false,
+            warning_reported: false,
         }
     }
 
@@ -497,6 +743,7 @@ impl NdpRateLimiter {
             self.global = 0;
             self.by_mac.clear();
             self.warning_pending = false;
+            self.warning_reported = false;
         }
         if self.global >= GLOBAL_RESPONSES_PER_WINDOW {
             self.warning_pending = true;
@@ -517,13 +764,60 @@ impl NdpRateLimiter {
     }
 
     fn take_warning(&mut self) -> bool {
-        std::mem::take(&mut self.warning_pending)
+        let pending = std::mem::take(&mut self.warning_pending);
+        if pending && !self.warning_reported {
+            self.warning_reported = true;
+            true
+        } else {
+            false
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn required_ndp_refuses_missing_links_and_bind_failures_in_any_routing_mode() {
+        use crate::config::server::Ipv6NdpProxyMode::{Auto, Off, Required};
+        let missing =
+            start_with::<()>("manual", Required, None, |_| panic!("no link to bind")).unwrap_err();
+        assert!(missing
+            .to_string()
+            .contains("set routing.ipv6.ndp_proxy_interface"));
+        let refused = start_with::<()>("manual", Required, Some("ens3"), |_| {
+            anyhow::bail!("fixture bind failure")
+        })
+        .unwrap_err();
+        assert!(refused
+            .to_string()
+            .contains("required but the responder could not start"));
+        assert!(refused.to_string().contains("fixture bind failure"));
+        assert!(
+            start_with::<()>("manual", Auto, Some("ens3"), |_| anyhow::bail!(
+                "fixture bind failure"
+            ))
+            .unwrap()
+            .is_none()
+        );
+        assert!(start_with::<()>("manual", Off, Some("ens3"), |_| panic!(
+            "disabled responder"
+        ))
+        .unwrap()
+        .is_none());
+        assert_eq!(
+            start_with(
+                "manual",
+                Required,
+                Some("ens3"),
+                |link| Ok(link.to_string())
+            )
+            .unwrap()
+            .as_deref(),
+            Some("ens3")
+        );
+    }
 
     fn solicitation(source: Ipv6Addr, target: Ipv6Addr, include_slla: bool) -> Vec<u8> {
         let source_mac = [0x02, 0x11, 0x22, 0x33, 0x44, 0x55];
@@ -567,7 +861,7 @@ mod tests {
         let request = solicitation(source, target, true);
         let parsed = parse_solicitation(&request).unwrap();
         let proxy_mac = [0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee];
-        let reply = build_advertisement(&request, parsed, proxy_mac);
+        let reply = build_advertisement(&request, parsed, proxy_mac, "fe80::99".parse().unwrap());
 
         assert_eq!(&reply.bytes[..6], &parsed.source_mac);
         assert_eq!(&reply.bytes[6..12], &proxy_mac);
@@ -575,6 +869,10 @@ mod tests {
         assert_eq!(ipv6[7], 255);
         assert_eq!(
             Ipv6Addr::from(<[u8; 16]>::try_from(&ipv6[8..24]).unwrap()),
+            "fe80::99".parse::<Ipv6Addr>().unwrap()
+        );
+        assert_eq!(
+            Ipv6Addr::from(<[u8; 16]>::try_from(&ipv6[48..64]).unwrap()),
             target
         );
         assert_eq!(
@@ -587,7 +885,42 @@ mod tests {
             u32::from_be_bytes(icmp[4..8].try_into().unwrap()),
             0x4000_0000
         );
-        assert_eq!(icmpv6_checksum(target, source, icmp), 0);
+        assert_eq!(
+            icmpv6_checksum("fe80::99".parse().unwrap(), source, icmp),
+            0
+        );
+    }
+
+    #[test]
+    fn source_selection_uses_only_ready_addresses_on_the_bound_interface() {
+        let rows = "20010db8000000000000000000000001 02 40 00 80 uplink\nfe800000000000000000000000000001 03 40 20 80 other\nfe800000000000000000000000000002 02 40 20 c0 uplink\nfe800000000000000000000000000003 02 40 20 88 uplink\n";
+        assert_eq!(
+            usable_source_rows(rows, 2),
+            Some("2001:db8::1".parse().unwrap())
+        );
+        let ready = format!("{rows}fe800000000000000000000000000004 02 40 20 80 uplink\n");
+        assert_eq!(
+            usable_source_rows(&ready, 2),
+            Some("fe80::4".parse().unwrap())
+        );
+        assert_eq!(usable_source_rows(&ready, 4), None);
+    }
+
+    #[test]
+    fn unsolicited_proxy_announcement_has_no_solicited_or_override_flag() {
+        let source = "fe80::1".parse().unwrap();
+        let target = "2001:db8::42".parse().unwrap();
+        let reply = build_unsolicited(target, source, [2, 1, 2, 3, 4, 5]);
+        assert_eq!(reply.destination_mac, [0x33, 0x33, 0, 0, 0, 1]);
+        let v6 = &reply.bytes[14..];
+        assert_eq!(&v6[8..24], &source.octets());
+        assert_eq!(&v6[48..64], &target.octets());
+        assert_eq!(&v6[44..48], &[0; 4]);
+        assert_eq!(v6[7], 255);
+        assert_eq!(
+            icmpv6_checksum(source, "ff02::1".parse().unwrap(), &v6[40..]),
+            0
+        );
     }
 
     #[test]
@@ -613,7 +946,12 @@ mod tests {
         let target = "2001:db8:100::42".parse().unwrap();
         let request = solicitation(Ipv6Addr::UNSPECIFIED, target, false);
         let parsed = parse_solicitation(&request).unwrap();
-        let reply = build_advertisement(&request, parsed, [0x02, 1, 2, 3, 4, 5]);
+        let reply = build_advertisement(
+            &request,
+            parsed,
+            [0x02, 1, 2, 3, 4, 5],
+            "fe80::99".parse().unwrap(),
+        );
         assert_eq!(reply.destination_mac, [0x33, 0x33, 0, 0, 0, 1]);
         let ipv6 = &reply.bytes[14..];
         assert_eq!(
@@ -622,9 +960,50 @@ mod tests {
         );
         assert_eq!(u32::from_be_bytes(ipv6[44..48].try_into().unwrap()), 0);
         assert_eq!(
-            icmpv6_checksum(target, "ff02::1".parse().unwrap(), &ipv6[40..72]),
+            icmpv6_checksum(
+                "fe80::99".parse().unwrap(),
+                "ff02::1".parse().unwrap(),
+                &ipv6[40..72]
+            ),
             0
         );
+    }
+
+    #[test]
+    fn dad_with_a_unicast_destination_is_discarded() {
+        let target: Ipv6Addr = "2001:db8:100::42".parse().unwrap();
+        let valid = solicitation(Ipv6Addr::UNSPECIFIED, target, false);
+        assert!(parse_solicitation(&valid).is_some());
+        for destination in [target, "2001:db8:ffff::1".parse().unwrap()] {
+            let mut invalid = valid.clone();
+            invalid[38..54].copy_from_slice(&destination.octets());
+            invalid[56..58].fill(0);
+            let checksum = icmpv6_checksum(Ipv6Addr::UNSPECIFIED, destination, &invalid[54..]);
+            invalid[56..58].copy_from_slice(&checksum.to_be_bytes());
+            assert_eq!(
+                icmpv6_checksum(Ipv6Addr::UNSPECIFIED, destination, &invalid[54..]),
+                0
+            );
+            assert!(parse_solicitation(&invalid).is_none());
+        }
+    }
+
+    #[test]
+    fn rate_limit_warning_is_emitted_once_per_window() {
+        let start = Instant::now();
+        let mac = [0x02, 1, 2, 3, 4, 5];
+        let mut limiter = NdpRateLimiter::new(start);
+        for window in [start, start + RATE_WINDOW] {
+            for _ in 0..RESPONSES_PER_MAC_PER_WINDOW {
+                assert!(limiter.allow(mac, window));
+                assert!(!limiter.take_warning());
+            }
+            for rejected in 0..512 {
+                assert!(!limiter.allow(mac, window));
+                assert_eq!(limiter.take_warning(), rejected == 0);
+                assert!(!limiter.take_warning());
+            }
+        }
     }
 
     #[test]
@@ -639,5 +1018,73 @@ mod tests {
         assert!(limiter.take_warning());
         assert!(limiter.allow(mac, start + RATE_WINDOW));
         assert!(!limiter.take_warning());
+    }
+}
+
+#[cfg(test)]
+mod native_network_view_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN/CAP_NET_RAW and ip; isolated netns"]
+    fn native_ndp_bind_uses_calling_namespace_without_sysfs_remount() -> anyhow::Result<()> {
+        std::thread::spawn(|| -> anyhow::Result<()> {
+            // SAFETY: only this new disposable thread changes namespace.
+            if unsafe { libc::unshare(libc::CLONE_NEWNET) } != 0 {
+                return Err(io::Error::last_os_error().into());
+            }
+            let name = "qeli-view2";
+            anyhow::ensure!(!std::path::Path::new(&format!("/sys/class/net/{name}")).exists());
+            for args in [
+                vec!["link", "add", name, "type", "dummy"],
+                vec!["link", "set", name, "address", "02:12:34:56:78:9c"],
+                vec!["link", "set", name, "addrgenmode", "none"],
+                vec!["link", "set", name, "up"],
+                vec!["-6", "addr", "add", "fe80::69/64", "dev", name, "nodad"],
+                vec![
+                    "-6",
+                    "addr",
+                    "add",
+                    "2001:db8:69::1/64",
+                    "dev",
+                    name,
+                    "nodad",
+                ],
+            ] {
+                let output = crate::system_command::Command::new("ip")
+                    .args(args)
+                    .output()?;
+                anyhow::ensure!(
+                    output.status.success(),
+                    "ip fixture: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let proxy = runtime
+                .block_on(start(
+                    "native-view",
+                    crate::config::server::Ipv6NdpProxyMode::Required,
+                    Some(name),
+                ))?
+                .expect("required NDP responder");
+            anyhow::ensure!(proxy.ifindex > 0 && proxy.mac == [2, 0x12, 0x34, 0x56, 0x78, 0x9c]);
+            anyhow::ensure!(!std::path::Path::new(&format!("/sys/class/net/{name}")).exists());
+            anyhow::ensure!(assigned_source(proxy.ifindex)? == "fe80::69".parse::<Ipv6Addr>()?);
+            let group = solicited_node_multicast("2001:db8:69::f00d".parse()?);
+            let group_hex: String = group.octets().iter().map(|b| format!("{b:02x}")).collect();
+            update_membership(proxy.memberships.as_raw_fd(), proxy.ifindex, group, true)?;
+            anyhow::ensure!(
+                std::fs::read_to_string("/proc/thread-self/net/igmp6")?.contains(&group_hex)
+            );
+            drop(proxy);
+            anyhow::ensure!(
+                !std::fs::read_to_string("/proc/thread-self/net/igmp6")?.contains(&group_hex)
+            );
+            Ok(())
+        })
+        .join()
+        .expect("native NDP view test panicked")
     }
 }

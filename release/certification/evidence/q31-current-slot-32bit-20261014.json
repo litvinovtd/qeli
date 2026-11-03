@@ -1,0 +1,114 @@
+{
+  "status": "CURRENT_CORE_TWO_32BIT_BUILDS_32_QEMU_CASES_ARCHIVED_CLEANED_PASS",
+  "qualification": {
+    "status": "CURRENT_SLOT_CORE_ARMV7_MIPS_STATIC_ELF_SHA_AND_32_QEMU_INI_CASES_PASS_CLEANUP_PENDING",
+    "source_commit": "d26c78df4cf1556046332b5a7744208a15c00e06",
+    "native_source_digest": "0dfac80b50d2bdd1964817dee8ac87f7311cde63bf61efade7a40abd7e32b635",
+    "release_source_digest": "8df9286da74528a7d56c161661d6ec462e61bc57b3c01dc247c0a9ac3d28d886",
+    "build_rows": [
+      {
+        "arch": "armv7",
+        "target": "armv7-unknown-linux-musleabihf",
+        "command": "cd /var/tmp/qeli-router-openwrt-FVUnK0 && QELI_ROUTER_RUSTC=\"$(rustup which --toolchain 1.97.0 rustc)\" && test -x \"$QELI_ROUTER_RUSTC\" && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC=\"$QELI_ROUTER_RUSTC\" RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=true CARGO_PROFILE_RELEASE_PANIC=abort RUSTFLAGS=--remap-path-prefix=/var/tmp/qeli-router-openwrt-FVUnK0=/usr/src/qeli CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-FVUnK0/target CARGO_BUILD_BUILD_DIR=/var/tmp/qeli-router-openwrt-FVUnK0/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target armv7-unknown-linux-musleabihf 2>&1",
+        "exit_code": 0,
+        "seconds": 210.7261990988627,
+        "stop_reason": null,
+        "log": "logs/build-armv7.log",
+        "log_sha256": "5ede3985373cbdbe3b12a9a620cfdaa458e22e5011481a877b5523d83b3f9e16",
+        "status": "PASS",
+        "artifact_sha256": "126bfc4d276f96e27fcb3d310303da464c1247ed42ee2a3ac6f967ff30e9a3a5",
+        "bytes": 4986868,
+        "elf": {
+          "class": 1,
+          "machine": 40,
+          "type": 2,
+          "endianness": "little",
+          "external_interpreter": false,
+          "needed_libraries": false
+        }
+      },
+      {
+        "arch": "mipsel",
+        "target": "mipsel-unknown-linux-musl",
+        "command": "cd /var/tmp/qeli-router-openwrt-FVUnK0 && QELI_ROUTER_RUSTC=\"$(rustup which --toolchain nightly-2026-06-10 rustc)\" && test -x \"$QELI_ROUTER_RUSTC\" && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC=\"$QELI_ROUTER_RUSTC\" RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=true CARGO_PROFILE_RELEASE_PANIC=abort RUSTFLAGS='-C link-arg=-msoft-float --remap-path-prefix=/var/tmp/qeli-router-openwrt-FVUnK0=/usr/src/qeli' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-FVUnK0/target CARGO_BUILD_BUILD_DIR=/var/tmp/qeli-router-openwrt-FVUnK0/target CARGO_INCREMENTAL=0 cargo +nightly-2026-06-10 zigbuild -Z build-std=std,panic_abort --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target mipsel-unknown-linux-musl 2>&1",
+        "exit_code": 0,
+        "seconds": 233.02293860097416,
+        "stop_reason": null,
+        "log": "logs/build-mipsel.log",
+        "log_sha256": "f5893d0755d0ca60fc871ec230ca63d490c78a9fad151bc399f56be36401d452",
+        "status": "PASS",
+        "artifact_sha256": "4173732106120aa666e7abefd99273db4f31f92864ea71ccd43dcb0764bb050d",
+        "bytes": 6864220,
+        "elf": {
+          "class": 1,
+          "machine": 8,
+          "type": 3,
+          "endianness": "little",
+          "external_interpreter": false,
+          "needed_libraries": false
+        }
+      }
+    ],
+    "runtime_cases": 32,
+    "source_files_verified": 907,
+    "source_archive_sha256": "393f98df5136bc3ed87ae172881d77feb34afb2e6db0a992b7991ca188f58536",
+    "build_result_sha256": "1079a497f36fe3876d9ce9eeaa1d5ef18e6b307f7e1e3b7d26273f849b7b6261",
+    "execution_result_sha256": "e22e01bfbceafb929de187220c0a16d695fd479699fa6295eec8049b8d614721",
+    "common_recipe_hashes": {
+      "router_toolchain.py": "5a07dc41385d405224f91b47cdce47f7987f05e013ca025ce6c19929d641df12",
+      "router_source.py": "a0f34491d0474f98ea5a8f47e8a77a1ab0a88acd68aae73035285b307e422ed2",
+      "router_artifact.py": "076002a68ddfdf397af567982735434be1ca3d9c4584a2e9dee0034b69033c1a",
+      "native_lab.py": "da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0",
+      "native_repro.py": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c",
+      "ssh_command.py": "ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b",
+      "ssh_hostkey.py": "c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39"
+    },
+    "emulation_driver_sha256": "2d212fae62f2be93e4c7c67fbf7776ce781a88eaa78784f1503f6c4801993bf2",
+    "host_preserved": true,
+    "toolchain_installed": false,
+    "old_target_cache_reused": false,
+    "SDK_package": false,
+    "physical_router": false,
+    "whole_Q31_closed": false,
+    "no_push_deploy_release": true
+  },
+  "cleanup": {
+    "status": "OWN_ROOT_REGISTRY_TARGET_QEMU_ARCHIVE_REMOVED_AFTER_SHA_COOKIE_PROCESS_FD_MOUNT_GUARDS",
+    "free_before": 8042491904,
+    "free_after": 9288957952,
+    "unit_absent": true,
+    "host_preserved": true,
+    "identities_preserved": true,
+    "source_archive_sha256": "393f98df5136bc3ed87ae172881d77feb34afb2e6db0a992b7991ca188f58536",
+    "backup_sha256": "6aead165529e2f303fedaa71e2d4e425e1f023e8909717c0049173113153df11"
+  },
+  "seal": {
+    "status": "CURRENT_32BIT_BUILDS_32_QEMU_CASES_QUALIFIED_ARCHIVED_CLEANED",
+    "files": {
+      "plan.json": "baa119a9216ae7e703d856ded6e58262626f471e58f5ceb26ad14f51a198dddf",
+      "launch.json": "628077752ed502b073c428a32cd1e29f2f6b34b1a2df4d0f865756a1b5c1d5f4",
+      "job.json": "f31cac490419d2bab3feb2f65bb4a6dfd9fe02a1b6d647f58b92d190aca22d42",
+      "qualification.json": "e601cf70cd6cb67a98b5556658e7d08a674c5bfdae0484555fa7740326514d34",
+      "build-results.json": "1079a497f36fe3876d9ce9eeaa1d5ef18e6b307f7e1e3b7d26273f849b7b6261",
+      "execution-results.json": "e22e01bfbceafb929de187220c0a16d695fd479699fa6295eec8049b8d614721",
+      "backup-proof.json": "e95a4b05554c8170d0e374b48497b70b0a14647e62a1538a9ce2c37a75aadea5",
+      "cleanup.json": "7b1a194ce593cc394478407c9e141906eebc47c2d25edf867885dfffeee5e08c",
+      "recoverable.tar.gz": "6aead165529e2f303fedaa71e2d4e425e1f023e8909717c0049173113153df11",
+      "source.tar.gz": "393f98df5136bc3ed87ae172881d77feb34afb2e6db0a992b7991ca188f58536",
+      "remote-build.py": "09d4f3f1739c06b6c94d76f13af8cd6269216ea1ad4c11a9d24b0ccf45c5e345",
+      "emulation.py": "2d212fae62f2be93e4c7c67fbf7776ce781a88eaa78784f1503f6c4801993bf2"
+    },
+    "no_push_deploy_release": true
+  },
+  "original_import_failure": {
+    "packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-current-slot-32bit-20261014",
+    "console_sha256": "3107823c71150c23d626de3e8d20ac76eee2db38ce5d3a5610e9859676459d91",
+    "cleanup_sha256": "aeaec769b987bed8ee4b1518ee22e0306f3ddada432f3a4937161ee25d129518",
+    "archive_sha256": "fef8b394b14cbe4ddb5faa36f0bfd4008ce93ac7ea8f9e248f5f26fa2dd79892",
+    "Rust_compilation_started": false
+  },
+  "source_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-current-slot-32bit-r2-20261014",
+  "scope": "Exact five Markdown report/plan/README changes only. Fresh current ARMv7/MIPS compiler/ELF/SHA/QEMU evidence qualified separately. Current Linux20 actual source/time/CLI/raw unchanged; no new Linux matrix. SDK/IPK and physical runtime not qualified by this package.",
+  "all_original_archives_retained": true,
+  "no_push_deploy_release": true
+}

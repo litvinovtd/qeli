@@ -1,5 +1,5 @@
 # qeli — Threat Model
-<!-- normative-sync: threat-ipv6-v1 -->
+<!-- normative-sync: threat-identity-v4 -->
 
 This document states **what qeli defends against, what it deliberately does
 not, and the current assurance status.** It is written so a user can decide
@@ -22,8 +22,8 @@ flow and block it.** Privacy from the *server operator* is explicitly a non-goal
 |-----------|-----------|---------------|
 | **On-path passive DPI** (GFW / TSPU style) | Reads every byte, classifies by signature/entropy/fingerprint | `reality-tls` uses REALITY TLS 1.3 + genuine H2 with randomized batching; `obfs` rides WebSocket fronting; nonce PRP protects the private record counter. Browser/H2 semantic parity remains incomplete and is not claimed. |
 | **On-path active prober** | Replays/initiates connections to the server to test if it is a proxy | REALITY: a connection without a valid crypto token in the ClientHello `session_id` is transparently bridged to the real decoy site. Replayed ClientHellos are detected and also bridged. This reduces the obvious active-probe oracle; it does not prove universal equivalence to the target under timing or correlation analysis. |
-| **On-path active MITM** | Intercepts and rewrites handshake records | Server-identity proof bound to the handshake transcript (channel binding): any swap of ServerHello/Certificate/Finished breaks the proof. Optional `bind_static_to_session` (on by default) binds session keys to the server's long-lived identity (Noise-IK style). |
-| **Store-now-decrypt-later / future quantum** | Records traffic today, breaks X25519 with a future quantum computer | All non-`plain` modes run a hybrid X25519 + ML-KEM-768 key exchange; the data keys depend on **both** secrets. The server refuses a non-PQ handshake (no silent downgrade). |
+| **On-path active MITM** | Intercepts and rewrites traffic | Inner authentication checks proof of the server static key before credentials; `bind_static_to_session`/client `bind_static` bind inner keys to that identity. Hand-rolled `reality-tls` does not validate outer Certificate/CertificateVerify like a browser: a MITM can terminate outer TLS and observe metadata/private-record ciphertext, but cannot pass inner authentication or decrypt PacketCodec without the static key. A verified client `key` is required; TOFU does not authenticate first contact. |
+| **Store-now-decrypt-later / future quantum** | Records traffic today, breaks X25519 with a future quantum computer | Legacy camouflage (`fake-tls`/`obfs`/`reality`/UDP) requires hybrid X25519 + ML-KEM-768 in the inner tunnel. `reality-tls` has a classic inner exchange; PQ protection depends on negotiating X25519MLKEM768 in outer TLS, which also permits classic X25519. `plain` is classic. |
 | **Online credential guesser** | Tries to brute-force a user password or the panel admin | Argon2id password hashing; per-IP lockout + per-username adaptive tarpit on the tunnel; the same on the web panel API; constant-time proof comparison; dummy-hash work on unknown users to avoid username enumeration by timing. |
 | **Replay attacker** | Re-sends captured ciphertext | 2048-bit sliding replay window per session; AEAD with unique per-packet nonces. |
 | **Local unprivileged user on the client** | Tries to read secrets or hijack qeli's privileged file writes | Secrets/config/keys written atomically with `O_EXCL` + `O_NOFOLLOW` and preserved `0600` mode; control socket gated by a `0700` directory. |
@@ -142,28 +142,27 @@ It improves continuity; it does not make the old and new paths unlinkable.
   PTB can reduce throughput. Probe and PMTU state must bind to path, family, and source.
 - **NAT66 and routed GUA.** NAT66 hides addresses but is not a firewall; routed GUA makes
   client addresses globally routable and requires explicit upstream routing and ACL policy.
+- **Administrator-managed IPv6.** With `routing.ipv6.mode = manual`, external routing,
+  forwarding, firewall, profile isolation, ICMPv6 and DNS access depend on administrator
+  policy. Authenticated session restrictions remain; NDP `required` checks responder
+  startup, not the correctness of manual policy or packet delivery.
 - **Persistent TUN.** Interface reuse is safe only when the full NetworkPlan fingerprint
   matches: families, addresses, routes, DNS, MTU, and leak policy.
 
 ## 4. Assurance status
 
-- **Independent external audit: NOT yet done.** The largest single attack
-  surface is the **hand-rolled TLS 1.3 stack** (`qeli/src/protocol/realtls/*`,
-  ~3k lines), written so the wire fingerprint can be controlled byte-for-byte
-  and to cross-compile without `ring`. It has had internal review and is
-  covered by unit tests, but no third-party cryptographic audit. Treat it
-  accordingly.
+- **Independent external audit has not been performed.** The custom TLS 1.3 handshake/record implementations in `qeli/src/protocol/realtls/`, including the sans-IO client and hand-rolled server, remain security-sensitive. A rustls-backed server backend also exists. Internal review, unit/fuzz tests and CI are not independent cryptographic assurance.
 - **Fuzzing:** harnesses for the untrusted-input parsers (ClientHello, packet codec, realtls
   records, and roaming wire contracts) live under [`qeli/fuzz/`](../../../qeli/fuzz). Continuous
   fuzzing coverage is being built out.
 - **Tests:** the crate has an extensive in-tree unit-test suite (crypto vectors,
   replay window, handshake transcript binding, config round-trips) enforced as a
   CI merge gate alongside `clippy -D warnings` and `rustfmt`.
-- **Reproducibility:** prebuilt native cores are currently committed to the repo
-  for client convenience; migrating to published, checksummed, reproducible
-  build artifacts is tracked in [`ROADMAP.md`](../plans/ROADMAP.md).
+- **Reproducibility:** committed Windows/macOS/Android native cores have independent byte-identical A/B builds, manifest hashes and source/artifact binding. [Contract and evidence](../../../native-libs/README.md). This qualifies the recorded source and recipes, not arbitrary future packages or completed publication.
 - **Memory hygiene (accepted limitation):** long-lived secrets are zeroized on
-  drop (X25519 static/ephemeral keys, the HKDF input keying material). The
+  drop (X25519 static/ephemeral keys, retained ML-KEM decapsulation keys,
+  the HKDF input keying material). This is not a guarantee that every temporary
+  copy, FFI-owned buffer, register, crash dump or swapped page is erased. The
   *transient* per-session AEAD keys held inside the realtls TLS-record objects
   (`aes-gcm`'s expanded key schedule) are NOT zeroized — the upstream `aes-gcm`
   crate does not implement `Zeroize`, and the expanded round keys live inside its
@@ -172,9 +171,20 @@ It improves continuity; it does not make the old and new paths unlinkable.
   during a session, so it does not change the threat model. Revisit on a
   dedicated memory-hygiene pass or a cipher-crate change.
 
+### Linux client local trust store
+
+TOFU does not authenticate first contact like a previously verified `key`. Subsequent
+Linux connections enforce stored pins; invalid UTF-8, the 1 MiB limit, read errors and
+conflicting records cannot start fresh trust, even with `allow_unpinned_tofu = true`.
+Atomic publication preserves the old store on partial-write/file-fsync failure. This
+does not defend against an administrator who can replace the store itself.
+[Baseline and fixed binary validation](../reports/audit-0.8.2/AUDIT-Q25-IDENTITY-FILES.md).
+
 ## 5. If your life depends on this
 
-Then: pin the server identity key (`require_client_key_proof`), use an **IP**
+Verify the server public key through an independent channel and configure client `[qeli] key`
+with `bind_static = true`. Server `[auth] require_client_key_proof = true` enforces
+that proof; it does not configure the client pin. Use an **IP**
 (not hostname) server address with the kill-switch on, use `reality-tls`, keep
 all components on the same released version, and understand points 1 and 4
 above. And prefer tools that have completed an independent audit until qeli has.

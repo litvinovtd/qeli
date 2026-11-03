@@ -1,0 +1,7 @@
+name	version	vcs_commit	upstream_path	url	sha256
+asn1-rs-impl	0.2.0	a20e5f7319c896737ad0f2557037817b91ad854f	LICENSE-APACHE	https://raw.githubusercontent.com/rusticata/asn1-rs/a20e5f7319c896737ad0f2557037817b91ad854f/LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2
+asn1-rs-impl	0.2.0	a20e5f7319c896737ad0f2557037817b91ad854f	LICENSE-MIT	https://raw.githubusercontent.com/rusticata/asn1-rs/a20e5f7319c896737ad0f2557037817b91ad854f/LICENSE-MIT	a5c61b93b6ee1d104af9920cf020ff3c7efe818e31fe562c72261847a728f513
+defmt-parser	1.0.0	4a8cdb44891ed57b8ff5a023b6bec7137c48708f	LICENSE-APACHE	https://raw.githubusercontent.com/knurling-rs/defmt/4a8cdb44891ed57b8ff5a023b6bec7137c48708f/LICENSE-APACHE	8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90
+defmt-parser	1.0.0	4a8cdb44891ed57b8ff5a023b6bec7137c48708f	LICENSE-MIT	https://raw.githubusercontent.com/knurling-rs/defmt/4a8cdb44891ed57b8ff5a023b6bec7137c48708f/LICENSE-MIT	2710a622a896bba67356913d4d0492cab5465f61b2ecce6d880aeb483834fb50
+jni-sys-macros	0.4.1	64d77b7a5f119d7b55b4e2c169a4668067ff59e6	LICENSE-APACHE	https://raw.githubusercontent.com/jni-rs/jni-sys/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-APACHE	c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08
+jni-sys-macros	0.4.1	64d77b7a5f119d7b55b4e2c169a4668067ff59e6	LICENSE-MIT	https://raw.githubusercontent.com/jni-rs/jni-sys/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-MIT	1d85bd754b04ceec93e98e890edd1fa3c6a22e81bcb32135806beeccefa51cd1

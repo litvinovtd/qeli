@@ -8,6 +8,7 @@ import ipaddress
 import os
 import socket
 import struct
+import threading
 from pathlib import Path
 
 ANSWERS = {
@@ -91,41 +92,83 @@ def family_for(address: str) -> socket.AddressFamily:
     return socket.AF_INET6 if ipaddress.ip_address(address).version == 6 else socket.AF_INET
 
 
+def read_exact(sock: socket.socket, length: int) -> bytes:
+    data = bytearray()
+    while len(data) < length:
+        part = sock.recv(length - len(data))
+        if not part:
+            raise ValueError("incomplete TCP DNS frame")
+        data.extend(part)
+    return bytes(data)
+
+
 def serve(address: str, log_path: Path) -> None:
     family = family_for(address)
-    sock = socket.socket(family, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((address, 53))
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    while True:
-        query, peer = sock.recvfrom(65535)
-        try:
-            response, name, qtype = build_response(query)
-            sock.sendto(response, peer)
-            with log_path.open("a", encoding="utf-8") as stream:
-                stream.write(
-                    f"family={6 if family == socket.AF_INET6 else 4} "
-                    f"qtype={TYPE_NAMES.get(qtype, qtype)} qname={name}\n"
-                )
-                stream.flush()
-        except (UnicodeError, ValueError):
-            continue
+    lock = threading.Lock()
+
+    def reply(query: bytes, transport: str) -> bytes:
+        response, name, qtype = build_response(query)
+        truncated = transport == "udp" and name.startswith("tc.")
+        if truncated:
+            _, _, _, question_end = parse_question(query)
+            response = struct.pack("!6H", int.from_bytes(query[:2], "big"), 0x8380, 1, 0, 0, 0) + query[12:question_end]
+        with lock, log_path.open("a", encoding="utf-8") as stream:
+            stream.write(f"family={6 if family == socket.AF_INET6 else 4} transport={transport} "
+                         f"tc={int(truncated)} qtype={TYPE_NAMES.get(qtype, qtype)} qname={name}\n")
+        return response
+
+    listener = socket.socket(family, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind((address, 53))
+    listener.listen(16)
+
+    def connection(stream: socket.socket) -> None:
+        with stream:
+            stream.settimeout(3)
+            try:
+                while True:
+                    length = int.from_bytes(read_exact(stream, 2), "big")
+                    response = reply(read_exact(stream, length), "tcp")
+                    stream.sendall(struct.pack("!H", len(response)) + response)
+            except (OSError, UnicodeError, ValueError):
+                return
+
+    def accept() -> None:
+        while True:
+            stream, _ = listener.accept()
+            threading.Thread(target=connection, args=(stream,), daemon=True).start()
+
+    threading.Thread(target=accept, daemon=True).start()
+    with socket.socket(family, socket.SOCK_DGRAM) as sock:
+        sock.bind((address, 53))
+        while True:
+            query, peer = sock.recvfrom(65535)
+            try:
+                sock.sendto(reply(query, "udp"), peer)
+            except (UnicodeError, ValueError):
+                continue
 
 
-def query(server: str, name: str, qtype: int, expected: str) -> None:
+def query(server: str, name: str, qtype: int, expected: str, tcp: bool = False) -> None:
     family = family_for(server)
     txid = int.from_bytes(os.urandom(2), "big")
     request = build_query(name, qtype, txid)
-    sock = socket.socket(family, socket.SOCK_DGRAM)
-    sock.settimeout(3)
-    sock.sendto(request, (server, 53))
-    response, peer = sock.recvfrom(65535)
-    if ipaddress.ip_address(peer[0]) != ipaddress.ip_address(server):
-        raise RuntimeError(f"response came from unexpected peer {peer[0]}")
+    with socket.socket(family, socket.SOCK_STREAM if tcp else socket.SOCK_DGRAM) as sock:
+        sock.settimeout(3)
+        if tcp:
+            sock.connect((server, 53))
+            sock.sendall(struct.pack("!H", len(request)) + request)
+            response = read_exact(sock, int.from_bytes(read_exact(sock, 2), "big"))
+        else:
+            sock.sendto(request, (server, 53))
+            response, peer = sock.recvfrom(65535)
+            if ipaddress.ip_address(peer[0]) != ipaddress.ip_address(server) or peer[1] != 53:
+                raise RuntimeError(f"response came from unexpected peer {peer}")
     actual = parse_answer(response, txid, qtype)
     if ipaddress.ip_address(actual) != ipaddress.ip_address(expected):
         raise RuntimeError(f"expected {expected}, received {actual}")
-    print(f"PASS: {TYPE_NAMES[qtype]} {name} via {server} -> {actual}")
+    print(f"PASS: {TYPE_NAMES[qtype]} {name} via {server}/{'tcp' if tcp else 'udp'} -> {actual}")
 
 
 def main() -> int:
@@ -139,11 +182,12 @@ def main() -> int:
     query_parser.add_argument("--name", required=True)
     query_parser.add_argument("--type", required=True, choices=("A", "AAAA"))
     query_parser.add_argument("--expect", required=True)
+    query_parser.add_argument("--tcp", action="store_true")
     args = parser.parse_args()
     if args.command == "serve":
         serve(args.address, args.log)
     else:
-        query(args.server, args.name, 1 if args.type == "A" else 28, args.expect)
+        query(args.server, args.name, 1 if args.type == "A" else 28, args.expect, args.tcp)
     return 0
 
 

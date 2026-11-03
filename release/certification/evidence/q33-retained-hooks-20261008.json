@@ -1,0 +1,599 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q33_F450_RETAINED_HOOKS_AND_Q33_COMPLETE",
+  "source_digest": "8115a88d5ab98cb526c2718e76d15f04bc9b36ad55bf22e8fd6e1091bd98aebc",
+  "qualification_source_commit": "b5a445ef55ad0b1749b58445a56fa58c9af09e32",
+  "product_source_commit": "aa98f208bc7bdb345ab5ad7977bce098a3ea37d9",
+  "native_source_digest": "374be1f425f89771d448ff06c29e57601cfe436bc3f1495d7dc0ee6840fb859d",
+  "findings": [
+    "F450/Q33-F053"
+  ],
+  "verification": {
+    "runtime": {
+      "status": "PASS",
+      "baseline_security": "EXPECTED_VULNERABILITY_CONFIRMED_WITH_HARMLESS_MARKER",
+      "baseline_source": "e8f5469ed0651d1c0e327e2c81e3976daa1ecb0b",
+      "fixed_source": "aa98f208bc7bdb345ab5ad7977bce098a3ea37d9",
+      "cases": {
+        "baseline": {
+          "host_identity_unchanged": true,
+          "runtime": {
+            "status": "PASS",
+            "artifact_sha256": "c098a9899ae41042d8ad19ff211aefba1dfed020b753ca33c3dddfbd74f9f289",
+            "checks": [
+              {
+                "name": "ready generation exists",
+                "status": "PASS",
+                "detail": null
+              },
+              {
+                "name": "first restore clears hook on disk",
+                "status": "PASS",
+                "detail": {
+                  "message": "restored 3 file(s) into /etc/qeli (pre-restore backup saved to /etc/qeli/.pre-restore-1791462680-19-0.tgz). This is an OVERLAY \u2014 files that exist now but are NOT in the archive were left in place, so anything created after the backup survives. Re-run with `?exact=1` for a true rollback. Restart the server to apply.",
+                  "ok": true
+                }
+              },
+              {
+                "name": "original worker still alive",
+                "status": "PASS",
+                "detail": null
+              },
+              {
+                "name": "baseline second restore replaces retained script",
+                "status": "PASS",
+                "detail": {
+                  "message": "restored 4 file(s) into /etc/qeli (pre-restore backup saved to /etc/qeli/.pre-restore-1791462680-19-1.tgz). This is an OVERLAY \u2014 files that exist now but are NOT in the archive were left in place, so anything created after the backup survives. Re-run with `?exact=1` for a true rollback. Restart the server to apply.",
+                  "ok": true
+                }
+              },
+              {
+                "name": "retained post_down executes expected marker",
+                "status": "PASS",
+                "detail": "replaced"
+              },
+              {
+                "name": "private network restored",
+                "status": "PASS",
+                "detail": null
+              }
+            ],
+            "observations": [
+              {
+                "second_http": 200,
+                "response": {
+                  "message": "restored 4 file(s) into /etc/qeli (pre-restore backup saved to /etc/qeli/.pre-restore-1791462680-19-1.tgz). This is an OVERLAY \u2014 files that exist now but are NOT in the archive were left in place, so anything created after the backup survives. Re-run with `?exact=1` for a true rollback. Restart the server to apply.",
+                  "ok": true
+                },
+                "script": "printf replaced > /var/tmp/qeli-q33-retained-hooks-20261008122649465119/baseline-run/hook-marker\n"
+              }
+            ],
+            "check_count": 6
+          },
+          "binary": {
+            "sha256": "c098a9899ae41042d8ad19ff211aefba1dfed020b753ca33c3dddfbd74f9f289",
+            "bytes": 78712856,
+            "rc": 0
+          }
+        },
+        "fixed": {
+          "host_identity_unchanged": true,
+          "runtime": {
+            "status": "PASS",
+            "artifact_sha256": "73af3c9e60b23c17f994f87a198184fc6f624fb6f96f90af7ae5b7877bff5b2b",
+            "checks": [
+              {
+                "name": "ready generation exists",
+                "status": "PASS",
+                "detail": null
+              },
+              {
+                "name": "first restore clears hook on disk",
+                "status": "PASS",
+                "detail": {
+                  "message": "restored 3 file(s) into /etc/qeli (pre-restore backup saved to /etc/qeli/.pre-restore-1791464826-19-0.tgz). This is an OVERLAY \u2014 files that exist now but are NOT in the archive were left in place, so anything created after the backup survives. Re-run with `?exact=1` for a true rollback. Restart the server to apply.",
+                  "ok": true
+                }
+              },
+              {
+                "name": "original worker still alive",
+                "status": "PASS",
+                "detail": null
+              },
+              {
+                "name": "fixed second restore refuses retained script",
+                "status": "PASS",
+                "detail": {
+                  "error": "refused: 'owned.txt' is executed by a routing.post_up/post_down hook in a live or retained                  worker configuration. Replacing it through a restore would run panel-supplied code as root,                  which the file-only hook rule exists to prevent. Update it on the server, or                  point the hook outside /etc/qeli.",
+                  "ok": false,
+                  "publication_started": false,
+                  "rollback_snapshot": null
+                }
+              },
+              {
+                "name": "exact restore refuses retained script deletion before publication",
+                "status": "PASS",
+                "detail": {
+                  "error": "refused: exact restore would delete 'owned.txt' referenced by a live or retained routing hook; keep hooks outside /etc/qeli",
+                  "ok": false,
+                  "publication_started": false,
+                  "rollback_snapshot": null
+                }
+              },
+              {
+                "name": "safe overlay still succeeds",
+                "status": "PASS",
+                "detail": {
+                  "message": "restored 3 file(s) into /etc/qeli (pre-restore backup saved to /etc/qeli/.pre-restore-1791464828-19-3.tgz). This is an OVERLAY \u2014 files that exist now but are NOT in the archive were left in place, so anything created after the backup survives. Re-run with `?exact=1` for a true rollback. Restart the server to apply.",
+                  "ok": true
+                }
+              },
+              {
+                "name": "retained post_down executes expected marker",
+                "status": "PASS",
+                "detail": "original"
+              },
+              {
+                "name": "private network restored",
+                "status": "PASS",
+                "detail": null
+              }
+            ],
+            "observations": [
+              {
+                "second_http": 400,
+                "response": {
+                  "error": "refused: 'owned.txt' is executed by a routing.post_up/post_down hook in a live or retained                  worker configuration. Replacing it through a restore would run panel-supplied code as root,                  which the file-only hook rule exists to prevent. Update it on the server, or                  point the hook outside /etc/qeli.",
+                  "ok": false,
+                  "publication_started": false,
+                  "rollback_snapshot": null
+                },
+                "script": "printf original > /var/tmp/qeli-q33-retained-hooks-20261008122649465119/fixed-run/hook-marker\n"
+              }
+            ],
+            "check_count": 8
+          },
+          "binary": {
+            "sha256": "73af3c9e60b23c17f994f87a198184fc6f624fb6f96f90af7ae5b7877bff5b2b",
+            "bytes": 78778192,
+            "rc": 0
+          }
+        },
+        "fixed-later": {
+          "host_identity_unchanged": true,
+          "runtime": {
+            "status": "PASS",
+            "artifact_sha256": "73af3c9e60b23c17f994f87a198184fc6f624fb6f96f90af7ae5b7877bff5b2b",
+            "checks": [
+              {
+                "name": "later worker config restart accepted",
+                "status": "PASS",
+                "detail": {
+                  "message": "worker restarting",
+                  "ok": true
+                }
+              },
+              {
+                "name": "supervisor survives worker replacement",
+                "status": "PASS",
+                "detail": null
+              },
+              {
+                "name": "ready generation exists",
+                "status": "PASS",
+                "detail": null
+              },
+              {
+                "name": "first restore clears hook on disk",
+                "status": "PASS",
+                "detail": {
+                  "message": "restored 3 file(s) into /etc/qeli (pre-restore backup saved to /etc/qeli/.pre-restore-1791464928-19-0.tgz). This is an OVERLAY \u2014 files that exist now but are NOT in the archive were left in place, so anything created after the backup survives. Re-run with `?exact=1` for a true rollback. Restart the server to apply.",
+                  "ok": true
+                }
+              },
+              {
+                "name": "original worker still alive",
+                "status": "PASS",
+                "detail": null
+              },
+              {
+                "name": "fixed second restore refuses retained script",
+                "status": "PASS",
+                "detail": {
+                  "error": "refused: 'later.txt' is executed by a routing.post_up/post_down hook in a live or retained                  worker configuration. Replacing it through a restore would run panel-supplied code as root,                  which the file-only hook rule exists to prevent. Update it on the server, or                  point the hook outside /etc/qeli.",
+                  "ok": false,
+                  "publication_started": false,
+                  "rollback_snapshot": null
+                }
+              },
+              {
+                "name": "exact restore refuses retained script deletion before publication",
+                "status": "PASS",
+                "detail": {
+                  "error": "refused: exact restore would delete 'later.txt' referenced by a live or retained routing hook; keep hooks outside /etc/qeli",
+                  "ok": false,
+                  "publication_started": false,
+                  "rollback_snapshot": null
+                }
+              },
+              {
+                "name": "safe overlay still succeeds",
+                "status": "PASS",
+                "detail": {
+                  "message": "restored 3 file(s) into /etc/qeli (pre-restore backup saved to /etc/qeli/.pre-restore-1791464930-19-3.tgz). This is an OVERLAY \u2014 files that exist now but are NOT in the archive were left in place, so anything created after the backup survives. Re-run with `?exact=1` for a true rollback. Restart the server to apply.",
+                  "ok": true
+                }
+              },
+              {
+                "name": "retained post_down executes expected marker",
+                "status": "PASS",
+                "detail": "original"
+              },
+              {
+                "name": "private network restored",
+                "status": "PASS",
+                "detail": null
+              }
+            ],
+            "observations": [
+              {
+                "second_http": 400,
+                "response": {
+                  "error": "refused: 'later.txt' is executed by a routing.post_up/post_down hook in a live or retained                  worker configuration. Replacing it through a restore would run panel-supplied code as root,                  which the file-only hook rule exists to prevent. Update it on the server, or                  point the hook outside /etc/qeli.",
+                  "ok": false,
+                  "publication_started": false,
+                  "rollback_snapshot": null
+                },
+                "script": "printf original > /var/tmp/qeli-q33-retained-hooks-20261008122649465119/fixed-later-run/hook-marker\n"
+              }
+            ],
+            "check_count": 10
+          },
+          "binary": {
+            "sha256": "73af3c9e60b23c17f994f87a198184fc6f624fb6f96f90af7ae5b7877bff5b2b",
+            "bytes": 78778192,
+            "rc": 0
+          }
+        }
+      },
+      "lab_original_preserved": true
+    },
+    "review": {
+      "status": "PASS_SCOPED",
+      "finding": "F450/Q33-F053",
+      "coverage": [
+        "ready startup worker retains old post_down after INI overlay",
+        "later worker config before spawn remembered without changing supervisor identity",
+        "conservative set is never cleared by worker exit or empty INI",
+        "overlay replacement refuses before snapshot/publication",
+        "exact deletion refuses before snapshot/publication including nested top-level directories",
+        "ordinary safe overlay and original hook execution remain usable",
+        "deduplicate startup/later commands and poison recovery retain original source references"
+      ],
+      "limits": [
+        "literal path collector is not a shell sandbox",
+        "unsynchronized trusted admin writes between separate supervisor and worker reads are outside qualification",
+        "no full-tree atomicity/power-loss/durability or automatic rollback claim",
+        "conservative protected references persist until full supervisor exit",
+        "packages and runtime images from earlier evidence are not relabeled as containing this patch"
+      ]
+    },
+    "build": {
+      "source_commit": "aa98f208bc7bdb345ab5ad7977bce098a3ea37d9",
+      "rows": [
+        {
+          "name": "build",
+          "command": "cargo +1.97.0 build --offline --locked --bin qeli",
+          "rc": 0
+        },
+        {
+          "name": "bin-tests",
+          "command": "cargo +1.97.0 test --offline --locked --bin qeli",
+          "rc": 0
+        },
+        {
+          "name": "backup-tests",
+          "command": "cargo +1.97.0 test --offline --locked --lib web::api::backup -- --test-threads=1 --include-ignored --skip web::api::backup::io_tests::native_backup_preflight_io_and_cancel_ownership",
+          "rc": 0
+        },
+        {
+          "name": "retained-lifecycle-tests",
+          "command": "cargo +1.97.0 test --offline --locked --lib restore_hooks_retain_startup_and_later_worker_generations -- --exact server::tests::restore_hooks_retain_startup_and_later_worker_generations",
+          "rc": 0
+        },
+        {
+          "name": "post-down-tests",
+          "command": "cargo +1.97.0 test --offline --locked --lib post_down_ -- --test-threads=1",
+          "rc": 0
+        },
+        {
+          "name": "clippy",
+          "command": "cargo +1.97.0 clippy --offline --locked --bin qeli -- -D warnings",
+          "rc": 0
+        },
+        {
+          "name": "private-io-cancel-0",
+          "command": "unshare --mount --net --pid --fork --mount-proc bash -c 'set -eu; mount --make-rprivate /; mount --bind /var/tmp/qeli-q33-retained-hooks-20261008122649465119/io-0/etc /etc/qeli; mount --bind /var/tmp/qeli-q33-retained-hooks-20261008122649465119/io-0/tmp /tmp; export QELI_AUDIT_PRIVATE_FS=1 QELI_AUDIT_IO_MODE=backup-read QELI_AUDIT_MARKER=/tmp/io.ready QELI_AUDIT_CANCEL=0 QELI_AUDIT_PID=$$ LD_PRELOAD=/var/tmp/qeli-q33-retained-hooks-20261008122649465119/io-shim.so; exec /var/tmp/qeli-q33-retained-hooks-20261008122649465119/target/debug/deps/qeli_core-2c5cd8f13984c7e0 --exact web::api::backup::io_tests::native_backup_preflight_io_and_cancel_ownership --ignored --nocapture'",
+          "rc": 0
+        },
+        {
+          "name": "private-io-cancel-1",
+          "command": "unshare --mount --net --pid --fork --mount-proc bash -c 'set -eu; mount --make-rprivate /; mount --bind /var/tmp/qeli-q33-retained-hooks-20261008122649465119/io-1/etc /etc/qeli; mount --bind /var/tmp/qeli-q33-retained-hooks-20261008122649465119/io-1/tmp /tmp; export QELI_AUDIT_PRIVATE_FS=1 QELI_AUDIT_IO_MODE=backup-read QELI_AUDIT_MARKER=/tmp/io.ready QELI_AUDIT_CANCEL=1 QELI_AUDIT_PID=$$ LD_PRELOAD=/var/tmp/qeli-q33-retained-hooks-20261008122649465119/io-shim.so; exec /var/tmp/qeli-q33-retained-hooks-20261008122649465119/target/debug/deps/qeli_core-2c5cd8f13984c7e0 --exact web::api::backup::io_tests::native_backup_preflight_io_and_cancel_ownership --ignored --nocapture'",
+          "rc": 0
+        }
+      ]
+    },
+    "binary": {
+      "sha256": "73af3c9e60b23c17f994f87a198184fc6f624fb6f96f90af7ae5b7877bff5b2b",
+      "size": 78778192,
+      "source_commit": "aa98f208bc7bdb345ab5ad7977bce098a3ea37d9"
+    },
+    "windows_abi": {
+      "status": "PASS",
+      "library_sha256": "3208f46697f3df588fd2eb8228772b1a5bca8569273e982b6925502167420f07",
+      "checks": [
+        {
+          "check": "ABI 1.16 and declared capabilities",
+          "passed": true
+        },
+        {
+          "check": "null configuration rejected before allocation",
+          "passed": true
+        },
+        {
+          "check": "invalid UTF8 returns no handle",
+          "passed": true
+        },
+        {
+          "check": "Created state",
+          "passed": true
+        },
+        {
+          "check": "device identity requires sixteen nonzero bytes",
+          "passed": true
+        },
+        {
+          "check": "start transitions once",
+          "passed": true
+        },
+        {
+          "check": "publish copies plan and enters AwaitingNetwork",
+          "passed": true
+        },
+        {
+          "check": "buffer size probe preserves plan and future event tail",
+          "passed": true
+        },
+        {
+          "check": "stale generation cannot accept network",
+          "passed": true
+        },
+        {
+          "check": "positive ACK enters Running",
+          "passed": true
+        },
+        {
+          "check": "old stats prefix and caller tail preserved",
+          "passed": true
+        },
+        {
+          "check": "malformed batch has no partial acceptance",
+          "passed": true
+        },
+        {
+          "check": "fixed packet pool applies backpressure",
+          "passed": true
+        },
+        {
+          "check": "empty downlink reports zero bytes",
+          "passed": true
+        },
+        {
+          "check": "stop terminates generation",
+          "passed": true
+        },
+        {
+          "check": "stopped bridge is unavailable",
+          "passed": true
+        },
+        {
+          "check": "free and stale handle refuse reuse",
+          "passed": true
+        },
+        {
+          "check": "100 registry reuse cycles preserve stale-handle isolation",
+          "passed": true
+        },
+        {
+          "check": "eight concurrent frees destroy one generation exactly once",
+          "passed": true
+        },
+        {
+          "check": "second native runner cannot enter an active generation",
+          "passed": true
+        },
+        {
+          "check": "free invalidates public handle while runner is leased",
+          "passed": true
+        },
+        {
+          "check": "free cancels and joins pending native handshake",
+          "passed": true
+        }
+      ],
+      "scope": "Windows packaged C ABI and real localhost handshake cancellation; no Wintun or OS network mutation."
+    },
+    "local": {
+      "status": "PASS",
+      "rows": [
+        {
+          "name": "docs",
+          "rc": 0
+        },
+        {
+          "name": "native-sha",
+          "rc": 0
+        },
+        {
+          "name": "native-provenance",
+          "rc": 0
+        }
+      ],
+      "native_digest": "374be1f425f89771d448ff06c29e57601cfe436bc3f1495d7dc0ee6840fb859d",
+      "native_SHA_rows": 14
+    },
+    "units": {
+      "status": "PASS",
+      "rows": [
+        {
+          "name": "recipes",
+          "rc": 0,
+          "tests": 38
+        },
+        {
+          "name": "publication",
+          "rc": 0,
+          "tests": 7
+        },
+        {
+          "name": "rustfmt",
+          "rc": 0
+        }
+      ]
+    },
+    "host": {
+      "status": "PASS",
+      "before_sha256": "9ecf2e2ac12c32a218ca180f11dafbb4224d896998637a9cde18c6f1bfc54d7c",
+      "after_sha256": "9ecf2e2ac12c32a218ca180f11dafbb4224d896998637a9cde18c6f1bfc54d7c",
+      "original_pids": [
+        777,
+        845
+      ],
+      "installed_elf_sha256": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a",
+      "scope": "exact Linux .11 service/PID/argv/installed ELF before and after actual build and all baseline/current runtimes; private MNT/NET/PID operations, no global service/firewall/sysctl changes; native original PIDs checked separately per group"
+    },
+    "cleanup": {
+      "status": "PASS",
+      "own_root_removed": "/var/tmp/qeli-q33-retained-hooks-20261008122649465119",
+      "backup_removed_after_local_sha": "/var/tmp/qeli-q33-retained-hooks-20261008122649465119-backup.tar.gz",
+      "service": "MainPID=777\nActiveState=active\n",
+      "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "native": {
+      "desktop": {
+        "result": {
+          "status": "PASS",
+          "rc": 0
+        },
+        "reproducibility": {
+          "artifacts": {
+            "native-libs/macos-universal/libqeli.dylib": {
+              "consumed": {
+                "qeli-mac/QeliMac/native/libqeli.dylib": "d5e033615c98288215fb2cc69b32e0c68b9bca80f50464b5ec9cd3d0d4957e4b"
+              },
+              "final_sha256": "d5e033615c98288215fb2cc69b32e0c68b9bca80f50464b5ec9cd3d0d4957e4b",
+              "pass_a_sha256": "d5e033615c98288215fb2cc69b32e0c68b9bca80f50464b5ec9cd3d0d4957e4b",
+              "pass_b_sha256": "d5e033615c98288215fb2cc69b32e0c68b9bca80f50464b5ec9cd3d0d4957e4b",
+              "reproducible": true
+            },
+            "native-libs/windows-x64/qeli.dll": {
+              "consumed": {
+                "qeli-win/QeliWin/native/qeli.dll": "3208f46697f3df588fd2eb8228772b1a5bca8569273e982b6925502167420f07"
+              },
+              "final_sha256": "3208f46697f3df588fd2eb8228772b1a5bca8569273e982b6925502167420f07",
+              "pass_a_sha256": "3208f46697f3df588fd2eb8228772b1a5bca8569273e982b6925502167420f07",
+              "pass_b_sha256": "3208f46697f3df588fd2eb8228772b1a5bca8569273e982b6925502167420f07",
+              "reproducible": true
+            }
+          },
+          "recipe": "qeli-native-repro-v1",
+          "schema": 1,
+          "source_commit": "aa98f208bc7bdb345ab5ad7977bce098a3ea37d9",
+          "source_date_epoch": 1791462692,
+          "source_digest": "374be1f425f89771d448ff06c29e57601cfe436bc3f1495d7dc0ee6840fb859d",
+          "source_dirty": false,
+          "toolchain": {
+            "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+            "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+            "cargo_zigbuild_version": "0.23.0",
+            "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+            "rcodesign": "apple-codesign 0.29.0",
+            "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+            "rust_toolchain": "1.97.0",
+            "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+            "zig": "0.13.0"
+          }
+        },
+        "cleanup": {
+          "status": "PASS",
+          "own_root_removed": "/var/tmp/qeli-q33-retained-native-20261008.Wz9XwX",
+          "backup_removed_after_local_sha": "/var/tmp/qeli-q33-retained-native-20261008.Wz9XwX-backup.tar.gz",
+          "service": "MainPID=0\nActiveState=inactive\n",
+          "qeli": "745 /opt/qeli-src/target/debug/qeli server -c /etc/qeli/server.conf\n901 /opt/qeli-src/target/debug/qeli _worker -c /etc/qeli/server.conf\n"
+        }
+      },
+      "android": {
+        "result": {
+          "status": "PASS",
+          "rc": 0
+        },
+        "reproducibility": {
+          "artifacts": {
+            "native-libs/android/arm64-v8a/libqeli.so": {
+              "consumed": {
+                "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "14c6403c556cf91107cc392b1a8e294cc16607039110ab33552e110d0ce2bb39"
+              },
+              "final_sha256": "14c6403c556cf91107cc392b1a8e294cc16607039110ab33552e110d0ce2bb39",
+              "pass_a_sha256": "14c6403c556cf91107cc392b1a8e294cc16607039110ab33552e110d0ce2bb39",
+              "pass_b_sha256": "14c6403c556cf91107cc392b1a8e294cc16607039110ab33552e110d0ce2bb39",
+              "reproducible": true
+            },
+            "native-libs/android/x86_64/libqeli.so": {
+              "consumed": {
+                "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "d738ee4d84d0498cc61b7cd34676288bd3f270c82c1a66663ca6880f62bd2fe4"
+              },
+              "final_sha256": "d738ee4d84d0498cc61b7cd34676288bd3f270c82c1a66663ca6880f62bd2fe4",
+              "pass_a_sha256": "d738ee4d84d0498cc61b7cd34676288bd3f270c82c1a66663ca6880f62bd2fe4",
+              "pass_b_sha256": "d738ee4d84d0498cc61b7cd34676288bd3f270c82c1a66663ca6880f62bd2fe4",
+              "reproducible": true
+            }
+          },
+          "recipe": "qeli-native-repro-v1",
+          "schema": 1,
+          "source_commit": "aa98f208bc7bdb345ab5ad7977bce098a3ea37d9",
+          "source_date_epoch": 1791462692,
+          "source_digest": "374be1f425f89771d448ff06c29e57601cfe436bc3f1495d7dc0ee6840fb859d",
+          "source_dirty": false,
+          "toolchain": {
+            "android_ndk": "26.3.11579264",
+            "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+            "cargo_ndk": "cargo-ndk v4.1.2:",
+            "cargo_ndk_version": "4.1.2",
+            "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+            "rust_toolchain": "1.97.0",
+            "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+          }
+        },
+        "cleanup": {
+          "status": "PASS",
+          "own_root_removed": "/var/tmp/qeli-q33-retained-native-20261008.5e4c0J",
+          "backup_removed_after_local_sha": "/var/tmp/qeli-q33-retained-native-20261008.5e4c0J-backup.tar.gz",
+          "service": "MainPID=777\nActiveState=active\n",
+          "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+        }
+      }
+    }
+  },
+  "raw_packet": {
+    "name": "q33-retained-hooks-20261008",
+    "files": 112,
+    "bytes": 167439176,
+    "manifest_sha256": "b817b3916307f8b7ad20d6f07dda0bae0ce99fc1430c34337451370d9e4bb3bc",
+    "runtime_status": "PASS_Q33_RETAINED_HOOKS_WITH_REAL_BASELINE_AND_FIXED_RUNTIME",
+    "path": "audit-debt-20260924/q33-retained-hooks-20261008",
+    "status": "SEALED"
+  },
+  "scope": "Q33 F450/Q33-F053 retained routing hooks: real e8f5469e HTTP baseline clears INI then replaces owned script and retained ready worker executes harmless replaced marker; current aa98f208 initial/later-worker runtime8+10PASS,first safe overlay succeeds,replacement and exact deletion refuse before publication,original marker executed. Supervisor retains startup and pre-spawn worker commands until process exit; static literal collector limits and unsynchronized privileged admin writes preserved. Linux actual CLIbuild/bin5/backup50/retained1/post_down3/privatepreloadIO2/Clippy/fmtPASS;fresh independent native A-B sixcompilercommands4targets,offlineprivatecachetargets,jobs1,panicunwind,exports14SHA/copies/provenancePASS;actual refreshedWindowsABI22,noWintun/OSroutes,Macphysical/iOS/routerUSER_EXCLUDED,no newAndroidfullruntime/soak. Initial inherited-sysfs fixture readyFAIL retained,corrected iplink baseline qualifies;lab .11original777-845ELF75bc,.10original745-901preserved,SHAdownloadrecoverableguardcleanupSEALEDcredentialscan. Historical package/Docker/VPN gates reused only for unchanged mechanisms,not newpatched payload qualification. Q33 fivecriteriaDONE,overall30-37DONE81.1percent7remain;old14debtDONE+D06accepted,Q29SIGKILLFAILENONET,Q30Applecallbacks,Q31capacity3-5sourcecut/currentActions/Q34CIreleaseOPEN preserved.41cases70prior supplements modulo source_digest preserved append71;20requiredautomated21advisory unchanged. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

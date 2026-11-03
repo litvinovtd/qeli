@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "source_digest": "2e0326b32056e066948a380aaa6eaf89b8f6e62daef7f646afc9daca926c71c1",
+  "base_worktree_commit": "a1991a39490a44896f39b9f16995a109dcbde491",
+  "base_dev_commit": "67ea256c05fc52f690e906c6d678580ff09d027f",
+  "status": "F355_SCOPED_PASS_Q31_IN_PROGRESS",
+  "findings": [
+    "F355"
+  ],
+  "raw_packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-keenetic-launch-config-20261007",
+  "raw_seal_sha256": "49da611ebb45095437eb63cd7662e2509651954e1920d5a0d20bb2e31632e2d6",
+  "checks": {
+    "lab": [
+      {
+        "id": "full-dash",
+        "command": "cd /var/tmp/qeli-q31-keenetic-launch-config-20261007/source && QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-launch-config-20261007/process-fixture QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/retained-artifacts/qeli-client QELI_ROUTER_TEST_SHELL=/bin/dash python3 -m unittest discover -s scripts -p \"test_keenetic_*.py\" -v",
+        "rc": 0
+      },
+      {
+        "id": "full-ash",
+        "command": "cd /var/tmp/qeli-q31-keenetic-launch-config-20261007/source && QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-launch-config-20261007/process-fixture QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/retained-artifacts/qeli-client QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p \"test_keenetic_*.py\" -v",
+        "rc": 0
+      }
+    ],
+    "methods_per_shell": 192,
+    "new_methods": 8,
+    "skipped": 0,
+    "baseline_rotation": "baseline-rotation.log:2expected subtest failures",
+    "initial_full": "full-dash-initial.log/full-ash-initial.log:4fixture failures per shell",
+    "initial_contract_baseline": "baseline.log:14failures12errors, not independent defects",
+    "local": [
+      {
+        "id": "luci",
+        "command": [
+          "node",
+          "scripts/test_openwrt_luci.js"
+        ],
+        "rc": 0,
+        "log": "luci.log"
+      },
+      {
+        "id": "recipes",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_native_recipes.py",
+          "-v"
+        ],
+        "rc": 0,
+        "log": "recipes.log"
+      },
+      {
+        "id": "bindings",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/gen_config_bindings.py",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "bindings.log"
+      },
+      {
+        "id": "docs",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/check_docs.py"
+        ],
+        "rc": 0,
+        "log": "docs.log"
+      },
+      {
+        "id": "diff",
+        "command": [
+          "git",
+          "diff",
+          "--cached",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "diff.log"
+      }
+    ],
+    "runtime_cleanup": "runtime-proof.json",
+    "older_owned_cleanup": "older-fixture-cleanup.json"
+  },
+  "input_proof": {
+    "base_worktree": "a1991a39490a44896f39b9f16995a109dcbde491",
+    "base_dev": "67ea256c05fc52f690e906c6d678580ff09d027f",
+    "source_stage_tree_before_certification": "d1657c0e37c5367a93f66a22a08cc4d60be6850b",
+    "source_digest": "2e0326b32056e066948a380aaa6eaf89b8f6e62daef7f646afc9daca926c71c1",
+    "staged_inputs": [
+      {
+        "path": "docs/eng/manuals/KEENETIC-DEPLOY.md",
+        "sha256": "7b7052d2a5e4f32d7895c89260804b5591b69cb1b709c8958fca51db0677b7bd",
+        "size": 21764
+      },
+      {
+        "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "aa8710253d8fa37305deba34fd1cd9ffa7303b252b4d58d74ff64dcf744c3f6b",
+        "size": 202136
+      },
+      {
+        "path": "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "743feed4465ab5618c19ca5f5b093d8589bf116ed77ecda9bf38ab7095a79f00",
+        "size": 98203
+      },
+      {
+        "path": "docs/ru/manuals/KEENETIC-DEPLOY.md",
+        "sha256": "7ea7e8902d8b81c919e41d7814f8965cfab7b01bcbf93c2a7ef01b6a75065b20",
+        "size": 33962
+      },
+      {
+        "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "9739742b534abe7f543c8a7266b40a0850734754b286b072e17cfc77e8c458db",
+        "size": 279643
+      },
+      {
+        "path": "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "95df53748e2b6e9540296f38e01339be25d2f95d3fad41667638c0214d22fa14",
+        "size": 137760
+      },
+      {
+        "path": "release/keenetic/README.md",
+        "sha256": "9b0d13a10355faad34ac9cbac502c47690dff396694f695421abb22f0b16e5ab",
+        "size": 14646
+      },
+      {
+        "path": "release/keenetic/S99qeli",
+        "sha256": "ca2ceab8ea77ec36f982885141db4d3c35a75343a19d3795ca6e3a720831b9e0",
+        "size": 17621
+      },
+      {
+        "path": "release/keenetic/install-keenetic.sh",
+        "sha256": "2c8f695d7509651d49db6986183d5fcb876554a490200f084e12c3068d969429",
+        "size": 8426
+      },
+      {
+        "path": "release/keenetic/lifecycle.sh",
+        "sha256": "365a6f05600a8f78552c8d32401d14a3e6a9eb1a5e7cb5222615cc29a9f99058",
+        "size": 3057
+      },
+      {
+        "path": "release/keenetic/opkgtun/README.md",
+        "sha256": "b48a091368d46f4a908e2c0e43de90ce128b5f888c04869395f553c96de023a5",
+        "size": 23405
+      },
+      {
+        "path": "release/keenetic/opkgtun/S99qeli",
+        "sha256": "b8e17bae8e68c4e0513262ad5a2fafbbce93216ba919fbad1eafa57aadfbaf0e",
+        "size": 19407
+      },
+      {
+        "path": "scripts/test_keenetic_launch_config.py",
+        "sha256": "743e9b649a01f9701ce03d50567e4bae87535d3914b5a68c19984fd0631024ec",
+        "size": 10372
+      },
+      {
+        "path": "scripts/test_keenetic_process.py",
+        "sha256": "10495f132efe03239769ec71c0672f2d41761cfa4e3a5953fd3b4bfc854f2613",
+        "size": 16102
+      },
+      {
+        "path": "scripts/test_keenetic_templates.py",
+        "sha256": "b6aede9d0ab599ee5e28dc9305049bc5d7ea52831a0d0100627cbc3951ab5081",
+        "size": 22475
+      }
+    ],
+    "git_lab_inputs_verified": 317,
+    "human_content_sha256": {
+      "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+      "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+    },
+    "reused_inspector": {
+      "retained_compile_inputs": 317,
+      "current_exact_matches": 315,
+      "known_portability_differences": [
+        {
+          "path": "qeli/src/client/mod.rs",
+          "current_sha256": "56b94f40257654696228731f32c9fb83a2b3ff81511098c091430b3a23f72992",
+          "retained_build_sha256": "0926da939bd911d67ffac9d171b64d9fddc8b69dea97a77b44a8f3c2610cea92"
+        },
+        {
+          "path": "qeli/src/client/sysctl/target.rs",
+          "current_sha256": "733b309cee12298aa347d4c168f5b3f0933bdd4e3a45b413333d4562d962a49f",
+          "retained_build_sha256": "8c3c599f2e323443d99cf3cc2b190d885632c790c682cd9d169cb105ecedbc3d"
+        }
+      ],
+      "exact_diff_verified": true,
+      "inspector_cli_config_snapshot_parser_expectation_block_unchanged": true,
+      "scope": "Actual retained host inspector reused. Two subsequent F342/F343 portability edits (MIPS atomic fallback/procfs integer cast) are outside preflight; no fresh current Rust/native/cross build."
+    },
+    "reused_packet": {
+      "packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-keenetic-interface-admission-20261006",
+      "raw_seal_sha256": "beabaf085a17e66b79284f913c7e9d2a83237107e741d82d3d8c516c8a57a3a7",
+      "verified_files": 380
+    }
+  },
+  "reused_packets": [
+    {
+      "packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-keenetic-interface-admission-20261006",
+      "raw_seal_sha256": "beabaf085a17e66b79284f913c7e9d2a83237107e741d82d3d8c516c8a57a3a7",
+      "verified_files": 380
+    }
+  ],
+  "runtime_artifacts": [
+    {
+      "path": "/var/tmp/qeli-q31-keenetic-launch-config-20261007/process-fixture",
+      "sha256": "8b1e1c6e4c48d2d67d4cc19cac92293e8f7c76264215f239158dd8c8136d2fe2",
+      "size": 17448
+    },
+    {
+      "path": "/var/tmp/qeli-q31-keenetic-interface-admission-20261006/retained-artifacts/qeli-client",
+      "sha256": "5d0d3189124d7027cc721616c6b11336dd5c1bc396d22879385db6537a1d1eaf",
+      "size": 140580936
+    }
+  ],
+  "scope": "F355: both Keenetic templates previously checked original INI A but asynchronously reopened atomically replaced B. Actual retained core inspector/native launch receipts reproduce two baseline rotation subtest failures. Common lifecycle now inspects and launches one bounded private INI copy, preserves owner/mode to avoid command-trust promotion, rejects links/nonregular/unsafe parents and runtime directory; installer validates root-owned config directory and snapshot tools before dependencies. Repeated start retains copy, restart recaptures original; successful joined stop/network cleanup clears copy, failures retain recovery; QELI_CONFIG_PATH now names runtime copy, manuals updated.8new methods exercise both variants; full192 methods each dash and BusyBox ash PASS without skips. Initial4 full-suite failures per shell from global-mv PID-publication fixture corrected to target PID; new tests cover config publication refusal. Broad initial baseline7 methods14failures12errors represent absent new contracts, not26bugs. Older6October model-only fixture safely archived/compared/removed after exact ownership checks; initial verifier self-match stopped without mutation. No owned processes/fixture roots remain.317 exact Git/lab transferred inputs verified. Actual retained inspector SHA5d0d3189124d7027cc721616c6b11336dd5c1bc396d22879385db6537a1d1eaf:315/317 compile inputs exactly current, two subsequent MIPS AtomicU64/procfs cast portability diffs outside unchanged CLI/parser/preflight verified; no fresh current core build. Tiny owned C fixture built GCC -Werror.380 prior sealed raw files verified.37recipes/14LuCI/docs9/bindings/diff PASS. Product Rust/core/native/ABI/artifacts unchanged, no fresh Rust/cross/FFI build; filesystem/network models, no actual router/VPN/hook command trust execution. Only owned .11 files/processes; host services/network/firewall and .10 untouched.41historic case fields/acceptance preserved except source_digest; scoped supplement only. Q31 IN_PROGRESS28/37(75.7%),9remain;Q29SIGKILLFAIL/auto-nullENONET,Q30drainOPEN/Appleexclusions,D06ACCEPTED retained. Root/admin runtime replacement,core plan/generation/ABA,OpenWrt config generation,full SDK Rust/build/install/compiler compatibility/source release-cut,hermetic A/B,SIGKILL/powerloss transactions OPEN;firmware USER_EXCLUDED. No push/deploy.",
+  "remaining": [
+    "core plan generation/ABA and root/admin replacement OPEN",
+    "OpenWrt config generation OPEN",
+    "full SDK Rust/build/install/compiler compatibility/source release-cut OPEN",
+    "hermetic A/B and SIGKILL/powerloss transaction OPEN",
+    "firmware USER_EXCLUDED",
+    "actual VPN/network/hook command execution not qualified by models"
+  ]
+}

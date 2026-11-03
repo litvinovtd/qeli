@@ -13,7 +13,7 @@ namespace QeliMac;
 public static class Program
 {
     private static readonly string[] CliVerbs = { "selftest", "handshake", "connect", "genassets", "genicns",
-        "pf-selftest-rules" };
+        "pf-selftest-rules", "storage-selftest", "control-selftest", "network-selftest", "perapp-selftest", "forwarding-selftest" };
 
     // Darwin's sigset_t is a bare uint32 with signal N in bit N-1, and SIG_SETMASK is 3.
     // Both read out of the macOS SDK headers rather than assumed: Linux's sigset_t is
@@ -97,11 +97,19 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        // A self-test is explicitly side-effect free (no network and no root). Dispatch it
-        // before startup recovery so CI cannot restore host DNS/firewall state merely by
-        // validating the binary.
+        // Self-tests and asset renderers require no network or root. Dispatch them
+        // before startup recovery so validation or rendering a build icon cannot
+        // restore host DNS/firewall state or require daemon control directories.
         if (args.Length > 0 &&
-            string.Equals(args[0], "selftest", StringComparison.OrdinalIgnoreCase))
+            (string.Equals(args[0], "selftest", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(args[0], "storage-selftest", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(args[0], "control-selftest", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(args[0], "network-selftest", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(args[0], "perapp-selftest", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(args[0], "forwarding-selftest", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(args[0], "pf-selftest-rules", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(args[0], "genassets", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(args[0], "genicns", StringComparison.OrdinalIgnoreCase)))
             return CliRunner.Run(args[0], args.Skip(1).ToArray());
 
         // Before the elevated helper spawns a child process — see the method above.
@@ -121,6 +129,15 @@ public static class Program
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             LogStartupError(e.ExceptionObject as Exception ?? new Exception("non-CLR fatal error"));
 
+        bool serviceRequested = args.Any(a => string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase));
+        if (serviceRequested)
+        {
+            // launchd can restart us without a GUI Start (including after reboot).
+            // Invalidate a prior successful Stop BEFORE startup recovery can fail or hang.
+            try { Service.ServiceState.WriteStatusRequired(Qeli.Shared.Vpn.VpnStatus.Connecting, null); }
+            catch (Exception e) { LogStartupError(e); return 1; }
+        }
+
         // Restore any kill-switch a crashed prior run left in place. The unprivileged GUI
         // may be unable to do this, but the root daemon must not start a new generation after
         // a failed recovery and silently overwrite the only restoration journal.
@@ -136,14 +153,37 @@ public static class Program
         try { Vpn.NetworkConfigurator.SweepDns(message => Console.Error.WriteLine($"qeli: {message}")); }
         catch (Exception e) { dnsRecoveryFailure = e; LogStartupError(e); }
 
-        if (args.Any(a => string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase)))
+        Exception? forwardingRecoveryFailure = null;
+        try { Vpn.ForwardingJournal.Sweep(message => Console.Error.WriteLine($"qeli: {message}")); }
+        catch (Exception e) { forwardingRecoveryFailure = e; LogStartupError(e); }
+
+        if (serviceRequested)
         {
             // Starting a new tunnel after a failed stale-journal restore could leave the host
             // with qeli DNS but no usable VPN. Let launchd retry the recovery on its next
             // supervised start; never overwrite the saved pre-qeli resolver snapshot.
-            if (killSwitchRecoveryFailure != null || dnsRecoveryFailure != null) return 1;
+            if (killSwitchRecoveryFailure != null || dnsRecoveryFailure != null || forwardingRecoveryFailure != null)
+            {
+                Service.ServiceState.WriteStatus(Qeli.Shared.Vpn.VpnStatus.Error,
+                    "Startup network recovery failed: " +
+                    string.Join("; ", new[] { killSwitchRecoveryFailure, dnsRecoveryFailure, forwardingRecoveryFailure }
+                        .Where(error => error != null).Select(error => error!.Message)));
+                return 1;
+            }
             try { Service.ServiceHostRunner.Run(); return 0; }
-            catch (Exception e) { LogStartupError(e); return 1; }
+            catch (Exception e)
+            {
+                // ServiceHost's finally may already have persisted the precise cleanup
+                // failure. Do not replace it with Shutdown's generic outer exception.
+                try
+                {
+                    var terminal = Service.ServiceState.ReadStatus();
+                    Service.ServiceState.WriteStatus(Qeli.Shared.Vpn.VpnStatus.Error,
+                        terminal?.Status == nameof(Qeli.Shared.Vpn.VpnStatus.Error) ? terminal.Extra ?? e.Message : e.Message);
+                }
+                catch { Service.ServiceState.WriteStatus(Qeli.Shared.Vpn.VpnStatus.Error, e.Message); }
+                LogStartupError(e); return 1;
+            }
         }
 
         // Privileged daemon verbs — invoked as root by the GUI via the macOS admin

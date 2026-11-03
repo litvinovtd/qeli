@@ -422,6 +422,25 @@ mod tests {
     }
 
     #[test]
+    fn smaller_budget_retry_uses_fresh_identity_without_changing_ciphertext() {
+        let ciphertext: Vec<u8> = (0..4096).map(|value| value as u8).collect();
+        let old = fragment_record(&ciphertext, &KEY, 100, 1400).unwrap();
+        let smaller = fragment_record(&ciphertext, &KEY, 101, 400).unwrap();
+        let mut reassembler = DataReassembler::new();
+        assert!(reassembler.push(&old[0], &KEY).unwrap().is_none());
+        let mut delivered = Vec::new();
+        for fragment in smaller {
+            if let Some(record) = reassembler.push(&fragment, &KEY).unwrap() {
+                delivered.push(record);
+            }
+        }
+        assert_eq!(delivered, vec![ciphertext]);
+        // An incomplete previous attempt stays independently bounded until expiry;
+        // its differing fragment count cannot destroy the completed newer attempt.
+        assert_eq!(reassembler.pending().0, 1);
+    }
+
+    #[test]
     fn exact_duplicate_is_idempotent_but_conflict_drops_record() {
         let a = fragment_record(&vec![1u8; 1000], &KEY, 11, 500).unwrap();
         let b = fragment_record(&vec![2u8; 1000], &KEY, 11, 500).unwrap();

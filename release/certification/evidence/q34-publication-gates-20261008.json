@@ -1,0 +1,533 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_RELEASE_ADMISSION_DOCKER_RECIPE_SOURCE_SCOPED",
+  "source_digest": "b733dd4bdc05726f1c6f845395a790269b59bf8e07b0d9d3bd817ce5d5db1c3d",
+  "qualification_source_commit": "cd3542647deec4632962e0bb9edd9a718bb4f6ea",
+  "product_source_commit": "cd3542647deec4632962e0bb9edd9a718bb4f6ea",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F474/Q34-F028",
+    "F475/Q34-F029",
+    "F476/Q34-F030",
+    "F477/Q34-F031"
+  ],
+  "verification": {
+    "actual_baseline_cli": {
+      "status": "PASS",
+      "rows": [
+        {
+          "case": "baseline-branch-only-accepted",
+          "rc": 0,
+          "expected": "defect reproduced"
+        },
+        {
+          "case": "fixed-branch-only-refused",
+          "rc": 1
+        },
+        {
+          "case": "actual-lightweight-tag-pass",
+          "rc": 0
+        },
+        {
+          "case": "actual-version-mismatch-refused",
+          "rc": 1
+        }
+      ],
+      "baseline_shell": "set -euo pipefail\ntagged_commit=\"$(git rev-list -n1 \"$TAG\")\"\nchecked_commit=\"$(git rev-parse HEAD)\"\ntest \"$tagged_commit\" = \"$checked_commit\"\ntest \"$TAG\" = \"v0.8.2\"\n",
+      "scope": "Real Git and original shell accepted a branch without tag; final actual CLI refuses it, accepts matching tag, refuses version mismatch. No CI/upload/signature execution"
+    },
+    "official_image_metadata": {
+      "status": "PASS",
+      "rows": [
+        {
+          "repository": "rust",
+          "tag": "1.97.0-bookworm",
+          "url": "https://hub.docker.com/v2/namespaces/library/repositories/rust/tags/1.97.0-bookworm",
+          "declared_digest": "sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073",
+          "response_sha256": "7e6af814dcd7480d59393d32a4b7c8f6a972bdb937bbb08b9f875eaefb882e5e",
+          "platforms": [
+            {
+              "os": "linux",
+              "architecture": "amd64",
+              "variant": null,
+              "digest": "sha256:b5a086f64ffecaa4e283063184770107915756739598173e1f5712d6b34b84d0"
+            },
+            {
+              "os": "linux",
+              "architecture": "ppc64le",
+              "variant": null,
+              "digest": "sha256:4c73257bd7909989d0c23ebb4643b499d0ac6ff11790a378f79dea6307485fea"
+            },
+            {
+              "os": "linux",
+              "architecture": "386",
+              "variant": null,
+              "digest": "sha256:b5a40d6776cd3545283b6341d6efd530953a3b565b710ced98e4514f57da7274"
+            },
+            {
+              "os": "linux",
+              "architecture": "s390x",
+              "variant": null,
+              "digest": "sha256:4afb6546a3dd0442be7633248559c4901ec19228817b98083acfb19d2ab67db8"
+            },
+            {
+              "os": "linux",
+              "architecture": "arm",
+              "variant": "v7",
+              "digest": "sha256:565f46fc3842f9ad0c1439a7af8f7e78d28542caf232dfef7d1773a7a64dc1e1"
+            },
+            {
+              "os": "linux",
+              "architecture": "arm64",
+              "variant": "v8",
+              "digest": "sha256:4334151ca823b4a52237f3a2d1b16973d6c3c0dd2a7e0ec66a9a8947713d4fa4"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:b361ea946f94412ae5c629dccfd629b447a42907acbb2f6a1a2984e880587940"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:cf66fb3a7f217288a24057084ac31c3ccc7708cf4485c3b6500403ddc88ad8cf"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:4d8c6d4ca87903f92e1f0100d398879c35e21e8d60939edef9964c3a2ebc1015"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:69f851a96f73faa3758667409bf06b6ccdfc645ab042030a600879ef1811c602"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:21fa3b11ef64e5b7f00b9beff13303a29ec9f23b32c95b838edd328d897cdf1a"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:b7bdea77af8f1d7decfb03e966f10b38dad6f9df9545d80bff4baf763ae1e2fd"
+            }
+          ]
+        },
+        {
+          "repository": "debian",
+          "tag": "bookworm-slim",
+          "url": "https://hub.docker.com/v2/namespaces/library/repositories/debian/tags/bookworm-slim",
+          "declared_digest": "sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587",
+          "response_sha256": "6bea8d841a6e5744775e0032e478faae81a232fa4c2f8b95339178b6a2e10969",
+          "platforms": [
+            {
+              "os": "linux",
+              "architecture": "amd64",
+              "variant": null,
+              "digest": "sha256:a4672c0cb26fbdde88e38fa2dfb6c681942306680e41e4378b28770b6e79ee91"
+            },
+            {
+              "os": "linux",
+              "architecture": "ppc64le",
+              "variant": null,
+              "digest": "sha256:653232568eb256bba43ecb106f1410fdedd5070507d83bb546f09e1a1b617e09"
+            },
+            {
+              "os": "linux",
+              "architecture": "386",
+              "variant": null,
+              "digest": "sha256:227236678b453cb31ec4d1386dce87c9f76b9682288f365b0139f0d47522d3f3"
+            },
+            {
+              "os": "linux",
+              "architecture": "arm",
+              "variant": "v7",
+              "digest": "sha256:be90e120e527cbcc03b57353d003f8bbb9cb746eeb8ac0648029254b608c1447"
+            },
+            {
+              "os": "linux",
+              "architecture": "arm64",
+              "variant": "v8",
+              "digest": "sha256:a1b86db52ce3daef089e45aabe36dfec4091f82464c25c1fdcf03de197cbe82a"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:a9d915aa9a979fc0de93389c5e7cd3fa60c8d64644b7a1c0a2fcd953ae71dfb1"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:dd0ada2da3f11d4d164cdfc61983795f22c2e820cf35f6868e06a102a65bc361"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:f9a8ebafc3d3c75aeaa23480dc0b7acef75448a771db965510994d6e04085501"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:7aa7e71eb91e06f8374c5509601059d1ce5341c4a7b0dca299d1ac710113577e"
+            },
+            {
+              "os": "unknown",
+              "architecture": "unknown",
+              "variant": null,
+              "digest": "sha256:5df172c04ae49997fb58ac88d62f9908042642e3c8d9ed836b1e3aa40489c517"
+            }
+          ]
+        }
+      ],
+      "scope": "Official Docker Hub HTTPS tag metadata/digest and shipped Linux platform availability; registry manifest-body qualification failed401, no layer pull/daemon build/runtime/apt snapshot claim"
+    },
+    "registry_failure_retained": {
+      "status": "FAIL_RETAINED",
+      "error": "Initial official registry GET returned HTTP401; public bearer never persisted or printed. Retry uses uncached public token request."
+    },
+    "yaml_parse": {
+      "status": "PASS",
+      "parser": "PyYAML6.0.3 pure Python BaseLoader (keys remain strings)",
+      "archive_sha256": "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f",
+      "rows": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "jobs": 15,
+          "status": "PASS"
+        },
+        {
+          "file": ".github/workflows/docker-publish.yml",
+          "jobs": 1,
+          "status": "PASS"
+        },
+        {
+          "file": ".github/workflows/release-attest.yml",
+          "jobs": 1,
+          "status": "PASS"
+        }
+      ],
+      "scope": "Actual YAML parse and changed semantic fields; not GitHub Actions expression evaluation or hosted workflow execution"
+    },
+    "initial_focused_fixtures": {
+      "status": "PASS",
+      "rows": [
+        {
+          "name": "test_release_tag.py",
+          "rc": 0
+        },
+        {
+          "name": "test_release_ci_gate.py",
+          "rc": 0
+        },
+        {
+          "name": "test_release_preflight.py",
+          "rc": 0
+        }
+      ]
+    },
+    "native_recipe_regression": {
+      "status": "PASS",
+      "rc": 0,
+      "scope": "Existing source/packaging/native recipe contracts; no lab builds or hosted Actions execution"
+    },
+    "ci_inventory_before_fix": {
+      "status": "READ_ONLY_INVENTORY",
+      "commit": "3cd675554c738f64bbaf007f5801745e77d11e1c",
+      "rc": 0,
+      "command": [
+        "gh",
+        "run",
+        "list",
+        "--commit",
+        "3cd675554c738f64bbaf007f5801745e77d11e1c",
+        "--workflow",
+        "CI",
+        "--limit",
+        "1",
+        "--json",
+        "conclusion,status,headSha,databaseId"
+      ],
+      "output": "[]\n",
+      "scope": "No dispatch or push; absence/failure is not current-source CI qualification"
+    },
+    "qualified_inputs": {
+      "status": "PASS",
+      "paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "normalization": "lf",
+          "sha256": "8610e0d3069a2e1f823f2c3aaa295414cb9ba2264ea7fe6ff578a54a2f0adf9f"
+        },
+        {
+          "path": ".github/workflows/docker-publish.yml",
+          "normalization": "lf",
+          "sha256": "0765bab04e946407fc37edff6fac72bd3f7ca2345bc09e4568eb09df6d464c28"
+        },
+        {
+          "path": ".github/workflows/release-attest.yml",
+          "normalization": "lf",
+          "sha256": "dd3f41f81995d5084f190cd7a53279607b4dddbbde1bcdf343b0442dd792eca4"
+        },
+        {
+          "path": "LICENSE",
+          "normalization": "lf",
+          "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+        },
+        {
+          "path": "LICENSING.md",
+          "normalization": "lf",
+          "sha256": "f556299bf0cc844c125893baae0c845bc920f3f05b8c4c9e7d17534c4f2f710b"
+        },
+        {
+          "path": "docs/eng/index.md",
+          "normalization": "lf",
+          "sha256": "62b72c9e01ea6faff0eaa501bac82024b7447c171704356fdc40b97791efb3f9"
+        },
+        {
+          "path": "docs/eng/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "2c3446e697d837496dea68719c03263efa0ab631df19265a5c86642d0c235dfb"
+        },
+        {
+          "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "cd280eaad5abb9725ecac4c7f8b3c715da48ba541d97b73569bc18018b78fc45"
+        },
+        {
+          "path": "docs/ru/index.md",
+          "normalization": "lf",
+          "sha256": "d21c5775bdb7ea5e869e17c8076c4136d208aa7606a13a260a6fca6db6fa0251"
+        },
+        {
+          "path": "docs/ru/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "709a5c130025a80d40e66a2e9a89764298cb9538f76b8034dce75922af7bc911"
+        },
+        {
+          "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "b859ee5c159d063b640396604353ea5acd4a0e62ba01cc25c40a2b5a0d80a793"
+        },
+        {
+          "path": "qeli/Cargo.lock",
+          "normalization": "lf",
+          "sha256": "dbe2e1297402d2b938bcf88f42b567374e6671189dc08472e2be464356692bf7"
+        },
+        {
+          "path": "qeli/Cargo.toml",
+          "normalization": "lf",
+          "sha256": "05b83390369a48f6c183e00989324b03afca4995daa74a6b1da2937d2145cecc"
+        },
+        {
+          "path": "qeli/debian/Makefile",
+          "normalization": "lf",
+          "sha256": "24e0125f551a5e1cadb07b33f4f9d76f6ea997d1093fae06e611e06e1987d56d"
+        },
+        {
+          "path": "qeli/third-party-notices/toolchain-sources.tsv",
+          "normalization": "lf",
+          "sha256": "0f46f9f7d1a29d38d4f6bbd18104fac88c263e0e8b997460472c9f3c438fb777"
+        },
+        {
+          "path": "release/docker/Dockerfile",
+          "normalization": "lf",
+          "sha256": "33eb8834d604b83959adb8a90597e9632d1ee85b4d374cc3f931ece67d136f36"
+        },
+        {
+          "path": "release/docker/Dockerfile.dockerignore",
+          "normalization": "lf",
+          "sha256": "6ff29fbd3c26f80a6a88891901ee35e179a879781cd9df26c24080f78a44c8d4"
+        },
+        {
+          "path": "release/docker/README.md",
+          "normalization": "lf",
+          "sha256": "3cec6c743b22ad0d903e9bc4f93d57f55ab85df74b70401b694b172d8076c8f8"
+        },
+        {
+          "path": "scripts/check_docs.py",
+          "normalization": "lf",
+          "sha256": "e260cb024b56fc6257108801d5dae01607dfadfb6cb5458669b3b2e25e808a10"
+        },
+        {
+          "path": "scripts/docker_publish_ref.py",
+          "normalization": "lf",
+          "sha256": "8a610e914501dc39cab40bbc7ac2e4073e1bdb3969ba8e9a7d84c6d6dd45b368"
+        },
+        {
+          "path": "scripts/managed_licenses.py",
+          "normalization": "lf",
+          "sha256": "89357c4986a4c1263aa640e6aa071c4fa63df04b34739ebaed4a25ad5dd50e65"
+        },
+        {
+          "path": "scripts/native_lab.py",
+          "normalization": "lf",
+          "sha256": "da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0"
+        },
+        {
+          "path": "scripts/native_licenses.py",
+          "normalization": "lf",
+          "sha256": "711bb8040b940f194248b1dee52e02b8b298e5b59dab49bf89d88b1de00f684b"
+        },
+        {
+          "path": "scripts/native_repro.py",
+          "normalization": "lf",
+          "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+        },
+        {
+          "path": "scripts/openwrt_source_gate.py",
+          "normalization": "lf",
+          "sha256": "86540998a12bdaecaae05dbfecacd6e48f4a53ad1e823b66d6200cb1b8a09198"
+        },
+        {
+          "path": "scripts/release_ci_gate.py",
+          "normalization": "lf",
+          "sha256": "07a7fadff45d2331e4ff0666fc90c806f2eba895c81e1be874e021cbdd913b2c"
+        },
+        {
+          "path": "scripts/release_preflight.py",
+          "normalization": "lf",
+          "sha256": "6f3c1879a98cb4a403d68a94684aad878b4f62e63286555e74cebc275ea845dc"
+        },
+        {
+          "path": "scripts/release_tag.py",
+          "normalization": "lf",
+          "sha256": "da62f7c1454b41d3e79a9dcaba9400007d22790e139d61d505e277180d7c382f"
+        },
+        {
+          "path": "scripts/router_release_gate.py",
+          "normalization": "lf",
+          "sha256": "33edcf1aff24c28c04a03a97f781073b3af4ad00f93ac5913d8a78d7c11b0fe7"
+        },
+        {
+          "path": "scripts/router_toolchain.py",
+          "normalization": "lf",
+          "sha256": "5a07dc41385d405224f91b47cdce47f7987f05e013ca025ce6c19929d641df12"
+        },
+        {
+          "path": "scripts/ssh_command.py",
+          "normalization": "lf",
+          "sha256": "ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b"
+        },
+        {
+          "path": "scripts/ssh_hostkey.py",
+          "normalization": "lf",
+          "sha256": "c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39"
+        },
+        {
+          "path": "scripts/test_native_recipes.py",
+          "normalization": "lf",
+          "sha256": "b82cf0ef4909d27a81f401c5061a65dbf8a080d3f43d53e23e98fb027faf9bd1"
+        },
+        {
+          "path": "scripts/test_release_ci_gate.py",
+          "normalization": "lf",
+          "sha256": "5a057c06eee0ab3be297b3da59174c6ee1eecfd440e9d13ccf7ac0e31db44e8e"
+        },
+        {
+          "path": "scripts/test_release_preflight.py",
+          "normalization": "lf",
+          "sha256": "9663504a92b5e4763a4226641caaa2659677d3f2fdfa1d6306d09b1fed86446e"
+        },
+        {
+          "path": "scripts/test_release_tag.py",
+          "normalization": "lf",
+          "sha256": "359b2169f1967a184fc7f293f5dbfe7bf0e39f81607ee8a0bac4020c7fb9ceab"
+        },
+        {
+          "path": "scripts/toolchain_licenses.py",
+          "normalization": "lf",
+          "sha256": "a69294906378b7d6e5ebf137c53dbfdc8dc4be092e928e8ebb4d7b90794c11de"
+        }
+      ],
+      "unchanged_bundle_dependency_scope": "Current common bundles passed all checkers and are unchanged from SHA-qualified preceding packet; per-file capture/proofs inherited from47sealed anchors, not fresh generation or packaging"
+    },
+    "local_final_checks": {
+      "status": "PASS",
+      "checks": [
+        {
+          "label": "release-tag-final",
+          "rc": 0,
+          "output": "test_annotated_tag_peeled_to_source_commit (test_release_tag.TagTests.test_annotated_tag_peeled_to_source_commit) ... ok\r\ntest_branch_only_is_not_a_release_tag (test_release_tag.TagTests.test_branch_only_is_not_a_release_tag) ... ok\r\ntest_ci_failure_creates_no_output (test_release_tag.TagTests.test_ci_failure_creates_no_output) ... ok\r\ntest_dirty_tracked_source_refused (test_release_tag.TagTests.test_dirty_tracked_source_refused) ... ok\r\ntest_exact_commit_ci_selector_and_outputs (test_release_tag.TagTests.test_exact_commit_ci_selector_and_outputs) ... ok\r\ntest_git_trust_flags_cannot_hide_modified_source (test_release_tag.TagTests.test_git_trust_flags_cannot_hide_modified_source) ... ok\r\ntest_lightweight_tag_matches_exact_source_and_pin (test_release_tag.TagTests.test_lightweight_tag_matches_exact_source_and_pin) ... ok\r\ntest_missing_git_or_timeout_returns_refusal (test_release_tag.TagTests.test_missing_git_or_timeout_returns_refusal) ... ok\r\ntest_missing_tag (test_release_tag.TagTests.test_missing_tag) ... ok\r\ntest_same_name_branch_cannot_replace_other_tag_commit (test_release_tag.TagTests.test_same_name_branch_cannot_replace_other_tag_commit) ... ok\r\ntest_skip_worktree_source_refused (test_release_tag.TagTests.test_skip_worktree_source_refused) ... ok\r\ntest_source_change_during_ci_admission_refused (test_release_tag.TagTests.test_source_change_during_ci_admission_refused) ... ok\r\ntest_unsafe_tag_refused_before_git (test_release_tag.TagTests.test_unsafe_tag_refused_before_git) ... ok\r\ntest_untracked_input_refused (test_release_tag.TagTests.test_untracked_input_refused) ... ok\r\ntest_version_mismatch (test_release_tag.TagTests.test_version_mismatch) ... ok\r\ntest_ci_covers_every_workflow_change (test_release_tag.WorkflowTests.test_ci_covers_every_workflow_change) ... ok\r\ntest_release_and_docker_bind_pin_and_legal_gates (test_release_tag.WorkflowTests.test_release_and_docker_bind_pin_and_legal_gates) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 17 tests in 2.459s\r\n\r\nOK\r\n"
+        },
+        {
+          "label": "native-bundle",
+          "rc": 0,
+          "output": "{\r\n  \"status\": \"PASS\",\r\n  \"locked_packages\": 235,\r\n  \"resources\": 458,\r\n  \"indexed_files\": 532,\r\n  \"bytes\": 6557892,\r\n  \"supplements\": 6,\r\n  \"toolchains\": {\r\n    \"status\": \"PASS\",\r\n    \"components\": 7,\r\n    \"resources\": 65,\r\n    \"files\": 69,\r\n    \"bytes\": 3999768\r\n  },\r\n  \"scope\": \"Full Cargo.lock superset; not per-binary linkage or complete release licensing\"\r\n}\r\n"
+        },
+        {
+          "label": "toolchain-bundle",
+          "rc": 0,
+          "output": "{\"bytes\": 3999768, \"components\": 7, \"files\": 69, \"resources\": 65, \"status\": \"PASS\"}\r\n"
+        },
+        {
+          "label": "managed-bundle",
+          "rc": 0,
+          "output": "{\"bytes\": 4659411, \"files\": 187, \"fonts\": 6, \"packages\": 67, \"status\": \"PASS\", \"supplements\": 48}\r\n"
+        },
+        {
+          "label": "docs",
+          "rc": 0,
+          "output": "checking 706 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "label": "diff",
+          "rc": 0,
+          "output": ""
+        }
+      ],
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/docker-publish.yml",
+        ".github/workflows/release-attest.yml",
+        "LICENSING.md",
+        "docs/eng/index.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "docs/ru/index.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "release/docker/Dockerfile",
+        "release/docker/Dockerfile.dockerignore",
+        "release/docker/README.md",
+        "scripts/release_ci_gate.py",
+        "scripts/release_tag.py",
+        "scripts/test_release_ci_gate.py",
+        "scripts/test_release_tag.py"
+      ],
+      "native_digest_unchanged": true,
+      "native_artifact_hashes": 14,
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+        "qeli/src/web/assets/app.css": "c925399cb860bea80fcbc5d66dec7cf3ebb0740fbd8bb7489d211730bdc1d8bd"
+      },
+      "methods": 86,
+      "qualification": "Actual17final tag tests and unchanged19CI/12preflight/38recipe regressions; actual YAML parsing; source COPY integration only, no full Docker/native build or hosted Actions"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-publication-gates-20261008",
+    "files": 73,
+    "bytes": 1725534,
+    "manifest_sha256": "ce00677e40dae1fa6d7fee5067f2df5a2d5c5c8db5f3154c8c779411070df9cd",
+    "runtime_status": "PASS_RELEASE_ADMISSION_AND_DOCKER_RECIPE_SOURCE_SCOPED_NO_DOCKER_BUILD_OR_ACTIONS",
+    "path": "audit-debt-20260924/q34-publication-gates-20261008",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F474-F477/Q34-F028-F031 scoped release source/CI/toolchain admission and Docker legal recipe fixes. Actual baseline shell/real Git admitted branch-only v0.8.2;final CLI rejects branch/mismatched version and admits actual tag. Helper requires exact refs/tags commit/version,clean source,no assume-unchanged/skip-worktree hidden inputs,successful CI queried by exact commit before build and source recheck after query;release uses shared Rust1.97 pin and extractedDEB legal gate. Docker builder1.97/runtimeBookworm pin official metadata multiarch digests and copy project/native533 notices;publication native check before login;bothCI filters cover allworkflow changes.86meaningful methods PASS:final17realGit/tag/CIcases plus unchanged19CI12preflight38recipe regressions. SHA-qualified officialPyYAML6.0.3 purePythonBaseLoader parses3changedworkflows,notGitHub expressions/Actions. OfficialDockerHubHTTPS tag metadata listsamd64/arm64v8/armv7,digests recorded;2registry401 retained,manifestbody/layerpull/fullDockerbuild/runtime/apt-snapshot notqualified. SourceCOPY only,no freshnative/APK/publish/SDK/router/Mac/device runtime.37qualified source inputs,706Markdown9checks/common native-toolchain-managed checkers/nativee3fb14artifactSHA/protected unchanged;common bundle payload/source qualification inherited from previous sealed packet,notfreshgeneration/packaging. Read-only hostedCI for startingdev3cd67555 returned[],no current-sourceActions qualification/dispatch/push. Matching thirdparty source/downstream patches/OpenWrtimmutableSDKcut/MicroComexactbinding/currentActions/signatures/fullrelease remain OPEN. GitHubautomatic taggedsourcearchive noted,no duplicate asset or legal completeness claim. Labs untouched.41cases80prior supplements preserved modulo source_digest bookkeeping,append81scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;Q29SIGKILLFAIL-ENONET/Q30/Q31/F459braces/D06accepted/USER_EXCLUDED retained.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_F395_WITH_DOCUMENTED_SCOPE",
+  "source_commit": "17c5d382c529a896ddf78b7bb56d1e9b8e157bfa",
+  "native_source_digest": "efbe3f1c4f90784ad07a0cb1768b1494ba95debe7815dba6067ec1c74be3d858",
+  "findings": [
+    {
+      "id": "F395",
+      "severity": "P2",
+      "problem": "core publication can race between hook generation check and NDM mutation",
+      "fix": "independent mkdir publication/application exclusion within the parent network plan budget",
+      "status": "FIXED_AND_VERIFIED"
+    }
+  ],
+  "full_audit": {
+    "done": 29,
+    "total": 37,
+    "remaining": 8,
+    "q31": "IN_PROGRESS_3_OF_5"
+  },
+  "raw_packet": "audit-debt-20260924/q31-plan-publication-20261008",
+  "baseline": {
+    "source_hook": "9a6b6031f522508cfce32acdfa6bc133db12e528",
+    "passed": 1,
+    "expected_failed": 3,
+    "scope": "old hook with actual new Rust PublicationLock and atomic-rename body seam; no full baseline VPN"
+  },
+  "checks": {
+    "linux_library": {
+      "passed": 2444,
+      "ignored_preexisting": 60,
+      "clippy": "PASS",
+      "actual_client_build": "PASS"
+    },
+    "shells": {
+      "dash": {
+        "existing": 196,
+        "new": 4,
+        "skipped": 0
+      },
+      "busybox_ash": {
+        "existing": 196,
+        "new": 4,
+        "skipped": 0
+      }
+    },
+    "native": {
+      "desktop": {
+        "artifacts": {
+          "native-libs/macos-universal/libqeli.dylib": {
+            "consumed": {
+              "qeli-mac/QeliMac/native/libqeli.dylib": "6ed54b7c9ececa558c1a5ca2a30ca7a053dd10dc2160521ffb970f043482e6c7"
+            },
+            "final_sha256": "6ed54b7c9ececa558c1a5ca2a30ca7a053dd10dc2160521ffb970f043482e6c7",
+            "pass_a_sha256": "6ed54b7c9ececa558c1a5ca2a30ca7a053dd10dc2160521ffb970f043482e6c7",
+            "pass_b_sha256": "6ed54b7c9ececa558c1a5ca2a30ca7a053dd10dc2160521ffb970f043482e6c7",
+            "reproducible": true
+          },
+          "native-libs/windows-x64/qeli.dll": {
+            "consumed": {
+              "qeli-win/QeliWin/native/qeli.dll": "8474a3d3ad20ce7f45c5607b59e931e57ee5d1cb912b3250cd861daa5ccc02e1"
+            },
+            "final_sha256": "8474a3d3ad20ce7f45c5607b59e931e57ee5d1cb912b3250cd861daa5ccc02e1",
+            "pass_a_sha256": "8474a3d3ad20ce7f45c5607b59e931e57ee5d1cb912b3250cd861daa5ccc02e1",
+            "pass_b_sha256": "8474a3d3ad20ce7f45c5607b59e931e57ee5d1cb912b3250cd861daa5ccc02e1",
+            "reproducible": true
+          }
+        },
+        "source_commit": "17c5d382c529a896ddf78b7bb56d1e9b8e157bfa",
+        "source_digest": "efbe3f1c4f90784ad07a0cb1768b1494ba95debe7815dba6067ec1c74be3d858"
+      },
+      "android": {
+        "artifacts": {
+          "native-libs/android/arm64-v8a/libqeli.so": {
+            "consumed": {
+              "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "cdc24dee862a815d56c193272af70739733f1dbe90c0c082c3aa466553c35d05"
+            },
+            "final_sha256": "cdc24dee862a815d56c193272af70739733f1dbe90c0c082c3aa466553c35d05",
+            "pass_a_sha256": "cdc24dee862a815d56c193272af70739733f1dbe90c0c082c3aa466553c35d05",
+            "pass_b_sha256": "cdc24dee862a815d56c193272af70739733f1dbe90c0c082c3aa466553c35d05",
+            "reproducible": true
+          },
+          "native-libs/android/x86_64/libqeli.so": {
+            "consumed": {
+              "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "6a5b7d3b4d7d67832fddb77c562cb3a491fd920fdaab45b77de32323a72c5eff"
+            },
+            "final_sha256": "6a5b7d3b4d7d67832fddb77c562cb3a491fd920fdaab45b77de32323a72c5eff",
+            "pass_a_sha256": "6a5b7d3b4d7d67832fddb77c562cb3a491fd920fdaab45b77de32323a72c5eff",
+            "pass_b_sha256": "6a5b7d3b4d7d67832fddb77c562cb3a491fd920fdaab45b77de32323a72c5eff",
+            "reproducible": true
+          }
+        },
+        "source_commit": "17c5d382c529a896ddf78b7bb56d1e9b8e157bfa",
+        "source_digest": "efbe3f1c4f90784ad07a0cb1768b1494ba95debe7815dba6067ec1c74be3d858"
+      }
+    },
+    "windows_abi": 22,
+    "android_art_jni": 23,
+    "source_reconciliation": {
+      "unchanged_git_files": 11,
+      "non_linux_client_remainder_equal": true
+    },
+    "docs": {
+      "tracked_markdown_files": 662,
+      "checks": 9
+    },
+    "bindings": "PASS",
+    "rustfmt": "PASS",
+    "diff": "PASS",
+    "native_manifest_entries": 14
+  },
+  "host_guards": {
+    "desktop": {
+      "exact": false,
+      "preserved_except_three_observed_legacy_lines": true,
+      "network_policy_mutation_by_harness": false,
+      "service_equal": true
+    },
+    "android": {
+      "exact": true,
+      "preserved_except_three_observed_legacy_lines": true,
+      "network_policy_mutation_by_harness": false,
+      "service_equal": true
+    }
+  },
+  "cleanup": "ALL_FOUR_OWNED_ROOTS_REMOVED_AFTER_VERIFIED_BACKUPS",
+  "limitations": [
+    "matched core/helper/hook only; old bundles/admin writes do not cooperate",
+    "sequential NDM and later wan.d event; no full VPN/NDM transaction qualification",
+    "SIGKILL/release panic=abort/power-loss stale directory needs verified manual recovery",
+    "full SDK Rust bootstrap/build/release-cut/preflight/Actions remain OPEN",
+    "prior standalone router cross/QEMU evidence keeps original source/date",
+    "Mac/iOS/Windows network VM/router firmware USER_EXCLUDED; D06 accepted",
+    "Q29 SIGKILL FAIL/auto-null ENONET and Q30 runtime/callback scope retain existing status",
+    "no full network matrix/benchmark/soak repeat or push/deploy/release"
+  ],
+  "preparation_results_retained": [
+    "initial shell run:71 missing-fixture skips and outdated pre-lock rotation expectation",
+    "cp1251 read failed before edit; UTF8 repair",
+    "client inspector omitted required client-bin; retried only that build",
+    "owned log aliases repaired running selector without restarting compiler",
+    "unit-binary backup selector qeli instead of qeli_core; no removal before repair",
+    "final exact-host assertion refused three known legacy lines moving between .10 snapshots; documented bounded guard applied"
+  ],
+  "raw_seal": {
+    "manifest": "RAW-MANIFEST.json",
+    "file_count": 458,
+    "bytes": 377120055,
+    "sha256": "ddeba7f893d62c260253527fdb0c7d8e2b22a83b69af2bc88553fe536c74b887"
+  },
+  "source_digest": "2a2195f7b2912e6fa2df628e91ac7c8a947d9604ecdc83c4dccbb3f492569a38",
+  "qualification_source_commit": "9125e4b78126f4ba72fa9479b3be2dc1c0461b50"
+}

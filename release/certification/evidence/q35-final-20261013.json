@@ -1,0 +1,139 @@
+{
+  "status": "Q35_FINAL_CRITERION_RECONCILIATION_COMPLETE_IN_DECLARED_BOUNDED_SCOPE",
+  "review_source_commit": "9ca6804df5da3f7e54c3dd22991fa5101ec96418",
+  "original_fuzz_runs": 85930590,
+  "actual_new_fuzz_runs": 0,
+  "current_target_format_equivalence": 15,
+  "package_versions_sources_checksums_preserved": 146,
+  "lock_removed_edges": {
+    "mio": [
+      "log"
+    ],
+    "qeli": [
+      "mio"
+    ]
+  },
+  "criteria": [
+    {
+      "id": "review_dead_code",
+      "status": "DONE",
+      "evidence": [
+        "Q34 shared inventory derives15Cargo bins and consumers; missing4targets fixed",
+        "Q35 stability/admission/isolation/SUN_LEN/phase marker fixes reviewed",
+        "Q37 dead-code dispositions and retired legacy helpers"
+      ],
+      "scope": "Registered parsers and shared test runners; unused platform code stays with platform owners"
+    },
+    {
+      "id": "positive_boundary_negative",
+      "status": "DONE",
+      "evidence": [
+        "15 actual pinned ASan targets; original dates/binaries retained",
+        "Final data_frag32records/512KiB pressure and exact-auth-conflict recovery",
+        "Final udp_frag24parts/reorder/duplicates/1200-byte compatibility",
+        "Client INI/link canonical structured oracles; all15 final target sources exactly reproduce current after pinned rustfmt"
+      ],
+      "scope": "Reachable pure parser inputs; no new whole-library sanitizer execution"
+    },
+    {
+      "id": "faults_concurrency",
+      "status": "DONE",
+      "evidence": [
+        "14real cases/320assertions/7concurrent pairs",
+        "Q05 save/restore cancellation and transaction fault boundaries",
+        "Q09 TCP/UDP permit/AUTH lease/cancel/reap",
+        "Q14 supervisor/control/hook/reload/stop/generation failures",
+        "Q15 allocation/caps/dual rollback/eviction",
+        "Q25 network acquire/apply/rollback/cleanup/fail-closed boundary tests"
+      ],
+      "scope": "Reuse completed owning-module fault audits; not injection at every arbitrary await, physical excluded platforms remain excluded"
+    },
+    {
+      "id": "integration_target",
+      "status": "DONE",
+      "evidence": [
+        "30-minute simultaneous TCP/UDP900cycles",
+        "Current full8phase47036.8s10kTCP10kQUIC3x1kUDP performance/crossnode with fixed budgets",
+        "9403samples18786process observations and cgroup memory/task/OOM/throttling counters",
+        "24persistentAUTH60s runs34644admissions source52511ceb within512MiBRSS; retain original host failures"
+      ],
+      "scope": "Isolated available Linux labs, bounded concurrency/churn/limits; not unlimited flood, saturation capacity or physical handover"
+    },
+    {
+      "id": "fix_verification_evidence",
+      "status": "DONE",
+      "evidence": [
+        "Original failures retained, archives SHA verified, owned roots removed",
+        "Exact tested Bash marker fix adopted;9actual Bash checks",
+        "Rounding qualifier preserves original samples and budgets, CPU conservative upper median",
+        "Q34/Q37/current-native and source-applicability receipts kept separately"
+      ],
+      "scope": "No overwritten old upload6.8627percentFAIL, no relabelled platform/CI release PASS"
+    }
+  ],
+  "library_delta_review": [
+    {
+      "paths": [
+        "qeli/src/protocol/obfs.rs"
+      ],
+      "effect": "Only client/test recv_batch/send_batch gates; obfs_datagram_open fuzz entry unchanged"
+    },
+    {
+      "paths": [
+        "qeli/src/protocol/realtls/client.rs"
+      ],
+      "effect": "Server/test key_share_first fingerprint and owned parsing helper gates, test-only HMAC and documentation; client ServerHello validation/record crypto algorithms retained"
+    },
+    {
+      "paths": [
+        "qeli/src/transport_core/buffer_pool.rs",
+        "qeli/src/transport_core/client_uplink.rs",
+        "qeli/src/transport_core/client_downlink.rs",
+        "qeli/src/transport_core/session.rs",
+        "qeli/src/transport_core/udp_batch.rs",
+        "qeli/src/transport_core/udp_buffer.rs"
+      ],
+      "effect": "Shared pool/counter/platform lifecycle changes covered by owning module units/real factory/native builds; none of15fuzz targets calls transport_core. Do not claim fuzz covers these new paths"
+    },
+    {
+      "paths": [
+        "qeli/src/util.rs",
+        "qeli/src/crypto/exchange.rs"
+      ],
+      "effect": "Test gate and line ending changes; production parser helpers unchanged"
+    },
+    {
+      "paths": [
+        "qeli/Cargo.toml",
+        "qeli/fuzz/Cargo.lock"
+      ],
+      "effect": "Unused direct mio removed, its log edge removed; all146versions/source/checksum same. Pure fuzz targets do not exercise poll/log path. Current hosted nightly source CI stays Q34"
+    }
+  ],
+  "unresolved_owned_elsewhere": {
+    "Q29": "Platform recovery/DnsResolver choice remains unanswered",
+    "Q31": "Source compiler/bootstrap resource-deferred",
+    "Q34": "Public exact source cut/hosted source CI remain unqualified",
+    "Q36": "TCP asymmetry/capacity/P4UDP loss causes; strace distortion remains diagnostic limitation"
+  },
+  "no_unbounded_DoS_guarantee": true,
+  "no_new_physical_runtime": true,
+  "no_full_release_qualification": true,
+  "previous_packet_scopes_preserved": true,
+  "formal_done_after_reconciliation": 33,
+  "formal_total": 37,
+  "no_push_deploy_release": true,
+  "raw_input_sha256": {
+    "q34-fuzz-toolchain-20261009/fuzzer-stats.json": "e4de00ad7bde731f0c9193242067b5e4b306c5c35c8cfc6423f25c0b5e4b2131",
+    "q34-fuzz-toolchain-20261009/asan-proof.json": "dca9a4b87b79bf485a86546f5d317fd71620eba2693162eead3464fa07b10b11",
+    "q35-fragment-oracles-20261010/collection.json": "84c30fafc8ea11cfb761487132733e902a66aadd35103f45634996f00c32b6da",
+    "q35-fragment-oracles-20261010/cleanup.json": "22452f289d06f780efd1a1e3f9be1760570f74b82fb84ddf0b51960af30d5b42",
+    "q35-client-config-fuzz-20261010/collection.json": "46def408de8ab9addc115ad148da7c31d44ad60c5a79d27bb50fa58cff73174e",
+    "q35-client-config-fuzz-20261010/cleanup.json": "cf555dccf073c41557736f78f108006ec352fd7310c28e5230e7ab4e49efe428",
+    "q35-fault-concurrency-20261010/runtime-proof.json": "0b84c2d140cb35848bd022fbd4e82995548a20882fd2e69b26449ab3e9e0923f",
+    "q36-pool-candidate-chain-20261012/auth-composite-qualification.json": "142dd52ca0e22d0c7bd36222505282c153f675e10d143a0ecb0cdbdb88dc820f",
+    "q35-current-endurance-r3-20261012/qualified.json": "9d5e198e7b112892b2355f50090e3e9967f23766f2400b1ff25608497f782341",
+    "q35-current-endurance-r3-20261012/cleanup.json": "92ca8e98a8c59902f7c69a52bcea5149473d03027b4c1b59624bb92b19bce36c",
+    "q35-criterion-mapping-20261013/fuzz-target-format-proof.json": "eb961d8305651c991aecaf16a16fd1f05f3ff90466f936064d5a7eecaf8a9419"
+  }
+}

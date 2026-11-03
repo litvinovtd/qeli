@@ -14,7 +14,8 @@
 // are deliberately visible only to the ABI module and conformance tests.
 #![allow(dead_code)]
 
-use super::client::{parse_server_hello, u24};
+use super::application::ApplicationRecords;
+use super::client::{decode_server_hello, u24};
 use super::keyschedule::{
     client_application_traffic_secret, client_handshake_traffic_secret, early_secret, finished_key,
     finished_verify, handshake_secret, master_secret, server_application_traffic_secret,
@@ -133,6 +134,8 @@ pub struct SansIoClient {
     /// The initial ClientHello (kept so callers like the JNI bridge can fetch it
     /// after `new`, which returns one value to Java).
     client_hello: Vec<u8>,
+    session_id: [u8; 32],
+    records: ApplicationRecords,
 }
 
 impl SansIoClient {
@@ -159,6 +162,8 @@ impl SansIoClient {
                 },
                 in_buf: Vec::new(),
                 client_hello: ch.clone(),
+                session_id,
+                records: ApplicationRecords::default(),
             },
             ch,
         )
@@ -175,6 +180,10 @@ impl SansIoClient {
 
     /// Feed inbound bytes; drive the handshake.
     pub fn recv(&mut self, data: &[u8]) -> io::Result<Progress> {
+        if data.len() > MAX_IN_BUF.saturating_sub(self.in_buf.len()) {
+            self.state = State::Failed;
+            return Err(ierr("inbound handshake buffer exceeded cap"));
+        }
         self.in_buf.extend_from_slice(data);
         // Bound undrained inbound bytes: a legitimate handshake flight is well
         // under this, so overflow here means a peer is streaming records that
@@ -208,7 +217,12 @@ impl SansIoClient {
                     }
                     Some(rec) if rec[0] == 0x16 => {
                         let sh_msg = &rec[5..];
-                        let (suite, group, server_ks) = parse_server_hello(sh_msg)?;
+                        let parsed = decode_server_hello(sh_msg)?;
+                        if parsed.session_id != self.session_id {
+                            return Err(ierr("ServerHello session ID echo mismatch"));
+                        }
+                        let (suite, group, server_ks) =
+                            (parsed.suite, parsed.group, parsed.key_share.to_vec());
                         transcript.extend_from_slice(sh_msg);
                         // (EC)DHE / hybrid shared secret per the group the server chose
                         // (0x001d = classic X25519, 0x11ec = X25519MLKEM768 hybrid).
@@ -321,7 +335,7 @@ impl SansIoClient {
                                 let mut out = vec![0x14, 0x03, 0x03, 0x00, 0x01, 0x01]; // CCS
                                 let mut client_hs_rec =
                                     RecordCrypto::new(&client_hs_keys.key, &client_hs_keys.iv);
-                                out.extend_from_slice(&client_hs_rec.encrypt(0x16, &fin));
+                                out.extend_from_slice(&client_hs_rec.encrypt(0x16, &fin)?);
                                 let master = master_secret(suite, &hs);
                                 let c_ap =
                                     client_application_traffic_secret(suite, &master, &th_full);
@@ -434,29 +448,65 @@ impl SansIoClient {
     /// Frame application data as one TLS record (call only after `Done`).
     pub fn seal(&mut self, plaintext: &[u8]) -> io::Result<Vec<u8>> {
         match &mut self.state {
-            State::Established { send, .. } => Ok(send.encrypt(0x17, plaintext)),
+            State::Established { send, .. } => send.encrypt(0x17, plaintext),
             _ => Err(ierr("seal before handshake complete")),
         }
     }
 
-    /// Feed inbound bytes after the handshake; returns any complete
-    /// application-data payloads (non-application records, e.g. tickets, skipped).
-    pub fn open_push(&mut self, data: &[u8]) -> io::Result<Vec<Vec<u8>>> {
+    /// Feed established-session bytes. Fragmented tickets are ignored. Fatal
+    /// errors stop the session; plaintext preceding one is returned once, and
+    /// the next call reports the sticky error (including through the C ABI).
+    pub fn open_push(&mut self, mut data: &[u8]) -> io::Result<Vec<Vec<u8>>> {
+        if let Some(error) = self.records.error() {
+            return Err(error);
+        }
         if !self.established() {
             return Err(ierr("open before handshake complete"));
         }
-        self.in_buf.extend_from_slice(data);
         let mut out = Vec::new();
-        while let Some(rec) = take_record(&mut self.in_buf)? {
-            if let State::Established { recv, .. } = &mut self.state {
-                match recv.decrypt(&rec) {
-                    Some((0x17, pt)) => out.push(pt),
-                    Some(_) => {}
-                    None => return Err(ierr("application record decrypt failed")),
+        loop {
+            // Consume incrementally so even a large FFI slice does not allocate
+            // an equally large ciphertext buffer before its header is inspected.
+            let count = data
+                .len()
+                .min(MAX_RECORD + 5 - self.in_buf.len().min(MAX_RECORD + 5));
+            self.in_buf.extend_from_slice(&data[..count]);
+            data = &data[count..];
+            let result = (|| -> io::Result<()> {
+                while let Some(rec) = take_record(&mut self.in_buf)? {
+                    if let State::Established { recv, .. } = &mut self.state {
+                        let (kind, pt) = recv
+                            .decrypt(&rec)
+                            .ok_or_else(|| ierr("application record decrypt failed"))?;
+                        if let Some(plaintext) = self.records.accept(kind, pt)? {
+                            out.push(plaintext);
+                        }
+                        if self.records.peer_closed {
+                            // The legacy byte-in/byte-out ABI has no separate EOF
+                            // result. Report closure using its existing terminal -1.
+                            return Err(io::Error::new(
+                                io::ErrorKind::ConnectionAborted,
+                                "TLS peer sent close_notify",
+                            ));
+                        }
+                    }
                 }
+                Ok(())
+            })();
+            if let Err(error) = result {
+                self.records.fail(error);
+                self.state = State::Failed;
+                self.in_buf.clear();
+                return if out.is_empty() {
+                    Err(self.records.error().unwrap())
+                } else {
+                    Ok(out)
+                };
+            }
+            if data.is_empty() {
+                return Ok(out);
             }
         }
-        Ok(out)
     }
 }
 
@@ -467,6 +517,78 @@ mod tests {
     use crate::crypto::StaticKeypair;
     use crate::protocol::realtls::server::{make_server_config, terminate};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn q11_sansio_fragmentation_alerts_and_ciphertext_buffer_bound() {
+        let identity = StaticKeypair::generate();
+        let key = [0x31; 16];
+        let iv = [0x42; 12];
+        let make = || {
+            let (mut client, _) =
+                SansIoClient::new(&identity.public, &short_id_from_hex("aa"), "example.com");
+            client.state = State::Established {
+                send: RecordCrypto::new(&key, &iv),
+                recv: RecordCrypto::new(&key, &iv),
+            };
+            client
+        };
+        let mut client = make();
+        let mut enc = RecordCrypto::new(&key, &iv);
+        let mut wire = Vec::new();
+        for fragment in [vec![4], vec![0, 0, 0]] {
+            wire.extend(enc.encrypt(0x16, &fragment).unwrap());
+        }
+        for _ in 0..20 {
+            wire.extend(enc.encrypt(0x17, &vec![7; 16384]).unwrap());
+        }
+        let out = client.open_push(&wire).unwrap();
+        assert_eq!(out.len(), 20);
+        assert!(client.in_buf.is_empty());
+        for alert in [vec![1, 0], vec![2, 40]] {
+            let mut client = make();
+            let mut enc = RecordCrypto::new(&key, &iv);
+            assert_eq!(
+                client
+                    .open_push(&enc.encrypt(0x15, &alert).unwrap())
+                    .unwrap_err()
+                    .kind(),
+                io::ErrorKind::ConnectionAborted
+            );
+            assert!(!client.established());
+            assert!(client.seal(b"x").is_err());
+        }
+        let mut client = make();
+        assert!(client.open_push(&vec![0xff; MAX_IN_BUF * 4]).is_err());
+        assert!(
+            client.in_buf.is_empty(),
+            "malformed large FFI input never retained"
+        );
+    }
+
+    #[test]
+    fn q11_sansio_key_update_is_terminal_and_prior_data_is_retained() {
+        let identity = StaticKeypair::generate();
+        let (mut client, _) =
+            SansIoClient::new(&identity.public, &short_id_from_hex("aa"), "example.com");
+        let key = [0x31; 16];
+        let iv = [0x42; 12];
+        client.state = State::Established {
+            send: RecordCrypto::new(&key, &iv),
+            recv: RecordCrypto::new(&key, &iv),
+        };
+        let mut crypto = RecordCrypto::new(&key, &iv);
+        let mut wire = crypto.encrypt(0x17, b"terminal-policy").unwrap();
+        wire.extend(crypto.encrypt(0x16, &[0x18, 0, 0, 1, 0]).unwrap());
+        wire.extend(crypto.encrypt(0x17, b"must-not-arrive").unwrap());
+        let out = client.open_push(&wire).unwrap();
+        assert_eq!(out, vec![b"terminal-policy".to_vec()]);
+        assert_eq!(
+            client.open_push(&[]).unwrap_err().kind(),
+            io::ErrorKind::Unsupported
+        );
+        assert!(client.seal(b"after-failure").is_err());
+        assert!(!client.established());
+    }
 
     /// Drive the sans-IO client (shuttling its bytes over a socket by hand, as the
     /// FFI caller will) against a real rustls server.

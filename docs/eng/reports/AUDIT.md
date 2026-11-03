@@ -1,4 +1,5 @@
 # qeli — security model and status
+
 <!-- normative-sync: security-ipv6-v1 -->
 
 This document describes qeli's **current** cryptography, authentication, and
@@ -18,7 +19,7 @@ reconsidered.
 
 | Element | Implementation |
 |---|---|
-| Key exchange | X25519 (ephemeral per-session), `x25519-dalek`; in all modes except `plain` — the PQ hybrid **X25519MLKEM768** (ML-KEM-768, `ml-kem`, the data keys = `HKDF(x25519 ‖ mlkem)`, `derive_keys_hybrid`). `plain` — classic X25519. The secrets with `zeroize` |
+| Key exchange | Ephemeral X25519; legacy camouflage uses mandatory inner X25519MLKEM768. `plain` and the private inner `reality-tls` exchange use classic X25519; outer REALITY TLS PQ depends on its negotiated group. Retained X25519/ML-KEM keys use zeroize. |
 | AEAD | ChaCha20-Poly1305 (`chacha20poly1305`) on the qeli data plane; in `reality-tls` the outer TLS 1.3 — AES-128/256-GCM (`aes-gcm`/rustls-ring) |
 | Key derivation | HKDF-SHA256, separate `server→client` / `client→server` keys (in `reality-tls` for `TLS_AES_256_GCM` — SHA-384) |
 | Passwords | Argon2id (`argon2` 0.6), profile **pinned in code** — `crypto::password_hasher()` builds `Params::new(19456, 2, 1, None)` (m=19456 KiB, t=2, p=1 — the OWASP recommendation), so bumping the crate cannot change it silently. VERIFICATION deliberately uses `Argon2::default()`, because the parameters of an existing hash come from its own PHC string, not from ours — that is what lets old hashes keep verifying after a parameter change |
@@ -110,13 +111,11 @@ fragmentation, a mode-dependent idle heartbeat with jitter (forced off in Realit
   **cert-borrowing** (`handrolled=true`), hands the client the target's captured cert
   chain and mirrors its JA3S shape (not complete Xray/browser parity; see CONFIG.md/DPI-AUDIT.md). Without REALITY,
   `fake-tls`/`obfs` target passive DPI.
-- **Post-quantum** — the **X25519MLKEM768** hybrid is now a working KEX of the **inner**
-  qeli tunnel in ALL modes except `plain` (`fake-tls`/`obfs`/`reality-tls`/UDP): a real
-  ML-KEM-768 encaps/decaps, the data keys = `HKDF(x25519_shared ‖ mlkem_shared)`
-  (`derive_keys_hybrid`). The server REQUIRES the X25519MLKEM768 share for non-`plain` (no
-  silent downgrade; domain separation by the salt). Managed clients (C#/Kotlin) take
-  ML-KEM from the core via the C-ABI/JNI (BouncyCastle has no ML-KEM). Protection against
-  harvest-now-decrypt-later regardless of the wrapper.
+- **Post-quantum** — legacy camouflage (`fake-tls`/`obfs`/`reality`/UDP) requires
+  a hybrid X25519MLKEM768 inner exchange. Current `reality-tls` uses classic X25519
+  with static identity binding inside H2. Its outer TLS negotiates hybrid or classic
+  X25519; PQ protection is conditional on the outer group. `plain` is classic.
+  [Q08](audit-0.8.2/AUDIT-Q08-CRYPTO-KEYS.md) records the corrected scope and primitive vectors.
 - **The `obfs` keystream** is limited to 256 GiB per direction per session — on exceeding
   it the connection fail-safe reconnects (without reusing the keystream).
 - **TOFU by default.** If the client hasn't pinned the key and the server doesn't require

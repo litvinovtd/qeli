@@ -1,0 +1,834 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_CI_FUZZ_INVENTORY_SCOPED",
+  "source_digest": "3fde4d3bf732ec3590598bcdc7337efea722534ae3b32a001fb4fe9150a08eba",
+  "qualification_source_commit": "d77e26b472a5487f81cecca51fded09053dc0995",
+  "product_source_commit": "d77e26b472a5487f81cecca51fded09053dc0995",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F484/Q34-F038"
+  ],
+  "verification": {
+    "baseline": {
+      "status": "BASELINE_COVERAGE_DEFECT",
+      "source_commit": "937294a2c61658c0934326ef62b95ccc8851953a",
+      "declared": [
+        "client_config",
+        "clienthello",
+        "control_v2",
+        "data_frag",
+        "ip_packet",
+        "obfs_datagram",
+        "packet_decrypt",
+        "quic",
+        "quic_envelope",
+        "realtls_client",
+        "realtls_record",
+        "roaming_wire",
+        "udp_frag",
+        "websocket_frame",
+        "websocket_head"
+      ],
+      "smoke": [
+        "clienthello",
+        "client_config",
+        "websocket_head",
+        "packet_decrypt",
+        "realtls_record",
+        "obfs_datagram",
+        "quic",
+        "udp_frag",
+        "data_frag",
+        "roaming_wire",
+        "ip_packet"
+      ],
+      "nightly": [
+        "clienthello",
+        "client_config",
+        "websocket_head",
+        "packet_decrypt",
+        "realtls_record",
+        "obfs_datagram",
+        "quic",
+        "udp_frag",
+        "data_frag",
+        "roaming_wire",
+        "ip_packet"
+      ],
+      "missing_smoke": [
+        "control_v2",
+        "quic_envelope",
+        "realtls_client",
+        "websocket_frame"
+      ],
+      "missing_nightly": [
+        "control_v2",
+        "quic_envelope",
+        "realtls_client",
+        "websocket_frame"
+      ],
+      "scope": "Actual committed workflow inventory compared with actual Cargo bins;not execution or crash claim"
+    },
+    "tests": {
+      "status": "PASS",
+      "suites": {
+        "test_fuzz_targets": {
+          "rc": 0,
+          "methods": 10
+        },
+        "test_native_recipes": {
+          "rc": 0,
+          "methods": 38
+        },
+        "test_release_tag": {
+          "rc": 0,
+          "methods": 21
+        }
+      },
+      "total_methods": 69,
+      "scope": "Manifest/consumer regression and unaffected release/native recipe contracts;noRustfuzzbuild/runtime"
+    },
+    "workflow_inputs": {
+      "status": "PASS",
+      "inputs": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "fce3fff014fcc6f106715104fbffa19b7b4677fa1b032e11671f23bdedb678f9",
+          "size": 48985
+        },
+        {
+          "path": "scripts/fuzz_targets.py",
+          "sha256": "356015d845f9542b4bb802b05c596c15eed11b65ab17718568426951e0569a6c",
+          "size": 2597
+        },
+        {
+          "path": "scripts/test_fuzz_targets.py",
+          "sha256": "a00b1a88cd9c8f0a274d810896463c0742e5aa1e4295851f7704a6d6c05eaf3f",
+          "size": 5370
+        },
+        {
+          "path": "qeli/fuzz/Cargo.toml",
+          "sha256": "fbd0cc114ab5c2a800fb93f1a994a641ff41d3f4483fd2c3f3751d471ed863a3",
+          "size": 2220
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/client_config.rs",
+          "sha256": "6163a585279810f7c469f7367c207b7ff77abaf2be0b7747825a96343b645b83",
+          "size": 511
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/clienthello.rs",
+          "sha256": "1a16c73400d89b2e99435717f18dbf9e1d1fc1c589373b5546eb094c22e31365",
+          "size": 679
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/control_v2.rs",
+          "sha256": "208cc6b737528d2c0e306384592592401be8797f8c90a5836e0233a0800e6a4a",
+          "size": 2178
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/data_frag.rs",
+          "sha256": "a46e740d54890021571d267b1b33c25f295e32aec38cca7c527768c0a5141076",
+          "size": 2371
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/ip_packet.rs",
+          "sha256": "7e74d2716119ba5b8ff2a8d28c05e3459a5612df775b8cb6d1eccf5a250c016e",
+          "size": 532
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/obfs_datagram.rs",
+          "sha256": "3263194a8a997e2e60a662eae14947da8e1f2812f644be401e0461b73739dad8",
+          "size": 457
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/packet_decrypt.rs",
+          "sha256": "a2ccaa678fd796809875a91b50d8503de0dbeb26410be9dfd1e419e3d224e370",
+          "size": 3308
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/quic.rs",
+          "sha256": "964c54aa8adcd096c03c494a937ca42e828a3e02fafb66d265b16c23408fb668",
+          "size": 357
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/quic_envelope.rs",
+          "sha256": "fbcab17f8b75195d569164096db8fbabd6a28e5d9e49b5b0d4a66c7cc8856884",
+          "size": 797
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/realtls_client.rs",
+          "sha256": "50c594c9cff33633e1defc998fb0ed7133e54b90424e3dff72888c59eb6b997a",
+          "size": 1757
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/realtls_record.rs",
+          "sha256": "aa306acb5158916b7474706540109a5689f2a0f6cb12b6f8e26142f90702db29",
+          "size": 2678
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/roaming_wire.rs",
+          "sha256": "c4b91c8e37e7eaf143558f716eb0416da705a9f0c09308204f623455cd9d0d18",
+          "size": 3830
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/udp_frag.rs",
+          "sha256": "52833811efcbb86cdeaa4fd2854a75dd81f249ad47142e7a8652b81e183e346f",
+          "size": 676
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/websocket_frame.rs",
+          "sha256": "fa665c625eb8f4a97f1282562fe27b098b1cc0299f583b8fa62d6ab9412e3cc4",
+          "size": 577
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/websocket_head.rs",
+          "sha256": "d2a93d9c39cfea7241d012e04e033c6f67bdd74520c6ef4fc99d8af9f739d247",
+          "size": 1023
+        }
+      ],
+      "yaml_parser": "6.0.3",
+      "ci_workflow_sha256": "fce3fff014fcc6f106715104fbffa19b7b4677fa1b032e11671f23bdedb678f9",
+      "parsed_matrix_outputs_and_needs": "PASS",
+      "scope": "Actual workflow steps extracted by YAML parser;GitHub expression syntax follows official fromJSON-needs example,hosted scheduling not executed"
+    },
+    "linux_commands": {
+      "status": "PASS",
+      "actual_shell_scenarios": [
+        {
+          "name": "baseline-smoke",
+          "rc": 0,
+          "calls": [
+            "clienthello",
+            "client_config",
+            "websocket_head",
+            "packet_decrypt",
+            "realtls_record",
+            "obfs_datagram",
+            "quic",
+            "udp_frag",
+            "data_frag",
+            "roaming_wire",
+            "ip_packet"
+          ],
+          "github_output": "previous=value\n"
+        },
+        {
+          "name": "smoke-all",
+          "rc": 0,
+          "calls": [
+            "client_config",
+            "clienthello",
+            "control_v2",
+            "data_frag",
+            "ip_packet",
+            "obfs_datagram",
+            "packet_decrypt",
+            "quic",
+            "quic_envelope",
+            "realtls_client",
+            "realtls_record",
+            "roaming_wire",
+            "udp_frag",
+            "websocket_frame",
+            "websocket_head"
+          ],
+          "github_output": "previous=value\n"
+        },
+        {
+          "name": "cargo-failure",
+          "rc": 23,
+          "calls": [
+            "client_config",
+            "clienthello",
+            "control_v2"
+          ],
+          "github_output": "previous=value\n"
+        },
+        {
+          "name": "matrix-all",
+          "rc": 0,
+          "calls": [],
+          "github_output": "previous=value\ntargets=[\"client_config\",\"clienthello\",\"control_v2\",\"data_frag\",\"ip_packet\",\"obfs_datagram\",\"packet_decrypt\",\"quic\",\"quic_envelope\",\"realtls_client\",\"realtls_record\",\"roaming_wire\",\"udp_frag\",\"websocket_frame\",\"websocket_head\"]\n"
+        },
+        {
+          "name": "missing-manifest",
+          "rc": 1,
+          "calls": [],
+          "github_output": "previous=value\n"
+        },
+        {
+          "name": "malformed-smoke",
+          "rc": 1,
+          "calls": [],
+          "github_output": "previous=value\n"
+        },
+        {
+          "name": "malformed-matrix",
+          "rc": 1,
+          "calls": [],
+          "github_output": "previous=value\n"
+        },
+        {
+          "name": "new-target-smoke",
+          "rc": 0,
+          "calls": [
+            "audit_added",
+            "client_config",
+            "clienthello",
+            "control_v2",
+            "data_frag",
+            "ip_packet",
+            "obfs_datagram",
+            "packet_decrypt",
+            "quic",
+            "quic_envelope",
+            "realtls_client",
+            "realtls_record",
+            "roaming_wire",
+            "udp_frag",
+            "websocket_frame",
+            "websocket_head"
+          ],
+          "github_output": "previous=value\n"
+        },
+        {
+          "name": "new-target-matrix",
+          "rc": 0,
+          "calls": [],
+          "github_output": "previous=value\ntargets=[\"audit_added\",\"client_config\",\"clienthello\",\"control_v2\",\"data_frag\",\"ip_packet\",\"obfs_datagram\",\"packet_decrypt\",\"quic\",\"quic_envelope\",\"realtls_client\",\"realtls_record\",\"roaming_wire\",\"udp_frag\",\"websocket_frame\",\"websocket_head\"]\n"
+        },
+        {
+          "name": "external-source",
+          "rc": 1,
+          "calls": [],
+          "github_output": "previous=value\n"
+        }
+      ],
+      "scenario_count": 10,
+      "linux_unit_methods": 10,
+      "exact_inputs_restored": true,
+      "scope": "Actual extracted CI Bash commands and real inventoryhelper with controlled cargo argument/status receipt;not Rust/compiler/libFuzzer/parser crash coverage or hosted Actions scheduler"
+    },
+    "recovery": {
+      "status": "PASS",
+      "remote_root": "/var/tmp/qeli-fuzz-inventory-20261009.ujtjZR",
+      "backup_path": "/var/tmp/qeli-fuzz-inventory-20261009.ujtjZR.tar.gz",
+      "backup_size": 33690,
+      "backup_sha256": "eeee3586ea94a680323e521b470c0cdaf689e561ad9cd306d421fc53117911b6",
+      "files": [
+        {
+          "path": "baseline-smoke.sh",
+          "size": 229,
+          "sha256": "43ec514a559970b25812fefa456dc176806b362217e970f6da2fcfe1ea9c722d"
+        },
+        {
+          "path": "bin/cargo",
+          "size": 343,
+          "sha256": "b2d1a34856933a8d34592336b1212adf38b5ef0df3d077dce1526c2c7c258769"
+        },
+        {
+          "path": "input-proof.json",
+          "size": 3558,
+          "sha256": "5dfa9b64a3313684987a5dba7a87be30fc163492d97449c935c37e07a2e8e4d1"
+        },
+        {
+          "path": "lab-before.json",
+          "size": 262,
+          "sha256": "5d972a6da361e44e94695ae88083adaaa3a90a6524f4a9e15373955c569efe2d"
+        },
+        {
+          "path": "linux-proof.json",
+          "size": 3161,
+          "sha256": "045f9650bd57195fc0ec2febbd49e7c0ebd66f882b6dc9ccce50fa1c9d039198"
+        },
+        {
+          "path": "matrix.sh",
+          "size": 68,
+          "sha256": "af8a28107fe89cd64e82f09ab181c05ab5b2725a1ef1f883253c345294351433"
+        },
+        {
+          "path": "outputs/baseline-smoke.calls",
+          "size": 781,
+          "sha256": "177cbf4381def3d6c21c1f53d09ebe81b5c841f0cb7a431479d59771b318a291"
+        },
+        {
+          "path": "outputs/baseline-smoke.log",
+          "size": 275,
+          "sha256": "5ea2194f3dfc4131dae83bf684dd79bfe21e3e21d5a497d47b5a8154b4534e60"
+        },
+        {
+          "path": "outputs/baseline-smoke.output",
+          "size": 15,
+          "sha256": "a186c94a74d18799264b3739d89b7a55d666026ac11e3aa9b920b82cf1f80838"
+        },
+        {
+          "path": "outputs/cargo-failure.calls",
+          "size": 214,
+          "sha256": "972247aac03df854822028266b038f5b766a70809e7a4e21c9ed24188b7349be"
+        },
+        {
+          "path": "outputs/cargo-failure.log",
+          "size": 76,
+          "sha256": "aceeb9c3ab1afdf142f742f541c9cd779945fc9b2a49e07bdbc9f6496f4aacaa"
+        },
+        {
+          "path": "outputs/cargo-failure.output",
+          "size": 15,
+          "sha256": "a186c94a74d18799264b3739d89b7a55d666026ac11e3aa9b920b82cf1f80838"
+        },
+        {
+          "path": "outputs/external-source.log",
+          "size": 86,
+          "sha256": "9f20b9bd9b289e92e424604409736220f3c202b010357c7bcc57c0fd26e2e04e"
+        },
+        {
+          "path": "outputs/external-source.output",
+          "size": 15,
+          "sha256": "a186c94a74d18799264b3739d89b7a55d666026ac11e3aa9b920b82cf1f80838"
+        },
+        {
+          "path": "outputs/linux-unit-tests.log",
+          "size": 1582,
+          "sha256": "c825f68a930a6d63ad91307af617ed063b0f63167010cc4a16d37f563810998d"
+        },
+        {
+          "path": "outputs/malformed-matrix.log",
+          "size": 66,
+          "sha256": "63c8e92003f5c1a2fb83b9f1b5e591f772ed1dd3361ab5ea1edc207d84d2ff43"
+        },
+        {
+          "path": "outputs/malformed-matrix.output",
+          "size": 15,
+          "sha256": "a186c94a74d18799264b3739d89b7a55d666026ac11e3aa9b920b82cf1f80838"
+        },
+        {
+          "path": "outputs/malformed-smoke.log",
+          "size": 66,
+          "sha256": "63c8e92003f5c1a2fb83b9f1b5e591f772ed1dd3361ab5ea1edc207d84d2ff43"
+        },
+        {
+          "path": "outputs/malformed-smoke.output",
+          "size": 15,
+          "sha256": "a186c94a74d18799264b3739d89b7a55d666026ac11e3aa9b920b82cf1f80838"
+        },
+        {
+          "path": "outputs/matrix-all.log",
+          "size": 188,
+          "sha256": "6685f761b40d7a65efaf3bacdc79487069c532abdbb4d9616c76487f3326a9d2"
+        },
+        {
+          "path": "outputs/matrix-all.output",
+          "size": 243,
+          "sha256": "83437b6313787bf1cb841204411f37a6cd105c7e00be2ca2bef0c77bd9908944"
+        },
+        {
+          "path": "outputs/missing-manifest.log",
+          "size": 143,
+          "sha256": "08f43f57c5fbb1e1b7d3b6db6da6fd70ddad320b06c5f1d305a13e33b3dd5b7f"
+        },
+        {
+          "path": "outputs/missing-manifest.output",
+          "size": 15,
+          "sha256": "a186c94a74d18799264b3739d89b7a55d666026ac11e3aa9b920b82cf1f80838"
+        },
+        {
+          "path": "outputs/new-target-matrix.log",
+          "size": 200,
+          "sha256": "37c299971db476b4d190f7489d4b84d4615ec32b7676f45522b264bb4ff260a7"
+        },
+        {
+          "path": "outputs/new-target-matrix.output",
+          "size": 257,
+          "sha256": "184c362143ff2006cb3fae75decb2b0a814bb6e20bdec8703e94fa4cce241f05"
+        },
+        {
+          "path": "outputs/new-target-smoke.calls",
+          "size": 1144,
+          "sha256": "46e6511f012c0718d0830cbe7bccf568220673a2cfe9361d70164a7b2be8f83f"
+        },
+        {
+          "path": "outputs/new-target-smoke.log",
+          "size": 408,
+          "sha256": "00c139f430a75344e19ad73d4223d9f1e2417f968ef24e8b05731190b1403b51"
+        },
+        {
+          "path": "outputs/new-target-smoke.output",
+          "size": 15,
+          "sha256": "a186c94a74d18799264b3739d89b7a55d666026ac11e3aa9b920b82cf1f80838"
+        },
+        {
+          "path": "outputs/smoke-all.calls",
+          "size": 1073,
+          "sha256": "d960fc139f1398361007e75f14de82135947518dd3dead1d639b5b5547c9fbb5"
+        },
+        {
+          "path": "outputs/smoke-all.log",
+          "size": 383,
+          "sha256": "7540c50a71758f8d60ad32edf700452d5d16a586f442343a02e244644e191fe3"
+        },
+        {
+          "path": "outputs/smoke-all.output",
+          "size": 15,
+          "sha256": "a186c94a74d18799264b3739d89b7a55d666026ac11e3aa9b920b82cf1f80838"
+        },
+        {
+          "path": "outside.rs",
+          "size": 2178,
+          "sha256": "208cc6b737528d2c0e306384592592401be8797f8c90a5836e0233a0800e6a4a"
+        },
+        {
+          "path": "remote-check.py",
+          "size": 4059,
+          "sha256": "607b555ec7733b03f69430420c343556849214308c94551c205b48b05b0634a0"
+        },
+        {
+          "path": "remote-lifecycle.py",
+          "size": 2520,
+          "sha256": "a15c2f2519305af2dc693a41babe6a6ce0945efe2434832c524ea5638193b0ad"
+        },
+        {
+          "path": "smoke.sh",
+          "size": 217,
+          "sha256": "1d8b270669688f0fe5de800d84c9b3c0e097ba92ef57e590c107846d9c900617"
+        },
+        {
+          "path": "source/.github/workflows/ci.yml",
+          "size": 48985,
+          "sha256": "fce3fff014fcc6f106715104fbffa19b7b4677fa1b032e11671f23bdedb678f9"
+        },
+        {
+          "path": "source/qeli/fuzz/Cargo.toml",
+          "size": 2220,
+          "sha256": "fbd0cc114ab5c2a800fb93f1a994a641ff41d3f4483fd2c3f3751d471ed863a3"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/client_config.rs",
+          "size": 511,
+          "sha256": "6163a585279810f7c469f7367c207b7ff77abaf2be0b7747825a96343b645b83"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/clienthello.rs",
+          "size": 679,
+          "sha256": "1a16c73400d89b2e99435717f18dbf9e1d1fc1c589373b5546eb094c22e31365"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/control_v2.rs",
+          "size": 2178,
+          "sha256": "208cc6b737528d2c0e306384592592401be8797f8c90a5836e0233a0800e6a4a"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/data_frag.rs",
+          "size": 2371,
+          "sha256": "a46e740d54890021571d267b1b33c25f295e32aec38cca7c527768c0a5141076"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/ip_packet.rs",
+          "size": 532,
+          "sha256": "7e74d2716119ba5b8ff2a8d28c05e3459a5612df775b8cb6d1eccf5a250c016e"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/obfs_datagram.rs",
+          "size": 457,
+          "sha256": "3263194a8a997e2e60a662eae14947da8e1f2812f644be401e0461b73739dad8"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/packet_decrypt.rs",
+          "size": 3308,
+          "sha256": "a2ccaa678fd796809875a91b50d8503de0dbeb26410be9dfd1e419e3d224e370"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/quic.rs",
+          "size": 357,
+          "sha256": "964c54aa8adcd096c03c494a937ca42e828a3e02fafb66d265b16c23408fb668"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/quic_envelope.rs",
+          "size": 797,
+          "sha256": "fbcab17f8b75195d569164096db8fbabd6a28e5d9e49b5b0d4a66c7cc8856884"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/realtls_client.rs",
+          "size": 1757,
+          "sha256": "50c594c9cff33633e1defc998fb0ed7133e54b90424e3dff72888c59eb6b997a"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/realtls_record.rs",
+          "size": 2678,
+          "sha256": "aa306acb5158916b7474706540109a5689f2a0f6cb12b6f8e26142f90702db29"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/roaming_wire.rs",
+          "size": 3830,
+          "sha256": "c4b91c8e37e7eaf143558f716eb0416da705a9f0c09308204f623455cd9d0d18"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/udp_frag.rs",
+          "size": 676,
+          "sha256": "52833811efcbb86cdeaa4fd2854a75dd81f249ad47142e7a8652b81e183e346f"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/websocket_frame.rs",
+          "size": 577,
+          "sha256": "fa665c625eb8f4a97f1282562fe27b098b1cc0299f583b8fa62d6ab9412e3cc4"
+        },
+        {
+          "path": "source/qeli/fuzz/fuzz_targets/websocket_head.rs",
+          "size": 1023,
+          "sha256": "d2a93d9c39cfea7241d012e04e033c6f67bdd74520c6ef4fc99d8af9f739d247"
+        },
+        {
+          "path": "source/scripts/fuzz_targets.py",
+          "size": 2597,
+          "sha256": "356015d845f9542b4bb802b05c596c15eed11b65ab17718568426951e0569a6c"
+        },
+        {
+          "path": "source/scripts/test_fuzz_targets.py",
+          "size": 5370,
+          "sha256": "a00b1a88cd9c8f0a274d810896463c0742e5aa1e4295851f7704a6d6c05eaf3f"
+        }
+      ],
+      "scope": "Full owned small fixture/source/outputs/scripts,no exclusions"
+    },
+    "cleanup": {
+      "status": "PASS",
+      "removed_root": "/var/tmp/qeli-fuzz-inventory-20261009.ujtjZR",
+      "backup_sha256": "eeee3586ea94a680323e521b470c0cdaf689e561ad9cd306d421fc53117911b6",
+      "guard": "procfd/cwd/exe/root and mount PASS",
+      "state_after": {
+        "service": "MainPID=777\nActiveState=active\n",
+        "processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n",
+        "cli_sha": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a"
+      },
+      "scope": "Only completed own small fixture and its exact sibling archive removed after verified local recovery copy"
+    },
+    "credential_scan": {
+      "status": "PASS",
+      "decoded_backup_regular_members": 54,
+      "scope": "All raw bytes and all decoded full recovery archive files;secret stdin only,not retained"
+    },
+    "qualified_inputs": {
+      "status": "PASS",
+      "paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "normalization": "lf",
+          "sha256": "fce3fff014fcc6f106715104fbffa19b7b4677fa1b032e11671f23bdedb678f9"
+        },
+        {
+          "path": "docs/eng/index.md",
+          "normalization": "lf",
+          "sha256": "9720d575ca54d18f943aeb43f3056e427b04e4f9d7cf648f89c73251a44811ad"
+        },
+        {
+          "path": "docs/eng/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "899de234ff1ec33f135d6e328690f263e2e6b702853b7face05fb4fa20829ace"
+        },
+        {
+          "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "e186dcd9f26502b1b0127f3d23bcc7b686f0831ba2d1492c931d73633f1af0fa"
+        },
+        {
+          "path": "docs/ru/index.md",
+          "normalization": "lf",
+          "sha256": "0c0dca74b6729f6e53a4a7159219a1cb5d9de245c719cbaa5532380c43c92248"
+        },
+        {
+          "path": "docs/ru/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "f7fc152b1fd5a9ab6aa96fe6f99e63a30c254dfdb2b6b6080b08f9f7b37ac1d4"
+        },
+        {
+          "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "94934d09dd8cbf50b4f948076f4f67798b104a07f69ed227a1cbfcd412134402"
+        },
+        {
+          "path": "qeli-openwrt/Makefile",
+          "normalization": "lf",
+          "sha256": "1bc3afcc8180af2c8fab6b207816f2b6a3c78f55b9013cca5e5aa3be65088f2e"
+        },
+        {
+          "path": "qeli-openwrt/verify-source.sh",
+          "normalization": "lf",
+          "sha256": "776d5a5ba493d8435af88e278a2667f378439817d26a62ccb4dcadd669773a9d"
+        },
+        {
+          "path": "qeli/Cargo.lock",
+          "normalization": "lf",
+          "sha256": "dbe2e1297402d2b938bcf88f42b567374e6671189dc08472e2be464356692bf7"
+        },
+        {
+          "path": "qeli/Cargo.toml",
+          "normalization": "lf",
+          "sha256": "05b83390369a48f6c183e00989324b03afca4995daa74a6b1da2937d2145cecc"
+        },
+        {
+          "path": "qeli/fuzz/Cargo.toml",
+          "normalization": "lf",
+          "sha256": "fbd0cc114ab5c2a800fb93f1a994a641ff41d3f4483fd2c3f3751d471ed863a3"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/client_config.rs",
+          "normalization": "lf",
+          "sha256": "6163a585279810f7c469f7367c207b7ff77abaf2be0b7747825a96343b645b83"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/clienthello.rs",
+          "normalization": "lf",
+          "sha256": "1a16c73400d89b2e99435717f18dbf9e1d1fc1c589373b5546eb094c22e31365"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/control_v2.rs",
+          "normalization": "lf",
+          "sha256": "208cc6b737528d2c0e306384592592401be8797f8c90a5836e0233a0800e6a4a"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/data_frag.rs",
+          "normalization": "lf",
+          "sha256": "a46e740d54890021571d267b1b33c25f295e32aec38cca7c527768c0a5141076"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/ip_packet.rs",
+          "normalization": "lf",
+          "sha256": "7e74d2716119ba5b8ff2a8d28c05e3459a5612df775b8cb6d1eccf5a250c016e"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/obfs_datagram.rs",
+          "normalization": "lf",
+          "sha256": "3263194a8a997e2e60a662eae14947da8e1f2812f644be401e0461b73739dad8"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/packet_decrypt.rs",
+          "normalization": "lf",
+          "sha256": "a2ccaa678fd796809875a91b50d8503de0dbeb26410be9dfd1e419e3d224e370"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/quic.rs",
+          "normalization": "lf",
+          "sha256": "964c54aa8adcd096c03c494a937ca42e828a3e02fafb66d265b16c23408fb668"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/quic_envelope.rs",
+          "normalization": "lf",
+          "sha256": "fbcab17f8b75195d569164096db8fbabd6a28e5d9e49b5b0d4a66c7cc8856884"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/realtls_client.rs",
+          "normalization": "lf",
+          "sha256": "50c594c9cff33633e1defc998fb0ed7133e54b90424e3dff72888c59eb6b997a"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/realtls_record.rs",
+          "normalization": "lf",
+          "sha256": "aa306acb5158916b7474706540109a5689f2a0f6cb12b6f8e26142f90702db29"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/roaming_wire.rs",
+          "normalization": "lf",
+          "sha256": "c4b91c8e37e7eaf143558f716eb0416da705a9f0c09308204f623455cd9d0d18"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/udp_frag.rs",
+          "normalization": "lf",
+          "sha256": "52833811efcbb86cdeaa4fd2854a75dd81f249ad47142e7a8652b81e183e346f"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/websocket_frame.rs",
+          "normalization": "lf",
+          "sha256": "fa665c625eb8f4a97f1282562fe27b098b1cc0299f583b8fa62d6ab9412e3cc4"
+        },
+        {
+          "path": "qeli/fuzz/fuzz_targets/websocket_head.rs",
+          "normalization": "lf",
+          "sha256": "d2a93d9c39cfea7241d012e04e033c6f67bdd74520c6ef4fc99d8af9f739d247"
+        },
+        {
+          "path": "scripts/check_docs.py",
+          "normalization": "lf",
+          "sha256": "e260cb024b56fc6257108801d5dae01607dfadfb6cb5458669b3b2e25e808a10"
+        },
+        {
+          "path": "scripts/fuzz_targets.py",
+          "normalization": "lf",
+          "sha256": "356015d845f9542b4bb802b05c596c15eed11b65ab17718568426951e0569a6c"
+        },
+        {
+          "path": "scripts/native_repro.py",
+          "normalization": "lf",
+          "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+        },
+        {
+          "path": "scripts/openwrt_source_gate.py",
+          "normalization": "lf",
+          "sha256": "d22677508a027df9e2b717dae45553ba235d8e88417d14a0cf4fcb91d2cd8588"
+        },
+        {
+          "path": "scripts/release_certification.py",
+          "normalization": "lf",
+          "sha256": "d3dd7fe497da0df4519835decfadb4cb64abfa9c38f29e301ff4630b7e5885b5"
+        },
+        {
+          "path": "scripts/test_fuzz_targets.py",
+          "normalization": "lf",
+          "sha256": "a00b1a88cd9c8f0a274d810896463c0742e5aa1e4295851f7704a6d6c05eaf3f"
+        }
+      ],
+      "scope": "Exact helper/tests/workflow/docs/fuzzmanifest and target sources;unchangedqeli/OpenWrt/native qualified inputs"
+    },
+    "local_checks": {
+      "status": "PASS",
+      "checks": [
+        {
+          "name": "docs",
+          "rc": 0,
+          "output": "checking 718 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "name": "diff",
+          "rc": 0,
+          "output": ""
+        }
+      ],
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "docs/eng/index.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-FUZZ-INVENTORY.md",
+        "docs/ru/index.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-FUZZ-INVENTORY.md",
+        "scripts/fuzz_targets.py",
+        "scripts/test_fuzz_targets.py"
+      ],
+      "native_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifact_hashes": 14,
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+        "qeli/src/web/assets/app.css": "c925399cb860bea80fcbc5d66dec7cf3ebb0740fbd8bb7489d211730bdc1d8bd"
+      },
+      "distinct_local_methods_pass": 69,
+      "linux_repeated_methods": 10,
+      "actual_ci_shell_scenarios": 10,
+      "prior_openwrt_source_gate": "PASS_UNCHANGED_QELI_TREE_REUSED_ACTUAL_SDK_ARCHIVE",
+      "scope": "CI inventory/command contract only,not full Rust/libFuzzer/hostedActions or source publication"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-fuzz-inventory-20261009",
+    "files": 108,
+    "bytes": 1459713,
+    "manifest_sha256": "c580a0c3430eb9828987e68c2a9f7e44c35391830e83c6a308371efff076e6f6",
+    "runtime_status": "PASS_CI_SHELL_INVENTORY_NOT_ACTUAL_RUST_FUZZ_RUNTIME",
+    "path": "audit-debt-20260924/q34-fuzz-inventory-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F484/Q34-F038 CI fuzz inventory:actualCargo15registeredbins/oldmanualsmoke-nightly11 omitcontrol_v2/quic_envelope/realtls_client/websocket_frame. ExactoldBash controlledcargo returns0only11calls,reproducedcoveragegap notparsercrash. Sharedstdlib TOMLhelper requirescargo-fuzzmetadata/nonemptyunique safe names/existinginternal sourcepaths/256matrixlimit,sortednewline andsameGitHubJSONinventory;readerror beforeoutputs. Smokecheckedcommandsubstitution preventsemptyloopfalsegreen;nightlyneeds/outputs/fromJSONdynamicmatrix samehelper,existingschedule-manualboundary/corpuskeys/crashartifacts preserved. NewhelperregressionincludednormalCI.69distinctWindowsmethods10helper38recipes21releaseTagPASS,same10helpermethodsLinuxrepeatno skips.10actualextractedCI Bash scenarios PASS withcontrolledcargo argument/statusreceipts:baselinegap,15calls,early23stopsremaining,allnightlyoutput,missing/malformed zeroCargo,oldoutputpreserved,new16thtargetsmoke+matrix,actualexternal sourcesymlinkrefusal;alloriginalRustinputSHArestored. SHA-qualifiedprivatePyYAML6.0.3 parsedactualworkflowcwd/needs/output/if/matrix;officialmatrixscheme checked,not hostedexpressions/scheduler. Initialglobalyamlmissingrc1 retained,priorprivateparser reusednoglobalinstall. Fullownedfixture33690bytebackup54files allmemberSHAchecked thenprocfdcwdexeroot/mountguard ownroot-sibling cleanup;active777845andCLI75bc unchanged,.10unused. Allraw/decodedrecoverycredentialscanPASSstdinonly.718Markdown9checks/nativee3fb14SHA/protected/qelitreeunchanged;priorSDKcut actualsourcegatePASS reusedsamearchive,notnewSDKexecution. No actualRust/libFuzzer/ASan/parsercrash/corpus/fuzzruntime/hostedActions/signatures/sourcepublication claim;fuzznightly/toolpinsandestablishedQ34coverageOPEN,Q35TODO.41cases86prior supplements preservedmodulo source_digest bookkeeping,append87scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;Q29SIGKILLFAIL-ENONET/Q30/Q31/F459braces/D06accepted/USER_EXCLUDED preserved.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

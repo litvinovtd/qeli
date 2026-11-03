@@ -8,7 +8,7 @@ use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{json, Value};
 use sha2::Sha256;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -53,27 +53,63 @@ pub fn is_authed_cookie_only(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
 /// Verify a username + plaintext password against the configured admin account.
 /// The Argon2 verification is offloaded to a blocking thread so it never stalls an
 /// async worker (Argon2 is intentionally slow and memory-hard).
-pub async fn verify_credentials(username: &str, password: &str, web_cfg: &WebConfig) -> bool {
+pub async fn verify_credentials(
+    username: &str,
+    password: &str,
+    web_cfg: &WebConfig,
+    tracker: Arc<tokio::sync::Mutex<crate::server::FailedAuthTracker>>,
+    client_ip: Option<IpAddr>,
+) -> Result<bool, String> {
     let supplied_user = username.to_string();
     let supplied_pass = password.to_string();
     let cfg_user = web_cfg.username.clone();
     let cfg_hash = web_cfg.password_hash.clone();
-    // Bound concurrent memory-hard work: a login burst used to start one ~19 MiB Argon2
-    // job per request, because no failure is recorded until a hash finishes. Held across
-    // the verify below.
-    let _permit = crate::server::argon2_gate().acquire().await;
-    tokio::task::spawn_blocking(move || {
-        // Constant-time username compare (avoids a timing side-channel on the admin
-        // username), and use a non-short-circuiting `&` so the Argon2 verify always
-        // runs regardless of whether the username matched — otherwise the presence
-        // (or absence) of the ~memory-hard Argon2 delay would itself leak whether the
-        // supplied username was correct.
-        let user_ok = constant_time_eq(supplied_user.as_bytes(), cfg_user.as_bytes());
-        let pass_ok = verify_password(&supplied_pass, &cfg_hash);
-        user_ok & pass_ok
+    let compared_user = supplied_user.clone();
+    verify_tracked_credentials(
+        crate::server::argon2_gate(),
+        tracker,
+        supplied_user,
+        client_ip,
+        move || {
+            // Always verify the password, including an unknown username, to avoid
+            // revealing account existence through the memory-hard delay.
+            let user_ok = constant_time_eq(compared_user.as_bytes(), cfg_user.as_bytes());
+            let pass_ok = verify_password(&supplied_pass, &cfg_hash);
+            user_ok & pass_ok
+        },
+    )
+    .await
+}
+
+async fn verify_tracked_credentials(
+    gate: &'static tokio::sync::Semaphore,
+    tracker: Arc<tokio::sync::Mutex<crate::server::FailedAuthTracker>>,
+    username: String,
+    client_ip: Option<IpAddr>,
+    verify: impl FnOnce() -> bool + Send + 'static,
+) -> Result<bool, String> {
+    let Ok(permit) = gate.acquire().await else {
+        return Ok(false);
+    };
+    crate::server::run_argon2(permit, move || {
+        // The request may have queued while earlier jobs locked its source IP.
+        // Check at actual job admission, not just before waiting for the permit.
+        if let Some(ip) = client_ip {
+            tracker.blocking_lock().check_ip(ip)?;
+        }
+        let verified = verify();
+        // Commit the result in the blocking job, before its permit is released.
+        // Cancelling the HTTP waiter must not erase an already executed guess.
+        let mut tracker = tracker.blocking_lock();
+        if verified {
+            tracker.record_success(&username);
+        } else if let Some(ip) = client_ip {
+            tracker.record_failure(&username, ip);
+        }
+        Ok(verified)
     })
     .await
-    .unwrap_or(false)
+    .unwrap_or(Ok(false))
 }
 
 /// Mint a stateless, signed session token: `<exp>.<hmac>`. The HMAC key is derived
@@ -288,23 +324,12 @@ fn load_or_create_persistent_secret_at(path: &std::path::Path) -> anyhow::Result
         std::fs::create_dir_all(parent)?;
     }
     let _lock = crate::util::FileLock::acquire(path)?;
-    match std::fs::read(path) {
-        Ok(bytes) if bytes.len() == 32 => {
-            let mut k = [0u8; 32];
-            k.copy_from_slice(&bytes);
-            log::info!(
-                "web: session-signing key loaded from {} — panel logins survive restarts",
-                path.display()
-            );
-            return Ok(k);
-        }
-        Ok(bytes) => anyhow::bail!(
-            "{} has {} bytes instead of 32; refusing to overwrite the damaged key",
-            path.display(),
-            bytes.len()
-        ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => anyhow::bail!("cannot read {}: {error}", path.display()),
+    if let Some(key) = crate::crypto::key_file::read(path)? {
+        log::info!(
+            "web: session-signing key loaded from {} — panel logins survive restarts",
+            path.display()
+        );
+        return Ok(*key);
     }
     let mut k = [0u8; 32];
     rand::Rng::fill_bytes(&mut rand::rng(), &mut k);
@@ -360,10 +385,16 @@ fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
 /// `(user, pass)`. Cheap and synchronous — the expensive Argon2 verification is
 /// done separately in `verify_credentials` (off the async runtime).
 fn basic_credentials(headers: &HeaderMap) -> Option<(String, String)> {
-    let encoded = headers
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Basic "))?;
+    let (scheme, encoded) = headers
+        .get(axum::http::header::AUTHORIZATION)?
+        .to_str()
+        .ok()?
+        .split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("Basic") {
+        return None;
+    }
+    // RFC 9110: auth-scheme is case-insensitive and followed by 1*SP.
+    let encoded = encoded.trim_start_matches(' ');
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(encoded)
         .ok()
@@ -457,14 +488,10 @@ impl FromRequestParts<Arc<ServerState>> for AuthGuard {
         if !tarpit.is_zero() {
             tokio::time::sleep(tarpit).await;
         }
-        if verify_credentials(&user, &pass, &web).await {
-            state.failed_auth.lock().await.record_success(&user);
-            Ok(AuthGuard)
-        } else {
-            if let Some(ip) = peer_ip {
-                state.failed_auth.lock().await.record_failure(&user, ip);
-            }
-            Err(unauth())
+        match verify_credentials(&user, &pass, &web, state.failed_auth.clone(), peer_ip).await {
+            Ok(true) => Ok(AuthGuard),
+            Ok(false) => Err(unauth()),
+            Err(msg) => Err(too_many(msg)),
         }
     }
 }
@@ -481,6 +508,154 @@ mod tests {
     //! clamped at both ends, and an empty `password_hash` does NOT open the panel unless the
     //! operator explicitly asked for it. (Audit 2026-08-04.)
     use super::*;
+
+    #[test]
+    fn basic_scheme_accepts_case_and_multiple_spaces_without_changing_credentials() {
+        for scheme in ["Basic ", "basic ", "bAsIc   "] {
+            let mut h = HeaderMap::new();
+            let encoded = base64::engine::general_purpose::STANDARD.encode("admin: #; p:ass ");
+            h.insert(
+                "authorization",
+                format!("{scheme}{encoded}").parse().unwrap(),
+            );
+            assert_eq!(
+                basic_credentials(&h),
+                Some(("admin".into(), " #; p:ass ".into()))
+            );
+        }
+        for raw in [
+            "",
+            "Basic",
+            "Basic ",
+            "Basic !!!",
+            "Bearer YTpi",
+            "Basic\tYTpi",
+            "Basic YWRtaW4=",
+            "Basic /w==",
+            "Basic YTpi ",
+        ] {
+            let mut h = HeaderMap::new();
+            h.insert("authorization", raw.parse().unwrap());
+            assert_eq!(
+                basic_credentials(&h),
+                None,
+                "malformed credentials: {raw:?}"
+            );
+        }
+    }
+
+    fn tracker(max: u32) -> Arc<tokio::sync::Mutex<crate::server::FailedAuthTracker>> {
+        Arc::new(tokio::sync::Mutex::new(
+            crate::server::FailedAuthTracker::new(true, max, 60, 60),
+        ))
+    }
+
+    #[tokio::test]
+    async fn queued_verification_rechecks_lockout_before_hashing() {
+        let gate: &'static tokio::sync::Semaphore =
+            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let tracker = tracker(1);
+        let ip = "203.0.113.7".parse().unwrap();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (finish, wait) = std::sync::mpsc::channel();
+        let first = tokio::spawn(verify_tracked_credentials(
+            gate,
+            tracker.clone(),
+            "bad".into(),
+            Some(ip),
+            move || {
+                started.send(()).unwrap();
+                wait.recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap();
+                false
+            },
+        ));
+        ready.await.unwrap();
+        let (queued, waiting) = tokio::sync::oneshot::channel();
+        let other_tracker = tracker.clone();
+        let second = tokio::spawn(async move {
+            queued.send(()).unwrap();
+            verify_tracked_credentials(gate, other_tracker, "other".into(), Some(ip), || {
+                panic!("locked job must not hash")
+            })
+            .await
+        });
+        waiting.await.unwrap();
+        finish.send(()).unwrap();
+        assert_eq!(first.await.unwrap(), Ok(false));
+        assert!(second.await.unwrap().is_err());
+        assert!(tracker.lock().await.check_ip(ip).is_err());
+    }
+
+    #[tokio::test]
+    async fn cancelled_http_waiter_still_records_running_guess() {
+        let gate: &'static tokio::sync::Semaphore =
+            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let tracker = tracker(1);
+        let ip = "203.0.113.8".parse().unwrap();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (finish, wait) = std::sync::mpsc::channel();
+        let task = tokio::spawn(verify_tracked_credentials(
+            gate,
+            tracker.clone(),
+            "bad".into(),
+            Some(ip),
+            move || {
+                started.send(()).unwrap();
+                wait.recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap();
+                false
+            },
+        ));
+        ready.await.unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(gate.try_acquire().is_err());
+        finish.send(()).unwrap();
+        let _permit = tokio::time::timeout(std::time::Duration::from_secs(5), gate.acquire())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            tracker.lock().await.check_ip(ip).is_err(),
+            "record precedes permit release even after cancellation"
+        );
+    }
+
+    #[tokio::test]
+    async fn tracked_verification_preserves_success_and_disabled_policy() {
+        let gate: &'static tokio::sync::Semaphore =
+            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let tracker = tracker(2);
+        let ip = "203.0.113.9".parse().unwrap();
+        tracker.lock().await.record_failure("admin", ip);
+        assert_eq!(
+            verify_tracked_credentials(gate, tracker.clone(), "admin".into(), Some(ip), || true)
+                .await,
+            Ok(true)
+        );
+        assert_eq!(
+            tracker.lock().await.user_tarpit("admin"),
+            std::time::Duration::ZERO
+        );
+        assert!(
+            tracker.lock().await.record_failure("other", ip),
+            "success retains source IP history"
+        );
+        let disabled = Arc::new(tokio::sync::Mutex::new(
+            crate::server::FailedAuthTracker::new(false, 1, 60, 60),
+        ));
+        for _ in 0..3 {
+            assert_eq!(
+                verify_tracked_credentials(gate, disabled.clone(), "bad".into(), Some(ip), || {
+                    false
+                })
+                .await,
+                Ok(false)
+            );
+        }
+        assert!(disabled.lock().await.check_ip(ip).is_ok());
+    }
 
     /// `persist_session_key = false` keeps the signing secret in-process, so the tests never
     /// touch /etc or $STATE_DIRECTORY.

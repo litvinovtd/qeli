@@ -1,0 +1,406 @@
+{
+  "status": "FRESH_CURRENT_SLOT_CORE_20_LINUX_CASES_QUALIFIED_ARCHIVED_CLEANED",
+  "qualification": {
+    "status": "ALL_20_CURRENT_POOL_CLI_RUNTIME_CASES_QUALIFIED_CLEANUP_PENDING",
+    "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+    "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+    "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+    "qualified_rows": [
+      {
+        "id": "linux.outer4.inner4.tcp.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.tcp.full.log",
+        "log_sha256": "422a773351c2b9e0c120a6f8df008b3cdc63e35351be49e9162a31e4edc455bc",
+        "seconds": 6.0068875250872225,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.tcp.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.tcp.full.log",
+        "log_sha256": "a452a364c22577c2108e66b01fc4d4b4716c106ab6134d72a3d97070f576d1d8",
+        "seconds": 6.007144725881517,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.tcp.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.tcp.full.log",
+        "log_sha256": "5c0985b471f5da9f85ab9e662326cd8cbf55dcc375ca0ede5943548b226ec53a",
+        "seconds": 6.0072734439745545,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.tcp.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.tcp.full.log",
+        "log_sha256": "726bd203d55db85e9159f3a64224af5fb5abc1d497fbca27782920db8fb2c5e8",
+        "seconds": 6.008017166983336,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner4.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.udp-fake-tls.full.log",
+        "log_sha256": "5ee8bb15b4159b9aab679a5a75012a7a7d380901055910efaa1bba5c744166b4",
+        "seconds": 6.007740000961348,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.udp-fake-tls.full.log",
+        "log_sha256": "a1a53cf52c1046876ef6f2db81da944cbad0b84c72d129c8032448715cfa406a",
+        "seconds": 6.00851425412111,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.udp-fake-tls.full.log",
+        "log_sha256": "20f8e689f3884a50fd90cdc9c48ac7f12b8f1198f89fa1aa6c9029e6306ba198",
+        "seconds": 6.008864264935255,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.udp-fake-tls.full.log",
+        "log_sha256": "e77f0900cf0b51c5eaa9b4aae9e37fe224652170b28df1b7ccf938f672057e5f",
+        "seconds": 6.010680319042876,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner4.udp-quic.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.udp-quic.full.log",
+        "log_sha256": "79a9bef43c9f232a884422c39829965738c4fd34145200391ec632f34f18cab2",
+        "seconds": 6.009841060964391,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.udp-quic.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.udp-quic.full.log",
+        "log_sha256": "f5a18228a8293d3c9ab423f14c63256478674a884932ed12ac0b44a8dcbb2bb3",
+        "seconds": 6.0122077849227935,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.udp-quic.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.udp-quic.full.log",
+        "log_sha256": "472fdff4d958e27647a0f0cdfa73897c0820bfa8d04e11dfccf18ed572b9c0dc",
+        "seconds": 6.0141730210743845,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.udp-quic.full",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.udp-quic.full.log",
+        "log_sha256": "9fc70024100f256ae6b7261c11f19064d57ae096ba303fd71cbb72c27836530a",
+        "seconds": 6.012647304916754,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.dual.tcp.split",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 19,
+        "log": "linux.dual.tcp.split.log",
+        "log_sha256": "cb69d7295ef730df0ef44b61a9734c7f5dcff0a722e6a899d45f2ba2e0958773",
+        "seconds": 8.021634585922584,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.dual.udp.split",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 19,
+        "log": "linux.dual.udp.split.log",
+        "log_sha256": "9d6c566404da8f901837ab40db8bf58bce7c79520bddce84c797ee9b71c313ce",
+        "seconds": 10.0305217851419,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.tap.ndp-ra",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 15,
+        "log": "linux.tap.ndp-ra.log",
+        "log_sha256": "2d96cb3c6ce6d1859ca96560d1b9c233cf074fc14e8f3c24f95274af0b4804b3",
+        "seconds": 8.021733002038673,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.dns.ipv4-ipv6",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 105,
+        "log": "linux.dns.ipv4-ipv6.log",
+        "log_sha256": "0ee884c61d2bef6cfb2b7ea472e96de561ff5ff44d05b2f17af310bea0e267cd",
+        "seconds": 26.0556817878969,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.mtu.1280-pmtu-ptb",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 36,
+        "log": "linux.mtu.1280-pmtu-ptb.log",
+        "log_sha256": "9e90111c1b198a53058179d2e6090f14b45aada7d90a274287c86d25ea0f34c9",
+        "seconds": 18.040693630930036,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.legacy-peer",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 26,
+        "log": "linux.legacy-peer.log",
+        "log_sha256": "05602693801291320db30e12cc26befa3e5a52fb2e7607ef6f8e3933582ad6a2",
+        "seconds": 12.02799063688144,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.roaming-flap-soak",
+        "status": "passed",
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+        "checks_passed": 33,
+        "log": "linux.roaming-flap-soak.log",
+        "log_sha256": "11aebb58821fbeeebf9d3bb82b9b72af69d8ebb92e5a430242b6359692e08d58",
+        "seconds": 441.1358795110136,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.leak.ipv4-ipv6",
+        "status": "passed",
+        "derived_from": [
+          "linux.dual.tcp.split",
+          "linux.dual.udp.split",
+          "linux.outer4.inner4.tcp.full",
+          "linux.outer4.inner4.udp-fake-tls.full",
+          "linux.outer4.inner4.udp-quic.full",
+          "linux.outer4.inner6.tcp.full",
+          "linux.outer4.inner6.udp-fake-tls.full",
+          "linux.outer4.inner6.udp-quic.full",
+          "linux.outer6.inner4.tcp.full",
+          "linux.outer6.inner4.udp-fake-tls.full",
+          "linux.outer6.inner4.udp-quic.full",
+          "linux.outer6.inner6.tcp.full",
+          "linux.outer6.inner6.udp-fake-tls.full",
+          "linux.outer6.inner6.udp-quic.full"
+        ],
+        "source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+        "release_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+        "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363"
+      }
+    ],
+    "failed_rows": [],
+    "all_20_runtime_cases_qualified": true,
+    "actual_ordinary_executions": 19,
+    "aggregate_leak_derived_from_actual_cases": [
+      "linux.dual.tcp.split",
+      "linux.dual.udp.split",
+      "linux.outer4.inner4.tcp.full",
+      "linux.outer4.inner4.udp-fake-tls.full",
+      "linux.outer4.inner4.udp-quic.full",
+      "linux.outer4.inner6.tcp.full",
+      "linux.outer4.inner6.udp-fake-tls.full",
+      "linux.outer4.inner6.udp-quic.full",
+      "linux.outer6.inner4.tcp.full",
+      "linux.outer6.inner4.udp-fake-tls.full",
+      "linux.outer6.inner4.udp-quic.full",
+      "linux.outer6.inner6.tcp.full",
+      "linux.outer6.inner6.udp-fake-tls.full",
+      "linux.outer6.inner6.udp-quic.full"
+    ],
+    "collection_sha256": "ae4b9bcecdb60405e826f700b483a9a56a833cf3c9b8cd308c5bccf6a6310276",
+    "archive_sha256": "3bd1ad4e6021edc605e3019f63f652c995c6a328504537a2024a1ced8c766d1f",
+    "host_gate": "PASS",
+    "changed_fields": [],
+    "source_equivalence": {
+      "status": "CURRENT_CLI_BUILD_SOURCE_APPLICABLE_TO_NATIVE_CONSUMER_PUBLICATION_DELTA",
+      "actual_CLI_build_source": "e0ce217b630d9dfd7db5f59936bb41e6d68eb69d",
+      "current_source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+      "actual_cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+      "build_inputs_unchanged": true,
+      "build_input_manifest_sha256": "fad2718d788d95da4e8a39cb4451a28b6beef913a96b9e914356a701dc20e7a3",
+      "native_consumer_publication_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+      "original_failed_native_controller_preserved": true,
+      "new_Linux_executions_required": true
+    },
+    "old_results_reused": false,
+    "q35_eight_hour_endurance_qualified": false,
+    "final_release_certified": false
+  },
+  "cleanup_status": "CURRENT_MATRIX_OWNED_RESOURCES_ARCHIVED_REMOVED_PRODUCTION_AND_DNS_PRESERVED",
+  "cleanup_host_gate": "PASS",
+  "actual_execution_source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+  "actual_cli_build_source_commit": "e0ce217b630d9dfd7db5f59936bb41e6d68eb69d",
+  "launch_unix": 1791925559.5677748,
+  "native_source_digest": "0dfac80b50d2bdd1964817dee8ac87f7311cde63bf61efade7a40abd7e32b635",
+  "seal": {
+    "status": "CURRENT_POOL_CLI_MATRIX_QUALIFIED_ARCHIVED_CLEANED",
+    "files": {
+      "run.py": "91376257db39e84ab97ea64008cd9942b9199bdb363e03bffd53000e38b6ba0b",
+      "qualify.py": "4f97445ff47194165ed4d8f5e692d036770feecbe59c7f556a2664bc09705466",
+      "preflight.json": "6ff3ac913183309598f98f5292a7e2f09a42197cea0f48812d708070f0263ed9",
+      "prepared.json": "c50836c5ba731d79eedb405daebc8fec358a2d32c7922372d1180fb0073e1059",
+      "acceptance.json": "e17513bcfd4c382cf421bb022ce7a63d1fb7c3edd5743ab7e27b998af32df6f6",
+      "job.json": "63c1ff3420b032a52b9d169a05cd4840f327079f05a158a13f87af8608841f50",
+      "launch.json": "fa6642fd97c8b6afad4875be5e822062bdec3a5f1a4af7739c245d1b3320bfac",
+      "collection.json": "ae4b9bcecdb60405e826f700b483a9a56a833cf3c9b8cd308c5bccf6a6310276",
+      "qualification.json": "40f00aa2575512cb6c5b64d8fb65e5aca2a271e69c4cb5e935aeb1513fc1d986",
+      "cleanup.json": "0bb6d904200f146e40caf89f8361729555b2f78ff647bbb62ca3325cb8789ece",
+      "runtime.tar.gz": "3bd1ad4e6021edc605e3019f63f652c995c6a328504537a2024a1ced8c766d1f"
+    },
+    "host_differences": [],
+    "no_push_deploy_release": true
+  },
+  "retained_external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q36-current-linux-matrix-20261014",
+  "runtime_assertions": 409,
+  "actual_ordinary_executions": 19,
+  "old_results_reused": false,
+  "all_20_fresh_cases_passed": true,
+  "full_release_preflight_qualified": false,
+  "no_push_deploy_release": true
+}

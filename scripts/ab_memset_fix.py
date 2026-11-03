@@ -29,7 +29,7 @@ VARIANTS = [("0.7.14", "/opt/qeli-exp/qeli-0.7.14"),
 # The modes where the regression was largest, plus reality-tls as the sensitive one.
 MODE_NAMES = ["tcp-plain-raw", "tcp-faketls", "tcp-obfs"]
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
-                   "release", "ab_memset_fix.json")
+                   "docs", "data", "benchmarks", "ab_memset_fix.json")
 
 
 def install(s, cl, path):

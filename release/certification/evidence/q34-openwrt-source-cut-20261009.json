@@ -1,0 +1,423 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_EXACT_LOCAL_OPENWRT_SOURCE_CUT_SCOPED",
+  "source_digest": "f8e02723bc201948e5a51858f404be3783d263e8cb67e4790c7c3cc3aac9545a",
+  "qualification_source_commit": "2653740c473a5d0876ecaf9a40f2cdef233026d1",
+  "product_source_commit": "2653740c473a5d0876ecaf9a40f2cdef233026d1",
+  "source_archive_commit": "f4b80a9a3052e9ec12c640036928d543f931dafa",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed_locally": [
+    "F483/Q34-F037"
+  ],
+  "remaining_prerequisites": [
+    "publish exact pinned commit to public source URL",
+    "fresh hosted CI for final release SHA",
+    "other established Q34 criteria"
+  ],
+  "verification": {
+    "tests": {
+      "status": "PASS",
+      "suites": {
+        "test_openwrt_source_gate": {
+          "rc": 0,
+          "registered": 28,
+          "skipped": 3
+        },
+        "test_release_preflight": {
+          "rc": 0,
+          "registered": 12,
+          "skipped": 0
+        },
+        "test_native_recipes": {
+          "rc": 0,
+          "registered": 38,
+          "skipped": 0
+        }
+      },
+      "methods_pass": 75,
+      "scope": "Existing sourcegate/preflight/recipe contracts;no new compiler or SDK claim"
+    },
+    "prior_source_gate": {
+      "status": "EXPECTED_REFUSAL",
+      "errors": [
+        "OpenWrt source gate: PKG_SOURCE_VERSION qeli/ tree differs from release source"
+      ],
+      "old_pin": "dd0b736276b9ad5b89d117abd1bfe324210f3b26",
+      "old_qeli_tree": "76242033c281d22d4376521d0f4971622905e4e8",
+      "current_qeli_tree": "cdafea0dc7d731b4a8de94fa59672be21e1fb5de",
+      "current_worktree_commit": "587a63a25de5d2d856939e9e2dc18fc25217166f"
+    },
+    "repeat_sdk_download": {
+      "status": "PASS",
+      "source_commit": "f4b80a9a3052e9ec12c640036928d543f931dafa",
+      "archive_sha256": "d6c112641de77b446d3a32a702221b247556b873c11f648087aebb57d3b209c5",
+      "archive_size": 26381218,
+      "actual_sdk_downloads": 2,
+      "distinct_private_urls": true,
+      "make": [
+        "make",
+        "-C",
+        "package/qeli",
+        "TOPDIR=/var/tmp/qeli-sdk-source-cut-20261009.gOWlUK/sdk",
+        "DL_DIR=/var/tmp/qeli-sdk-source-cut-20261009.gOWlUK/repeat-dl",
+        "PKG_SOURCE_MIRROR=0",
+        "V=s",
+        "-j1",
+        "download"
+      ],
+      "scope": "Second empty DL_DIR,unchanged real SDK Git export;exact same full commit,another owned file URL. Public HTTPS clone not qualified."
+    },
+    "actual_source_gate": {
+      "status": "PASS",
+      "qualified_recipe_commit": "3fb92282acba34cb6566fd637c8a636fc62562ac",
+      "positive": [
+        "  OpenWrt source PASS: version=0.8.2, pin=f4b80a9a3052e9ec12c640036928d543f931dafa, mirror=d6c112641de77b446d3a32a702221b247556b873c11f648087aebb57d3b209c5"
+      ],
+      "mutated_archive_refusal": [
+        "OpenWrt source gate: SDK source archive SHA256 differs from PKG_MIRROR_HASH"
+      ],
+      "missing_archive_refusal": [
+        "OpenWrt source gate: QELI_OPENWRT_SOURCE_ARCHIVE must name the SDK-generated Source archive"
+      ],
+      "archive_sha256": "d6c112641de77b446d3a32a702221b247556b873c11f648087aebb57d3b209c5",
+      "scope": "Actual committed production recipe/source gate with real SDK archive;documentation outside INPUTS still pending commit;not whole preflight/currentActions or public clone"
+    },
+    "source_publication": {
+      "status": "NOT_PUBLICLY_RESOLVED",
+      "rc": 1,
+      "stdout": "{\"message\":\"No commit found for SHA: f4b80a9a3052e9ec12c640036928d543f931dafa\",\"documentation_url\":\"https://docs.github.com/rest/commits/commits#get-a-commit\",\"status\":\"422\"}",
+      "stderr": "gh: No commit found for SHA: f4b80a9a3052e9ec12c640036928d543f931dafa (HTTP 422)\n",
+      "scope": "Read-only public source commit availability;not publication and not hosted CI"
+    },
+    "recovery": {
+      "status": "PASS",
+      "remote_root": "/var/tmp/qeli-sdk-source-cut-20261009.gOWlUK",
+      "backup_path": "/var/tmp/qeli-sdk-source-cut-20261009.gOWlUK.tar.gz",
+      "backup_sha256": "2457dac596af6e554275faef44655cccb2109dc868c88446f1990c6689c27b2f",
+      "backup_size": 27626417,
+      "unique_files": [
+        {
+          "path": "console-initial.log",
+          "sha256": "0ce8ccbf13145991bb96914c34813e84826596cce821906f95d9949e01f5ae43",
+          "size": 2578
+        },
+        {
+          "path": "exit-code",
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "size": 2
+        },
+        {
+          "path": "exit-code-initial",
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "size": 2
+        },
+        {
+          "path": "input-proof.json",
+          "sha256": "4d52e972c882593159b966885624a0031f3956d0bafca0bddf28ff348029a0be",
+          "size": 3510470
+        },
+        {
+          "path": "logs/prepare.log",
+          "sha256": "9d504b4f5e1717189bfb6490b67047d7fc825df4cf919c7ba5ab17684efe04df",
+          "size": 1223
+        },
+        {
+          "path": "logs/download-initial.log",
+          "sha256": "8f2272dc3d5daa939187fb6419e4ef4a9ad44909b7a738d686e667ab51e60e96",
+          "size": 2028
+        },
+        {
+          "path": "logs/download.log",
+          "sha256": "b43ddbb16196e8443b9f194e980eb8b37fb8267529d8211cf14619878377ae90",
+          "size": 2538
+        },
+        {
+          "path": "logs/repeat-download.log",
+          "sha256": "f274e6a6efcb1d5144beeb2e2d199c46ecc71e9744e618dcd582566bc68dba28",
+          "size": 2551
+        },
+        {
+          "path": "qeli-0.8.2.tar.zst",
+          "sha256": "d6c112641de77b446d3a32a702221b247556b873c11f648087aebb57d3b209c5",
+          "size": 26381218
+        },
+        {
+          "path": "qualified-private-Makefile",
+          "sha256": "8bbc4e52314b1eeb0e8fd45b4b27462c30d3099d7bfa1a815fa792af290e6543",
+          "size": 5300
+        },
+        {
+          "path": "remote-backup.py",
+          "sha256": "3afc4a69d9bc4eb2743fba3e285f114e568e7fe44f4c8b8ebdd8e75672481b7d",
+          "size": 2194
+        },
+        {
+          "path": "remote-cut.py",
+          "sha256": "b236019c21a71669c24da5184e138da11df73a8eb4950b421e71d69f31239e5f",
+          "size": 5083
+        },
+        {
+          "path": "remote-repeat.py",
+          "sha256": "ff35f5279a9b27cb5741458a0a2aa43df0a3b42b30e0764469a14d29bbae8b1d",
+          "size": 1705
+        },
+        {
+          "path": "remote-retry.py",
+          "sha256": "79c9b97034a85bfefe620d6a1e821788b74568d6043aaca28b6f5d38b5fdd448",
+          "size": 1082
+        },
+        {
+          "path": "repeat-console.log",
+          "sha256": "a02cc969798a5e403a402d65ee733d3963b29248c7adc2f56ebda695104d14bc",
+          "size": 96
+        },
+        {
+          "path": "repeat-exit-code",
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "size": 2
+        },
+        {
+          "path": "repeat-proof.json",
+          "sha256": "ae02eb3e1f85f8b51a6a0a6fee2bb4e61224b5e2c38d63253f6c87a49ad79ae4",
+          "size": 664
+        },
+        {
+          "path": "retry-console.log",
+          "sha256": "6fbc1c6cf37f6fc162b89bb9d0fd9ed6b05c79f243cd08773703e9e29da29e36",
+          "size": 166
+        },
+        {
+          "path": "sdk-download.pl",
+          "sha256": "5e56f258bd46ea53dbfa82837a365072fdd16b1d10cf1179a0b4ba2663518b6a",
+          "size": 8300
+        },
+        {
+          "path": "source-cut-proof.json",
+          "sha256": "1a2fa4323501ff1801390d79b9e3d4197b9658c5c32127d5f3c2666085500fb5",
+          "size": 687305
+        }
+      ],
+      "excluded_regenerable_paths": [
+        "sdk",
+        "deps",
+        "source.git",
+        "second-source.git",
+        "repeat-dl",
+        "home",
+        "source.pack",
+        "sdk-download-projection.tar.gz",
+        "gawk.deb",
+        "sigsegv.deb",
+        "sdk-overlay.tar"
+      ],
+      "recovery_anchors": [
+        "source.pack with original commit/tree",
+        "SDK projection and original officialSDK checksum",
+        "gawk/sigsegv/sdk-overlay qualified inputs",
+        "qeli-0.8.2.tar.zst exact actualSDK output"
+      ],
+      "scope": "All unique outputs/logs/scripts are recoverable;input duplicates and generated SDK/clone/repeat trees excluded explicitly;not wholeSDK compiler backup"
+    },
+    "cleanup": {
+      "status": "PASS",
+      "remote_root": "/var/tmp/qeli-sdk-source-cut-20261009.gOWlUK",
+      "removed": true,
+      "backup_remote_removed": true,
+      "proc_fd_cwd_exe_root_guard": "PASS",
+      "mount_guard": "PASS",
+      "backup_sha256": "2457dac596af6e554275faef44655cccb2109dc868c88446f1990c6689c27b2f",
+      "state_after": {
+        "service": "MainPID=777\nActiveState=active\n",
+        "qeli_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n",
+        "qeli_sha256": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a"
+      },
+      "scope": "Only owned SDK source-cut root and its exact SHA-backed-up sibling;production service/binary/process identities preserved,no .10 mutation"
+    },
+    "credential_scan": {
+      "status": "PASS",
+      "raw_files_scanned": 80,
+      "decoded_archive_regular_files": {
+        "qeli-0.8.2.tar.zst": 3131,
+        "owned-output-backup.tar.gz": 20,
+        "sdk-download-projection.tar.gz": 18388
+      },
+      "commit_metadata_scanned": true,
+      "scope": "Credential stdin only,not retained;raw files and all decoded SDK/source/recovery archive regular members scanned;exact source pack tree covered by prepared file equality and decoded SDK output"
+    },
+    "qualified_inputs": {
+      "status": "PASS",
+      "paths": [
+        {
+          "path": "docs/eng/index.md",
+          "normalization": "lf",
+          "sha256": "d8ffd419426e90e77a239a8ddee625151809b6cfcc080c6d794b405d81185fd4"
+        },
+        {
+          "path": "docs/eng/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "a47c2483a4bb4bc04cb9c3fcf40b5c895082283b61ea625bea502a0e304941ec"
+        },
+        {
+          "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "e35ede7a3f9656f95e81e95b91fb35f630297ce0abdf7b1201dabe6a0ac3c8a2"
+        },
+        {
+          "path": "docs/ru/index.md",
+          "normalization": "lf",
+          "sha256": "7704efd1b2e84b62a4503f683d20713e91ddcecdcbb366ad4d626d9f76225563"
+        },
+        {
+          "path": "docs/ru/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "d2f9367a61ccda1e401f6a2663ff4a2360f96f64c25a65bc5fa68c780922f8d8"
+        },
+        {
+          "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "9619c5625bf7003d05000d246482b7fb647e3e851ff4b2c423f73a1db0bce24b"
+        },
+        {
+          "path": "qeli-openwrt/Makefile",
+          "normalization": "lf",
+          "sha256": "1bc3afcc8180af2c8fab6b207816f2b6a3c78f55b9013cca5e5aa3be65088f2e"
+        },
+        {
+          "path": "qeli-openwrt/README.md",
+          "normalization": "lf",
+          "sha256": "35b27735a880af19906f191324449c529083c32eace906ddf39ac07519d75d23"
+        },
+        {
+          "path": "qeli-openwrt/verify-source.sh",
+          "normalization": "lf",
+          "sha256": "776d5a5ba493d8435af88e278a2667f378439817d26a62ccb4dcadd669773a9d"
+        },
+        {
+          "path": "qeli/Cargo.lock",
+          "normalization": "lf",
+          "sha256": "dbe2e1297402d2b938bcf88f42b567374e6671189dc08472e2be464356692bf7"
+        },
+        {
+          "path": "qeli/Cargo.toml",
+          "normalization": "lf",
+          "sha256": "05b83390369a48f6c183e00989324b03afca4995daa74a6b1da2937d2145cecc"
+        },
+        {
+          "path": "scripts/check_docs.py",
+          "normalization": "lf",
+          "sha256": "e260cb024b56fc6257108801d5dae01607dfadfb6cb5458669b3b2e25e808a10"
+        },
+        {
+          "path": "scripts/native_repro.py",
+          "normalization": "lf",
+          "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+        },
+        {
+          "path": "scripts/openwrt_source_gate.py",
+          "normalization": "lf",
+          "sha256": "d22677508a027df9e2b717dae45553ba235d8e88417d14a0cf4fcb91d2cd8588"
+        },
+        {
+          "path": "scripts/release_certification.py",
+          "normalization": "lf",
+          "sha256": "d3dd7fe497da0df4519835decfadb4cb64abfa9c38f29e301ff4630b7e5885b5"
+        },
+        {
+          "path": "scripts/release_preflight.py",
+          "normalization": "lf",
+          "sha256": "6f3c1879a98cb4a403d68a94684aad878b4f62e63286555e74cebc275ea845dc"
+        },
+        {
+          "path": "scripts/test_native_recipes.py",
+          "normalization": "lf",
+          "sha256": "b82cf0ef4909d27a81f401c5061a65dbf8a080d3f43d53e23e98fb027faf9bd1"
+        },
+        {
+          "path": "scripts/test_openwrt_source_gate.py",
+          "normalization": "lf",
+          "sha256": "9d32d5ec71662c2f37c9bcc8c3afc13cdebeb88a348114169458bab9dfee7422"
+        },
+        {
+          "path": "scripts/test_release_preflight.py",
+          "normalization": "lf",
+          "sha256": "9663504a92b5e4763a4226641caaa2659677d3f2fdfa1d6306d09b1fed86446e"
+        }
+      ],
+      "scope": "Exact local SDK-qualified pin/hash and docs;core/native/toolchain identities unchanged"
+    },
+    "local_checks": {
+      "status": "PASS",
+      "checks": [
+        {
+          "name": "docs",
+          "rc": 0,
+          "output": "checking 716 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "name": "diff",
+          "rc": 0,
+          "output": ""
+        }
+      ],
+      "product_paths": [
+        "docs/eng/index.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-OPENWRT-SOURCE-CUT.md",
+        "docs/ru/index.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-OPENWRT-SOURCE-CUT.md",
+        "qeli-openwrt/Makefile",
+        "qeli-openwrt/README.md"
+      ],
+      "native_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifact_hashes": 14,
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+        "qeli/src/web/assets/app.css": "c925399cb860bea80fcbc5d66dec7cf3ebb0740fbd8bb7489d211730bdc1d8bd"
+      },
+      "focused_methods_pass": 75,
+      "existing_skips": 3,
+      "actual_source_gate_positive_and_negatives": 3,
+      "scope": "Exact local SDK sourcecut,not sourcepublication/currentActions/compiler/bootstrap/IPK/router runtime"
+    },
+    "actual_sdk_source_cut": {
+      "status": "PASS",
+      "source_commit": "f4b80a9a3052e9ec12c640036928d543f931dafa",
+      "source_tree": "8d293b66b779383943e8a56f8a87c09564d5175a",
+      "qeli_tree": "cdafea0dc7d731b4a8de94fa59672be21e1fb5de",
+      "shallow_exact_git_mirror": true,
+      "archive_sha256": "d6c112641de77b446d3a32a702221b247556b873c11f648087aebb57d3b209c5",
+      "archive_size": 26381218,
+      "sdk": "24.10.4",
+      "sdk_input_sha256": "229e871f734a2cee5ce3ad6a3e98d3836b0899bfdeaea4d9c2c5cc7b1fce1407",
+      "sdk_projection_sha256": "f9f79ab6c4485e46b8da3629b0a5b73bbc7dd802b0345d9382a3e686b399a674",
+      "make": [
+        "make",
+        "-C",
+        "package/qeli",
+        "TOPDIR=/var/tmp/qeli-sdk-source-cut-20261009.gOWlUK/sdk",
+        "PKG_SOURCE_MIRROR=0",
+        "V=s",
+        "-j1"
+      ],
+      "prepared_count": 3131,
+      "scope": "Actual SDK download and prepare of exact full local commit,private file URL and published production URL different;no source publication,no compiler/bootstrap,IPK,router or hostedCI claim",
+      "full_prepared_files_manifest": "sealed raw source-cut-proof.json"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-openwrt-source-cut-20261009",
+    "files": 81,
+    "bytes": 261832009,
+    "manifest_sha256": "3e57c16820e13a9177f2e8339779d50d09f41573357ae6eed5e6bfa21b8aaa98",
+    "runtime_status": "PASS_EXACT_LOCAL_SDK_SOURCE_CUT_NOT_PUBLICATION_COMPILER_RUNTIME",
+    "path": "audit-debt-20260924/q34-openwrt-source-cut-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F483/Q34-F037 exact local OpenWrt source cut:actualproduction oldpin dd0b736 qeli tree mismatch refused;pin noworiginal full local dev f4b80a9a3052e9ec12c640036928d543f931dafa,all commit/treeobjects transferred in original Git pack/shallowmissingparents boundary,no syntheticcommit. OfficialSDK24.10.4 SHA229e871 verified,download metadata/scripts/hosttools bytepreserved projection excludesunusedtargettoolchain/buildtrees;privategawk/deps/feed config only. Two actualSDK Git downloads distinctownedfileURLs/emptyDL produceidentical26381218byte archive SHA d6c112641de77b446d3a32a702221b247556b873c11f648087aebb57d3b209c5;productionverify-source hook admits prepare,3131trackedpreparedfiles exactmatchGit incllicenses/notices. DownloadGitfallback doesnotcheckoldhash,not prepareadmission;firstmissingSDKtmp FAIL66+twoSSHlaunchchannel timeout10s retainedascontrollerdiagnostics,ownedsetupfixed,jobscompletedwithoutduplicate. Actualcommittedproduction sourcegate PASS realarchive/refusesmutatedandmissing.75methodsPASS25source12preflight38recipes,3existingPOSIX/oldbaseline skipsretained. PublicSOURCE_URL unchanged;actualGitHubcommitquery HTTP422 No commit found,publisheddev83c07f5c,exactpinnedcommitpublication/publicHTTPSclone/currentActions OPEN. No newcompiler/Cargo/bootstrap/IPK/firmware/nativeAB/runtime/hostedCI/signatures/release qualification. SHA-qualified27626417byte recoverybackup20unique outputs/logs/scripts,regenerableSDK/input/clone/repeat copies excludedwithretainedinput/outputanchors;procfdcwdexeroot/mountguard ownedrootcleanup/service777845active/binarySHA preserved,.10 untouched.716Markdown9checks/nativee3fb14SHA/protected unchanged. Raw sealed allpayloadSHA/credentialraw+decodedSDK/source/recoverymembers+commitmetadata PASS;exactqualifiedinputs committed.41cases85prior supplements preservedmodulo source_digest bookkeeping,append86scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;Q29SIGKILLFAIL-ENONET/Q30/Q31/F459braces/D06accepted/USER_EXCLUDED preserved.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

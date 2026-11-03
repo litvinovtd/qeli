@@ -1,7 +1,11 @@
 # Полная поддержка IPv6 — план реализации
 
+**Сверка 16 октября 2026:** 0.8.2 остаётся в разработке. Согласованный аудит завершён 37/37; доступные Linux runtime-проверки, native A/B и CI отражены в [текущем пакете evidence](../../../release/certification/evidence/dependabot-integration-20261016.json). Физические Mac/iOS, роутер и Windows network-VM исключены пользователем; их строки остаются advisory, а не выполняемой сейчас квалификацией или PASS. Полная физическая матрица ниже сохраняется как критерий более широкого покрытия.
+
+**Исторический снимок, 10 сентября 2026 (0.8.1):**
+
 Статус: реализация в исходном коде завершена; автоматическая релизная сертификация qeli 0.8.1
-пройдена, а кроссплатформенная физическая квалификация продолжается для планируемого full-IPv6
+пройдена, а кроссплатформенная физическая квалификация на тот момент планировалась для full-IPv6
 релиза 0.8.2. Актуализировано: 2026-09-10.
 
 Runtime-gate и аутентифицированное согласование возможностей включены. Native cores ABI 1.15
@@ -97,7 +101,7 @@ dns.upstream = 1.1.1.1, 2606:4700:4700::1111
 Допустимые значения:
 
 - `tun.ip_mode = ipv4|dual|ipv6`, значение по умолчанию — `ipv4`;
-- `routing.ipv6.mode = off|route|nat66`;
+- `routing.ipv6.mode = off|manual|route|nat66`;
 - `ipv6 = auto|required|off` в клиентской секции `[qeli]`.
 
 Панель и установщик могут предлагать выбор `auto`, однако должны определить среду один раз
@@ -277,17 +281,22 @@ reaper, eviction и release должны атомарно затрагивать
 
 `routing.ipv6.mode` имеет строгую семантику:
 
-- `off` — IPv6 только внутри профиля/LAN, без Internet egress;
+- `off` — блокировать IPv6-транзит между TUN профиля и другими интерфейсами в обе стороны;
+- `manual` — IPv6 firewall/forwarding администратора, опциональный session-aware NDP;
 - `route` — двунаправленно маршрутизируемый GUA/prefix без NAT;
 - `nat66` — ULA/GUA через явный IPv6 uplink и stateful NAT66.
 
-Во всех трёх режимах нужен `ip6tables`. `off` — не отсутствие политики: qeli ставит и
+Управляемым режимам (`off`, `route`, `nat66`) нужен `ip6tables`; ручному `manual` — нет. `off` — не отсутствие политики: qeli ставит и
 проверяет помеченные профилем DROP для не-TUN транзита в обоих направлениях, чтобы профиль
 не унаследовал forwarding от другого активного профиля или глобальной настройки хоста. `route`
 двунаправленно следует connected и аутентифицированным динамическим kernel routes профиля,
 включая LAN сервера и IPv6 `client_subnet`; `nat66` — только WAN-ответы related/established.
 
-Linux-настройка включает IPv6 forwarding, семейно-корректные FORWARD/NAT правила, MSS
+В `manual` Qeli не устанавливает IPv6 firewall/DNS-правила и не меняет forwarding/RA;
+администратор отвечает также за изоляцию профилей и перенаправление DNS с порта 53.
+NDP `auto`/`required` допустим только в `route`/`manual`; в `off`/`nat66` он выключен.
+
+Для `route`/`nat66` Linux-настройка включает IPv6 forwarding, семейно-корректные FORWARD/NAT правила, MSS
 clamp и разрешает обязательный ICMPv6, включая Packet Too Big. Если внешний интерфейс
 получает маршрут через RA/SLAAC, включение forwarding не должно отключить принятие RA:
 нужно адресно применить `accept_ra=2` к такому uplink и затем восстановить предыдущее
@@ -442,7 +451,7 @@ Runner проверил все сочетания outer4/outer6 × inner4/inner6
 
 Матрица содержит outer4/inner4, outer4/inner6, outer6/inner4, outer6/inner6, dual и
 IPv6-only physical network; TCP/UDP/QUIC; все обфускации/Quick Start modes; full/split;
-AAAA и IPv6 upstream DNS; ACL/isolation/`client_subnet`; route/NAT66; MTU 1280;
+AAAA и IPv6 upstream DNS; ACL/isolation/`client_subnet`; off/manual/route/NAT66; переходы в manual с очисткой прежних правил; NDP auto/required; MTU 1280;
 outer IPv4 MTU 576, асимметричный PMTU; reconnect/persist/roaming; kill switch и leak tests.
 
 Packet capture должен доказать отсутствие внешней IP fragmentation Qeli UDP data,

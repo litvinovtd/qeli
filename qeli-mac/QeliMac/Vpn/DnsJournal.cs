@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
+using System.Text;
+using QeliMac.Model;
+using QeliMac.Service;
 
 namespace QeliMac.Vpn;
 
@@ -15,7 +18,9 @@ namespace QeliMac.Vpn;
 /// </summary>
 internal sealed class DnsJournal
 {
-    internal readonly record struct Owner(int Pid, long StartTicks);
+    // Version 1 recorded local ticks. A live legacy PID cannot safely be declared
+    // stale after a timezone change; only new UTC identities prove PID reuse.
+    internal readonly record struct Owner(int Pid, long StartTicks, bool LegacyLocalTime = false);
     internal readonly record struct ReadResult(bool Ok, IReadOnlyList<string> Servers, string Error);
     internal readonly record struct WriteResult(bool Ok, string Error);
 
@@ -39,7 +44,8 @@ internal sealed class DnsJournal
         public long OwnerStartTicks { get; set; }
     }
 
-    private const int StateVersion = 1;
+    private const int StateVersion = 2;
+    private static Owner StateOwner(State state) => new(state.OwnerPid, state.OwnerStartTicks, state.Version == 1);
     private const long MaxStateBytes = 64 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -49,6 +55,10 @@ internal sealed class DnsJournal
     private readonly Func<Owner, bool> _ownerAlive;
     private readonly Owner _owner;
     private readonly Action<string> _log;
+    private readonly Func<byte[]?>? _readState;
+    private readonly Func<byte[], bool>? _publishState;
+    private readonly Action? _deleteState;
+    private readonly ServiceControlLock _operation;
 
     internal DnsJournal(
         string statePath,
@@ -56,14 +66,28 @@ internal sealed class DnsJournal
         Func<string, IReadOnlyList<string>, WriteResult> write,
         Func<Owner, bool> ownerAlive,
         Owner owner,
-        Action<string> log)
+        Action<string> log,
+        Func<byte[]?>? readState = null,
+        Func<byte[], bool>? publishState = null,
+        Action? deleteState = null,
+        Func<IDisposable>? acquireOperation = null)
     {
+        if (owner.LegacyLocalTime) throw new ArgumentException("New DNS owners must use UTC", nameof(owner));
         _statePath = statePath;
         _read = read;
         _write = write;
         _ownerAlive = ownerAlive;
         _owner = owner;
         _log = log;
+        _readState = readState; _publishState = publishState; _deleteState = deleteState;
+        _operation = new(acquireOperation ?? (() =>
+        {
+            string dir = Path.GetDirectoryName(_statePath) ?? ".";
+            Directory.CreateDirectory(dir);
+            var options = new FileStreamOptions { Mode = FileMode.OpenOrCreate, Access = FileAccess.ReadWrite, Share = FileShare.None };
+            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            return new FileStream(_statePath + ".lock", options);
+        }));
     }
 
     /// <summary>
@@ -73,10 +97,11 @@ internal sealed class DnsJournal
     /// </summary>
     internal RecoveryResult RecoverStale()
     {
+        using var operation = _operation.Enter();
         var state = ReadState(out var readError);
         if (state == null)
         {
-            if (File.Exists(_statePath))
+            if (readError.Length != 0)
             {
                 _log($"Cannot read stale DNS journal at {_statePath}: {readError}; " +
                      "leaving it in place so the original DNS is not lost");
@@ -85,7 +110,7 @@ internal sealed class DnsJournal
             return RecoveryResult.NothingToDo;
         }
 
-        var owner = new Owner(state.OwnerPid, state.OwnerStartTicks);
+        var owner = StateOwner(state);
         if (owner == _owner)
         {
             // A clean-stop restore may fail transiently while the GUI/daemon process stays
@@ -117,6 +142,7 @@ internal sealed class DnsJournal
     {
         release = null;
         error = null;
+        using var operation = _operation.Enter();
 
         var applied = Normalize(servers);
         if (applied.Count == 0)
@@ -134,7 +160,7 @@ internal sealed class DnsJournal
             return false;
         }
 
-        var before = _read(service);
+        var before = SafeRead(service);
         if (!before.Ok)
         {
             error = $"could not capture the existing DNS for \"{service}\": {before.Error}";
@@ -157,7 +183,7 @@ internal sealed class DnsJournal
             return false;
         }
 
-        var appliedResult = _write(service, applied);
+        var appliedResult = SafeWrite(service, applied);
         if (!appliedResult.Ok)
         {
             // networksetup may have changed the service even when it returned a failure.
@@ -192,12 +218,22 @@ internal sealed class DnsJournal
         return true;
     }
 
+    private ReadResult SafeRead(string service)
+    {
+        try { return _read(service); } catch (Exception error) { return new(false, Array.Empty<string>(), error.Message); }
+    }
+    private WriteResult SafeWrite(string service, IReadOnlyList<string> servers)
+    {
+        try { return _write(service, servers); } catch (Exception error) { return new(false, error.Message); }
+    }
+
     private RecoveryResult RestoreOwned(Owner expectedOwner)
     {
+        using var operation = _operation.Enter();
         var state = ReadState(out var readError);
         if (state == null)
         {
-            if (File.Exists(_statePath))
+            if (readError.Length != 0)
             {
                 _log($"Cannot read DNS journal during restore: {readError}; keeping it for retry");
                 return RecoveryResult.Failed;
@@ -205,7 +241,7 @@ internal sealed class DnsJournal
             return RecoveryResult.NothingToDo;
         }
 
-        if (state.OwnerPid != expectedOwner.Pid || state.OwnerStartTicks != expectedOwner.StartTicks)
+        if (StateOwner(state) != expectedOwner)
         {
             _log("DNS journal ownership changed; refusing to restore another qeli process's state");
             return RecoveryResult.LiveOwner;
@@ -215,7 +251,7 @@ internal sealed class DnsJournal
 
     private RecoveryResult RestoreState(State state)
     {
-        var currentResult = _read(state.Service);
+        var currentResult = SafeRead(state.Service);
         if (!currentResult.Ok)
         {
             _log($"Could not inspect current DNS on \"{state.Service}\" while restoring: " +
@@ -252,7 +288,7 @@ internal sealed class DnsJournal
         }
 
         var sw = Stopwatch.StartNew();
-        var restored = _write(state.Service, state.PreviousServers);
+        var restored = SafeWrite(state.Service, state.PreviousServers);
         sw.Stop();
         if (!restored.Ok)
         {
@@ -275,12 +311,17 @@ internal sealed class DnsJournal
         error = "";
         try
         {
-            if (!File.Exists(_statePath)) return null;
-            var info = new FileInfo(_statePath);
-            if (info.Length is <= 0 or > MaxStateBytes)
-                throw new InvalidDataException($"invalid journal size {info.Length}");
-
-            var state = JsonSerializer.Deserialize<State>(File.ReadAllText(_statePath), JsonOptions)
+            byte[]? bytes;
+            if (_readState is not null) bytes = _readState();
+            else
+            {
+                try { using var stream = File.OpenRead(_statePath); bytes = BoundedStorage.Read(stream, checked((int)MaxStateBytes)); }
+                catch (FileNotFoundException) { return null; }
+                catch (DirectoryNotFoundException) { return null; }
+            }
+            if (bytes is null) return null;
+            if (bytes.Length <= 0 || bytes.LongLength > MaxStateBytes) throw new InvalidDataException("invalid journal size");
+            var state = JsonSerializer.Deserialize<State>(new UTF8Encoding(false, true).GetString(bytes), JsonOptions)
                         ?? throw new InvalidDataException("empty journal");
             Validate(state);
             return state;
@@ -299,11 +340,18 @@ internal sealed class DnsJournal
         string temp = _statePath + $".{_owner.Pid}.{Guid.NewGuid():N}.tmp";
         try
         {
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            Validate(state);
+            if (_publishState is not null)
             {
-                if (!OperatingSystem.IsWindows())
-                    File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                if (!_publishState(JsonSerializer.SerializeToUtf8Bytes(state, JsonOptions)))
+                    throw new IOException("DNS journal was claimed by another writer");
+                return true;
+            }
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using (var fs = new FileStream(temp, options))
+            {
                 JsonSerializer.Serialize(fs, state, JsonOptions);
                 fs.Flush(flushToDisk: true);
             }
@@ -328,7 +376,7 @@ internal sealed class DnsJournal
         error = "";
         try
         {
-            File.Delete(_statePath);
+            if (_deleteState is not null) _deleteState(); else File.Delete(_statePath);
             return true;
         }
         catch (Exception ex)
@@ -340,12 +388,14 @@ internal sealed class DnsJournal
 
     private static void Validate(State state)
     {
-        if (state.Version != StateVersion) throw new InvalidDataException($"unsupported version {state.Version}");
+        if (state.Version is not (1 or StateVersion)) throw new InvalidDataException($"unsupported version {state.Version}");
         if (string.IsNullOrWhiteSpace(state.Service) || state.Service.Length > 256 || state.Service.Contains('\0'))
             throw new InvalidDataException("invalid network service name");
-        if (state.OwnerPid <= 0 || state.OwnerStartTicks <= 0)
+        if (state.OwnerPid <= 0 || state.OwnerStartTicks <= 0 || state.OwnerStartTicks > DateTime.MaxValue.Ticks)
             throw new InvalidDataException("invalid owner identity");
-        if (state.PreviousServers.Count > 16 || state.AppliedServers.Count is <= 0 or > 16)
+        if (state.PreviousServers is null || state.AppliedServers is null
+            || state.PreviousServers.Any(value => value is null) || state.AppliedServers.Any(value => value is null)
+            || state.PreviousServers.Count > 16 || state.AppliedServers.Count is <= 0 or > 16)
             throw new InvalidDataException("invalid DNS server count");
         if (Normalize(state.PreviousServers).Count != state.PreviousServers.Count ||
             Normalize(state.AppliedServers).Count != state.AppliedServers.Count)
@@ -371,7 +421,7 @@ internal sealed class DnsJournal
     internal static Owner CurrentOwner()
     {
         using var process = Process.GetCurrentProcess();
-        return new Owner(process.Id, process.StartTime.Ticks);
+        return new Owner(process.Id, process.StartTime.ToUniversalTime().Ticks);
     }
 
     internal static bool IsOwnerAlive(Owner owner)
@@ -379,9 +429,10 @@ internal sealed class DnsJournal
         try
         {
             using var process = Process.GetProcessById(owner.Pid);
-            return process.StartTime.Ticks == owner.StartTicks && !process.HasExited;
+            return !process.HasExited && (owner.LegacyLocalTime || process.StartTime.ToUniversalTime().Ticks == owner.StartTicks);
         }
-        catch { return false; }
+        catch (ArgumentException) { return false; } // PID no longer exists
+        catch { return true; } // Unknown/access failure is not proof of death.
     }
 
     /// <summary>Pure fake-network regression coverage, invoked by <c>QeliMac selftest</c>.</summary>

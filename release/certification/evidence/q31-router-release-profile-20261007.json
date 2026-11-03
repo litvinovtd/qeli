@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_PASS_F364_Q31_IN_PROGRESS",
+  "source_digest": "f28d7d83591745d8e81ff161fb4e63c6e2a3781bb8a3a21c52ab4d516bf1455d",
+  "base_worktree_commit": "52e9458f3fb1085fb78ac3d95b725136400cd999",
+  "base_dev_commit": "554da9e4b81c14f5f5214d090e22ef5d4e751454",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-router-release-profile-20261007",
+  "raw_seal_sha256": "8cb29f998463de3c7aba1b7a173da4536481fe2e2887fb797f6cf0208fbb1173",
+  "raw_sealed_files": 43,
+  "scope": "Q31 F364: shared standalone router/host/CI policy explicitly supplies five canonical Cargo.toml release fields (lto=fat,codegen-units=1,opt-level=3,strip=true,panic=abort). --print-release-profile exports the same values to the keenetic-cross job from repository root; manifest/export/helper/CI contract checked. FFI unwind/SDK feed profiles and Rust core/manifest/lock/schema/ABI/published binaries unchanged. Same real Cargo1.97 method12cells (three callers x ambient env/Cargo home/owned ancestor/forced child env): baseline9assertion FAIL unwind|0 vs abort|3,forced child env3PASS;fixed12cells/five actual rustc flags PASS. Full8real-Cargo methods (7old+1new),53helper+19host-gate Linux methods=72 all PASS,no skips. Initial Windows10POSIXskips subsequently executed on Linux. Actual cargo-zigbuild0.23.0/Zig0.13.0/stock x86_64-musl std1.97 used exact router_build_command on two separate dependency-free probe crates: baseline unwind|0,fixed abort|3;five actual flags,static target ELF validation and native execution PASS. These are mini-probes,not Qeli,not identical clean A/B,not new current-Qeli/four-target/FFI/SDK/firmware builds or a performance benchmark. Owned HOME/Cargo/target/Zig/XDG cache roots removed after ELF/log preservation;373Git/current inputs and tool hashes checked;own processes/mounts absent;global toolchain/target inventory unchanged. No global cache/default/service/network/firewall mutation,.11unused.37recipes/14LuCI/docs9/bindings/diff PASS. Exporter/CI placement locally checked,no new GitHub Actions run. Local seal-script parse failure retained as preparation error,not a product failure.41historic cases/acceptance and35old supplements preserved except source_digest. Q31 IN_PROGRESS28/37(75.7%),9remain;Q29SIGKILL FAIL/auto-null ENONET,Q30callback-drain OPEN/Apple exclusions,D06ACCEPTED retained. Full hermetic policy (other profile keys,forced env,source/linker/PATH/registry/tool caches),clean Qeli A/B,SDKbootstrap/source release-cut,writer/shell/direct launch/atomic ndm/power-loss remain OPEN;firmware USER_EXCLUDED. No push/deploy.",
+  "checks": {
+    "baseline_profile_cells": 12,
+    "baseline_expected_assertion_failures": 9,
+    "baseline_forced_child_env_pass": 3,
+    "fixed_profile_cells": 12,
+    "profile_fields": 5,
+    "fixed_real_cargo_methods": 8,
+    "new_real_cargo_methods": 1,
+    "linux_router_helper_methods": 53,
+    "linux_host_gate_methods": 19,
+    "linux_helper_gate_methods": 72,
+    "new_manifest_export_ci_contract_methods": 1,
+    "linux_skips": 0,
+    "initial_windows_posix_skips": 10,
+    "zig_native_musl_probe_builds": 2,
+    "zig_native_musl_probe_executions": 2,
+    "rust_version": "1.97.0",
+    "zig_version": "0.13.0",
+    "cargo_zigbuild_version": "0.23.0",
+    "source_inputs": 373,
+    "recipes": 37,
+    "luci": 14,
+    "docs": 9,
+    "bindings": "PASS",
+    "diff": "PASS",
+    "rust_core_manifest_lock_ffi": "UNCHANGED",
+    "full_qeli_clean_ab_cross_sdk_ci_run": "NOT_RUN"
+  },
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "q31": "IN_PROGRESS"
+  },
+  "primary_reference": "https://doc.rust-lang.org/cargo/reference/config.html#environment-variables",
+  "zig_probe_artifacts": [
+    {
+      "phase": "baseline",
+      "source_root": "/var/tmp/qeli-router-openwrt-8VrKff",
+      "command": "cd /var/tmp/qeli-router-openwrt-8VrKff && QELI_ROUTER_RUSTC=\"$(rustup which --toolchain 1.97.0 rustc)\" && test -x \"$QELI_ROUTER_RUSTC\" && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC=\"$QELI_ROUTER_RUSTC\" RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' RUSTFLAGS='' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-8VrKff/target CARGO_BUILD_BUILD_DIR=/var/tmp/qeli-router-openwrt-8VrKff/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target x86_64-unknown-linux-musl 2>&1 --offline -vv",
+      "rc": 0,
+      "started_at": "2026-10-07T13:47:33.901450+00:00",
+      "finished_at": "2026-10-07T13:47:57.513747+00:00",
+      "binary_output": "unwind|0",
+      "binary_size": 5109560,
+      "binary_sha256": "34345ee70b42eb59aadb1d11a7deaa0d418e84d72a00131ed2b3fdf1daf8931f",
+      "elf": {
+        "class": 2,
+        "machine": 62,
+        "type": 2,
+        "endianness": "little",
+        "external_interpreter": false,
+        "needed_libraries": false
+      }
+    },
+    {
+      "phase": "fixed",
+      "source_root": "/var/tmp/qeli-router-openwrt-4Fc1eq",
+      "command": "cd /var/tmp/qeli-router-openwrt-4Fc1eq && QELI_ROUTER_RUSTC=\"$(rustup which --toolchain 1.97.0 rustc)\" && test -x \"$QELI_ROUTER_RUSTC\" && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC=\"$QELI_ROUTER_RUSTC\" RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=true CARGO_PROFILE_RELEASE_PANIC=abort RUSTFLAGS='' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-4Fc1eq/target CARGO_BUILD_BUILD_DIR=/var/tmp/qeli-router-openwrt-4Fc1eq/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target x86_64-unknown-linux-musl 2>&1 --offline -vv",
+      "rc": 0,
+      "started_at": "2026-10-07T13:47:57.630811+00:00",
+      "finished_at": "2026-10-07T13:48:20.817295+00:00",
+      "binary_output": "abort|3",
+      "binary_size": 338000,
+      "binary_sha256": "13af0aa3fef132e0b83c078748a5ae59f2d8e365b5f57d9d44adb0deb83fcbc1",
+      "elf": {
+        "class": 2,
+        "machine": 62,
+        "type": 2,
+        "endianness": "little",
+        "external_interpreter": false,
+        "needed_libraries": false
+      }
+    }
+  ]
+}

@@ -15,6 +15,7 @@ enum UpdateCheckState: Equatable {
 }
 
 enum UpdateChecker {
+    static let maximumResponseBytes = 1024 * 1024
     private static let releasesURL = URL(string: "https://api.github.com/repos/litvinovtd/qeli/releases")!
     private static let releasesPage = URL(string: "https://github.com/litvinovtd/qeli/releases")!
 
@@ -41,40 +42,43 @@ enum UpdateChecker {
         configuration.multipathServiceType = .none
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw UpdateCheckerError.invalidResponse
         }
+        let data = try await boundedResponse(bytes, maximumBytes: maximumResponseBytes)
         let releases = try JSONDecoder().decode([Release].self, from: data)
         guard let release = releases.first(where: { !$0.draft && !$0.tagName.isEmpty }) else {
             throw UpdateCheckerError.noRelease
         }
-        let latest = normalize(release.tagName)
+        let latest = try normalize(release.tagName)
         return UpdateInfo(
             latest: latest,
             url: URL(string: release.htmlURL ?? "") ?? releasesPage,
-            isNewer: isNewer(latest, than: currentVersion)
+            isNewer: try isNewer(latest, than: currentVersion)
         )
     }
 
-    static func normalize(_ value: String) -> String {
-        var value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.first == "v" || value.first == "V" { value.removeFirst() }
-        if let suffix = value.firstIndex(where: { $0 == "-" || $0 == "+" }) {
-            value = String(value[..<suffix])
+    static func boundedResponse<S: AsyncSequence>(
+        _ bytes: S, maximumBytes: Int
+    ) async throws -> Data where S.Element == UInt8 {
+        try Task.checkCancellation()
+        guard maximumBytes > 0 else { throw UpdateCheckerError.responseTooLarge }
+        var data = Data()
+        data.reserveCapacity(min(maximumBytes, 16 * 1024))
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            guard data.count < maximumBytes else { throw UpdateCheckerError.responseTooLarge }
+            data.append(byte)
         }
-        return value.isEmpty ? "0" : value
+        return data
     }
 
-    static func isNewer(_ latest: String, than current: String) -> Bool {
-        let lhs = normalize(latest).split(separator: ".").map { Int($0) ?? 0 }
-        let rhs = normalize(current).split(separator: ".").map { Int($0) ?? 0 }
-        for index in 0..<max(lhs.count, rhs.count) {
-            let left = index < lhs.count ? lhs[index] : 0
-            let right = index < rhs.count ? rhs[index] : 0
-            if left != right { return left > right }
-        }
-        return false
+    static func normalize(_ value: String) throws -> String {
+        try ConfigCore.policy("version_normalize",["value":value])["value"] as! String
+    }
+    static func isNewer(_ latest: String, than current: String) throws -> Bool {
+        (try ConfigCore.policy("version_compare",["a":latest,"b":current])["value"] as! Int) > 0
     }
 
     private struct Release: Decodable {
@@ -93,11 +97,13 @@ enum UpdateChecker {
 enum UpdateCheckerError: LocalizedError {
     case invalidResponse
     case noRelease
+    case responseTooLarge
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse: return "The release service returned an invalid response."
         case .noRelease: return "No published Qeli release was found."
+        case .responseTooLarge: return "The release service response is too large."
         }
     }
 }

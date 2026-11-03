@@ -6,16 +6,22 @@
 
 use crate::server::web::auth::{self, AuthError};
 use crate::server::ServerState;
+use crate::transport_core::receive_queue::QueueSnapshot;
 use axum::extract::State;
 use axum::Json;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub async fn health(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    let live = super::status::control(json!({"cmd": "list-clients"})).await;
+    let (live, queue_live) = tokio::join!(
+        super::status::control(json!({"cmd": "list-clients"})),
+        super::status::control(json!({"cmd": "queue-stats"})),
+    );
+    let queue_profiles = receive_queue_profiles(queue_live.as_ref());
     let worker_ok = live
         .as_ref()
         .and_then(|value| value.get("ok"))
@@ -28,7 +34,7 @@ pub async fn health(
         )));
     };
 
-    let nat_available = crate::server::nat::available();
+    let nat_warning = super::firewall::nat_warning(&config).await;
     let mut profiles = Vec::with_capacity(config.profiles.len());
     let mut total_sent = 0u64;
     let mut total_recv = 0u64;
@@ -83,11 +89,13 @@ pub async fn health(
                 "message": format!("{dropped} outbound packet(s) were dropped by server backpressure."),
             }));
         }
-        if profile.routing.nat.enabled && !nat_available {
-            alerts.push(json!({
-                "severity": "critical",
-                "message": "NAT is enabled but iptables is unavailable; full-tunnel internet egress will fail.",
-            }));
+        if profile.routing.nat.enabled {
+            if let Some(warning) = &nat_warning {
+                alerts.push(json!({
+                    "severity": warning.severity,
+                    "message": warning.message,
+                }));
+            }
         }
         if profile.bind.transport == "udp"
             && profile.performance.udp.recv_buffer_auto
@@ -126,6 +134,7 @@ pub async fn health(
             "bytes_sent": sent,
             "bytes_recv": recv,
             "dropped": dropped,
+            "udp_receive_queue": queue_profiles.get(&profile.name),
             "alerts": alerts,
             "endpoint": {
                 "transport": profile.bind.transport,
@@ -222,4 +231,61 @@ pub async fn health(
         },
         "profiles": profiles,
     })))
+}
+
+// Deserialize only the metrics schema, then serialize that schema in the panel response.
+// A worker extension must never turn this into an unfiltered configuration projection.
+fn receive_queue_profiles(live: Option<&Value>) -> BTreeMap<String, QueueSnapshot> {
+    let parsed = live
+        .filter(|value| value.get("ok").and_then(Value::as_bool) == Some(true))
+        .and_then(|value| value.get("message").and_then(Value::as_str))
+        .and_then(|message| serde_json::from_str::<Value>(message).ok());
+    parsed
+        .filter(|value| value.get("scope").and_then(Value::as_str) == Some("udp_batch_handoff"))
+        .and_then(|value| value.get("profiles").cloned())
+        .and_then(|profiles| serde_json::from_value(profiles).ok())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response(profiles: Value) -> Value {
+        json!({"ok":true,"message":json!({"scope":"udp_batch_handoff","profiles":profiles}).to_string()})
+    }
+
+    #[test]
+    fn receive_metrics_are_typed_and_cannot_expose_worker_extensions() {
+        let mut counters = serde_json::to_value(QueueSnapshot::default()).unwrap();
+        counters["delivered_packets"] = json!(123);
+        counters["obfs_key"] = json!("must-not-leak");
+        let live = response(json!({"bench":counters}));
+        let metrics = receive_queue_profiles(Some(&live));
+        assert_eq!(metrics["bench"].delivered_packets, 123);
+        let serialized = serde_json::to_value(&metrics).unwrap();
+        assert!(serialized["bench"].get("obfs_key").is_none());
+        assert!(!serialized.to_string().contains("must-not-leak"));
+    }
+
+    #[test]
+    fn missing_or_old_worker_metrics_remain_unavailable_instead_of_zero() {
+        assert!(receive_queue_profiles(None).is_empty());
+        for live in [
+            json!({"ok":false,"message":"unknown command"}),
+            json!({"ok":true,"message":"not JSON"}),
+            json!({"ok":true,"message":"{\"scope\":\"wrong\",\"profiles\":{}}"}),
+        ] {
+            assert!(receive_queue_profiles(Some(&live)).is_empty());
+        }
+    }
+
+    #[test]
+    fn incomplete_or_non_numeric_counters_are_not_presented_as_valid() {
+        let incomplete = response(json!({"bench":{"delivered_packets":123}}));
+        assert!(receive_queue_profiles(Some(&incomplete)).is_empty());
+        let mut counters = serde_json::to_value(QueueSnapshot::default()).unwrap();
+        counters["delivered_packets"] = json!("invalid");
+        assert!(receive_queue_profiles(Some(&response(json!({"bench":counters})))).is_empty());
+    }
 }

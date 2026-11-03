@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "status": "PASS_CURRENT_32BIT_SDK_COMPILE_AND_FIXED_LICENSE_INSTALL_WITH_EXPLICIT_SCOPE",
+  "execution_source_commit": "c52e0c158ef325700a99d355924088e402a8b05b",
+  "qeli_tree": "450e1c879f94d273ce77947ef70f175e9e5c3a30",
+  "compiled_rust_source_unchanged_after_test_and_install_fix": true,
+  "standalone": {
+    "source_commit": "c52e0c158ef325700a99d355924088e402a8b05b",
+    "archive_sha256": "3b935e37fe4a7461931f9f5d81995cb0c9e30a03bf09cf8d52702ebf33e99d9b",
+    "remote_root": "/var/tmp/qeli-router-openwrt-RCeOEK",
+    "source_files": 318,
+    "results": [
+      {
+        "arch": "armv7",
+        "target": "armv7-unknown-linux-musleabihf",
+        "command": "export PATH=/root/.cargo/bin:$PATH; cd /var/tmp/qeli-router-openwrt-RCeOEK && QELI_ROUTER_RUSTC=\"$(rustup which --toolchain 1.97.0 rustc)\" && test -x \"$QELI_ROUTER_RUSTC\" && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC=\"$QELI_ROUTER_RUSTC\" RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=true CARGO_PROFILE_RELEASE_PANIC=abort RUSTFLAGS=--remap-path-prefix=/var/tmp/qeli-router-openwrt-RCeOEK=/usr/src/qeli CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-RCeOEK/target CARGO_BUILD_BUILD_DIR=/var/tmp/qeli-router-openwrt-RCeOEK/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target armv7-unknown-linux-musleabihf 2>&1",
+        "status": "PASS",
+        "artifact_sha256": "38aa60678d4195ab3819490dae4dc5e8b5ae6abd9d3eae52f75c88cb99d03149",
+        "size": 4988836,
+        "elf": {
+          "class": 1,
+          "machine": 40,
+          "type": 2,
+          "endianness": "little",
+          "external_interpreter": false,
+          "needed_libraries": false
+        }
+      },
+      {
+        "arch": "mipsel",
+        "target": "mipsel-unknown-linux-musl",
+        "command": "export PATH=/root/.cargo/bin:$PATH; cd /var/tmp/qeli-router-openwrt-RCeOEK && QELI_ROUTER_RUSTC=\"$(rustup which --toolchain nightly-2026-06-10 rustc)\" && test -x \"$QELI_ROUTER_RUSTC\" && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC=\"$QELI_ROUTER_RUSTC\" RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=true CARGO_PROFILE_RELEASE_PANIC=abort RUSTFLAGS='-C link-arg=-msoft-float --remap-path-prefix=/var/tmp/qeli-router-openwrt-RCeOEK=/usr/src/qeli' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-RCeOEK/target CARGO_BUILD_BUILD_DIR=/var/tmp/qeli-router-openwrt-RCeOEK/target CARGO_INCREMENTAL=0 cargo +nightly-2026-06-10 zigbuild -Z build-std=std,panic_abort --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target mipsel-unknown-linux-musl 2>&1",
+        "status": "PASS",
+        "artifact_sha256": "a5446ccdffcddc4053fd9ea7209d50a966fc7eb1ac21a438b2b3348bf30fc047",
+        "size": 6865628,
+        "elf": {
+          "class": 1,
+          "machine": 8,
+          "type": 3,
+          "endianness": "little",
+          "external_interpreter": false,
+          "needed_libraries": false
+        }
+      }
+    ]
+  },
+  "source_input_counts": {
+    "standalone_exact": 321,
+    "standalone_not_transferred_outside_compile_contract": 583,
+    "sdk_prepared_exact_before_rlib_projection": 321,
+    "changed_old_managed_inputs": 38
+  },
+  "qemu_methods": 32,
+  "sdk_original_full_build": {
+    "fixture_pin": "a7d17035be7fc979b7d029e569d19297d5ddffba",
+    "qeli_tree": "450e1c879f94d273ce77947ef70f175e9e5c3a30",
+    "archive_sha256": "44a7738c8d2845c5ce0e65802c65d13ca4de0c6a1fb767e847e740c1020e18a5",
+    "archive_size": 1670234,
+    "sdk": "24.10.4",
+    "host_rust": "PREBUILT_OFFICIAL_1.89.0_NOT_SDK_BOOTSTRAP",
+    "make": [
+      "make",
+      "-C",
+      "package/qeli",
+      "TOPDIR=/var/tmp/qeli-sdk-current-20261012.vajU7W/sdk",
+      "PKG_SOURCE_MIRROR=0",
+      "V=s",
+      "-j1"
+    ],
+    "started_at": 1791775021.4797394,
+    "production_recipe_sha256": "de6d39eee20810e7262b4f146bb7103b0952088412617e67a1b6f46bb2cd8a17",
+    "fixture_recipe": "# OpenWrt feed package for the qeli VPN client.\n# Build: clone into an OpenWrt feed (or `package/qeli`), enable the `rust` feed\n# (lang/rust), then `make package/qeli/compile V=s`.\n\ninclude $(TOPDIR)/rules.mk\n\nPKG_NAME:=qeli\nPKG_VERSION:=0.8.2\nPKG_RELEASE:=1\n\n# Built from the qeli Rust crate (client-only). Point PKG_SOURCE_URL at the repo,\n# or drop the crate into a local source dir. The realtls FFI core is part of the\n# same crate; client-bin pulls only the client path (no `ring` → builds on mips).\n#\n# PKG_SOURCE_VERSION is a full commit SHA, not `v$(PKG_VERSION)` (Audit 2026-07-27, G5).\n# A tag is mutable — retagging silently changes what this package builds — and the tag\n# for an unreleased version does not exist at all, so the package could not be built\n# from a dev tree. A SHA pins one immutable tree. Re-pin it at the release commit when\n# cutting a version.\nPKG_SOURCE_PROTO:=git\nPKG_SOURCE_URL:=file:///var/tmp/qeli-sdk-current-20261012.vajU7W/source\nPKG_SOURCE_VERSION:=a7d17035be7fc979b7d029e569d19297d5ddffba\nPKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)\n# Hash the SDK-generated source archive. Git fallback may only warn on a\n# mismatch, so prepare AND compile verify it below before unpack/Cargo.\n# At release-cut pin the immutable source commit, run SDK download, then\n# make package/qeli/check FIXUP=1 and verify the actual Source archive filename.\n# This local cut was qualified by SDK24.10.4 download/prepare (2026-10-09).\n# Publish the pinned commit to PKG_SOURCE_URL before using the public feed.\n# Re-qualify the cut if qeli/ changes; see the OpenWrt README audit section.\nPKG_MIRROR_HASH:=44a7738c8d2845c5ce0e65802c65d13ca4de0c6a1fb767e847e740c1020e18a5\nPKG_MAINTAINER:=Alexandr\nPKG_LICENSE:=AGPL-3.0-only\nPKG_LICENSE_FILES:=LICENSE\n\n# The Cargo project (Cargo.toml) lives in the `qeli/` subdir of the repo; the git source\n# above brings the WHOLE repo. Keep PKG_BUILD_DIR at the checkout ROOT so Build/Prepare\n# unpacks correctly — overriding it to the `qeli/` subdir makes the unpack land in the\n# wrong place and the SDK can't find the crate (Build/Compile cd's into qeli/ instead).\nPKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)\n\nPKG_BUILD_DEPENDS:=rust/host\nPKG_BUILD_PARALLEL:=1\n\nRUST_PKG_FEATURES:=client-bin\nCARGO_PKG_CONFIG_DEPENDS:=\n\ninclude $(INCLUDE_DIR)/package.mk\ninclude $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk\n\ndefine Package/qeli\n  SECTION:=net\n  CATEGORY:=Network\n  SUBMENU:=VPN\n  TITLE:=qeli VPN client (REALITY / anti-DPI, post-quantum)\n  URL:=https://github.com/litvinovtd/qeli\n  # ip6tables providers require IPv6; an unconditional virtual dependency\n  # generates a recursive Kconfig expression in the 24.10 SDK.\n  DEPENDS:=$(RUST_ARCH_DEPENDS) +kmod-tun +ip-full +iptables +IPV6:ip6tables +ca-bundle\nendef\n\ndefine Package/qeli/description\n  Headless client for the qeli VPN: REALITY / fake-tls / obfs / QUIC obfuscation,\n  X25519 + ML-KEM-768 post-quantum handshake (UDP-fragmented for LTE/CGNAT),\n  iptables kill-switch. Managed via UCI (/etc/config/qeli) and procd; install\n  luci-app-qeli for a web UI.\nendef\n\ndefine Package/qeli/conffiles\n/etc/config/qeli\nendef\n\n# Client-only build: no default features (drops the server, web panel and `ring`).\n# The client-only bin is `qeli-client` (src/client_main.rs); the default `qeli`\n# bin requires the server+client features and is not built here.\n# Project only this private SDK checkout to rlib, as the router helpers do;\n# unused cdylib/staticlib outputs waste build resources and are never installed.\n# Refuse an unknown declaration rather than silently building extra FFI targets.\n# Source overlays are explicit developer SDK modes (USE_SOURCE_DIR/git-src),\n# not mirror-qualified release builds. Default downloaded sources must have a\n# nonempty regular, nonlinked archive matching the declared hash. Do not rely\n# on download.mk warnings: check again even if prepare stamps already exist.\ndefine Qeli/VerifySourceArchive\n\t$(SHELL) $(CURDIR)/verify-source.sh \"$(DL_DIR)/$(PKG_SOURCE)\" \"$(PKG_MIRROR_HASH)\" \"$(MKHASH)\" \"$(PKG_SKIP_DOWNLOAD)\"\nendef\nHooks/Prepare/Pre += Qeli/VerifySourceArchive\n\nCARGO_INSTALL:=0\ndefine Build/Compile\n\t+$(Qeli/VerifySourceArchive) && \\\n\tcd $(PKG_BUILD_DIR)/qeli && \\\n\ttest -f Cargo.lock && \\\n\tgrep -Eqx 'crate-type = (\\[\"rlib\"\\]|\\[\"rlib\", \"cdylib\", \"staticlib\"\\])' Cargo.toml && \\\n\tsed -i 's/^crate-type = \\[\"rlib\", \"cdylib\", \"staticlib\"\\]/crate-type = [\"rlib\"]/' Cargo.toml && \\\n\tgrep -qx 'crate-type = \\[\"rlib\"\\]' Cargo.toml && \\\n\t$(CARGO_PKG_VARS) cargo metadata --locked --format-version 1 \\\n\t\t--no-default-features --features client-bin > /dev/null && \\\n\t$(CARGO_PKG_VARS) \\\n\tcargo install -v --locked --jobs 1 \\\n\t\t--profile release \\\n\t\t--no-default-features --features client-bin \\\n\t\t--bin qeli-client \\\n\t\t--root $(PKG_INSTALL_DIR)/usr \\\n\t\t--path .\nendef\n\ndefine Package/qeli/install\n\t$(INSTALL_DIR) $(1)/usr/bin\n\t$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/qeli-client $(1)/usr/bin/qeli-client\n\n\t$(INSTALL_DIR) $(1)/usr/share/licenses/qeli\n\t$(CP) $(PKG_BUILD_DIR)/qeli/third-party-notices/rust $(1)/usr/share/licenses/qeli/\n\n\t$(INSTALL_DIR) $(1)/etc/init.d\n\t$(INSTALL_BIN) ./files/qeli.init $(1)/etc/init.d/qeli\n\n\t$(INSTALL_DIR) $(1)/etc/config\n\t$(INSTALL_CONF) ./files/qeli.config $(1)/etc/config/qeli\n\n\t$(INSTALL_DIR) $(1)/etc/uci-defaults\n\t$(INSTALL_BIN) ./files/qeli.firewall.uci-defaults $(1)/etc/uci-defaults/99-qeli-firewall\nendef\n\n$(eval $(call BuildPackage,qeli))\n",
+    "package_rc": 0,
+    "finished_at": 1791775176.0877373,
+    "ipk": {
+      "path": "sdk/bin/targets/x86/64/packages/qeli_0.8.2-r1_x86_64.ipk",
+      "size": 2712043,
+      "sha256": "b6b6f88b418b74f7fafeecdaf69f05a054eddf5f41be0d75a1b4245073c1ea4f"
+    }
+  },
+  "sdk_install_fix": {
+    "status": "PASS_EXACT_CURRENT_SDK_INSTALL_MACRO_AND_PACKER_NO_RUST_REBUILD",
+    "source_recipe_sha256": "4dad8d2b238fb6dc845374c9809556eeddb9167e860dbf623e1397823c2b16cc",
+    "private_recipe_sha256": "43fa96787eec04b3643ea86dd2519735af3a7ac0318fc6c06139a37dad0e9f88",
+    "install_template_sha256": "ca4d129f29bdb862dccdbfefe3c32f2f163f8fb556815908f55c0f3e6a9822f3",
+    "baseline_ipk": {
+      "path": "sdk/bin/targets/x86/64/packages/qeli_0.8.2-r1_x86_64.ipk",
+      "size": 2712043,
+      "sha256": "b6b6f88b418b74f7fafeecdaf69f05a054eddf5f41be0d75a1b4245073c1ea4f"
+    },
+    "ipk": {
+      "path": "repackaged/qeli_0.8.2-r1_x86_64.ipk",
+      "size": 2712812,
+      "sha256": "1f6967bc996695976d906c50034c4180128db025e089d3a5a8a17b2787c0b39a"
+    },
+    "elf_sha256_unchanged": "24bc24dc5cb46e23e9c5bae7249f13da498e86e48326fa82e6f32d4e11978d29",
+    "all_payload_bytes_and_control_unchanged": true,
+    "license_files_0644_directories_0755": true,
+    "license_file_count": 533,
+    "scope": "actual current Install macro and SDK ipkg-build; full SDK compile/BuildPackage retains original recipe and timestamp; no new compiler/bootstrap/full build claim"
+  },
+  "sdk_compile_methods": 6,
+  "opkg_methods": 7,
+  "sdk_cli_executions": 9,
+  "scope_method_count": 54,
+  "source_admission": {
+    "windows_passed": 25,
+    "linux_posix_passed": 2,
+    "historical_baseline_opt_in_not_replayed": 1,
+    "initial_wrapper_expected_37_incorrect_refusal_retained": true
+  },
+  "failure_history": [
+    "initial systemd HOME omitted: Zig AppDataDirUnavailable, before compilation; corrected, same source resumed",
+    "initial SDK/tmp missing: download flock failure; created owned tmp, no repeat of toolchain/source upload",
+    "private dated root admission blocked first opkg fixtures; removed date coupling in current tests",
+    "old four-file payload assertion rejected 533 legitimate license files",
+    "fixed test exposed copied 0664 license modes; current Install normalizes files0644/dirs0755",
+    "empty opkg directories may remain; removal verifies no license files or links, rather than demanding directory disappearance"
+  ],
+  "cleanup": [
+    {
+      "host": "10.66.116.10",
+      "removed_owned_roots": [
+        "/var/tmp/qeli-router-openwrt-RCeOEK",
+        "/var/tmp/qeli-q31-current-emulation-20261012"
+      ],
+      "path_process_fd_mount_sha_guards": "PASS",
+      "freed_bytes": 759578624,
+      "free_bytes": 9310564352,
+      "production_pid_command_state_preserved": true,
+      "recoverable_sha256": "e7beede1f0247821d9cb552ff67fcb43a9d133e1f37a32a85f884372d73f8688"
+    },
+    {
+      "host": "10.66.116.11",
+      "removed_owned_roots": [
+        "/var/tmp/qeli-sdk-current-20261012.vajU7W"
+      ],
+      "path_process_fd_mount_sha_guards": "PASS",
+      "freed_bytes": 3120992256,
+      "free_bytes": 7659753472,
+      "production_pid_command_state_preserved": true,
+      "recoverable_sha256": "abc9879580831440bfb3134a058ba3b40fde0ea9eb75c1c1b0094243a096b8bc"
+    }
+  ],
+  "raw_packets": [
+    {
+      "path": "audit-debt-20260924/q31-current-portable-20261012",
+      "files": 50,
+      "bytes": 39601319,
+      "qualification_seal_sha256": "85fe3eb67ab9afbe417911e487115374668163862abcdaac543f209052c0e362"
+    },
+    {
+      "path": "audit-debt-20260924/q31-sdk-current-20261012",
+      "files": 88,
+      "bytes": 47527642,
+      "qualification_seal_sha256": "6776b66170a23987d4fa694948243811348dc8428ee4bb24234f4a1321f5e7a6"
+    }
+  ],
+  "remaining": [
+    "Q31 upstream Rust bootstrap resource-deferred; official prebuilt1.89 integration does not certify compiler bootstrap/cold-hermetic build",
+    "production source pin/hash/current public archive and successful hosted CI/whole release preflight remain Q34 obligations; current production cut predates adopted Rust changes",
+    "physical firmware/router runtime USER_EXCLUDED; no full router VPN or other SDK architecture runtime claim"
+  ],
+  "audit_done": 32,
+  "audit_total": 37,
+  "q31_criteria": "3/5 IN_PROGRESS",
+  "no_push_deploy_release": true
+}

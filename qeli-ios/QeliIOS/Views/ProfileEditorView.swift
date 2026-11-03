@@ -9,6 +9,7 @@ struct ProfileEditorView: View {
     @State private var configText: String
     @State private var roamingPolicy: String
     @State private var validationError: String?
+    @State private var showingReconnectNotice = false
 
     init(profile: Profile?) {
         self.profile = profile
@@ -56,12 +57,20 @@ struct ProfileEditorView: View {
                             var editedConfig = try VPNConfig(parsing: configText)
                             editedConfig.roamingPolicy = roamingPolicy
                             let normalized = try editedConfig.toINI()
-                            try model.saveProfile(id: profile?.id, name: name, configText: normalized)
-                            dismiss()
+                            let reconnectRequired = try model.saveProfile(
+                                original: profile, name: name, configText: normalized
+                            )
+                            if reconnectRequired { showingReconnectNotice = true }
+                            else { dismiss() }
                         } catch { validationError = error.localizedDescription }
                     }
                 }
             }
+        }
+        .alert("Reconnect required", isPresented: $showingReconnectNotice) {
+            Button("OK") { dismiss() }
+        } message: {
+            Text("The active profile was saved. Disconnect and connect again to apply it to the running tunnel.")
         }
     }
 }

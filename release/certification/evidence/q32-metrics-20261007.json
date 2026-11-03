@@ -1,0 +1,322 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_SCOPED_METRICS_AND_NATIVE_REFRESH",
+  "source_commit": "b48a86b0131c96cd062e9f9baed67263131a4b2f",
+  "native_source_digest": "dc684f10a957c30477d44f49c0923d3335747964656c9d5185cdfca352f4aa37",
+  "findings": [
+    "F380/Q32-F002",
+    "F381/Q32-F003",
+    "F382/Q32-F004",
+    "F383/sysctl-test-fixture"
+  ],
+  "harness": {
+    "status": "PASS_AFTER_SEPARATE_TARGET_RERUN",
+    "commands": [
+      {
+        "name": "before",
+        "command": "export PATH=/root/.cargo/bin:$PATH CARGO_HOME=/var/tmp/qeli-q32-metrics.O1SL1g/cargo CARGO_TARGET_DIR=/var/tmp/qeli-q32-metrics.O1SL1g/target CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true; cd /var/tmp/qeli-q32-metrics.O1SL1g/harness-before; cargo +1.97.0 test --offline regression:: -- --test-threads=1",
+        "rc": 101,
+        "expected_rc": 101,
+        "seconds": 18.537
+      },
+      {
+        "name": "after",
+        "command": "export PATH=/root/.cargo/bin:$PATH CARGO_HOME=/var/tmp/qeli-q32-metrics.O1SL1g/cargo CARGO_TARGET_DIR=/var/tmp/qeli-q32-metrics.O1SL1g/target CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true; cd /var/tmp/qeli-q32-metrics.O1SL1g/harness-after; cargo +1.97.0 test --offline server::metrics::tests:: -- --test-threads=1",
+        "rc": 0,
+        "expected_rc": 0,
+        "seconds": 1.015
+      },
+      {
+        "name": "after-r2",
+        "command": "export PATH=/root/.cargo/bin:$PATH CARGO_HOME=/var/tmp/qeli-q32-metrics.O1SL1g/cargo CARGO_TARGET_DIR=/var/tmp/qeli-q32-metrics.O1SL1g/target-after CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true; cd /var/tmp/qeli-q32-metrics.O1SL1g/harness-after; cargo +1.97.0 test --offline server::metrics::tests:: -- --test-threads=1",
+        "rc": 0,
+        "required_tests": 8
+      }
+    ],
+    "remote_root": "/var/tmp/qeli-q32-metrics.O1SL1g",
+    "service_before": "MainPID=0\nActiveState=inactive\n745\n901",
+    "service_after": "MainPID=0\nActiveState=inactive\n745\n901",
+    "initial_after_qualification": "INVALID_STALE_HARNESS_BINARY_SHARED_TARGET"
+  },
+  "scope": "Linux metrics correctness only; usage/logs/notify and overall Q32 not complete",
+  "limits": [
+    "Live-session aggregate churn can understate rates",
+    "Missing RPC still appears as zero clients/rate",
+    "Q29/Q30/Q31 open scopes unchanged",
+    "D06 accepted; unavailable Apple/router/Windows VM excluded"
+  ],
+  "linux": {
+    "status": "PASS",
+    "library_tests_passed": 2424,
+    "preexisting_ignored": 60,
+    "strict_clippy_all_targets": true,
+    "daemon_debug_build": true,
+    "host_preserved": true
+  },
+  "controlled_pid": {
+    "status": "PASS_REPRODUCED_PID_COLLISION",
+    "executions": [
+      {
+        "pid": 42,
+        "rc": 101,
+        "command": "timeout --signal=TERM --kill-after=5 60 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc sh -c 'set -eu; mount --make-rprivate /; mount -t tmpfs tmpfs /tmp; python3 -c '\"'\"'import os;p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);'\"'\"'; /var/tmp/qeli-q32-pid-fixture.GzO5Fe/old-tests sysctl::namespace_tests:: --test-threads=1 & qeli_fixture_pid=$!; echo actual_test_pid=$qeli_fixture_pid; test \"$qeli_fixture_pid\" = 42; wait \"$qeli_fixture_pid\"' > /var/tmp/qeli-q32-pid-fixture.GzO5Fe/pid-42-r2.log 2>&1",
+        "expected_rc": 101
+      },
+      {
+        "pid": 43,
+        "rc": 0,
+        "command": "timeout --signal=TERM --kill-after=5 60 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc sh -c 'set -eu; mount --make-rprivate /; mount -t tmpfs tmpfs /tmp; python3 -c '\"'\"'import os;p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);'\"'\"'; /var/tmp/qeli-q32-pid-fixture.GzO5Fe/old-tests sysctl::namespace_tests:: --test-threads=1 & qeli_fixture_pid=$!; echo actual_test_pid=$qeli_fixture_pid; test \"$qeli_fixture_pid\" = 43; wait \"$qeli_fixture_pid\"' > /var/tmp/qeli-q32-pid-fixture.GzO5Fe/pid-43-r2.log 2>&1",
+        "expected_rc": 0
+      }
+    ],
+    "remote_root": "/var/tmp/qeli-q32-pid-fixture.GzO5Fe",
+    "old_binary_sha256": "f86cba67f1441f2991a2ba35b6184263aec4a66bcea8f114280d16a451e17f3b",
+    "initial_fixture": "INVALID_PID44_NOT_TARGET42",
+    "fixed_pid42": {
+      "status": "PASS",
+      "rc": 0,
+      "command": "timeout --signal=TERM --kill-after=5 60 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc sh -c 'set -eu; mount --make-rprivate /; mount -t tmpfs tmpfs /tmp; python3 -c '\"'\"'import os;p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);p=os.fork();os._exit(0) if p==0 else os.waitpid(p,0);'\"'\"'; /var/tmp/qeli-q32-pid-fixture.GzO5Fe/new-tests sysctl::namespace_tests:: --test-threads=1 & qeli_fixture_pid=$!; echo actual_test_pid=$qeli_fixture_pid; test \"$qeli_fixture_pid\" = 42; wait \"$qeli_fixture_pid\"' > /var/tmp/qeli-q32-pid-fixture.GzO5Fe/pid42-fixed.log 2>&1",
+      "tests": 36,
+      "test_binary_sha256": "61a85831a66f1a66b085a42c67f3a029d58693cf135418f01849ef1b510290a8"
+    }
+  },
+  "windows_abi": {
+    "status": "PASS",
+    "library_sha256": "6e474aeb5f16dd19178306c2136bfcd4a53759d6b224ea9c2589f0bc6aefeaac",
+    "checks": [
+      {
+        "check": "ABI 1.16 and declared capabilities",
+        "passed": true
+      },
+      {
+        "check": "null configuration rejected before allocation",
+        "passed": true
+      },
+      {
+        "check": "invalid UTF8 returns no handle",
+        "passed": true
+      },
+      {
+        "check": "Created state",
+        "passed": true
+      },
+      {
+        "check": "device identity requires sixteen nonzero bytes",
+        "passed": true
+      },
+      {
+        "check": "start transitions once",
+        "passed": true
+      },
+      {
+        "check": "publish copies plan and enters AwaitingNetwork",
+        "passed": true
+      },
+      {
+        "check": "buffer size probe preserves plan and future event tail",
+        "passed": true
+      },
+      {
+        "check": "stale generation cannot accept network",
+        "passed": true
+      },
+      {
+        "check": "positive ACK enters Running",
+        "passed": true
+      },
+      {
+        "check": "old stats prefix and caller tail preserved",
+        "passed": true
+      },
+      {
+        "check": "malformed batch has no partial acceptance",
+        "passed": true
+      },
+      {
+        "check": "fixed packet pool applies backpressure",
+        "passed": true
+      },
+      {
+        "check": "empty downlink reports zero bytes",
+        "passed": true
+      },
+      {
+        "check": "stop terminates generation",
+        "passed": true
+      },
+      {
+        "check": "stopped bridge is unavailable",
+        "passed": true
+      },
+      {
+        "check": "free and stale handle refuse reuse",
+        "passed": true
+      },
+      {
+        "check": "100 registry reuse cycles preserve stale-handle isolation",
+        "passed": true
+      },
+      {
+        "check": "eight concurrent frees destroy one generation exactly once",
+        "passed": true
+      },
+      {
+        "check": "second native runner cannot enter an active generation",
+        "passed": true
+      },
+      {
+        "check": "free invalidates public handle while runner is leased",
+        "passed": true
+      },
+      {
+        "check": "free cancels and joins pending native handshake",
+        "passed": true
+      }
+    ],
+    "scope": "Windows packaged C ABI and real localhost handshake cancellation; no Wintun or OS network mutation."
+  },
+  "android_jni": {
+    "status": "PASS",
+    "checks": 23,
+    "library_sha256": "fe2f2d90da18dc1e8a82658870ca8f13009892c6111dc625d91c5406e7cbfbe6",
+    "userdata_preserved": true,
+    "host_preserved": true
+  },
+  "qualification_failures_retained": [
+    "Initial after harness reused stale binary; independent target rerun passed8",
+    "Full-crate new fixture import failed; fixed production socket client integration",
+    "Full suite old PID42 fixture:2421PASS3FAIL; direct controlled PID42 reproduces3,PID43 passes36; fixedPID42 passes36",
+    "Initial controlled PID fixture actuallyPID44,not qualification",
+    "Comment encoding repair and interrupted own native retries preserved",
+    "JNI import path corrected before SSH; initial import failure retained"
+  ],
+  "native": {
+    "desktop": {
+      "artifacts": {
+        "native-libs/macos-universal/libqeli.dylib": {
+          "consumed": {
+            "qeli-mac/QeliMac/native/libqeli.dylib": "d3edb2c7b5fe16823713377490219f3b403bc930e7d0541408fa2911796e5821"
+          },
+          "final_sha256": "d3edb2c7b5fe16823713377490219f3b403bc930e7d0541408fa2911796e5821",
+          "pass_a_sha256": "d3edb2c7b5fe16823713377490219f3b403bc930e7d0541408fa2911796e5821",
+          "pass_b_sha256": "d3edb2c7b5fe16823713377490219f3b403bc930e7d0541408fa2911796e5821",
+          "reproducible": true
+        },
+        "native-libs/windows-x64/qeli.dll": {
+          "consumed": {
+            "qeli-win/QeliWin/native/qeli.dll": "6e474aeb5f16dd19178306c2136bfcd4a53759d6b224ea9c2589f0bc6aefeaac"
+          },
+          "final_sha256": "6e474aeb5f16dd19178306c2136bfcd4a53759d6b224ea9c2589f0bc6aefeaac",
+          "pass_a_sha256": "6e474aeb5f16dd19178306c2136bfcd4a53759d6b224ea9c2589f0bc6aefeaac",
+          "pass_b_sha256": "6e474aeb5f16dd19178306c2136bfcd4a53759d6b224ea9c2589f0bc6aefeaac",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "b48a86b0131c96cd062e9f9baed67263131a4b2f",
+      "source_date_epoch": 1791406843,
+      "source_digest": "dc684f10a957c30477d44f49c0923d3335747964656c9d5185cdfca352f4aa37",
+      "source_dirty": false,
+      "toolchain": {
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+        "cargo_zigbuild_version": "0.23.0",
+        "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+        "rcodesign": "apple-codesign 0.29.0",
+        "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+        "zig": "0.13.0"
+      }
+    },
+    "android": {
+      "artifacts": {
+        "native-libs/android/arm64-v8a/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "ff1506bec354ace5163b047f446c729ce3f26d0b4bf0c43626e650f9ff2135a8"
+          },
+          "final_sha256": "ff1506bec354ace5163b047f446c729ce3f26d0b4bf0c43626e650f9ff2135a8",
+          "pass_a_sha256": "ff1506bec354ace5163b047f446c729ce3f26d0b4bf0c43626e650f9ff2135a8",
+          "pass_b_sha256": "ff1506bec354ace5163b047f446c729ce3f26d0b4bf0c43626e650f9ff2135a8",
+          "reproducible": true
+        },
+        "native-libs/android/x86_64/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "fe2f2d90da18dc1e8a82658870ca8f13009892c6111dc625d91c5406e7cbfbe6"
+          },
+          "final_sha256": "fe2f2d90da18dc1e8a82658870ca8f13009892c6111dc625d91c5406e7cbfbe6",
+          "pass_a_sha256": "fe2f2d90da18dc1e8a82658870ca8f13009892c6111dc625d91c5406e7cbfbe6",
+          "pass_b_sha256": "fe2f2d90da18dc1e8a82658870ca8f13009892c6111dc625d91c5406e7cbfbe6",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "b48a86b0131c96cd062e9f9baed67263131a4b2f",
+      "source_date_epoch": 1791406843,
+      "source_digest": "dc684f10a957c30477d44f49c0923d3335747964656c9d5185cdfca352f4aa37",
+      "source_dirty": false,
+      "toolchain": {
+        "android_ndk": "26.3.11579264",
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_ndk": "cargo-ndk v4.1.2:",
+        "cargo_ndk_version": "4.1.2",
+        "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+      }
+    }
+  },
+  "native_abi_hashes_match_tested_bytes": true,
+  "native_source_inputs_verified_per_host": 317,
+  "cleanup": {
+    "10.66.116.10": {
+      "removed_generated_roots": [
+        {
+          "root": "/var/tmp/qeli-q32-native.oSuN66",
+          "guards": "PASS"
+        }
+      ],
+      "services": "MainPID=0\nActiveState=inactive\n745\n901",
+      "capacity": "Filesystem     1024-blocks     Used Available Capacity Mounted on\n/dev/sda1         49226388 37049944   9643480      80% /\n               total        used        free      shared  buff/cache   available\nMem:            1973         287        1448           0         379        1685\nSwap:           2044         821        1223"
+    },
+    "10.66.116.11": {
+      "removed_generated_roots": [
+        {
+          "root": "/var/tmp/qeli-q32-native.hTPsiv",
+          "guards": "PASS"
+        },
+        {
+          "root": "/var/tmp/qeli-q32-linux.Kn4trY",
+          "guards": "PASS"
+        },
+        {
+          "root": "/var/tmp/qeli-q32-jni-20261007",
+          "guards": "PASS"
+        },
+        {
+          "root": "/var/tmp/qeli-q32-pid-fixture.GzO5Fe",
+          "guards": "PASS"
+        }
+      ],
+      "services": "MainPID=777\nActiveState=active\n777\n845",
+      "capacity": "Filesystem     1024-blocks     Used Available Capacity Mounted on\n/dev/sda1         49226388 37361384   9332040      81% /\n               total        used        free      shared  buff/cache   available\nMem:            1973         268        1333           0         509        1705\nSwap:           2044         197        1847"
+    }
+  },
+  "overall_done": 28,
+  "overall_total": 37,
+  "technical_debt_done": 14,
+  "technical_debt_accepted": [
+    "D06"
+  ],
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q32-metrics-20261007",
+  "raw_seal": {
+    "path": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q32-metrics-20261007\\RAW-MANIFEST.json",
+    "files": 139,
+    "sha256": "f177a5f0ae82b2b98352f8de70bb7fb74beeacd28074a55719c5f0a288e93e5b"
+  },
+  "source_digest": "813aff212ad84621823b80c093b3b0a3a7b7fa1db806ad9d29dbcb331b8c53ab",
+  "qualification_source_commit": "d8d392de8cdf72adf7e9b0fbdd73f569e389f336"
+}

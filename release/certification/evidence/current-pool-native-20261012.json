@@ -1,0 +1,332 @@
+{
+  "status": "CURRENT_POOL_NATIVE_FOUR_ARTIFACTS_A_B_C_ABI_JNI_AND_PACKAGED_INI_SCOPED_PASS",
+  "native_identity": {
+    "source_digest": "052894dd09b7fa56b5a510f854f64c9d5559377f60cfce201a08263fddef87f9",
+    "source_commit": "c0aad62a41a1fc62c6ea222b224e9dafbb1163be",
+    "source_dirty": false,
+    "source_date_epoch": 1791765999
+  },
+  "native_groups": {
+    "android": {
+      "status": "CURRENT_ANDROID_A_B_55_EXACT_API_EXPORTS_PER_ABI_PASS",
+      "identity": {
+        "source_digest": "052894dd09b7fa56b5a510f854f64c9d5559377f60cfce201a08263fddef87f9",
+        "source_commit": "c0aad62a41a1fc62c6ea222b224e9dafbb1163be",
+        "source_dirty": false,
+        "source_date_epoch": 1791765999
+      },
+      "toolchain": {
+        "rust_toolchain": "1.97.0",
+        "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "android_ndk": "26.3.11579264",
+        "cargo_ndk_version": "4.1.2",
+        "cargo_ndk": "cargo-ndk v4.1.2:"
+      },
+      "input_count": 327,
+      "artifacts": {
+        "native-libs/android/arm64-v8a/libqeli.so": {
+          "sha256": "fe83ff47fe4fa6259179398ffbb481eda0f07a1210e876855f8aa67ba19b63ed",
+          "bytes": 3664960,
+          "pass_a": "android-a/out/arm64-v8a/libqeli.so",
+          "pass_b": "android-b/out/arm64-v8a/libqeli.so",
+          "elf_machine": 183,
+          "exports": [
+            "Java_com_qeli_ConfigCore_nativeRequest",
+            "Java_com_qeli_TransportCore_nativeAbiVersion",
+            "Java_com_qeli_TransportCore_nativeCancelUdpReachability",
+            "Java_com_qeli_TransportCore_nativeCoreCapabilities",
+            "Java_com_qeli_TransportCore_nativeFree",
+            "Java_com_qeli_TransportCore_nativeNetworkPlanResult",
+            "Java_com_qeli_TransportCore_nativeNew",
+            "Java_com_qeli_TransportCore_nativePathCommandResult",
+            "Java_com_qeli_TransportCore_nativePathUpdate",
+            "Java_com_qeli_TransportCore_nativePollEvent",
+            "Java_com_qeli_TransportCore_nativePublishHandshakeNetwork",
+            "Java_com_qeli_TransportCore_nativeRunTransport",
+            "Java_com_qeli_TransportCore_nativeServerIdentityResult",
+            "Java_com_qeli_TransportCore_nativeSetDeviceId",
+            "Java_com_qeli_TransportCore_nativeSetTunFd",
+            "Java_com_qeli_TransportCore_nativeSocketProtectResult",
+            "Java_com_qeli_TransportCore_nativeStart",
+            "Java_com_qeli_TransportCore_nativeState",
+            "Java_com_qeli_TransportCore_nativeStats",
+            "Java_com_qeli_TransportCore_nativeStop",
+            "Java_com_qeli_TransportCore_nativeUdpReachability",
+            "Java_com_qeli_TransportCore_nativeUdpReachabilityCancellable",
+            "qeli_build_faketls_clienthello",
+            "qeli_client_abi_version",
+            "qeli_client_core_capabilities",
+            "qeli_client_free",
+            "qeli_client_network_plan_result",
+            "qeli_client_new",
+            "qeli_client_path_command_result",
+            "qeli_client_path_update",
+            "qeli_client_poll_event",
+            "qeli_client_publish_handshake_network",
+            "qeli_client_run",
+            "qeli_client_server_identity_result",
+            "qeli_client_set_device_id",
+            "qeli_client_set_tun_fd",
+            "qeli_client_set_wintun_adapter",
+            "qeli_client_socket_protect_result",
+            "qeli_client_start",
+            "qeli_client_state",
+            "qeli_client_stats",
+            "qeli_client_stop",
+            "qeli_client_tun_pull",
+            "qeli_client_tun_push",
+            "qeli_client_udp_probe",
+            "qeli_config_request",
+            "qeli_mlkem_decapsulate",
+            "qeli_mlkem_free",
+            "qeli_mlkem_keygen",
+            "qeli_realtls_buf_free",
+            "qeli_realtls_free",
+            "qeli_realtls_new",
+            "qeli_realtls_open",
+            "qeli_realtls_recv",
+            "qeli_realtls_seal"
+          ]
+        },
+        "native-libs/android/x86_64/libqeli.so": {
+          "sha256": "01da54a3d1b24fdbfc4d305697df582a6b8bec2e04985b0c7ce64a6277d0ea82",
+          "bytes": 4139024,
+          "pass_a": "android-a/out/x86_64/libqeli.so",
+          "pass_b": "android-b/out/x86_64/libqeli.so",
+          "elf_machine": 62,
+          "exports": [
+            "Java_com_qeli_ConfigCore_nativeRequest",
+            "Java_com_qeli_TransportCore_nativeAbiVersion",
+            "Java_com_qeli_TransportCore_nativeCancelUdpReachability",
+            "Java_com_qeli_TransportCore_nativeCoreCapabilities",
+            "Java_com_qeli_TransportCore_nativeFree",
+            "Java_com_qeli_TransportCore_nativeNetworkPlanResult",
+            "Java_com_qeli_TransportCore_nativeNew",
+            "Java_com_qeli_TransportCore_nativePathCommandResult",
+            "Java_com_qeli_TransportCore_nativePathUpdate",
+            "Java_com_qeli_TransportCore_nativePollEvent",
+            "Java_com_qeli_TransportCore_nativePublishHandshakeNetwork",
+            "Java_com_qeli_TransportCore_nativeRunTransport",
+            "Java_com_qeli_TransportCore_nativeServerIdentityResult",
+            "Java_com_qeli_TransportCore_nativeSetDeviceId",
+            "Java_com_qeli_TransportCore_nativeSetTunFd",
+            "Java_com_qeli_TransportCore_nativeSocketProtectResult",
+            "Java_com_qeli_TransportCore_nativeStart",
+            "Java_com_qeli_TransportCore_nativeState",
+            "Java_com_qeli_TransportCore_nativeStats",
+            "Java_com_qeli_TransportCore_nativeStop",
+            "Java_com_qeli_TransportCore_nativeUdpReachability",
+            "Java_com_qeli_TransportCore_nativeUdpReachabilityCancellable",
+            "qeli_build_faketls_clienthello",
+            "qeli_client_abi_version",
+            "qeli_client_core_capabilities",
+            "qeli_client_free",
+            "qeli_client_network_plan_result",
+            "qeli_client_new",
+            "qeli_client_path_command_result",
+            "qeli_client_path_update",
+            "qeli_client_poll_event",
+            "qeli_client_publish_handshake_network",
+            "qeli_client_run",
+            "qeli_client_server_identity_result",
+            "qeli_client_set_device_id",
+            "qeli_client_set_tun_fd",
+            "qeli_client_set_wintun_adapter",
+            "qeli_client_socket_protect_result",
+            "qeli_client_start",
+            "qeli_client_state",
+            "qeli_client_stats",
+            "qeli_client_stop",
+            "qeli_client_tun_pull",
+            "qeli_client_tun_push",
+            "qeli_client_udp_probe",
+            "qeli_config_request",
+            "qeli_mlkem_decapsulate",
+            "qeli_mlkem_free",
+            "qeli_mlkem_keygen",
+            "qeli_realtls_buf_free",
+            "qeli_realtls_free",
+            "qeli_realtls_new",
+            "qeli_realtls_open",
+            "qeli_realtls_recv",
+            "qeli_realtls_seal"
+          ]
+        }
+      },
+      "exact_c_api_exports": 33,
+      "exact_transport_jni_exports": 21,
+      "exact_config_jni_exports": 1,
+      "collection_sha256": "7e9de025788e000099451fa1ba829ac406c0943bac95fd9b61d9cd31cadacc8f",
+      "retained_host_gate": "PASS",
+      "retained_changed_fields": [],
+      "android_runtime_qualified": false,
+      "libraries_published": false
+    },
+    "desktop": {
+      "status": "CURRENT_DESKTOP_A_B_EXACT_API_EXPORTS_PASS",
+      "identity": {
+        "source_digest": "052894dd09b7fa56b5a510f854f64c9d5559377f60cfce201a08263fddef87f9",
+        "source_commit": "c0aad62a41a1fc62c6ea222b224e9dafbb1163be",
+        "source_dirty": false,
+        "source_date_epoch": 1791765999
+      },
+      "input_count": 327,
+      "toolchain": {
+        "rust_toolchain": "1.97.0",
+        "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "zig": "0.13.0",
+        "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+        "cargo_zigbuild_version": "0.23.0",
+        "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+        "rcodesign": "apple-codesign 0.29.0"
+      },
+      "artifacts": {
+        "native-libs/windows-x64/qeli.dll": {
+          "sha256": "7de0870000b7116cde2d04ca85ec7f9b91e70def6fa44e6d7ce88511a03c4b65",
+          "bytes": 5861888,
+          "pass_a": "desktop-a/artifacts/qeli.dll",
+          "pass_b": "desktop-b/artifacts/qeli.dll"
+        },
+        "native-libs/macos-universal/libqeli.dylib": {
+          "sha256": "7d968356bf9b16c0678748e7583697265c87c7eafed880cb50d684c74c13b349",
+          "bytes": 13407312,
+          "pass_a": "desktop-a/artifacts/libqeli.dylib",
+          "pass_b": "desktop-b/artifacts/libqeli.dylib"
+        }
+      },
+      "windows_abi_checks": 22,
+      "exact_api_exports_per_target": 33,
+      "unchanged_counter_regressions_not_replayed": true,
+      "original_worker_source_inventory_failure_retained": true,
+      "declared_empty_linker_output": "qeli/.intentionally-empty-file.o",
+      "collection_sha256": "8ffbd614b31460479a1ad9c5452f9fb20538629521acacbe9f76effaa7302496",
+      "retained_host_gate": "PASS",
+      "retained_changed_fields": [],
+      "physical_platform_runtime_qualified": false,
+      "android_current_build_qualified": false,
+      "libraries_published": false
+    }
+  },
+  "package": {
+    "status": "CURRENT_NATIVE_TWO_ABI_INSTRUMENTED_AND_ORDINARY_APKS_R8_PASS_RUNTIME_PENDING",
+    "native_identity": {
+      "source_digest": "052894dd09b7fa56b5a510f854f64c9d5559377f60cfce201a08263fddef87f9",
+      "source_commit": "c0aad62a41a1fc62c6ea222b224e9dafbb1163be",
+      "source_dirty": false,
+      "source_date_epoch": 1791765999
+    },
+    "source_commit": "c0aad62a41a1fc62c6ea222b224e9dafbb1163be",
+    "apks": {
+      "app.apk": {
+        "bytes": 12207583,
+        "sha256": "77c120515d6496969fab475dd16e4938e75c636224cf892a7bc06c2f245b0c95",
+        "native_libraries": {
+          "arm64-v8a": "fe83ff47fe4fa6259179398ffbb481eda0f07a1210e876855f8aa67ba19b63ed",
+          "x86_64": "01da54a3d1b24fdbfc4d305697df582a6b8bec2e04985b0c7ce64a6277d0ea82"
+        }
+      },
+      "test.apk": {
+        "bytes": 772485,
+        "sha256": "4d6f5107a37da728ec74a0a3b1719b9c6daee7a02331d09dc2ee2c6cd3935396",
+        "native_libraries": {}
+      },
+      "production-unsigned.apk": {
+        "bytes": 12100093,
+        "sha256": "ec05ed9330ca3db7cca6f296569e68b24f172f5c9d2a5d65667e80e717da288c",
+        "native_libraries": {
+          "arm64-v8a": "fe83ff47fe4fa6259179398ffbb481eda0f07a1210e876855f8aa67ba19b63ed",
+          "x86_64": "01da54a3d1b24fdbfc4d305697df582a6b8bec2e04985b0c7ce64a6277d0ea82"
+        }
+      }
+    },
+    "native_libraries": {
+      "x86_64": "01da54a3d1b24fdbfc4d305697df582a6b8bec2e04985b0c7ce64a6277d0ea82",
+      "arm64-v8a": "fe83ff47fe4fa6259179398ffbb481eda0f07a1210e876855f8aa67ba19b63ed"
+    },
+    "unchanged_jvm_tests_reused": 201,
+    "unchanged_lint_reused": {
+      "fatal": 0,
+      "error": 0,
+      "warnings": 55
+    },
+    "prior_host_ConfigCore_sha256": "6a7b33da1932c1f3934d229e4c4a626c244741f9302f6086290ae0f1fa58011a",
+    "fresh_native_runtime_pending": true,
+    "ordinary_production_rules_unchanged": true,
+    "physical_android_device_qualified": false,
+    "package_source_inputs_sha256": "c6b3ce64866eab56a1d4ee1ccd9f6a4e09466e1378ec7820b5abfc06b5623325",
+    "build_result_sha256": "86f4dcc0cffc077d955b7c1ce06911fe43f4bdb2bd1af7f38b1b1b8f4376b3c1",
+    "logs": {
+      "abi-classpath-r2.log": "e47fea2a25d0b55077bcb9fecc9a4a156705ccc95951f2891757fdd738f241dc",
+      "abi-classpath.log": "7c79058e83516ba0a92eb9d9923d1a537261eced046e366f69f47dc017e4aadf",
+      "app.apk-badging.log": "bdef3ff1c77257f5a68ca85a9ea32e537a3e9718a274c5e213683e46078e1bb1",
+      "app.apk-signing.log": "ad39ad849aae40cd921289d88c1840ac614135f4172c9fab3845c8823ef35312",
+      "inferred-r8-abi.log": "534bff148f3f54c6ba8d6548be6e3953b3aecfe8dd9b13d8e85ddc50cd6f4977",
+      "instrumented.log": "7d7faedde46c3fd1d846ea3f923fb1945b37efa79f325077c81bbf59bd3101cd",
+      "ordinary-production.log": "db803d80884a50648e77fb57d66ffcf9a714b9350bfaa14b5c0e87e61e2832ef",
+      "packaged-r8-abi.log": "e34e68b1a44e33d8107ae1ba51e91b5afaa49d6bb953210bd65bf1d02f801325",
+      "production-unsigned.apk-badging.log": "bdef3ff1c77257f5a68ca85a9ea32e537a3e9718a274c5e213683e46078e1bb1",
+      "test.apk-signing.log": "ad39ad849aae40cd921289d88c1840ac614135f4172c9fab3845c8823ef35312"
+    }
+  },
+  "android_runtime": {
+    "jni_checks": 23,
+    "packaged_ini_tests": 2,
+    "fixture_network_before_after_equal": true,
+    "sdk_and_original_avd_preserved": true,
+    "host_changed_fields": [],
+    "cleanup_changed_fields": [],
+    "archive_sha256": "e3413e7a84d54551ab02b837745aa83920f0562dd6993b5ce0783961d22a1d59",
+    "receipt_sha256": "cf7599ff8a551b558c3cb9517f48210d5302119fd1c8d18d8367e03b54300ba5",
+    "qualification_sha256": "6b52bf375fc10c8d8b3bba950e8c7c8b60de89c348c372bff3a702cf0f33cdd5"
+  },
+  "cleanup": {
+    "android": {
+      "status": "OWNED_NATIVE_ROOT_ARCHIVED_REMOVED_TEMPORARY_SWAP_RESTORED",
+      "host_gate": "PASS",
+      "changed_fields": []
+    },
+    "desktop": {
+      "status": "OWNED_NATIVE_ROOT_ARCHIVED_REMOVED_TEMPORARY_SWAP_RESTORED",
+      "host_gate": "FAIL",
+      "changed_fields": [
+        "iptables4",
+        "legacy4"
+      ]
+    }
+  },
+  "raw_packets": [
+    "q37-native-android-pool-20261012",
+    "q37-native-desktop-pool-20261012",
+    "q37-android-pool-package-20261012",
+    "q37-android-pool-runtime-r2-20261012"
+  ],
+  "adoption_sha256": "e8aa2de71f040e1026010aef7d218086bda3cdf1c296d8194304070c3f52d059",
+  "old_jvm_test_count_reused": 201,
+  "original_desktop_worker_guard_failure_retained": true,
+  "desktop_collected_artifact_qualification_without_recompile": true,
+  "old_jvm_execution_not_relabelled_as_current_native_execution": true,
+  "official_done": 31,
+  "total": 37,
+  "remaining": [
+    "Q29",
+    "Q31",
+    "Q34",
+    "Q35",
+    "Q36",
+    "Q37"
+  ],
+  "whole_release_pass": false,
+  "limits": [
+    "Physical Mac/Xcode/iOS, router and Windows VM runtime excluded by user",
+    "Android full VPN data plane not qualified by these JNI/package tests",
+    "Q29 SIGKILL automatic VPN recovery and auto/null DNS failures retained",
+    "Q35 upload 6.862745 percent regression exceeds 5 percent threshold; cross-node step pending",
+    "Q36 TCP asymmetry and maximum capacity pending",
+    "Hosted source CI and whole-release certification pending"
+  ],
+  "no_push_deploy_release": true
+}

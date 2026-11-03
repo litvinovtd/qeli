@@ -34,6 +34,15 @@ Reality carrier после внешнего TLS и принимает оба. Н
 
 ## Конфиг
 
+Клиентский INI также допускает локальный `[qeli] tun.tx_queue_len` в сборках
+с этой доработкой development 0.8.2: default `1000` пакетов, явный `1..32767`,
+без auto. Это размер собственного Linux TUN/TAP, **не H2 flow-control окно**;
+он одинаково относится к IPv4/IPv6 и не входит в server push/ссылку/QR.
+После правки остановите/запустите именно клиент. При `dev_attach=true` ключ
+оставьте отсутствующим. Старым клиентским бинарникам нужно обновление, одного
+обновления сервера недостаточно.
+[Подробный контракт и проверка](../../docs/ru/manuals/CONFIG.md#client-tun-tx-queue).
+
 1. Создайте short_id: `openssl rand -hex 8`.
 2. В `server-reality.conf` замените `REPLACE_WITH_OWN_SHORT_ID`, настройте `target`/SNI,
    пути identity/users и сеть TUN.

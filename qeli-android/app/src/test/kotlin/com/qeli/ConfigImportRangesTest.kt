@@ -11,20 +11,96 @@ import org.junit.Test
 /**
  * Range checks on IMPORTED numeric config values. (Audit 2026-07-27, C6)
  *
- * The server-PUSHED mtu was already clamped at the handshake (QeliService.parseOk), but the
+ * The server-PUSHED MTU is checked by the shared handshake core, but the
  * locally imported one was not: a hand-written `mtu = 40`, or a scanned
  * `qeli://…?mtu=99999`, went straight through to VpnService.Builder.setMtu, where establish()
  * fails and the retry loop reconnects forever behind an opaque error. Padding was the same
  * bug one layer down — an oversized `padding_max` makes every data record exceed
  * the shared Rust record-size limit, so the peer drops all of them.
  *
- * The two entry points behave DIFFERENTLY on purpose, mirroring the Rust client
- * (qeli/src/config/client.rs) and the C# port: a config FILE is a thing the user wrote, so a
- * bad value is reported; a `qeli://` LINK is scanned or pasted and its import is infallible,
- * so a bad value degrades to auto. Getting these the same way round on every client is the
- * point — the divergence is what the conformance work keeps finding.
+ * Both entry points use the shared Rust configuration service. INI drafts preserve
+ * semantic errors for editing and refuse activation; URI imports validate immediately.
+ * Defined legacy normalization (for example bounded AWG values) stays in the core.
  */
 class ConfigImportRangesTest {
+
+    @Test fun `strict saved profile parsing rejects drafts at every activation boundary`() {
+        assertEquals("vpn.example.com", VpnConfig.parse(ini()).serverAddress)
+        for (tail in listOf("mtu = 40", "proto = unknown", "timeout = -1", "server = host:99999")) {
+            val text = ini(tail)
+            VpnConfig.fromIni(text) // Drafts remain editable.
+            assertNotNull(tail, runCatching { VpnConfig.parse(text) }.exceptionOrNull())
+        }
+        val changed = VpnConfig.parse(ini()).copy(roaming = "unknown")
+        assertNotNull(runCatching { changed.validate() }.exceptionOrNull())
+    }
+
+    @Test fun `malformed zero pins never become TOFU through model copy`() {
+        for (pin in listOf("0", "0".repeat(63), "0".repeat(65))) {
+            val draft = VpnConfig.fromIni(ini("key = $pin"))
+            val reopened = VpnConfig.fromIni(draft.copy().toIni())
+            assertNotNull(runCatching { reopened.validate() }.exceptionOrNull())
+            assertNotNull(runCatching { VpnConfig.fromQeliUri("qeli://u:p@host:443?key=$pin") }.exceptionOrNull())
+        }
+    }
+
+    @Test fun `invalid hosts stay invalid after model save`() {
+        for (endpoint in listOf("host/path:443", "exa mple.com:443")) {
+            val draft = VpnConfig.fromIni("[qeli]\nserver=$endpoint\n")
+            val reopened = VpnConfig.fromIni(draft.copy().toIni())
+            assertNotNull(runCatching { reopened.validate() }.exceptionOrNull())
+        }
+    }
+
+    @Test fun `partial edit cannot repair an unsupplied port`() {
+        val result = ConfigCore.call(org.json.JSONObject().put("version", 1).put("op", "export")
+            .put("source", "[qeli]\nserver=host:wrong\n")
+            .put("values", org.json.JSONObject().put("user", "bob"))
+            .put("unresolved", org.json.JSONArray()))
+        assertTrue(result.getString("text").contains("host:wrong"))
+    }
+
+    @Test fun `URI controls cannot rewrite the endpoint or pin`() {
+        for (uri in listOf("qeli://u:p@exa\u0007mple.com:443", "qeli://u:p@host:443?key=" + "0".repeat(64) + "%07")) {
+            assertNotNull(runCatching { VpnConfig.fromQeliUri(uri) }.exceptionOrNull())
+        }
+    }
+
+    @Test fun `logging keys in qeli cannot alias the logging section`() {
+        val reopened = VpnConfig.fromIni(VpnConfig.fromIni(ini("logging.level = debug")).toIni())
+        assertNotNull(runCatching { reopened.validate() }.exceptionOrNull())
+    }
+
+    @Test fun `legacy DNS errors survive actual model copy and save`() {
+        for (tail in listOf("dns = 1.1.1.1\ndns = 8.8.8.8", "dns = 1.1.1.1\ndns_servers = 8.8.8.8,,")) {
+            val draft = VpnConfig.fromIni(ini(tail))
+            val reopened = VpnConfig.fromIni(draft.copy().toIni())
+            assertNotNull(runCatching { reopened.validate() }.exceptionOrNull())
+        }
+    }
+
+    @Test fun `control characters cannot change credentials or keys on save`() {
+        for (tail in listOf("pass = sec\u0007ret", "gatewa\u0007y = false")) {
+            assertNotNull(runCatching { VpnConfig.fromIni(ini(tail)) }.exceptionOrNull())
+        }
+    }
+
+    @Test fun `BOM links use the same strict validation`() {
+        assertNotNull(runCatching {
+            VpnConfig.fromQeliUri("\uFEFFqeli://u:p@host:443?proto=udp&mode=reality-tls")
+        }.exceptionOrNull())
+        assertEquals("host", VpnConfig.fromQeliUri(" \t\uFEFFqeli://u:p@host:443").serverAddress)
+    }
+
+    @Test fun `JNI diagnostics redact credentials supplied by a patch`() {
+        val error = runCatching { ConfigCore.call(org.json.JSONObject()
+            .put("version", 1).put("op", "validate").put("source", ini())
+            .put("patch", org.json.JSONObject().put("pass", "fixture-private").put("mode", "fixture-private")))
+        }.exceptionOrNull()
+        assertNotNull(error)
+        assertFalse(error!!.message.orEmpty().contains("fixture-private"))
+        assertTrue(error.message.orEmpty().contains("[redacted]"))
+    }
 
     /**
      * A CLI profile opened here and saved must come back with its Rust-only settings intact.
@@ -380,8 +456,8 @@ class ConfigImportRangesTest {
     fun `an INI file with an out-of-range mtu is rejected`() {
         for (bad in listOf("99999", "40", "-1", "575", "16639")) {
             try {
-                VpnConfig.fromIni(ini("mtu = $bad"))
-                fail("mtu = $bad must be rejected, not imported")
+                VpnConfig.fromIni(ini("mtu = $bad")).validate()
+                fail("mtu = $bad must not become an active configuration")
             } catch (e: IllegalArgumentException) {
                 assertEquals(true, e.message?.contains("mtu"))
             }
@@ -421,20 +497,22 @@ class ConfigImportRangesTest {
      * so narrowing them costs the user nothing while an oversized max breaks every packet.
      */
     @Test
-    fun `imported padding bounds are clamped to the wire ceiling`() {
+    fun `invalid padding remains a rejected draft with original values`() {
         val c = VpnConfig.fromIni(ini("padding_min = -5", "padding_max = 60000"))
-        assertEquals(0, c.paddingMin)
-        assertEquals(1400, c.paddingMax)
-        // min above max must not survive as an inverted range (nextInt would throw).
+        assertTrue(c.paddingMin in 0..1400)
+        assertTrue(c.paddingMax in 0..1400)
+        assertTrue(c.toIni().contains("padding_max = 60000"))
+        assertNotNull(runCatching { c.validate() }.exceptionOrNull())
         val inverted = VpnConfig.fromIni(ini("padding_min = 900", "padding_max = 100"))
-        assertEquals(900, inverted.paddingMin)
-        assertEquals(900, inverted.paddingMax)
+        assertTrue(inverted.toIni().contains("padding_min = 900"))
+        assertNotNull(runCatching { inverted.validate() }.exceptionOrNull())
     }
 
     /** A clamped/accepted profile must still round-trip through the emit-side validator. */
     @Test
-    fun `a clamped profile still passes validate on re-save`() {
-        VpnConfig.fromIni(ini("padding_min = -5", "padding_max = 60000", "mtu = 1380")).validate()
+    fun `saving a draft cannot silently repair invalid padding`() {
+        val draft=VpnConfig.fromIni(ini("padding_min = -5", "padding_max = 60000", "mtu = 1380"))
+        assertNotNull(runCatching { VpnConfig.fromIni(draft.toIni()).validate() }.exceptionOrNull())
     }
 
     /**
@@ -500,7 +578,7 @@ class ConfigImportRangesTest {
                 "allow_unpinned_tofu = true",
             )
         )
-        val output = config.toIni()
+        val output = config.toTransportCoreIni()
         val back = VpnConfig.fromIni(output)
         assertEquals(47L, back.connectionTimeoutSecs)
         assertEquals(7, back.paddingMin)
@@ -540,7 +618,7 @@ class ConfigImportRangesTest {
         // Keys this port does not read but the Rust client does — must open cleanly.
         for (k in listOf("keepalive = 25", "post_up = /bin/true", "exit_node = true",
                          "lan_subnet = 10.0.0.0/24", "tcp_nodelay = true", "autostart = true")) {
-            val c = VpnConfig.fromIni(ini(k))
+            val c = VpnConfig.fromIni(ini(k, "gateway = false"))
             assertTrue("$k must not be treated as a typo: ${c.unknownKeys}", c.unknownKeys.isEmpty())
             c.validate()
         }
@@ -629,8 +707,8 @@ class ConfigImportRangesTest {
         good.validate()
 
         // The port was already strict and must stay that way — an outright throw, not a record.
-        assertNotNull("a non-numeric port must be rejected outright",
-            runCatching { VpnConfig.fromIni("[qeli]\nserver = 1.2.3.4:notnum\n") }.exceptionOrNull())
+        assertNotNull("a numeric-error draft must be rejected before use",
+            runCatching { VpnConfig.fromIni("[qeli]\nserver = 1.2.3.4:notnum\n").validate() }.exceptionOrNull())
     }
 
     /**
@@ -664,7 +742,7 @@ class ConfigImportRangesTest {
         // a file that already had a duplicate parses as it always did.
         val thrice = VpnConfig.fromIni(ini("mtu = 1400", "mtu = 1300", "mtu = 1200"))
         assertEquals(listOf("qeli.mtu"), thrice.duplicateKeys)
-        assertEquals(1200, thrice.mtu)
+        assertEquals(1400, thrice.mtu)
     }
 }
 

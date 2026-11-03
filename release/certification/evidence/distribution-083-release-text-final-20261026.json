@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "release_version": "0.8.3",
+  "release_published": false,
+  "build_commit": "588c71c75779e92eb3ea2e25a0f1fd8414f10151",
+  "certification_source_commit": "c92b21825c218b05715b8d9421d2266fedc65400",
+  "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+  "source_adoption": {
+    "changed_since_build": [
+      "CHANGELOG.md",
+      "docs/eng/manuals/CONFIG.md",
+      "docs/eng/manuals/GETTING-STARTED.md",
+      "docs/eng/manuals/OPERATIONS.md",
+      "docs/eng/manuals/PANEL.md",
+      "docs/eng/manuals/TROUBLESHOOTING.md",
+      "docs/eng/reference/CLIENT-CONFIG-MATRIX.md",
+      "docs/ru/manuals/CONFIG.md",
+      "docs/ru/manuals/GETTING-STARTED.md",
+      "docs/ru/manuals/OPERATIONS.md",
+      "docs/ru/manuals/PANEL.md",
+      "docs/ru/manuals/TROUBLESHOOTING.md",
+      "release/RELEASE_NOTES_0.8.3.md",
+      "release/certification/0.8.3.json",
+      "release/certification/evidence/distribution-083-20261026.json",
+      "release/certification/evidence/distribution-083-docs-20261026.json",
+      "release/certification/evidence/ipv6-linux-083-20261026.json",
+      "release/certification/evidence/ipv6-linux-083-docs-20261026.json",
+      "release/certification/evidence/openwrt-sdk-083-20261026.json",
+      "release/certification/evidence/router-state-083-20261026.json",
+      "release/docker/README.md"
+    ],
+    "compiled_inputs_changed": false
+  },
+  "build_ci_url": "https://github.com/litvinovtd/qeli/actions/runs/40322332850",
+  "build_ci_conclusion": "success",
+  "runtime_evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json",
+  "automated_linux_cases_passed": 20,
+  "physical_qualification": {
+    "not_available": 21
+  },
+  "host_preservation": {
+    "passed": true,
+    "snapshot_schema": "all-firewall-v1",
+    "scope": "Host network addresses/routes, all firewall backends, resolver, service, namespaces and selected sysctls"
+  },
+  "packaging_checks": [
+    "Linux ELF exactly equals the DEB payload; jemalloc/ABI checked by CI",
+    "Both single-file Windows EXEs embed exactly the independently A/B-qualified GNU DLL",
+    "Release APK embeds both independently A/B-qualified JNI libraries exactly",
+    "macOS: both processor packages, version/minimum OS and native code/data sections verified against the qualified universal core",
+    "All four router ELF architectures/static dependencies verified; Keenetic aliases equal corresponding OpenWrt binaries"
+  ],
+  "apk_signature": {
+    "certificate_sha256": "4616b75cb5cb4dfe0d803d048091b04a956c58963f1ab63bcb58cd30c93781f8",
+    "same_release_certificate": true,
+    "version_name": "0.8.3",
+    "version_code": 723,
+    "min_sdk": 28,
+    "target_sdk": 37,
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "v2_verified": true,
+    "v3_verified": false,
+    "zip_alignment_16k": true,
+    "artifact_sha256": "903a3b550058fe7879659bee5ce5a1de5e1f7e7075bd879ccffccacea0f5ad92"
+  },
+  "native_source_digest": "db81c0d0c813fd973fe0dc8c097c2650527408031d8362ee58f9b9a1c19dcee2",
+  "artifacts": {
+    "install-keenetic.sh": {
+      "sha256": "2c8f695d7509651d49db6986183d5fcb876554a490200f084e12c3068d969429",
+      "bytes": 8426
+    },
+    "qeli-android-0.8.3.apk": {
+      "sha256": "903a3b550058fe7879659bee5ce5a1de5e1f7e7075bd879ccffccacea0f5ad92",
+      "bytes": 12426906
+    },
+    "qeli-client-keenetic-aarch64": {
+      "sha256": "22c353d01c8981c3b957fa82f6165fb00a85ec9a5e226cf00dad6c83daaf8312",
+      "bytes": 9450184
+    },
+    "qeli-client-keenetic-mipsel": {
+      "sha256": "16e8f8c048690b5af0e1761390f6b9b4f798f0a2d037b26e14f722fb277bab52",
+      "bytes": 11552144
+    },
+    "qeli-client-openwrt-aarch64": {
+      "sha256": "22c353d01c8981c3b957fa82f6165fb00a85ec9a5e226cf00dad6c83daaf8312",
+      "bytes": 9450184
+    },
+    "qeli-client-openwrt-armv7": {
+      "sha256": "4704ab30966a1814c1a7e4cce525602b98e39430c04a36aa5acb6d033705d4b8",
+      "bytes": 9605956
+    },
+    "qeli-client-openwrt-mipsel": {
+      "sha256": "16e8f8c048690b5af0e1761390f6b9b4f798f0a2d037b26e14f722fb277bab52",
+      "bytes": 11552144
+    },
+    "qeli-client-openwrt-x86_64": {
+      "sha256": "1dbd5a573e280fe72cb85046e6431cc36fdb140dc4ace42cb2a7f2914e59de33",
+      "bytes": 10221296
+    },
+    "qeli-keenetic-files.tar.gz": {
+      "sha256": "1af3c7edf4ebe9ba25d7a00ac76538e3418983fe5ba41a83eaea07920e7c5232",
+      "bytes": 43585
+    },
+    "qeli-linux-amd64": {
+      "sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "bytes": 19150360
+    },
+    "Qeli-macos-arm64.tar.gz": {
+      "sha256": "144233d4f0d24e31da85cb41c8218eaade856f05c066b8a5d43df3410377b519",
+      "bytes": 52327365
+    },
+    "Qeli-macos-x86_64.tar.gz": {
+      "sha256": "6ade466f82d4f44678c8d136984907533ccece7cf3e1cbb73b768e1774e40619",
+      "bytes": 54564624
+    },
+    "qeli-openwrt-files.tar.gz": {
+      "sha256": "1b44b41000fcf958be94db0d2ad8c15dfb8ff40a6908b32a671673e44df72249",
+      "bytes": 53094
+    },
+    "qeli_0.8.3_amd64.deb": {
+      "sha256": "7afb2033fe3e0dba1f228b2c17b21574fc9eac3e4994e0fe635c8f4afe82291a",
+      "bytes": 4930308
+    },
+    "QeliWin-net-required.exe": {
+      "sha256": "a09ba12900e157f62f2f2bce9ca10fd07eee2849551f24de1fcc693cb78fbf10",
+      "bytes": 20589067
+    },
+    "QeliWin-standalone.exe": {
+      "sha256": "af41727520a40a5f20a2d509eec3bc475fa2e76dfa1839334fdecf22a1c27ce8",
+      "bytes": 74482644
+    },
+    "SHA256SUMS": {
+      "sha256": "7af8429494fd29dd36336fccbc5625ef9192091ee9ad99c4df8463ac7dddece2",
+      "bytes": 1452
+    }
+  },
+  "scope": "Runtime qualification of the exact shipped Linux ELF (also inside the DEB). Other packages retain source/byte/CI packaging checks; unavailable physical platforms are not marked passed."
+}

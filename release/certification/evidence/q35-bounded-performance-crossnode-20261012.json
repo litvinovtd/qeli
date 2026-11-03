@@ -1,0 +1,509 @@
+{
+  "schema": "q35-bounded-performance-crossnode-v1",
+  "status": "FOUR_INDEPENDENT_CHECKS_QUALIFIED_ORIGINAL_FAILURE_RETAINED",
+  "source_commit": "e87bea255598e2158c345da9613efa1554ee3c17",
+  "binary_sha256": {
+    "previous": "35da83fd0a727a31a93c4527f8c814777aabcc7ef48dd92e0a0de65f5cbc7050",
+    "current": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069"
+  },
+  "checks": [
+    {
+      "version": "previous",
+      "phase": "performance",
+      "exit_code": 0,
+      "log_sha256": "cfbd7434ebaf010ac2e330535a0e80fe7cef534980052616374e95889a67442b",
+      "observer_samples": 56,
+      "private_process_observations": 165,
+      "medians": {
+        "off": {
+          "upload": 515.0,
+          "download": 626.0,
+          "cpu": 159.9205
+        },
+        "required": {
+          "upload": 518.0,
+          "download": 620.0,
+          "cpu": 160.14
+        }
+      },
+      "gates": {
+        "upload": true,
+        "download": true,
+        "cpu": true
+      },
+      "regression_percent": {
+        "upload": -0.5825242718446644,
+        "download": 0.9584664536741228
+      },
+      "passed": true,
+      "raw_samples": [
+        [
+          "off",
+          "upload",
+          "1",
+          "493",
+          "145.807"
+        ],
+        [
+          "off",
+          "download",
+          "1",
+          "623",
+          "166.696"
+        ],
+        [
+          "off",
+          "upload",
+          "2",
+          "515",
+          "152.264"
+        ],
+        [
+          "off",
+          "download",
+          "2",
+          "626",
+          "167.577"
+        ],
+        [
+          "off",
+          "upload",
+          "3",
+          "517",
+          "157.877"
+        ],
+        [
+          "off",
+          "download",
+          "3",
+          "630",
+          "168.033"
+        ],
+        [
+          "required",
+          "upload",
+          "1",
+          "518",
+          "152.714"
+        ],
+        [
+          "required",
+          "download",
+          "1",
+          "620",
+          "167.566"
+        ],
+        [
+          "required",
+          "upload",
+          "2",
+          "502",
+          "147.817"
+        ],
+        [
+          "required",
+          "download",
+          "2",
+          "622",
+          "168.328"
+        ],
+        [
+          "required",
+          "upload",
+          "3",
+          "533",
+          "156.973"
+        ],
+        [
+          "required",
+          "download",
+          "3",
+          "620",
+          "166.621"
+        ]
+      ]
+    },
+    {
+      "version": "previous",
+      "phase": "cross-node",
+      "exit_code": 0,
+      "log_sha256": "1528cea7237e4719de5abf0919e6f7d76d414b96f03c208ede77433b9e9ba5cf",
+      "observer_samples": 9,
+      "private_process_observations": 40,
+      "passed": true,
+      "checks": [
+        [
+          "PASS",
+          "path A reaches the server"
+        ],
+        [
+          "PASS",
+          "path B reaches the server with a candidate-compatible reverse-path filter"
+        ],
+        [
+          "PASS",
+          "path B reverse-path filter was restored before Qeli starts"
+        ],
+        [
+          "PASS",
+          "server tun device has the requested kernel kind"
+        ],
+        [
+          "PASS",
+          "independent servers use different network namespaces"
+        ],
+        [
+          "PASS",
+          "secondary process listens with the shared identity on port 4444"
+        ],
+        [
+          "PASS",
+          "path B is mapped to the independent secondary process"
+        ],
+        [
+          "PASS",
+          "client tun device has the requested kernel kind"
+        ],
+        [
+          "PASS",
+          "TCP handover capability was negotiated"
+        ],
+        [
+          "PASS",
+          "initial carrier bypass uses path A"
+        ],
+        [
+          "PASS",
+          "tunnel works before route change"
+        ],
+        [
+          "PASS",
+          "primary process owns exactly one initial authenticated session"
+        ],
+        [
+          "PASS",
+          "secondary process has no inherited authenticated session"
+        ],
+        [
+          "PASS",
+          "candidate JOIN was rejected by the independent process"
+        ],
+        [
+          "PASS",
+          "secondary registry rejected the foreign resume locator"
+        ],
+        [
+          "PASS",
+          "a foreign process never committed the original logical session"
+        ],
+        [
+          "PASS",
+          "bidirectional primary-carrier reset rules are active"
+        ],
+        [
+          "PASS",
+          "primary process entered resume grace after carrier reset"
+        ],
+        [
+          "PASS",
+          "client entered hard-resume after carrier reset"
+        ],
+        [
+          "PASS",
+          "auto policy performed a full AUTH against the new process"
+        ],
+        [
+          "PASS",
+          "fallback entered the top-level reconnect loop"
+        ],
+        [
+          "PASS",
+          "the client supervisor process survived the node transition"
+        ],
+        [
+          "PASS",
+          "the new process assigned its own tunnel address"
+        ],
+        [
+          "PASS",
+          "the old process tunnel address was removed"
+        ],
+        [
+          "PASS",
+          "full reconnect installed the path-B carrier bypass"
+        ],
+        [
+          "PASS",
+          "the secondary tunnel carries traffic after full reconnect"
+        ],
+        [
+          "PASS",
+          "the two processes performed one full AUTH each"
+        ],
+        [
+          "PASS",
+          "cross-process fallback never emitted a roaming commit"
+        ]
+      ]
+    },
+    {
+      "version": "current",
+      "phase": "performance",
+      "exit_code": 0,
+      "log_sha256": "b03e728efec3a028a53d6b26cb8f12c189cf19104441d2b1c6a6f24d62c77a26",
+      "observer_samples": 56,
+      "private_process_observations": 165,
+      "medians": {
+        "off": {
+          "upload": 515.0,
+          "download": 615.0,
+          "cpu": 160.5595
+        },
+        "required": {
+          "upload": 538.0,
+          "download": 624.0,
+          "cpu": 163.6005
+        }
+      },
+      "gates": {
+        "upload": true,
+        "download": true,
+        "cpu": true
+      },
+      "regression_percent": {
+        "upload": -4.466019417475731,
+        "download": -1.4634146341463428
+      },
+      "passed": true,
+      "raw_samples": [
+        [
+          "off",
+          "upload",
+          "1",
+          "515",
+          "152.459"
+        ],
+        [
+          "off",
+          "download",
+          "1",
+          "630",
+          "168.660"
+        ],
+        [
+          "off",
+          "upload",
+          "2",
+          "508",
+          "153.237"
+        ],
+        [
+          "off",
+          "download",
+          "2",
+          "615",
+          "167.124"
+        ],
+        [
+          "off",
+          "upload",
+          "3",
+          "524",
+          "157.518"
+        ],
+        [
+          "off",
+          "download",
+          "3",
+          "604",
+          "170.186"
+        ],
+        [
+          "required",
+          "upload",
+          "1",
+          "551",
+          "161.110"
+        ],
+        [
+          "required",
+          "download",
+          "1",
+          "624",
+          "166.091"
+        ],
+        [
+          "required",
+          "upload",
+          "2",
+          "538",
+          "161.073"
+        ],
+        [
+          "required",
+          "download",
+          "2",
+          "624",
+          "167.259"
+        ],
+        [
+          "required",
+          "upload",
+          "3",
+          "532",
+          "157.993"
+        ],
+        [
+          "required",
+          "download",
+          "3",
+          "638",
+          "168.383"
+        ]
+      ]
+    },
+    {
+      "version": "current",
+      "phase": "cross-node",
+      "exit_code": 0,
+      "log_sha256": "1528cea7237e4719de5abf0919e6f7d76d414b96f03c208ede77433b9e9ba5cf",
+      "observer_samples": 9,
+      "private_process_observations": 40,
+      "passed": true,
+      "checks": [
+        [
+          "PASS",
+          "path A reaches the server"
+        ],
+        [
+          "PASS",
+          "path B reaches the server with a candidate-compatible reverse-path filter"
+        ],
+        [
+          "PASS",
+          "path B reverse-path filter was restored before Qeli starts"
+        ],
+        [
+          "PASS",
+          "server tun device has the requested kernel kind"
+        ],
+        [
+          "PASS",
+          "independent servers use different network namespaces"
+        ],
+        [
+          "PASS",
+          "secondary process listens with the shared identity on port 4444"
+        ],
+        [
+          "PASS",
+          "path B is mapped to the independent secondary process"
+        ],
+        [
+          "PASS",
+          "client tun device has the requested kernel kind"
+        ],
+        [
+          "PASS",
+          "TCP handover capability was negotiated"
+        ],
+        [
+          "PASS",
+          "initial carrier bypass uses path A"
+        ],
+        [
+          "PASS",
+          "tunnel works before route change"
+        ],
+        [
+          "PASS",
+          "primary process owns exactly one initial authenticated session"
+        ],
+        [
+          "PASS",
+          "secondary process has no inherited authenticated session"
+        ],
+        [
+          "PASS",
+          "candidate JOIN was rejected by the independent process"
+        ],
+        [
+          "PASS",
+          "secondary registry rejected the foreign resume locator"
+        ],
+        [
+          "PASS",
+          "a foreign process never committed the original logical session"
+        ],
+        [
+          "PASS",
+          "bidirectional primary-carrier reset rules are active"
+        ],
+        [
+          "PASS",
+          "primary process entered resume grace after carrier reset"
+        ],
+        [
+          "PASS",
+          "client entered hard-resume after carrier reset"
+        ],
+        [
+          "PASS",
+          "auto policy performed a full AUTH against the new process"
+        ],
+        [
+          "PASS",
+          "fallback entered the top-level reconnect loop"
+        ],
+        [
+          "PASS",
+          "the client supervisor process survived the node transition"
+        ],
+        [
+          "PASS",
+          "the new process assigned its own tunnel address"
+        ],
+        [
+          "PASS",
+          "the old process tunnel address was removed"
+        ],
+        [
+          "PASS",
+          "full reconnect installed the path-B carrier bypass"
+        ],
+        [
+          "PASS",
+          "the secondary tunnel carries traffic after full reconnect"
+        ],
+        [
+          "PASS",
+          "the two processes performed one full AUTH each"
+        ],
+        [
+          "PASS",
+          "cross-process fallback never emitted a roaming commit"
+        ]
+      ]
+    }
+  ],
+  "budget_percent": 5,
+  "raw_archive_sha256": "ad5e0c23561f4b1f03691c9ff5ff8eb583c7d13ac9154ed792a2ba4b9f42760e",
+  "seal_sha256": "74bacc0bf9d08e62ee2187d4ebaf48673e5a2c5f7a2e2e55f3d0bb60d42625b4",
+  "qualification_sha256": "e19f3bdc3ff98738bc8e162079f0e66ee6c327893c22d343f2d5e5467d800f1c",
+  "cleanup_sha256": "e48d331748da3cf6beca0cddcb5966f0d2f849d74e3484a1a43f6912ad3338bd",
+  "old_resource_seal_sha256": "979097d499ff7ae46077128e4be937a7a1711e8f058eb87bd899f906403021dc",
+  "old_failure_sha256": "ab521024d479324f684ad65c0db1c3bac1cb0a63d21aaeb0d790a1f2cd0d9693",
+  "old_failure_regression_percent": 6.8627450980392135,
+  "old_gate_reclassified": false,
+  "old_soaks_repeated": false,
+  "root_cause": "NOT_ESTABLISHED",
+  "cross_node_scope": "two independent server processes and registries in private namespaces on .11; not physical host failover",
+  "host_differences": [],
+  "production_identity_preserved": true,
+  "current_cli_format_only_proof_sha256": "e15a03aa468c2cf2a625a2841fef5314f91a5c514c3a9ab58e318078c5060c85",
+  "full_endurance_pass": false,
+  "whole_current_source_certified": false,
+  "official_done": 31,
+  "total": 37,
+  "no_push_deploy_release": true
+}

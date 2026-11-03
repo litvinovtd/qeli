@@ -169,15 +169,20 @@ impl<T> Registry<T> {
 
         // Per-object lock. Two threads sharing ONE handle still serialise, which is the
         // correct semantics — `SansIoClient` is a stateful codec.
-        let mut guard = value.lock().unwrap_or_else(|e| e.into_inner());
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut guard))) {
-            Ok(r) => Ok(r),
-            Err(_) => {
+        // The guard must unwind inside catch_unwind so the mutex becomes poisoned
+        // before any queued caller can acquire it. Recovering the guard here would
+        // let an operation that already leased this Arc observe partial state.
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut guard = value.lock().map_err(|_| RegistryAccessError::Panicked)?;
+            Ok::<R, RegistryAccessError>(f(&mut guard))
+        }));
+        match outcome {
+            Ok(Ok(r)) => Ok(r),
+            Ok(Err(_)) | Err(_) => {
                 // The closure unwound mid-operation: burn the generation so this handle is
                 // dead and the (possibly inconsistent) object can never be observed again.
-                // Drop the object guard first — re-taking the registry lock while holding
-                // it would invert the lock order used above.
-                drop(guard);
+                // The object guard has already unwound or been dropped. Burn only this
+                // generation: another queued caller may have retired it before us.
                 let mut slots = self.lock();
                 if let Some(slot) = slots.get_mut(index as usize) {
                     if slot.generation == generation {
@@ -386,5 +391,44 @@ mod tests {
         let fresh = registry.insert(9);
         assert_ne!(fresh, handle);
         assert_eq!(registry.with(fresh, |value| *value), Some(9));
+    }
+
+    #[test]
+    fn queued_operation_never_observes_state_left_by_a_panicking_call() {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+        let registry = Arc::new(Registry::new());
+        let handle = registry.insert(0u32);
+        let observer = registry.acquire(handle).unwrap();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let first_registry = registry.clone();
+        let first = std::thread::spawn(move || {
+            first_registry.try_with(handle, |value| {
+                *value = 77;
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                panic!("intentional partial mutation");
+            })
+        });
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let second_registry = registry.clone();
+        let second = std::thread::spawn(move || second_registry.try_with(handle, |value| *value));
+        // Slot, observer and both in-flight calls now lease the same object. The second
+        // call has completed lookup and is queued on its mutex before the panic occurs.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Arc::strong_count(&observer) < 4 && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        let queued = Arc::strong_count(&observer) >= 4;
+        release_tx.send(()).unwrap();
+        assert_eq!(first.join().unwrap(), Err(RegistryAccessError::Panicked));
+        let outcome = second.join().unwrap();
+        assert!(queued, "the second call did not reach the object mutex");
+        assert_eq!(outcome, Err(RegistryAccessError::Panicked));
+        assert!(registry.with(handle, |value| *value).is_none());
+        let replacement = registry.insert(9u32);
+        assert_ne!(replacement, handle);
+        assert_eq!(registry.with(replacement, |value| *value), Some(9));
     }
 }

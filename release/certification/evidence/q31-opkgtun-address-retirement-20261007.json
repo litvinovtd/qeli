@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "PASS_SCOPED_OPKGTUN_ADDRESS_RETIREMENT",
+  "source_digest": "c0ffa3ddab4246103e186692c69132f77dea9f2712faecc77cebbb3679949ade",
+  "base_worktree_commit": "756e06a2fc5f8d6b1cc270ecdd2c0646635e0765",
+  "base_dev_commit": "a8c62532bc087465af0d36d449781e4fcba2adb3",
+  "findings": [
+    "F373",
+    "F374",
+    "F375"
+  ],
+  "counts": {
+    "dash": 218,
+    "busybox_ash": 218,
+    "linux_skipped": 0,
+    "new_stateful_methods": 14,
+    "new_native_methods": 2,
+    "ci_unprivileged": 14,
+    "old_hook_expected_failures_per_shell": 11,
+    "old_hook_methods_per_shell": 14,
+    "old_init_missing_record_errors_per_shell": 2,
+    "old_init_methods_per_shell": 2,
+    "final_input_files": 31,
+    "docs_checks": 9
+  },
+  "final_inputs": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "size": 43148,
+      "sha256": "fa595eb2a4dbe11bce446e7e16decb6e8768309be23a9c0253dbf887a1616ec3"
+    },
+    {
+      "path": "qeli/Cargo.toml",
+      "size": 10585,
+      "sha256": "582a332da1bb181c5c27c7c5b178bb1708084a19d4dc14461e6f3fc905c59c2a"
+    },
+    {
+      "path": "release/keenetic/README.md",
+      "size": 25349,
+      "sha256": "e354565e6cc596f8c35bc9d62622530302a67387589bb9f95b5ab97ef3880a52"
+    },
+    {
+      "path": "release/keenetic/S99qeli",
+      "size": 17621,
+      "sha256": "ca2ceab8ea77ec36f982885141db4d3c35a75343a19d3795ca6e3a720831b9e0"
+    },
+    {
+      "path": "release/keenetic/client.conf.example",
+      "size": 4236,
+      "sha256": "ddd52b21aa9d1efdf6e6572d93652a0070f0209510c7b18a77216196e07f1299"
+    },
+    {
+      "path": "release/keenetic/install-keenetic.sh",
+      "size": 8426,
+      "sha256": "2c8f695d7509651d49db6986183d5fcb876554a490200f084e12c3068d969429"
+    },
+    {
+      "path": "release/keenetic/lifecycle.sh",
+      "size": 3057,
+      "sha256": "365a6f05600a8f78552c8d32401d14a3e6a9eb1a5e7cb5222615cc29a9f99058"
+    },
+    {
+      "path": "release/keenetic/opkgtun/010-qeli.sh",
+      "size": 13099,
+      "sha256": "f8cd703ca53af00beaf720560db9ad33eca112935166e561ab08c892eca69003"
+    },
+    {
+      "path": "release/keenetic/opkgtun/README.md",
+      "size": 32606,
+      "sha256": "baccb4044aa42032f3ea7a5e5e1f6053a76f634a74b57db09994e5c70efda660"
+    },
+    {
+      "path": "release/keenetic/opkgtun/S99qeli",
+      "size": 19966,
+      "sha256": "d206c8ea03dd6f31530d68c635a4381d5b08f7e5a262054f9da29b0340313525"
+    },
+    {
+      "path": "release/keenetic/opkgtun/client.conf.example",
+      "size": 2828,
+      "sha256": "4355dad85c45383c4cd7e96cc39d76de7597c8cc4ef900639a1ba0b1d06f6cdb"
+    },
+    {
+      "path": "scripts/keenetic_toolchain_probe.py",
+      "size": 2527,
+      "sha256": "7b01bdd6ceb820435efcf952af55f3eb0cda1a68c19e3aa36efd547f0bfacfba"
+    },
+    {
+      "path": "scripts/keenetic_verify.py",
+      "size": 5481,
+      "sha256": "9b72ea6199f405716a66d7904d7e6f2452635dee5e073b06d30191812653d4b5"
+    },
+    {
+      "path": "scripts/lab_common.py",
+      "size": 3065,
+      "sha256": "479f689c6fe754887e07cfdf803e7c8d740b911c1708403de650b10a9e5bc59f"
+    },
+    {
+      "path": "scripts/native_lab.py",
+      "size": 9894,
+      "sha256": "da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0"
+    },
+    {
+      "path": "scripts/native_repro.py",
+      "size": 16523,
+      "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+    },
+    {
+      "path": "scripts/router_source.py",
+      "size": 3208,
+      "sha256": "a0f34491d0474f98ea5a8f47e8a77a1ab0a88acd68aae73035285b307e422ed2"
+    },
+    {
+      "path": "scripts/router_toolchain.py",
+      "size": 7622,
+      "sha256": "5a07dc41385d405224f91b47cdce47f7987f05e013ca025ce6c19929d641df12"
+    },
+    {
+      "path": "scripts/ssh_command.py",
+      "size": 953,
+      "sha256": "ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b"
+    },
+    {
+      "path": "scripts/ssh_hostkey.py",
+      "size": 1882,
+      "sha256": "c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39"
+    },
+    {
+      "path": "scripts/test_keenetic_address_retirement.py",
+      "size": 9157,
+      "sha256": "32a7537bd70d19f7a15a6511c9a5086c29ebcfb54f8dbb8f76bf47f2941420ec"
+    },
+    {
+      "path": "scripts/test_keenetic_gateway_owner.py",
+      "size": 8895,
+      "sha256": "8c55d0237de721a2a3fb6c0348060c5cc4b145666752fd315c4125039a6e7363"
+    },
+    {
+      "path": "scripts/test_keenetic_install_rollback.py",
+      "size": 8909,
+      "sha256": "c57fe133c97e472d102fba3866be152ba0ec84836d6847239860755ef74dd48f"
+    },
+    {
+      "path": "scripts/test_keenetic_launch_config.py",
+      "size": 10372,
+      "sha256": "743e9b649a01f9701ce03d50567e4bae87535d3914b5a68c19984fd0631024ec"
+    },
+    {
+      "path": "scripts/test_keenetic_lifecycle.py",
+      "size": 16140,
+      "sha256": "4bf5c4066e6524e8a1daafb7ff05791831804db6e21d486303239aa821a723d0"
+    },
+    {
+      "path": "scripts/test_keenetic_probe.py",
+      "size": 2072,
+      "sha256": "c4fb36720a18b82d8be6077e42af4c42c9386bb9a38ba7298ac4d9bc8c04aabc"
+    },
+    {
+      "path": "scripts/test_keenetic_process.py",
+      "size": 20675,
+      "sha256": "9790a6818312257d1d52233b54be1682751fead3eca388f3860d92a767c83fc4"
+    },
+    {
+      "path": "scripts/test_keenetic_state.py",
+      "size": 13657,
+      "sha256": "9b5a2c7e506616d4407bd5f72fed05297bf35f8722020d77ade2e5b3226e0ee6"
+    },
+    {
+      "path": "scripts/test_keenetic_templates.py",
+      "size": 22475,
+      "sha256": "b6aede9d0ab599ee5e28dc9305049bc5d7ea52831a0d0100627cbc3951ab5081"
+    },
+    {
+      "path": "scripts/test_keenetic_verify.py",
+      "size": 9644,
+      "sha256": "f842ab0c53db96ef77fc53b3fb60f441c8e116df33c456e6a5c6c0ab63aaabf0"
+    },
+    {
+      "path": "scripts/test_native_ssh_command.py",
+      "size": 5334,
+      "sha256": "e32b40660bd521c69b4d908e10e3aab5508f80a938a71525607101cc5f712a7e"
+    }
+  ],
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-opkgtun-address-retirement-20261007",
+  "raw_seal_sha256": "7eb5f4be6c3d166d41e1ef1b54b847b1ce40954434d3ef7990f08eef6c3a9502",
+  "raw_sealed_files": 45,
+  "fixtures": {
+    "native_process_source_sha256": "6c0ab432a7a9339d3132c9df9c29ea58b9983adf62a8a2f2f71c063cdc075f7e",
+    "native_process_binary_sha256": "8b1e1c6e4c48d2d67d4cc19cac92293e8f7c76264215f239158dd8c8136d2fe2",
+    "core_inspector_sha256": "e7ec8608f317354112030048ade0a585b0aa132b305fda41cd53fe9692ff30bb"
+  },
+  "native_source_digest": "c2ac10e0f41c826129a7b10918db88e84a77e55109eb4537783b34f99abd2a8b",
+  "native_provenance": "PASS_UNCHANGED_INPUTS",
+  "service": {
+    "unit": "qeli.service",
+    "MainPID": 777,
+    "ActiveState": "active"
+  },
+  "scope": "F373-F375 Q31 OpkgTun old-family/address retirement: saved APPLIED and partial PENDING retained through stop/start, stale-plan retry and checked retirement; new pending IF+plan published atomically before additions. IPv4 local address field guards broad reset and cached no-op; targeted recorded IPv6 and validated previous OpkgTun retirement retain unrelated addresses.14 stateful methods plus2native methods added. Exact old hook11/14 expected failures per shell;old init2/2 missing-record errors per shell reproduce ownership loss. Final218Keenetic methods PASS each dash/BusyBox ash,zero skips;exact14 CI methods PASS uid/gid65534,CIwired/no dispatch. Stateful ndmc/firewall/sysctl models;actual owned shell/files/locks/native processes and unchanged common core inspector,no real VPN/TUN/firewall.31 current input identities verified,CIonly refreshed after root suite and separately qualified nonroot. Initial read-only query used nonexistent qeli-client.service,corrected actual qeli.service active/PID777 preserved;preparation note retained. Native C fixture rebuilt warning-free;current native digest/provenance PASS unchanged,no full Rust/cross/native rebuild. Official CLI reference checked;no KeeneticOS5/firmware/network qualification.3/5Q31criteria complete,cooperative lifecycle failure/concurrency consolidated;Q31 IN_PROGRESS,whole28/37(75.7%),9remain. Cross-component writer lock/post-final-check/atomic ndm/firmware formats,SDKbootstrap/sourcepin/mirror releasecut/configuredGate2/Actions integration remain open. Lost legacy records cannot prove ownership. USER_EXCLUDED firmware/Apple/WindowsVM,Q29SIGKILL/ENONET,Q30callback-drain,D06ACCEPTED unchanged. Current debt14/15DONE+D06ACCEPTED.41 historic cases/acceptance and43prior supplements preserved modulo source_digest. ConfigsINIonly,internalJSONevidence/API retained. No push/deploy/release."
+}

@@ -2,12 +2,14 @@ mod backup;
 mod client;
 mod config;
 mod control;
+mod firewall;
 mod hash;
 mod identity;
 mod login;
 mod logs;
 mod notify;
 mod paths;
+mod preflight;
 mod share;
 mod status;
 mod system;
@@ -22,6 +24,18 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
+
+const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
+
+/// Mutation endpoints must distinguish a missing field from a malformed body.
+/// Indexing a scalar/array as an object otherwise silently selects default limits.
+pub(super) fn require_json_object(body: &Value) -> Result<(), String> {
+    if body.is_object() {
+        Ok(())
+    } else {
+        Err("request body must be a JSON object".to_string())
+    }
+}
 
 pub fn routes() -> Router<Arc<ServerState>> {
     // Path params use axum-0.8 brace syntax (`{name}`, `{*rest}`).
@@ -132,7 +146,7 @@ pub fn routes() -> Router<Arc<ServerState>> {
         )
         // Explicit request-body ceiling (axum's implicit default is 2 MiB): large enough
         // for an /api/restore tar.gz, but bounded so a huge body can't exhaust memory.
-        .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024))
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
 
 /// Standard API error body: `{"ok": false, "error": <msg>}`. Centralizes the
@@ -152,13 +166,25 @@ pub(crate) fn ok_json() -> Value {
 pub(super) async fn current_server_config(
     state: &Arc<ServerState>,
 ) -> Result<crate::config::server::ServerConfig, String> {
+    current_server_config_with_revision(state)
+        .await
+        .map(|(config, _)| config)
+}
+
+/// Return the parsed config and a revision computed from the same trusted INI snapshot.
+/// The lockout-policy editor uses both, so a concurrent edit cannot pair old policy
+/// values with a newer revision token.
+pub(super) async fn current_server_config_with_revision(
+    state: &Arc<ServerState>,
+) -> Result<(crate::config::server::ServerConfig, String), String> {
     let path = state.config_path.lock().await.clone();
     let Some(path) = path else {
-        return Ok(state.config.clone());
+        let raw = state.config.to_ini_string();
+        return Ok((state.config.clone(), config::config_revision(&raw)));
     };
-    let text = std::fs::read_to_string(&path)
+    let source = crate::server::read_config_source(&path)
         .map_err(|error| format!("cannot read current server config '{}': {error}", path))?;
-    let (config, findings) = crate::config::parse_server_config_reporting(&text)
+    let (config, findings) = crate::config::parse_server_config_reporting(source.text())
         .map_err(|error| format!("cannot parse current server config '{}': {error}", path))?;
     if !findings.is_empty() {
         return Err(format!(
@@ -168,7 +194,18 @@ pub(super) async fn current_server_config(
             findings.join("; ")
         ));
     }
-    Ok(config)
+    source
+        .validate_users_file_trust(&config)
+        .map_err(|error| error.to_string())?;
+    source
+        .validate_tls_paths_trust(&config)
+        .map_err(|error| error.to_string())?;
+    for profile in &config.profiles {
+        source
+            .validate_identity_key_trust(profile)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok((config, config::config_revision(source.text())))
 }
 
 /// Load exactly the users union the data-plane will use for this config: the external
@@ -178,8 +215,9 @@ pub(super) fn effective_users(
 ) -> Result<crate::config::users::UsersDb, String> {
     crate::server::load_users_db_for_runtime(config).map_err(|error| {
         format!(
-            "cannot load users configuration '{}': {error}",
-            config.auth.users_file
+            "cannot load users configuration '{}': {}",
+            config.auth.users_file,
+            crate::config::users::users_error_message(&error)
         )
     })
 }
@@ -223,6 +261,29 @@ mod current_state_tests {
             enabled,
             ..Default::default()
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn panel_rejects_untrusted_custom_users_file_from_current_ini() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-panel-users-trust-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let users = dir.join("users.conf");
+        let config_path = dir.join("server.conf");
+        let raw = format!("[auth]\nusers_file = {}\n[profile:p]\n", users.display());
+        std::fs::write(&config_path, &raw).unwrap();
+        std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let config = crate::config::parse_server_config(&raw).unwrap();
+        let state = crate::server::test_api_state(config, &config_path);
+        let error = super::current_server_config(&state).await.unwrap_err();
+        assert!(error.contains("auth.users_file"), "{error}");
+        assert!(!users.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

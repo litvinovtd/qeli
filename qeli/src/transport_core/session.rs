@@ -4,18 +4,25 @@
 //! untrusted response before a platform network plan is constructed.
 
 use crate::config::PushedObf;
+#[cfg(any(feature = "client", test))]
 use crate::crypto::{
     derive_keys, derive_keys_bound, derive_keys_hybrid, derive_keys_hybrid_bound,
     handshake_transcript_hash, Keypair,
 };
 #[cfg(feature = "experimental-roaming")]
+#[cfg(any(feature = "client", test))]
 use crate::crypto::{
     derive_session_material, derive_session_material_bound, derive_session_material_hybrid,
     derive_session_material_hybrid_bound,
 };
+#[cfg(any(feature = "client", test))]
+use crate::protocol::stream_io::WriteAllFlush;
+#[cfg(any(feature = "client", test))]
 use crate::protocol::{read_record, read_tls_record, FakeTlsHandshake, Framing, PacketCodec};
+#[cfg(any(feature = "client", test))]
 use std::future::Future;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+#[cfg(any(feature = "client", test))]
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 #[derive(Debug)]
 pub(crate) struct AuthOk {
@@ -30,11 +37,13 @@ pub(crate) struct AuthOk {
     pub dns_servers: Vec<crate::transport_core::NetworkDns>,
     pub routes_json: String,
     pub pushed_obf: Option<PushedObf>,
+    #[cfg(any(feature = "client", test))]
     pub session_token: String,
     pub max_streams: u32,
     pub adaptive: bool,
     /// Present only after bidirectional UDP_ROAM_V1 negotiation. Hex avoids JSON's lossy
     /// numeric representation in app-layer parsers while retaining the protocol's full u64.
+    #[cfg(any(feature = "client", test))]
     pub udp_roaming_session_id: Option<u64>,
 }
 
@@ -43,6 +52,7 @@ pub(crate) struct AuthOk {
 /// Roaming builds retain only the domain-separated resume secret from the original
 /// authentication KDF. It is never serialized, cloned into diagnostics, or reused as a
 /// data-plane key. Default builds do not carry the field at all.
+#[cfg(any(feature = "client", test))]
 pub(crate) struct TcpAuthentication {
     pub client_rx: PacketCodec,
     pub client_tx: PacketCodec,
@@ -57,6 +67,7 @@ pub(crate) struct TcpAuthentication {
 /// One hybrid UDP ClientHello flight shared by the live tunnel and native diagnostics.
 /// Keeping construction here prevents a reachability check from growing a second TLS/PQ/
 /// fragmentation implementation that can silently drift from the data plane.
+#[cfg(any(feature = "client", test))]
 pub(crate) struct UdpClientHelloFlight {
     pub client_keypair: Keypair,
     pub mlkem_decapsulation_key: crate::crypto::mlkem::DecapKey,
@@ -64,6 +75,7 @@ pub(crate) struct UdpClientHelloFlight {
     pub fragments: Vec<Vec<u8>>,
 }
 
+#[cfg(any(feature = "client", test))]
 pub(crate) fn build_udp_client_hello_flight(
     config: &crate::config::client::ClientConfig,
 ) -> anyhow::Result<UdpClientHelloFlight> {
@@ -296,7 +308,7 @@ pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
         })
         .transpose()?;
 
-    let udp_roaming_session_id = match value.get("udp_roaming_session") {
+    let _udp_roaming_session_id = match value.get("udp_roaming_session") {
         None => None,
         Some(serde_json::Value::String(encoded))
             if encoded.len() == 16 && encoded.bytes().all(|byte| byte.is_ascii_hexdigit()) =>
@@ -330,10 +342,12 @@ pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
             .map(ToString::to_string)
             .unwrap_or_else(|| "[]".into()),
         pushed_obf,
+        #[cfg(any(feature = "client", test))]
         session_token: value["session_token"].as_str().unwrap_or("").to_string(),
         max_streams: value["max_streams"].as_u64().unwrap_or(1).clamp(1, 16) as u32,
         adaptive: value["multipath_adaptive"].as_bool().unwrap_or(false),
-        udp_roaming_session_id,
+        #[cfg(any(feature = "client", test))]
+        udp_roaming_session_id: _udp_roaming_session_id,
     })
 }
 
@@ -342,6 +356,7 @@ pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
 /// Device identity and server trust are explicit inputs: Linux can keep its persistent
 /// known-hosts policy, while Android/iOS/Windows provide their own storage adapters. The
 /// wire protocol and cryptographic transcript therefore have one implementation.
+#[cfg(any(feature = "client", test))]
 pub(crate) async fn authenticate_tcp<S, V, F>(
     stream: &mut S,
     config: &crate::config::client::ClientConfig,
@@ -358,7 +373,9 @@ where
     let client_kp = Keypair::generate();
 
     if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {
-        stream.write_all(client_kp.public().as_bytes()).await?;
+        stream
+            .write_all_flush(client_kp.public().as_bytes())
+            .await?;
         let mut server_public = [0u8; 32];
         stream
             .read_exact(&mut server_public)
@@ -419,7 +436,7 @@ where
             platform_capabilities,
         )?;
         let auth_packet = client_tx.encrypt_packet(&auth_plaintext, &[])?;
-        stream.write_all(&auth_packet).await?;
+        stream.write_all_flush(&auth_packet).await?;
 
         let auth_response_record = read_record(stream, Framing::Raw).await.map_err(|error| {
             anyhow::anyhow!("failed to read auth response (raw inner): {error}")
@@ -471,7 +488,7 @@ where
         0,
         reality_session_id.as_ref(),
     );
-    stream.write_all(&client_hello).await?;
+    stream.write_all_flush(&client_hello).await?;
     let server_hello = read_tls_record(stream)
         .await
         .map_err(|error| anyhow::anyhow!("failed to read ServerHello: {error}"))?;
@@ -558,7 +575,7 @@ where
         platform_capabilities,
     )?;
     let auth_packet = client_tx.encrypt_packet(&auth_plaintext, &[])?;
-    stream.write_all(&auth_packet).await?;
+    stream.write_all_flush(&auth_packet).await?;
     let auth_response_record = read_tls_record(stream)
         .await
         .map_err(|error| anyhow::anyhow!("failed to read auth response: {error}"))?;
@@ -586,6 +603,7 @@ where
     })
 }
 
+#[cfg(any(feature = "client", test))]
 pub(crate) fn effective_mtu(client_mtu: i32, pushed_mtu: i32) -> i32 {
     if client_mtu > 0 {
         client_mtu
@@ -596,6 +614,7 @@ pub(crate) fn effective_mtu(client_mtu: i32, pushed_mtu: i32) -> i32 {
     }
 }
 
+#[cfg(any(feature = "client", test))]
 pub(crate) fn verify_server_identity(
     auth_proof: &[u8],
     client_keypair: &Keypair,
@@ -631,6 +650,7 @@ pub(crate) fn verify_server_identity(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(any(feature = "client", test))]
 pub(crate) fn build_client_auth_plaintext(
     config: &crate::config::client::ClientConfig,
     client_keypair: &Keypair,
@@ -671,6 +691,7 @@ pub(crate) fn build_client_auth_plaintext(
     Ok(plaintext)
 }
 
+#[cfg(any(feature = "client", test))]
 pub(crate) fn static_es(
     config: &crate::config::client::ClientConfig,
     client_keypair: &Keypair,
@@ -691,5 +712,113 @@ pub(crate) fn static_es(
         );
     }
     let server_static = crate::crypto::PublicKey::from_bytes(&public);
-    Ok(Some(client_keypair.derive_shared(&server_static).0))
+    let shared = client_keypair
+        .derive_shared_checked(&server_static)
+        .ok_or_else(|| anyhow::anyhow!("auth.server_public_key is a low-order X25519 point"))?;
+    Ok(Some(shared.0))
+}
+
+#[cfg(test)]
+mod static_binding_tests {
+    use super::*;
+
+    #[test]
+    fn static_binding_rejects_degenerate_pins_before_kdf() {
+        fn hex(bytes: impl AsRef<[u8]>) -> String {
+            bytes
+                .as_ref()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect()
+        }
+        let mut config = crate::config::client::ClientConfig::default();
+        config.auth.bind_static_to_session = true;
+        let client = Keypair::generate();
+        for pin in [None, Some("invalid".into()), Some(hex([0u8; 32]))] {
+            config.auth.server_public_key = pin;
+            assert!(static_es(&config, &client).is_err());
+        }
+        let mut low_order = [0u8; 32];
+        low_order[0] = 1;
+        config.auth.server_public_key = Some(hex(low_order));
+        assert!(static_es(&config, &client).is_err());
+        let identity = crate::crypto::StaticKeypair::generate();
+        config.auth.server_public_key = Some(hex(identity.public.as_bytes()));
+        assert_eq!(
+            static_es(&config, &client).unwrap().unwrap(),
+            identity.derive_shared(client.public()).0
+        );
+        config.auth.bind_static_to_session = false;
+        config.auth.server_public_key = Some(hex(low_order));
+        assert!(static_es(&config, &client).unwrap().is_none());
+    }
+    #[tokio::test]
+    async fn credentials_wait_for_proof_and_trust_admission() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        use std::time::Duration;
+        for tamper_proof in [true, false] {
+            let (mut client, mut peer) = tokio::io::duplex(4096);
+            let server = tokio::spawn(async move {
+                let mut public = [0u8; 32];
+                peer.read_exact(&mut public).await.unwrap();
+                let kp = Keypair::generate();
+                peer.write_all_flush(kp.public().as_bytes()).await.unwrap();
+                let shared = kp
+                    .derive_shared_checked(&crate::crypto::PublicKey::from_bytes(&public))
+                    .unwrap();
+                let transcript = handshake_transcript_hash(&[&public, kp.public().as_bytes()]);
+                let identity = crate::crypto::StaticKeypair::generate();
+                let mut proof = crate::crypto::build_server_auth_message(
+                    &identity,
+                    &crate::crypto::PublicKey::from_bytes(&public),
+                    &shared.0,
+                    &transcript,
+                );
+                if tamper_proof {
+                    proof[63] ^= 1;
+                }
+                let (tx, _) = derive_keys(&shared.0);
+                let packet = PacketCodec::new_raw(tx)
+                    .encrypt_packet(&proof, &[])
+                    .unwrap();
+                peer.write_all_flush(&packet).await.unwrap();
+                peer
+            });
+            let mut config = crate::config::client::ClientConfig::default();
+            config.obfuscation.mode = "plain".into();
+            config.auth.bind_static_to_session = false;
+            config.auth.username = "must-never-be-sent".into();
+            let calls = Arc::new(AtomicUsize::new(0));
+            let verifier_calls = calls.clone();
+            let result = tokio::time::timeout(
+                Duration::from_secs(2),
+                authenticate_tcp(
+                    &mut client,
+                    &config,
+                    "secret-password",
+                    &[7; crate::protocol::DEVICE_ID_LEN],
+                    0,
+                    move |_| {
+                        verifier_calls.fetch_add(1, Ordering::Relaxed);
+                        async { anyhow::bail!("fixture trust rejection") }
+                    },
+                ),
+            )
+            .await
+            .expect("failed admission must finish before waiting for AuthOK");
+            assert!(result.is_err());
+            assert_eq!(calls.load(Ordering::Relaxed), usize::from(!tamper_proof));
+            let mut peer = server.await.unwrap();
+            let mut byte = [0u8; 1];
+            assert!(
+                tokio::time::timeout(Duration::from_millis(30), peer.read_exact(&mut byte))
+                    .await
+                    .is_err(),
+                "no credentials may follow a failed proof or trust policy"
+            );
+        }
+    }
 }

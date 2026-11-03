@@ -1,7 +1,18 @@
 # qeli roadmap
 
+
 Priorities: **P1** — noticeably affects security/functionality, **P2** — quality,
 **P3** — long-term/experimental.
+## 0.8.2 — in development, unpublished
+
+The internal audit is complete 37/37 within the agreed scope: shared INI/URI parsers, panel, `manual` + NDP, lifecycle/rollback and supply checks. API34 ENONET and D06 remain accepted, unfixed limitations; physical exclusions are retained. [Plan and result](FULL-SYSTEM-AUDIT.md) · [Draft changes](../../../release/RELEASE_NOTES_0.8.2.md).
+
+## 0.8.1 — latest published release
+
+[Release description](../../../release/RELEASE_NOTES_0.8.1.md).
+
+The dated planning and test history below does not replace the [current threat model](../reference/THREAT-MODEL.md) or qualify a new build.
+
 ## 0.8.0 (released, 2026-09-02) — genuine H2 carrier for Reality
 
 - ✅ `reality-tls` now carries the private qeli record stream in one long-lived genuine HTTP/2
@@ -60,8 +71,8 @@ Wire-compatible with 0.7.2; config defaults unchanged.
   capture address at `establish()` (was `Cannot set address` → no connect).
 - ✅ **Linux kill-switch nftables → iptables** (single firewall backend; works on
   Keenetic), netns-tested.
-- ✅ **Security hygiene** (external audit 2026-06-25): FFI/JNI handle-registry (C-1),
-  web-token HKDF (H-4), serde route-JSON (C-3), AES-GCM zeroize (H-5), CRLF log-escape
+- ✅ **Security hygiene** (internal code review 2026-06-25): FFI/JNI handle-registry (C-1),
+  web-token HKDF (H-4), serde route-JSON (C-3), memory-hygiene review (H-5; AES key-schedule limits remain), CRLF log-escape
   (H-8), parse-or warn (M-9).
 - ✅ **Web panel** UI polish + **Docker** install option. Versions → 0.7.3.
 
@@ -88,7 +99,7 @@ Wire-compatible with 0.7.1; no config defaults changed. Tracker — the internal
 
 ## 0.7.1 (2026-06-12) — security hardening (2026-06-12 audit)
 
-External-audit fixes; the default wire was unchanged **except H-1**, which is now
+Historical internal-review fixes; the default wire was unchanged **except H-1**, which is now
 **on by default** (wire-breaking — upgrade the server and all clients in lockstep).
 Tracker — [AUDIT-2026-06-12.md](../archive/audits/AUDIT-2026-06-12.md).
 
@@ -106,7 +117,7 @@ Tracker — [AUDIT-2026-06-12.md](../archive/audits/AUDIT-2026-06-12.md).
 - ✅ **PQ hybrid X25519+ML-KEM-768** in the inner handshake on all clients
   (Rust/C#/Kotlin); the server requires PQ for non-plain modes.
 - ✅ Persistent TOFU; reality requires non-empty `short_ids` (strict config validation).
-- ✅ External-audit fixes 2026-06-10/11. Versions → 0.7.0; Android `versionCode=700`.
+- ✅ Internal-review fixes 2026-06-10/11. Versions → 0.7.0; Android `versionCode=700`.
 
 ## 0.6.0 (2026-06-10) — the refactoring release
 
@@ -750,38 +761,20 @@ profiles, no `gmt_unix_time`, no arbitrary extension composition.
 
 ### Backlog (audits 2026-07-17: two external + one self-audit)
 
-- 🔵 **Two settings exist but do nothing** — deliberately kept and marked "not
-  implemented" in CONFIG.md; the other 15 dead keys were removed in 0.7.12.
+- **Former placeholder settings:** DoT remains unimplemented; server log formatting
+  is fixed in 0.8.2. The other 15 dead keys were removed in 0.7.12.
   - `dns.upstream_protocol = tls` (DoT) — **`tcp` now works** (0.7.14: it forces TCP to
     the upstream, and a truncated UDP answer is retried over TCP either way), and `tls` is
     REJECTED at config load rather than silently downgraded. What remains is implementing
     DoT itself: upstream queries would stop being visible to the operator's ISP. Until
     then, **the resolver offers no privacy against whoever can see your link to the
     upstream**.
-  - `logging.format` — the field is parsed (default `plain`) but `init_logging` **never
-    reads it**: the log is always the hard-coded `{ts} {LEVEL:<5} {target}: {msg}`, and
-    that custom formatter sits behind `#[cfg(target_os = "linux")]`, so other platforms
-    already get a different shape. **Plan (worked out 2026-07-18):** 5 variants, shared by
-    server / Rust client / desktop / Android:
-    `text` (today's, default) · `compact` (no date, 1-char level — routers, mobile) ·
-    `plain` (level+message only — when journald / logread / logcat already stamps it;
-    kills the double timestamp) · `logfmt` (`k=v`, human + machine) ·
-    `json` (NDJSON — Loki/ELK/SIEM; lets the panel render logs as a filterable table).
-    One field schema for `json`/`logfmt`: `v` (schema version), `ts` (RFC3339 UTC),
-    `level`, **`comp`** (`server|client|panel|gui` — who emitted it), `target`, `msg`.
-    Override via the `QELI_LOG_FORMAT` env var.
-    **Two phases:** (1) cheap — the formatter starts honouring the field, `msg` stays the
-    already-formatted string, no call-site changes (80% of the value: parseable,
-    shippable, filterable); (2) later — move the hot paths (auth / sessions / errors / NAT)
-    to structured fields (`user`/`profile`/`peer`/`err`), possibly `env_logger` → `tracing`.
-    Bonus: JSON string escaping closes log-injection more robustly than the hand-rolled
-    CRLF escape (H-8 from 0.7.3).
-    NB: the **time** format is split out and is already **done** in 0.7.12
-    (`[logging] time_format` plus the choice in Windows / macOS / Android / LuCI) —
-    only the shape of the line itself, described above, is left.
-  - 🔵 **No log-file rotation** — at `level = debug` the file grows unbounded (a real
-    disk-filling risk on a router/VPS). Either `[logging] max_size_mb` + `keep`, or
-    document handing it to logrotate explicitly.
+  - ✅ **Server logging, 0.8.2:** supervisor and worker honour `logging.format = plain|json`;
+    JSON includes `level`, `target`, `message`, `pid`, `timestamp`. Linux server/client
+    log files rotate at 10 MiB with three archives and a shared process lock.
+    See [CONFIG.md](../manuals/CONFIG.md#logging). Future extensions remain `compact`/`logfmt`,
+    structured auth/session fields and GUI/Android format alignment; those formats and
+    fields are not implemented.
 
 Everything Medium-and-above from the three audits is fixed in 0.7.12 (**released 2026-07-21**) (see CHANGELOG). What
 follows was deliberately deferred.
@@ -849,14 +842,16 @@ follows was deliberately deferred.
 
 7. ✅ **Post-quantum hybrid KEX** (2026-06): **X25519MLKEM768** (ML-KEM-768, FIPS 203).
    The inner qeli tunnel derives the data-plane keys from X25519 ⊕ ML-KEM-768
-   (`derive_keys_hybrid`, salt `…v2-hybrid`) in ALL modes except `plain`
-   (`fake-tls`/`obfs`/`reality-tls`/UDP) — the server encapsulates / the client
+   (`derive_keys_hybrid`, salt `…v2-hybrid`) in legacy camouflage modes
+   (`fake-tls`/`obfs`/`reality`/UDP) — the server encapsulates / the client
    decapsulates; the ClientHello carries a REAL ML-KEM share (not just a
-   fingerprint-parity with Chrome). The server REQUIRES X25519MLKEM768 for non-`plain`
+   fingerprint-parity with Chrome). The server REQUIRES X25519MLKEM768 for these legacy camouflage modes
    (no silent downgrade). The `ml-kem` crate (pure-Rust); managed clients (C#/Kotlin)
    take ML-KEM from the same core via the C-ABI/JNI (`qeli_mlkem_*` /
    `Java_com_qeli_MlKem_*`) — BouncyCastle has no ML-KEM. Live-verified on the lab
    (tcp-faketls/obfs/udp, 0% loss, 570–700 Mbps TCP).
+   Current `reality-tls` has a classic, identity-bound inner exchange; its outer TLS
+   permits hybrid and classic X25519. PQ protection depends on the negotiated group.
 8. ✅ **obfs for UDP** (per-datagram keyed XOR) — an `ObfsUdp` wrapper (nonce(12) +
    ChaCha20-XOR per datagram, stateless); pure-Kotlin ChaCha20 on Android (javax
    `Cipher("ChaCha20")` is broken on some runtimes); qeli-win — `DatagramSeal/Open`

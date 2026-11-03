@@ -1,0 +1,34 @@
+{
+  "status": "PASS",
+  "source_commit": "9667c1e46b700762efb74db43b229eb363ea8f5a",
+  "source_tree": "9fa5170aa59c2de90fa38e0ec8dc80edac8be140",
+  "qeli_tree": "bc2cac6187db08db73db99f7c742b89d00283add",
+  "archive_sha256": "48e6a769d261f0440956a5b3f1db3aa72aaedb2a4f7205b5f9667aa480b4ddcc",
+  "archive_size": 28212384,
+  "sdk": "24.10.4",
+  "sdk_input_sha256": "229e871f734a2cee5ce3ad6a3e98d3836b0899bfdeaea4d9c2c5cc7b1fce1407",
+  "sdk_projection_sha256": "f9f79ab6c4485e46b8da3629b0a5b73bbc7dd802b0345d9382a3e686b399a674",
+  "scope": "Two independent SDK download.pl exports from private immutable mirrors and empty download caches; Build/Prepare verifies all tracked files. Not a full IPK or physical firmware qualification.",
+  "independent_repeat": {
+    "status": "PASS",
+    "source_commit": "9667c1e46b700762efb74db43b229eb363ea8f5a",
+    "archive_sha256": "48e6a769d261f0440956a5b3f1db3aa72aaedb2a4f7205b5f9667aa480b4ddcc",
+    "archive_size": 28212384,
+    "actual_sdk_downloads": 2,
+    "distinct_private_urls": true,
+    "make": [
+      "make",
+      "-C",
+      "package/qeli",
+      "TOPDIR=/var/tmp/qeli-sdk-release083.1xqKsNFc/sdk",
+      "DL_DIR=/var/tmp/qeli-sdk-release083.1xqKsNFc/repeat-dl",
+      "PKG_SOURCE_MIRROR=0",
+      "V=s",
+      "-j1",
+      "download"
+    ],
+    "scope": "Second empty DL_DIR,unchanged real SDK Git export;exact same full commit,another owned file URL. Public HTTPS clone not qualified."
+  },
+  "raw_proof_sha256": "bc8cc266fd2ed8469237de4fd389cdd3420fa540b9161b5cdb7699e85428a439",
+  "prepared_files_verified": 3578
+}

@@ -1,0 +1,574 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_WORKFLOW_LINT_SCOPED",
+  "source_digest": "0662663c4e792b060be97a4e1970db45a52a6e3ac7d8ea8268a355e03eeb32d0",
+  "qualification_source_commit": "980a1abd5da1027ef466eebfc2d4c3b4f808cdb6",
+  "product_source_commit": "980a1abd5da1027ef466eebfc2d4c3b4f808cdb6",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F488/Q34-F042"
+  ],
+  "verification": {
+    "baseline": {
+      "rc": 0,
+      "workflows": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/dco.yml",
+        ".github/workflows/docker-publish.yml",
+        ".github/workflows/release-attest.yml"
+      ],
+      "binary_sha256": "54ca21be3de4c7cfa26914aa8b61bd76bf573ef3caac5f80d110558cdf241718",
+      "scope": "All real local workflow files parsed by previously official-SHA-qualified actionlint1.7.12;no ShellCheck/pyflakes/hosted execution"
+    },
+    "tool_identity": {
+      "status": "PASS",
+      "version": "1.7.12",
+      "archive": "actionlint_1.7.12_linux_amd64.tar.gz",
+      "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
+      "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
+      "binary_sha256": "c872d6db8c6bf83a8eaa704fc93999f027d55dffbc63b8a6abdccb47df5f4cd4",
+      "scope": "Original official release archive checked against previous SHA-qualified upstream checksums;Linux binary not executed yet"
+    },
+    "windows_actual": {
+      "status": "PASS",
+      "platform": "win32",
+      "tool_sha256": "54ca21be3de4c7cfa26914aa8b61bd76bf573ef3caac5f80d110558cdf241718",
+      "cases": [
+        {
+          "name": "install-four-valid",
+          "returncode": 0,
+          "expected": 0,
+          "log": "install-four-valid.log"
+        },
+        {
+          "name": "reuse-four-valid",
+          "returncode": 0,
+          "expected": 0,
+          "log": "reuse-four-valid.log"
+        },
+        {
+          "name": "invalid-job-env",
+          "returncode": 1,
+          "expected": 1,
+          "log": "invalid-job-env.log"
+        },
+        {
+          "name": "invalid-added-yaml",
+          "returncode": 1,
+          "expected": 1,
+          "log": "invalid-added-yaml.log"
+        },
+        {
+          "name": "five-valid",
+          "returncode": 0,
+          "expected": 0,
+          "log": "five-valid.log"
+        },
+        {
+          "name": "tampered-cache",
+          "returncode": 1,
+          "expected": 1,
+          "log": "tampered-cache.log"
+        },
+        {
+          "name": "empty-inventory",
+          "returncode": 1,
+          "expected": 1,
+          "log": "empty-inventory.log"
+        },
+        {
+          "name": "missing-inventory",
+          "returncode": 1,
+          "expected": 1,
+          "log": "missing-inventory.log"
+        }
+      ],
+      "scope": "Actual pinned actionlint semantics and real downloader/installation on local fixtures. No workflow jobs scheduled or executed; ShellCheck/pyflakes disabled explicitly. Fixtures and tools created only inside TemporaryDirectory."
+    },
+    "linux_actual": {
+      "status": "PASS",
+      "platform": "linux",
+      "tool_sha256": "c872d6db8c6bf83a8eaa704fc93999f027d55dffbc63b8a6abdccb47df5f4cd4",
+      "cases": [
+        {
+          "name": "install-four-valid",
+          "returncode": 0,
+          "expected": 0,
+          "log": "install-four-valid.log"
+        },
+        {
+          "name": "reuse-four-valid",
+          "returncode": 0,
+          "expected": 0,
+          "log": "reuse-four-valid.log"
+        },
+        {
+          "name": "invalid-job-env",
+          "returncode": 1,
+          "expected": 1,
+          "log": "invalid-job-env.log"
+        },
+        {
+          "name": "invalid-added-yaml",
+          "returncode": 1,
+          "expected": 1,
+          "log": "invalid-added-yaml.log"
+        },
+        {
+          "name": "five-valid",
+          "returncode": 0,
+          "expected": 0,
+          "log": "five-valid.log"
+        },
+        {
+          "name": "tampered-cache",
+          "returncode": 1,
+          "expected": 1,
+          "log": "tampered-cache.log"
+        },
+        {
+          "name": "empty-inventory",
+          "returncode": 1,
+          "expected": 1,
+          "log": "empty-inventory.log"
+        },
+        {
+          "name": "missing-inventory",
+          "returncode": 1,
+          "expected": 1,
+          "log": "missing-inventory.log"
+        }
+      ],
+      "scope": "Actual pinned actionlint semantics and real downloader/installation on local fixtures. No workflow jobs scheduled or executed; ShellCheck/pyflakes disabled explicitly. Fixtures and tools created only inside TemporaryDirectory."
+    },
+    "linux_backup": {
+      "status": "PASS",
+      "archive_sha256": "4988f83a6e768063022f294c2381941218e6ddd8a048fc5bca0397a0a614020f",
+      "members": [
+        {
+          "path": "results/five-valid.log",
+          "size": 61,
+          "sha256": "4e0701b368232e20225be64ba71d5f7df1362216df37d779dd4cd49e30804ff6"
+        },
+        {
+          "path": "results/install-four-valid.log",
+          "size": 61,
+          "sha256": "fe4cf09bdbb521f966e3f1adbd6c584356ba77121dfdb5c71a5abbe16b8d9615"
+        },
+        {
+          "path": "results/invalid-job-env.log",
+          "size": 400,
+          "sha256": "33aa005caf29f24ec6a2a2ed93ccb5c5f8980dd199181682babd84aa7486d2ce"
+        },
+        {
+          "path": "results/tampered-cache.log",
+          "size": 82,
+          "sha256": "5aa8560300e0ed5cab049b6b52689b2172a5a451931268db4cd24cbc1becd6db"
+        },
+        {
+          "path": "results/invalid-added-yaml.log",
+          "size": 316,
+          "sha256": "a0ca17af6174d5a123de65a066078bf31e6e86ed322208d3211f63bb0c6a1c67"
+        },
+        {
+          "path": "results/real-semantic-proof.json",
+          "size": 1395,
+          "sha256": "2971691c46f4e6e00ee2590b8f2f6c2cf8476cdff6165f5487d7a81e96799934"
+        },
+        {
+          "path": "results/empty-inventory.log",
+          "size": 42,
+          "sha256": "08981db3e964a3b819b0404682482d6fd01e796bc1c89485143f5d10592da274"
+        },
+        {
+          "path": "results/reuse-four-valid.log",
+          "size": 61,
+          "sha256": "fe4cf09bdbb521f966e3f1adbd6c584356ba77121dfdb5c71a5abbe16b8d9615"
+        },
+        {
+          "path": "results/missing-inventory.log",
+          "size": 79,
+          "sha256": "8b7fd547ae7c6c24454e6d89a8f5e49d55f2a67bfaeae49376083e9f310917fc"
+        },
+        {
+          "path": "qualify.py",
+          "size": 2830,
+          "sha256": "3fc29873860c13657876ee0ae4ad07a14b2c47247e8e80b5cd035991137d0fdc"
+        },
+        {
+          "path": "reviewed-linux.tar.gz",
+          "size": 2353908,
+          "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        },
+        {
+          "path": "source/scripts/check_workflows.py",
+          "size": 4980,
+          "sha256": "025ba8316daeb617153ab582088ae298a1421f7f40250a8dc9c79b1a9f9ab16f"
+        },
+        {
+          "path": "source/scripts/test_check_workflows.py",
+          "size": 5904,
+          "sha256": "37856d590f646a88fae5d5808d0b2e8fef8241a75cf44aac7c408d6063108dc3"
+        },
+        {
+          "path": "source/.github/workflows/docker-publish.yml",
+          "size": 4567,
+          "sha256": "4e4b45d6add955905355976357e15aae348b0d4f4aa7398a6746771ffc1e22d5"
+        },
+        {
+          "path": "source/.github/workflows/dco.yml",
+          "size": 2016,
+          "sha256": "2c655c8c1d71788d207c72048832c0b7e34c0f081f15860f73433b74c805c9a0"
+        },
+        {
+          "path": "source/.github/workflows/ci.yml",
+          "size": 51578,
+          "sha256": "321b37104fa1ea0a8e2947e9a8bca7a713abf161b66efe560d196315a120ecc4"
+        },
+        {
+          "path": "source/.github/workflows/release-attest.yml",
+          "size": 5370,
+          "sha256": "f50b15856ccd8c360472683966ed475320b79fa93d13d8e1774b7746bfa666c3"
+        }
+      ],
+      "owned_root": "/var/tmp/qeli-workflow-lint-20261009.q3JHZh"
+    },
+    "linux_cleanup": {
+      "status": "PASS",
+      "owned_root": "/var/tmp/qeli-workflow-lint-20261009.q3JHZh",
+      "backup_removed": true,
+      "process_fd_guard": true,
+      "mount_guard": true
+    },
+    "qualified_inputs": {
+      "status": "PASS",
+      "paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "321b37104fa1ea0a8e2947e9a8bca7a713abf161b66efe560d196315a120ecc4",
+          "normalization": "LF"
+        },
+        {
+          "path": ".github/workflows/dco.yml",
+          "sha256": "2c655c8c1d71788d207c72048832c0b7e34c0f081f15860f73433b74c805c9a0",
+          "normalization": "LF"
+        },
+        {
+          "path": ".github/workflows/docker-publish.yml",
+          "sha256": "4e4b45d6add955905355976357e15aae348b0d4f4aa7398a6746771ffc1e22d5",
+          "normalization": "LF"
+        },
+        {
+          "path": ".github/workflows/release-attest.yml",
+          "sha256": "f50b15856ccd8c360472683966ed475320b79fa93d13d8e1774b7746bfa666c3",
+          "normalization": "LF"
+        },
+        {
+          "path": "docs/eng/index.md",
+          "sha256": "ba680c4e068d23b26573c68f8040bc06cc2da66e77646ddd634bb3ab26f7cf4b",
+          "normalization": "LF"
+        },
+        {
+          "path": "docs/eng/plans/AUDIT-DEBT.md",
+          "sha256": "2a4bb14b7cdbe6d1a3c3545a47a5c3fd03e23862ca6e8d47588c7e6d00176f52",
+          "normalization": "LF"
+        },
+        {
+          "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+          "sha256": "b92e1d7ed90a7063738c536decb81fa5b778112430c6539a3efb14734bd5aea6",
+          "normalization": "LF"
+        },
+        {
+          "path": "docs/ru/index.md",
+          "sha256": "1a4f500b2f590dacaddebadfd8298b8540ceab8978cc9a996377de1089678917",
+          "normalization": "LF"
+        },
+        {
+          "path": "docs/ru/plans/AUDIT-DEBT.md",
+          "sha256": "455794821b7e2b4c04766840b8ea2a3471c111f9b94ad14be39c1b0502edebd0",
+          "normalization": "LF"
+        },
+        {
+          "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+          "sha256": "951f2a8d255d13f62f6fc72e00177eee39ecd9c58563f2f13537099777765169",
+          "normalization": "LF"
+        },
+        {
+          "path": "qeli-openwrt/Makefile",
+          "sha256": "de6d39eee20810e7262b4f146bb7103b0952088412617e67a1b6f46bb2cd8a17",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/check_docs.py",
+          "sha256": "e260cb024b56fc6257108801d5dae01607dfadfb6cb5458669b3b2e25e808a10",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/check_workflows.py",
+          "sha256": "025ba8316daeb617153ab582088ae298a1421f7f40250a8dc9c79b1a9f9ab16f",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/native_repro.py",
+          "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/openwrt_source_gate.py",
+          "sha256": "d22677508a027df9e2b717dae45553ba235d8e88417d14a0cf4fcb91d2cd8588",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/release_certification.py",
+          "sha256": "d3dd7fe497da0df4519835decfadb4cb64abfa9c38f29e301ff4630b7e5885b5",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_check_workflows.py",
+          "sha256": "37856d590f646a88fae5d5808d0b2e8fef8241a75cf44aac7c408d6063108dc3",
+          "normalization": "LF"
+        }
+      ],
+      "scope": "Final report seal line excluded to avoid self-reference. Exact product inputs LF normalized; native and qeli tree unchanged."
+    },
+    "local_checks": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "scripts/check_workflows.py",
+        "scripts/test_check_workflows.py",
+        "docs/ru/reports/AUDIT-Q34-WORKFLOW-LINT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/index.md",
+        "docs/eng/reports/AUDIT-Q34-WORKFLOW-LINT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/index.md"
+      ],
+      "checks": [
+        {
+          "name": "regressions",
+          "returncode": 0,
+          "log": "regressions.log"
+        },
+        {
+          "name": "recipes",
+          "returncode": 0,
+          "log": "recipes.log"
+        },
+        {
+          "name": "release-ci",
+          "returncode": 0,
+          "log": "release-ci.log"
+        },
+        {
+          "name": "release-preflight",
+          "returncode": 0,
+          "log": "release-preflight.log"
+        },
+        {
+          "name": "docs",
+          "returncode": 0,
+          "log": "docs.log"
+        },
+        {
+          "name": "diff",
+          "returncode": 0,
+          "log": "diff.log"
+        }
+      ],
+      "windows": {
+        "status": "PASS",
+        "platform": "win32",
+        "tool_sha256": "54ca21be3de4c7cfa26914aa8b61bd76bf573ef3caac5f80d110558cdf241718",
+        "cases": [
+          {
+            "name": "install-four-valid",
+            "returncode": 0,
+            "expected": 0,
+            "log": "install-four-valid.log"
+          },
+          {
+            "name": "reuse-four-valid",
+            "returncode": 0,
+            "expected": 0,
+            "log": "reuse-four-valid.log"
+          },
+          {
+            "name": "invalid-job-env",
+            "returncode": 1,
+            "expected": 1,
+            "log": "invalid-job-env.log"
+          },
+          {
+            "name": "invalid-added-yaml",
+            "returncode": 1,
+            "expected": 1,
+            "log": "invalid-added-yaml.log"
+          },
+          {
+            "name": "five-valid",
+            "returncode": 0,
+            "expected": 0,
+            "log": "five-valid.log"
+          },
+          {
+            "name": "tampered-cache",
+            "returncode": 1,
+            "expected": 1,
+            "log": "tampered-cache.log"
+          },
+          {
+            "name": "empty-inventory",
+            "returncode": 1,
+            "expected": 1,
+            "log": "empty-inventory.log"
+          },
+          {
+            "name": "missing-inventory",
+            "returncode": 1,
+            "expected": 1,
+            "log": "missing-inventory.log"
+          }
+        ],
+        "scope": "Actual pinned actionlint semantics and real downloader/installation on local fixtures. No workflow jobs scheduled or executed; ShellCheck/pyflakes disabled explicitly. Fixtures and tools created only inside TemporaryDirectory."
+      },
+      "linux": {
+        "status": "PASS",
+        "platform": "linux",
+        "tool_sha256": "c872d6db8c6bf83a8eaa704fc93999f027d55dffbc63b8a6abdccb47df5f4cd4",
+        "cases": [
+          {
+            "name": "install-four-valid",
+            "returncode": 0,
+            "expected": 0,
+            "log": "install-four-valid.log"
+          },
+          {
+            "name": "reuse-four-valid",
+            "returncode": 0,
+            "expected": 0,
+            "log": "reuse-four-valid.log"
+          },
+          {
+            "name": "invalid-job-env",
+            "returncode": 1,
+            "expected": 1,
+            "log": "invalid-job-env.log"
+          },
+          {
+            "name": "invalid-added-yaml",
+            "returncode": 1,
+            "expected": 1,
+            "log": "invalid-added-yaml.log"
+          },
+          {
+            "name": "five-valid",
+            "returncode": 0,
+            "expected": 0,
+            "log": "five-valid.log"
+          },
+          {
+            "name": "tampered-cache",
+            "returncode": 1,
+            "expected": 1,
+            "log": "tampered-cache.log"
+          },
+          {
+            "name": "empty-inventory",
+            "returncode": 1,
+            "expected": 1,
+            "log": "empty-inventory.log"
+          },
+          {
+            "name": "missing-inventory",
+            "returncode": 1,
+            "expected": 1,
+            "log": "missing-inventory.log"
+          }
+        ],
+        "scope": "Actual pinned actionlint semantics and real downloader/installation on local fixtures. No workflow jobs scheduled or executed; ShellCheck/pyflakes disabled explicitly. Fixtures and tools created only inside TemporaryDirectory."
+      },
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_hashes": [
+        {
+          "path": "native-libs/android/arm64-v8a/libqeli.so",
+          "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+        },
+        {
+          "path": "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+          "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+        },
+        {
+          "path": "native-libs/android/x86_64/libqeli.so",
+          "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+        },
+        {
+          "path": "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+          "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+        },
+        {
+          "path": "native-libs/windows-x64/qeli.dll",
+          "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+        },
+        {
+          "path": "qeli-win/QeliWin/native/qeli.dll",
+          "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+        },
+        {
+          "path": "native-libs/macos-universal/libqeli.dylib",
+          "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+        },
+        {
+          "path": "qeli-mac/QeliMac/native/libqeli.dylib",
+          "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+        },
+        {
+          "path": "native-libs/third-party/windows-x64/wintun.dll",
+          "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+        },
+        {
+          "path": "qeli-win/QeliWin/wintun/wintun.dll",
+          "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+        },
+        {
+          "path": "native-libs/third-party/windows-x64/windivert/WinDivert.dll",
+          "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+        },
+        {
+          "path": "qeli-win/QeliWin/windivert/WinDivert.dll",
+          "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+        },
+        {
+          "path": "native-libs/third-party/windows-x64/windivert/WinDivert64.sys",
+          "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+        },
+        {
+          "path": "qeli-win/QeliWin/windivert/WinDivert64.sys",
+          "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+        }
+      ],
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+        "qeli/src/web/assets/app.css": "c925399cb860bea80fcbc5d66dec7cf3ebb0740fbd8bb7489d211730bdc1d8bd"
+      },
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "source_cut_scope": "Existing exact SDK746e09/9b4b source gate PASS. No new SDK or native compilation; qeli tree unchanged.",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-workflow-lint-20261009",
+    "files": 66,
+    "bytes": 12017508,
+    "manifest_sha256": "ca97933767737d439342934438d2d8e250a9090cd9020f775cf5b0e62741c772",
+    "runtime_status": "PASS_WINDOWS_LINUX_ACTUAL_SEMANTIC_GATE_SCOPED",
+    "path": "audit-debt-20260924/q34-workflow-lint-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F488/Q34-F042 persistent Actions semantics coverage gap closed: all four baseline workflows already pass manual actionlint; no new client parser defect. CI failing workflow-lint job discovers every direct yml/yaml and validates with official actionlint1.7.12 Windows AMD64/Linuxx86_64 archives and executable SHA pins, explicit temporary install only. Unknown cached executable is refused without replacement/execution. ShellCheck/pyflakes disabled explicitly; existing separate shell scope retained, no comprehensive inline shell/Python or branch protection claim. Each Windows/Linux11 unit admission/failure tests and8 actual semantic scenarios PASS: real pinned HTTPS installation/reuse,4original/5validworkflows, invalid job-env/newyaml/tamperedbinary/empty/missing inventory refusal.82relatedCI/release regression methods and722Markdown9checks PASS. Owned Linux11fixture exact source/log backup all SHA qualified, process/fd/mount guarded cleanup PASS; original active service777845/installedCLI SHA preserved; .10unused. Initial outercwd unittest refusal retained, no test claimed there. Core/qeli tree/native sourcee3fb and14SHA/protected unchanged; previous SDK746e09/9b4b source gate PASS inherited with identical qelitree, not new SDK build. Previous real ASan qualification inherited, not repeated or extended. Separate sealed packet raw and decoded archive credential scans PASS stdin only.41cases89prior supplements preserved modulo source_digest bookkeeping;append90scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;current hostedCI/signatures/sourcepublication/release andQ35fullfuzz/concurrency/DoS/soak OPEN;Q29SIGKILLFAIL/ENONET/Q30/Q31/F459braces/D06accepted/USER_EXCLUDED preserved. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

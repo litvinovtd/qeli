@@ -24,7 +24,6 @@ use crate::client::{
 use crate::client::{CorePathController, PathAckFuture, PathController};
 use crate::config::client::ClientConfig;
 use crate::protocol::obfs::{AwgParams, ObfsStream};
-use crate::transport_core::network::HandshakeNetwork;
 use serde::Deserialize;
 use socket2::Socket;
 use std::net::{IpAddr, SocketAddr};
@@ -103,6 +102,7 @@ impl NativeCoreAdapter {
             &config.server.address,
             config.server.port,
             supplied.as_slice(),
+            Duration::from_secs(config.server.connection_timeout_secs.max(1)),
         )
         .await
     }
@@ -407,97 +407,104 @@ impl ClientPlatform for NativeCoreAdapter {
         })
     }
 
-    fn prepare_tunnel(
-        &mut self,
-        _config: &ClientConfig,
+    fn prepare_tunnel<'a>(
+        &'a mut self,
+        _config: &'a ClientConfig,
         mut plan: NetworkPlan,
-        _network: &HandshakeNetwork<'_>,
-    ) -> anyhow::Result<TunnelSetup> {
-        let carrier_address = *self
-            .carrier_address
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        plan.carrier_address = carrier_address.map(|address| address.to_string());
-        let generation = plan.generation;
-        self.lock().publish_network_plan(plan)?;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<TunnelSetup>> + 'a>>
+    {
+        Box::pin(async move {
+            let carrier_address = *self
+                .carrier_address
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            plan.carrier_address = carrier_address.map(|address| address.to_string());
+            let generation = plan.generation;
+            self.lock().publish_network_plan(plan)?;
 
-        let deadline = Instant::now() + NETWORK_ACK_TIMEOUT;
-        loop {
-            if self.cancel.load(Ordering::Acquire) {
-                anyhow::bail!("transport cancelled while awaiting NetworkPlan ACK");
-            }
-            let result: Option<anyhow::Result<TunnelSetup>> = {
-                let mut core = self.lock();
-                match core.state {
-                    ClientState::Running => {
-                        #[cfg(target_os = "windows")]
-                        {
-                            if core.platform_capabilities() & super::platform_capability::TUN_WINTUN
-                                != 0
-                            {
-                                Some(
-                                    core.take_attached_wintun(generation)
-                                        .map(TunnelSetup::wintun)
-                                        .map_err(anyhow::Error::from),
-                                )
-                            } else if core.platform_capabilities()
-                                & super::platform_capability::TUN_PACKET_BATCH
-                                != 0
-                            {
-                                Some(
-                                    core.take_packet_tun_pump(generation)
-                                        .map(TunnelSetup::packet)
-                                        .map_err(anyhow::Error::from),
-                                )
-                            } else {
-                                Some(Err(anyhow::anyhow!(
-                                    "platform advertised neither packet IO nor a usable TUN fd"
-                                )))
-                            }
-                        }
-                        #[cfg(target_os = "ios")]
-                        {
-                            if core.platform_capabilities()
-                                & super::platform_capability::TUN_PACKET_BATCH
-                                != 0
-                            {
-                                Some(
-                                    core.take_packet_tun_pump(generation)
-                                        .map(TunnelSetup::packet)
-                                        .map_err(anyhow::Error::from),
-                                )
-                            } else {
-                                Some(Err(anyhow::anyhow!(
-                                    "platform advertised no usable packet TUN"
-                                )))
-                            }
-                        }
-                        #[cfg(any(target_os = "android", target_os = "macos"))]
-                        {
-                            Some(
-                                core.take_attached_tun_fds(generation)
-                                    .map(|(reader, writer)| TunnelSetup::external(reader, writer))
-                                    .map_err(anyhow::Error::from),
-                            )
-                        }
-                    }
-                    ClientState::Failed => Some(Err(anyhow::anyhow!(
-                        "platform rejected NetworkPlan {generation}"
-                    ))),
-                    ClientState::AwaitingNetwork => None,
-                    state => Some(Err(anyhow::anyhow!(
-                        "NetworkPlan {generation} left pending in state {state:?}"
-                    ))),
+            let deadline = Instant::now() + NETWORK_ACK_TIMEOUT;
+            loop {
+                if self.cancel.load(Ordering::Acquire) {
+                    anyhow::bail!("transport cancelled while awaiting NetworkPlan ACK");
                 }
-            };
-            if let Some(result) = result {
-                return result;
+                let result: Option<anyhow::Result<TunnelSetup>> = {
+                    let mut core = self.lock();
+                    match core.state {
+                        ClientState::Running => {
+                            #[cfg(target_os = "windows")]
+                            {
+                                if core.platform_capabilities()
+                                    & super::platform_capability::TUN_WINTUN
+                                    != 0
+                                {
+                                    Some(
+                                        core.take_attached_wintun(generation)
+                                            .map(TunnelSetup::wintun)
+                                            .map_err(anyhow::Error::from),
+                                    )
+                                } else if core.platform_capabilities()
+                                    & super::platform_capability::TUN_PACKET_BATCH
+                                    != 0
+                                {
+                                    Some(
+                                        core.take_packet_tun_pump(generation)
+                                            .map(TunnelSetup::packet)
+                                            .map_err(anyhow::Error::from),
+                                    )
+                                } else {
+                                    Some(Err(anyhow::anyhow!(
+                                        "platform advertised neither packet IO nor a usable TUN fd"
+                                    )))
+                                }
+                            }
+                            #[cfg(target_os = "ios")]
+                            {
+                                if core.platform_capabilities()
+                                    & super::platform_capability::TUN_PACKET_BATCH
+                                    != 0
+                                {
+                                    Some(
+                                        core.take_packet_tun_pump(generation)
+                                            .map(TunnelSetup::packet)
+                                            .map_err(anyhow::Error::from),
+                                    )
+                                } else {
+                                    Some(Err(anyhow::anyhow!(
+                                        "platform advertised no usable packet TUN"
+                                    )))
+                                }
+                            }
+                            #[cfg(any(target_os = "android", target_os = "macos"))]
+                            {
+                                Some(
+                                    core.take_attached_tun_fds(generation)
+                                        .map(|(reader, writer)| {
+                                            TunnelSetup::external(reader, writer)
+                                        })
+                                        .map_err(anyhow::Error::from),
+                                )
+                            }
+                        }
+                        ClientState::Failed => Some(Err(anyhow::anyhow!(
+                            "platform rejected NetworkPlan {generation}"
+                        ))),
+                        ClientState::AwaitingNetwork => None,
+                        state => Some(Err(anyhow::anyhow!(
+                            "NetworkPlan {generation} left pending in state {state:?}"
+                        ))),
+                    }
+                };
+                if let Some(result) = result {
+                    return result;
+                }
+                if Instant::now() >= deadline {
+                    anyhow::bail!(
+                        "platform did not acknowledge NetworkPlan {generation} within 45s"
+                    );
+                }
+                tokio::time::sleep(PLATFORM_ACK_POLL).await;
             }
-            if Instant::now() >= deadline {
-                anyhow::bail!("platform did not acknowledge NetworkPlan {generation} within 45s");
-            }
-            std::thread::sleep(PLATFORM_ACK_POLL);
-        }
+        })
     }
 
     fn fallback_dns_servers(&self) -> &[String] {
@@ -585,14 +592,18 @@ async fn run_async(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow:
     // `qeli_client_stop` is the ownership boundary used by every GUI adapter. It must cancel
     // every phase, not only the established data loop: carrier DNS/connect and TLS/qeli
     // handshakes can otherwise retain their socket (and, after NetworkPlan ACK, the Android
-    // TUN) until the full connection timeout expires. Dropping the attempt closes pre-tunnel
-    // sockets immediately; established tunnel pumps also observe the same token and their
-    // Drop implementation synchronously joins descriptor-owning workers.
+    // TUN) until the full connection timeout expires. Dropping the attempt releases direct
+    // sockets and cancels carrier workers; the registry below joins those workers. Established
+    // tunnel pumps also observe the token and synchronously join descriptor-owning workers.
+    let mut connection_tasks = super::tasks::TaskGroup::default();
     let result = tokio::select! {
         biased;
         _ = wait_for_runtime_cancel(cancel.clone()) => Ok(()),
-        result = run_attempt(&mut adapter, &config) => result,
+        result = connection_tasks.spawner().scope(run_attempt(&mut adapter, &config, &mut connection_tasks)) => result,
     };
+    // Dropping a pending attempt cancels its local H2 guards. Retain and join the driver
+    // and bridge here before publishing generation completion, including early errors.
+    connection_tasks.finish().await;
     let cancelled = cancel.load(Ordering::Acquire);
     finish_generation(&core, &counters, cancelled, result.as_ref().err());
     if cancelled {
@@ -602,7 +613,11 @@ async fn run_async(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow:
     }
 }
 
-async fn run_attempt(adapter: &mut NativeCoreAdapter, config: &ClientConfig) -> anyhow::Result<()> {
+async fn run_attempt(
+    adapter: &mut NativeCoreAdapter,
+    config: &ClientConfig,
+    tasks: &mut super::tasks::TaskGroup,
+) -> anyhow::Result<()> {
     let password = config
         .auth
         .password
@@ -611,7 +626,7 @@ async fn run_attempt(adapter: &mut NativeCoreAdapter, config: &ClientConfig) -> 
         .ok_or_else(|| anyhow::anyhow!("native runtime requires an inline password"))?;
     let initial = adapter.wait_for_initial_carrier(config).await?;
     match initial {
-        ConnectedCarrier::Tcp(stream) => run_tcp(adapter, stream, config, password).await,
+        ConnectedCarrier::Tcp(stream) => run_tcp(adapter, stream, config, password, tasks).await,
         ConnectedCarrier::Udp(socket) => run_udp_tunnel(socket, config, password, adapter).await,
     }
 }
@@ -621,6 +636,7 @@ async fn run_tcp(
     stream: TcpStream,
     config: &ClientConfig,
     password: &str,
+    tasks: &mut super::tasks::TaskGroup,
 ) -> anyhow::Result<()> {
     configure_tcp(&stream, config)?;
     match config.obfuscation.mode.as_str() {
@@ -639,21 +655,23 @@ async fn run_tcp(
                     wrap_obfs(stream, &cfg).await
                 })
             });
-            run_tcp_tunnel(first, connector, config, password, adapter).await
+            run_tcp_tunnel(first, connector, config, password, adapter, tasks).await
         }
         "reality-tls" => {
-            let first = wrap_reality(stream, config).await?;
+            let carrier_tasks = tasks.spawner();
+            let first = wrap_reality(stream, config, &carrier_tasks).await?;
             let dialer = adapter.clone();
             let cfg = Arc::new(config.clone());
             let connector: StreamConnector<_> = Arc::new(move |request| {
                 let dialer = dialer.clone();
                 let cfg = cfg.clone();
+                let carrier_tasks = carrier_tasks.clone();
                 Box::pin(async move {
                     let stream = dialer.dial_tcp(&cfg, request).await?;
-                    wrap_reality(stream, &cfg).await
+                    wrap_reality(stream, &cfg, &carrier_tasks).await
                 })
             });
-            run_tcp_tunnel(first, connector, config, password, adapter).await
+            run_tcp_tunnel(first, connector, config, password, adapter, tasks).await
         }
         "fake-tls" | "plain" => {
             let dialer = adapter.clone();
@@ -663,7 +681,7 @@ async fn run_tcp(
                 let cfg = cfg.clone();
                 Box::pin(async move { dialer.dial_tcp(&cfg, request).await })
             });
-            run_tcp_tunnel(stream, connector, config, password, adapter).await
+            run_tcp_tunnel(stream, connector, config, password, adapter, tasks).await
         }
         mode => anyhow::bail!("unsupported TCP wire mode '{mode}'"),
     }
@@ -695,7 +713,8 @@ async fn wrap_obfs(
 async fn wrap_reality(
     mut stream: TcpStream,
     config: &ClientConfig,
-) -> anyhow::Result<tokio::io::DuplexStream> {
+    tasks: &super::tasks::Spawner,
+) -> anyhow::Result<crate::protocol::h2_carrier::Carrier> {
     let server_name = config.effective_reality_sni().to_string();
     let ephemeral = crate::crypto::Keypair::generate();
     let short_id = config
@@ -729,7 +748,7 @@ async fn wrap_reality(
     let tls = crate::protocol::realtls::stream::RealTlsStream::new(stream, established);
     tokio::time::timeout(
         timeout,
-        crate::protocol::h2_carrier::connect(tls, &server_name),
+        crate::protocol::h2_carrier::connect_owned(tls, &server_name, tasks),
     )
     .await
     .map_err(|_| anyhow::anyhow!("reality-tls HTTP/2 carrier timed out"))?
@@ -838,6 +857,7 @@ fn finish_generation(
     core.udp_internal_drops = core.udp_internal_drops.saturating_add(udp.internal_drops);
     core.udp_buffer_grows = core.udp_buffer_grows.saturating_add(udp.grow_events);
     core.udp_recv_buffer_bytes = udp.granted_recv_bytes;
+    core.last_carrier_diagnostics = Some(counters.tcp_carriers.finished_json());
     core.runtime_counters = None;
     core.runtime_active = false;
 

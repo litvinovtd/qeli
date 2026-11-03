@@ -1,169 +1,111 @@
 #!/usr/bin/env python3
-"""E2E for gateway_nat + post_up/post_down (client side).
-
-Server on .10 (fake-tls :8506), client on .11 with `gateway_nat=true`,
-`lan_subnet`, and post_up/post_down. Verifies:
-  1. after connect: MASQUERADE(+FORWARD+MSS) tagged `qeli-gw-nat` on the tun,
-     ip_forward=1, and post_up ran;
-  2. clean stop (SIGTERM): rules removed and post_down ran;
-  3. world-writable config: gateway NAT still runs but post_up/down are REFUSED.
+"""Qualify gateway NAT and forward_private in fresh NET/mount/PID namespaces.
+Requires a SHA-pinned candidate and a read-only extracted firewalld package directory.
+Does not replace executables, restart services, or clean host rules by matching tags.
 """
-import os, sys, io, time
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-import paramiko
-import ssh_hostkey
+# Manual lab scenario: importing for test discovery must not execute it.
+if __name__ == "__main__":
+    import argparse
+    import datetime as dt
+    import hashlib
+    import json
+    import os
+    from pathlib import Path
+    import re
+    import shlex
+    import stat
+    from native_lab import connect_lab
+    from audit_release_matrix_lab import ISOLATED, snapshot, put
 
-PW = os.environ["QELI_LAB_PASS"]
-SRV = ("10.66.116.10", "root", PW)
-CLI = ("10.66.116.11", "root", PW)
-SRV_BIN = "/opt/qeli-src/target/release/qeli"
-CLI_BIN = "/root/qeli-gw"
-PUBKEY = "e37632de330cd3e486b81fa0fb0cce96d02e60b2ce35947fe1647508e94d216b"
-PORT = 8506
-TUN = "gwc0"
-LAN = "192.168.99.0/24"
 
-SERVER_CONF = f"""[web]
-enabled = false
-[auth]
-users_file = /root/reality-test/users-e2e.conf
-[logging]
-level = info
-file = /root/gw-srv.log
-[profile:gw]
-identity_key = /etc/qeli/identity/e2e.key
-bind.address = 0.0.0.0
-bind.port = {PORT}
-bind.transport = tcp
-tun.name = gws0
-tun.address = 10.77.0.1
-tun.mtu = 1400
-pool.cidr = 10.77.0.0/24
-pool.exclude = 10.77.0.1
-dns.enabled = false
-obf.mode = fake-tls
-obf.tls.server_name = www.microsoft.com
-perf.connection.max_clients = 8
-perf.connection.handshake_timeout_secs = 10
-"""
+    def main():
+        ap = argparse.ArgumentParser(description=__doc__)
+        ap.add_argument('--host', default='10.66.116.11')
+        ap.add_argument('--qeli', required=True)
+        ap.add_argument('--sha256', required=True)
+        ap.add_argument('--output', required=True, type=Path)
+        ap.add_argument('--package', required=True, help='Read-only extracted package directory on the lab')
+        ap.add_argument('--ipv4', choices=('nft', 'legacy'), default='nft')
+        ap.add_argument('--ipv6', choices=('nft', 'legacy'), default='legacy')
+        a = ap.parse_args()
+        if not re.fullmatch('[0-9a-f]{64}', a.sha256):
+            ap.error('full binary SHA256 required')
+        for p in (a.qeli, a.package):
+            if not re.fullmatch('/[A-Za-z0-9_./-]+', p) or '..' in p.split('/'):
+                ap.error('absolute safe binary/package paths required')
+        password = os.environ.get('QELI_LAB_PASS')
+        if not password:
+            ap.error('QELI_LAB_PASS required')
+        a.output.mkdir(parents=True, exist_ok=False)
+        source = Path(__file__).resolve().parent
+        remote = '/var/tmp/qeli-gateway-audit-' + dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+        result = dict(status='FAIL', executed_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+                      artifact_sha256=a.sha256, remote=remote, fixture_sha256={}, backends=[a.ipv4, a.ipv6])
+        lab = connect_lab(a.host, 'root', password)
+        def pull(sftp, src, dst):
+            dst.mkdir(exist_ok=True)
+            for entry in sftp.listdir_attr(src):
+                if '/' in entry.filename or entry.filename in ('.', '..'):
+                    raise RuntimeError('unsafe remote filename')
+                target = dst / entry.filename
+                if stat.S_ISDIR(entry.st_mode):
+                    pull(sftp, src+'/'+entry.filename, target)
+                elif stat.S_ISREG(entry.st_mode):
+                    sftp.get(src+'/'+entry.filename, str(target))
+        try:
+            result['host_before'] = snapshot(lab)
+            if lab.checked('sha256sum '+a.qeli, 'candidate SHA', 30).split()[0] != a.sha256:
+                raise RuntimeError('candidate SHA mismatch')
+            lab.checked('test -d '+a.package+' && test ! -e '+remote+' && mkdir -m 700 '+remote, 'private root', 30)
+            sftp = lab.open_sftp()
+            try:
+                for name in ('audit_server_route_policy.py', 'audit_firewalld_profiles.py'):
+                    data = (source/name).read_bytes().replace(b'\r\n', b'\n')
+                    put(sftp, remote+'/'+name, data)
+                    h = hashlib.sha256(data).hexdigest()
+                    if lab.checked('sha256sum '+remote+'/'+name, 'fixture SHA', 30).split()[0] != h:
+                        raise RuntimeError('fixture upload SHA mismatch')
+                    result['fixture_sha256'][name] = h
+                put(sftp, remote+'/isolated.sh', ISOLATED.encode())
+                parents = [lab.checked('readlink /proc/self/ns/'+k, k, 30) for k in ('net', 'mnt', 'pid')]
+                argv = ['python3', remote+'/audit_server_route_policy.py', 'run', '--qeli', a.qeli,
+                        '--sha256', a.sha256, '--artifacts', remote+'/case', '--package', a.package,
+                        '--ipv4', a.ipv4, '--ipv6', a.ipv6, '--ipv4-gateway']
+                for k, value in zip(('net', 'mnt', 'pid'), parents):
+                    argv += ['--parent-'+k, value]
+                put(sftp, remote+'/run.sh', ('set -eu\nexec '+shlex.join(argv)+'\n').encode())
+            finally:
+                sftp.close()
+            command = shlex.join(['timeout', '--signal=TERM', '--kill-after=10', '200',
+                                 'unshare', '--net', '--mount', '--pid', '--fork', '--kill-child=KILL', '--mount-proc',
+                                 'bash', remote+'/isolated.sh', remote+'/private', *parents, remote+'/run.sh'])
+            result['command'] = command
+            print('START isolated gateway', a.ipv4, a.ipv6, flush=True)
+            log, code = lab.run(command, 230)
+            (a.output/'runtime.log').write_text(log, encoding='utf8', newline='\n')
+            result['exit_code'] = code
+            sftp = lab.open_sftp()
+            try:
+                pull(sftp, remote+'/case', a.output/'case')
+            finally:
+                sftp.close()
+            case = json.loads((a.output/'case/result.json').read_text(encoding='utf8'))
+            result['case'] = case
+            if code != 0 or case['status'] != 'PASS':
+                raise RuntimeError('gateway fixture failed; inspect runtime.log')
+            result['status'] = 'PASS'
+        finally:
+            if 'host_before' in result:
+                result['host_after'] = snapshot(lab)
+                result['host_restored'] = result['host_before'] == result['host_after']
+                if not result['host_restored']:
+                    result['status'] = 'FAIL_HOST_CHANGED'
+            lab.close()
+            (a.output/'checks.json').write_text(json.dumps(result, indent=2)+'\n', encoding='utf8', newline='\n')
+        if result['status'] != 'PASS':
+            raise RuntimeError(result['status'])
+        print('PASS isolated gateway', case['check_count'], 'checks; host unchanged', flush=True)
 
-def client_conf():
-    return f"""[qeli]
-server = 10.66.116.10:{PORT}
-proto = tcp
-user = admin
-pass = testpass123
-key = {PUBKEY}
-mode = fake-tls
-sni = www.microsoft.com
-dev = {TUN}
-gateway_nat = true
-lan_subnet = {LAN}
-post_up = /bin/touch /tmp/qeli_postup_ran
-post_down = /bin/touch /tmp/qeli_postdown_ran
-[logging]
-level = info
-file = /root/gw-cli.log
-"""
 
-def conn(h):
-    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
-    c.connect(h[0], username=h[1], password=h[2], timeout=25, look_for_keys=False, allow_agent=False)
-    return c
-
-sc = conn(SRV); cc = conn(CLI)
-def S(cmd, t=60):
-    _i,o,e = sc.exec_command(cmd, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()
-def C(cmd, t=60):
-    _i,o,e = cc.exec_command(cmd, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()
-def Sbg(cmd):
-    ch = sc.get_transport().open_session(); ch.exec_command(cmd); time.sleep(1); ch.close()
-def Cbg(cmd):
-    ch = cc.get_transport().open_session(); ch.exec_command(cmd); time.sleep(1); ch.close()
-
-PASS = []
-def check(name, ok, detail=""):
-    PASS.append(ok)
-    print(f"  [{'PASS' if ok else 'FAIL'}] {name}" + (f"  ({detail})" if detail and not ok else ""))
-
-def clean_client_rules():
-    C("for t in nat filter mangle; do iptables-save -t $t 2>/dev/null | grep -q qeli-gw-nat && "
-      "iptables-save -t $t | grep qeli-gw-nat | sed 's/^-A/iptables -t '$t' -D/' | sh 2>/dev/null; done; true")
-
-def start_client():
-    C(f"pkill -9 -f 'gw-cli.conf' 2>/dev/null; ip link del {TUN} 2>/dev/null; "
-      f"rm -f /root/gw-cli.log /tmp/qeli_postup_ran /tmp/qeli_postdown_ran /var/lib/qeli/known_hosts; sleep 1; true")
-    Cbg(f"RUST_LOG=info setsid nohup {CLI_BIN} client -c /root/gw-cli.conf </dev/null >/root/gw-cli.out 2>&1 & echo $! >/root/gw-cli.pid")
-    for _ in range(15):
-        time.sleep(1.5)
-        if "Auth OK" in C("grep -E 'Auth OK' /root/gw-cli.log 2>/dev/null || true"):
-            return True
-    print(C("tail -8 /root/gw-cli.log /root/gw-cli.out")); return False
-
-try:
-    # server up
-    sc.open_sftp().putfo(io.BytesIO(SERVER_CONF.encode()), "/root/gw-srv.conf")
-    S("pkill -9 -f 'gw-srv.conf' 2>/dev/null; ip link del gws0 2>/dev/null; rm -f /root/gw-srv.log; sleep 1; true")
-    Sbg(f"RUST_LOG=info setsid nohup {SRV_BIN} server -c /root/gw-srv.conf >/dev/null 2>&1 </dev/null & echo $! >/root/gw-srv.pid")
-    up = any("listening on 0.0.0.0:%d" % PORT in S("cat /root/gw-srv.log 2>/dev/null") for _ in [time.sleep(1) for _ in range(12)])
-    print("[server] listening:", up)
-    if not up:
-        print(S("tail -15 /root/gw-srv.log")); sys.exit(1)
-
-    # copy fresh binary to client
-    import tempfile
-    lp = os.path.join(tempfile.gettempdir(), "qeli-gw")
-    sf = sc.open_sftp(); sf.get(SRV_BIN, lp); sf.close()
-    cf = cc.open_sftp(); cf.put(lp, CLI_BIN); cf.close()
-    C(f"chmod +x {CLI_BIN}; true")
-
-    # ---- Test 1: trusted config (0600) → rules + hooks ----
-    print("\n=== Test 1: gateway_nat + hooks (trusted config) ===")
-    clean_client_rules()
-    cc.open_sftp().putfo(io.BytesIO(client_conf().encode()), "/root/gw-cli.conf")
-    C("chmod 600 /root/gw-cli.conf")
-    if not start_client():
-        print("client failed to connect"); sys.exit(1)
-    time.sleep(2)
-    nat = C("iptables -t nat -S POSTROUTING")
-    fwd = C("iptables -S FORWARD")
-    mng = C("iptables -t mangle -S FORWARD")
-    check("MASQUERADE -s lan_subnet -o tun tagged", "qeli-gw-nat" in nat and LAN in nat and f"-o {TUN}" in nat and "MASQUERADE" in nat, nat)
-    # FORWARD-accept is best-effort: on iptables-nft boxes the filter/FORWARD chain
-    # can be legacy-incompatible (same as server/nat.rs); informational only.
-    print(f"  [info] FORWARD accept (best-effort): {'present' if fwd.count('qeli-gw-nat') >= 2 else 'skipped (nft/legacy filter conflict)'}")
-    check("MSS-clamp present", "qeli-gw-nat" in mng and "TCPMSS" in mng, mng)
-    check("ip_forward = 1", C("cat /proc/sys/net/ipv4/ip_forward") == "1")
-    check("post_up ran (file created)", C("test -f /tmp/qeli_postup_ran && echo Y || echo N") == "Y")
-
-    # clean stop → teardown + post_down
-    print("\n=== Test 2: clean stop (SIGTERM) → teardown + post_down ===")
-    C("kill -TERM $(cat /root/gw-cli.pid) 2>/dev/null; true"); time.sleep(3)
-    nat2 = C("iptables -t nat -S POSTROUTING")
-    check("MASQUERADE removed on clean stop", "qeli-gw-nat" not in nat2, nat2)
-    check("post_down ran (file created)", C("test -f /tmp/qeli_postdown_ran && echo Y || echo N") == "Y")
-
-    # ---- Test 3: world-writable config → hooks refused, gateway still runs ----
-    print("\n=== Test 3: world-writable config refuses hooks ===")
-    clean_client_rules()
-    C("rm -f /tmp/qeli_postup_ran /tmp/qeli_postdown_ran; sync")  # ensure clean slate
-    C("chmod 666 /root/gw-cli.conf")
-    start_client()
-    time.sleep(2)
-    print("  [debug] postup file:", C("ls -la /tmp/qeli_postup_ran 2>&1 | tail -1"))
-    log = C("cat /root/gw-cli.log")
-    nat3 = C("iptables -t nat -S POSTROUTING")
-    check("hooks refused (log)", "Ignoring post_up/post_down" in log, log[-300:])
-    check("post_up did NOT run", C("test -f /tmp/qeli_postup_ran && echo Y || echo N") == "N")
-    check("gateway_nat STILL engaged (not a hook)", "qeli-gw-nat" in nat3, nat3)
-
-    print("\n================ RESULT ================")
-    print(f"  {sum(PASS)}/{len(PASS)} checks passed")
-finally:
-    print("\n=== cleanup ===")
-    C("kill -TERM $(cat /root/gw-cli.pid 2>/dev/null) 2>/dev/null; sleep 1; pkill -9 -f 'gw-cli.conf' 2>/dev/null; true")
-    clean_client_rules()
-    C(f"ip link del {TUN} 2>/dev/null; rm -f /root/gw-cli.conf; true")
-    S("kill -9 $(cat /root/gw-srv.pid 2>/dev/null) 2>/dev/null; pkill -9 -f 'gw-srv.conf' 2>/dev/null; ip link del gws0 2>/dev/null; true")
-    print("[restored] systemd qeli:", S("systemctl is-active qeli-server.service 2>/dev/null || echo n/a"))
-    sc.close(); cc.close()
+    if __name__ == '__main__':
+        main()

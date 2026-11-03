@@ -12,29 +12,42 @@ import os, sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(__file__))
 from lab_common import connect, run, LAB_SRV
+from router_toolchain import ROUTER_RUST, ROUTER_NIGHTLY
+
+def installed_probe(pin, command):
+    # Query only an installed named toolchain; diagnostics must never bootstrap
+    # the rolling nightly alias or a missing default via a Rustup proxy.
+    return ("if rustup toolchain list | awk '{print $1}' | grep -Eq '^" +
+            pin.replace('.', r'\.') + "(-|$)'; then " + command +
+            "; else echo 'toolchain " + pin + " not installed'; fi")
+
 
 CMDS = [
-    ("rustc / cargo",            "rustc --version; cargo --version"),
-    ("rustup toolchains",        "rustup toolchain list"),
-    ("targets (default)",        "rustup target list --installed"),
-    ("nightly есть?",            "rustup toolchain list | grep -q nightly && echo YES || echo NO"),
-    ("nightly rust-src?",        "rustup component list --toolchain nightly 2>/dev/null | grep 'rust-src (installed)' || echo 'нет nightly/rust-src'"),
-    ("целевые linux-musl таргеты","rustup target list | grep -E 'mipsel-unknown-linux-musl|aarch64-unknown-linux-musl|^mips-unknown-linux-musl' || true"),
-    ("zig",                      "which zig && zig version || echo 'нет zig'"),
-    ("cargo-zigbuild",           "cargo zigbuild --version 2>/dev/null || echo 'нет cargo-zigbuild'"),
-    ("zig умеет mipsel/aarch64", "zig targets 2>/dev/null | grep -oE '\"(mipsel|aarch64|mips)\"' | sort -u || echo 'zig targets failed'"),
-    ("musl-cross линкеры",       "ls /usr/bin /usr/local/bin 2>/dev/null | grep -E 'musl-gcc|openwrt|mipsel.*gcc|aarch64.*linux.*gcc' || echo 'нет явных musl-cross gcc'"),
+    ("rustup toolchains", "rustup toolchain list"),
+    ("pinned rustc / cargo", installed_probe(ROUTER_RUST,
+        f'"$(rustup which --toolchain {ROUTER_RUST} rustc)" --version && '
+        f'"$(rustup which --toolchain {ROUTER_RUST} cargo)" --version')),
+    ("pinned installed targets", installed_probe(ROUTER_RUST,
+        f"rustup target list --toolchain {ROUTER_RUST} --installed")),
+    ("pinned nightly sources", installed_probe(ROUTER_NIGHTLY,
+        f"rustup component list --toolchain {ROUTER_NIGHTLY} --installed")),
+    ("zig", "command -v zig && zig version || echo 'zig unavailable'"),
+    ("cargo-zigbuild", "cargo-zigbuild --version 2>/dev/null || echo 'cargo-zigbuild unavailable'"),
+    ("zig mipsel/aarch64", "zig targets 2>/dev/null | grep -oE '\"(mipsel|aarch64|mips)\"' | sort -u || echo 'zig targets failed'"),
+    ("musl-cross linkers", "ls /usr/bin /usr/local/bin 2>/dev/null | grep -E 'musl-gcc|openwrt|mipsel.*gcc|aarch64.*linux.*gcc' || echo 'no explicit musl-cross gcc'"),
 ]
 
 
 def main():
     c = connect(LAB_SRV)
-    print("Подключено к", LAB_SRV[0], "\n")
-    for label, cmd in CMDS:
-        print(f"### {label}")
-        print(run(c, cmd, timeout=60))
-        print()
-    c.close()
+    try:
+        print("Подключено к", LAB_SRV[0], "\n")
+        for label, cmd in CMDS:
+            print(f"### {label}")
+            print(run(c, cmd, timeout=60))
+            print()
+    finally:
+        c.close()
 
 
 if __name__ == "__main__":

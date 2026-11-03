@@ -258,10 +258,14 @@ def _safe_extract(path: Path, destination: Path) -> None:
 
 
 def _signed_entitlements(bundle: Path) -> tuple[dict[str, Any], str | None]:
-    process = subprocess.run(
-        ["codesign", "-d", "--entitlements", ":-", str(bundle)],
-        capture_output=True,
-    )
+    try:
+        process = subprocess.run(
+            ["codesign", "-d", "--entitlements", ":-", str(bundle)],
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {}, f"cannot read signed entitlements for {bundle.name}: {error}"
     output = process.stdout + process.stderr
     start, end = output.find(b"<?xml"), output.rfind(b"</plist>")
     if process.returncode != 0 or start < 0 or end < start:

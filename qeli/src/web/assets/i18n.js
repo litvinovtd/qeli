@@ -36,6 +36,14 @@
   // English-string -> translation. 'en' is identity (no entry needed).
   const DICT = {
     ru: {
+      "Invalid INI section": "Некорректная секция INI",
+      "Duplicate [qeli] section": "Повторная секция [qeli]",
+      "INI key before [qeli]": "Параметр INI до секции [qeli]",
+      "Expected INI key = value": "Ожидается строка INI: ключ = значение",
+      "Duplicate INI key: ": "Повторный параметр INI: ",
+      "Invalid INI boolean: ": "Некорректное логическое значение INI: ",
+      "Invalid INI number: ": "Некорректное число INI: ",
+      "Missing [qeli] section": "Отсутствует секция [qeli]",
       // ── chrome / nav ──
       'Dashboard': 'Панель',
       'Users': 'Пользователи',
@@ -304,6 +312,8 @@
       // surfaced by the coverage check, so fixed here rather than left as known-English
       // text. The trailing space is part of the key: the reason is appended to it.
       'Failed to load config: ': 'Не удалось загрузить конфиг: ',
+      'New profile defaults were not loaded. Reload before adding a profile.':
+        'Шаблон нового профиля не загружен. Обновите конфигурацию перед добавлением профиля.',
       'Failed to load users: ': 'Не удалось загрузить пользователей: ',
       'Network error: ': 'Сетевая ошибка: ',
       'Restart failed: ': 'Не удалось перезапустить: ',
@@ -342,8 +352,10 @@
       'Always assign a specific IPv6 address to a username':
         'Всегда назначать пользователю определённый IPv6-адрес',
       'IPv6 forwarding / NAT66': 'Маршрутизация IPv6 / NAT66',
-      'route preserves client source addresses; nat66 masquerades them on the selected IPv6 uplink':
-        'route сохраняет исходные адреса клиентов; nat66 маскарадует их на выбранном IPv6-интерфейсе',
+      'off blocks IPv6 transit; manual leaves the IPv6 firewall and forwarding to you; route preserves client addresses; nat66 masquerades them':
+        'off блокирует IPv6-транзит; manual оставляет IPv6 firewall и forwarding вам; route сохраняет адреса клиентов; nat66 маскарадует их',
+      'Manual IPv6 also leaves DNS firewall access and port 53 redirection to you. IPv4 settings are independent.':
+        'В ручном режиме IPv6 доступ к DNS через firewall и перенаправление порта 53 также настраиваете вы. Настройки IPv4 независимы.',
       'Upstream IPv6 NDP proxy': 'Внешний IPv6 NDP proxy',
       'Answer only for active client IPv6 addresses and client_subnet prefixes; needed when the provider treats the delegated prefix as on-link':
         'Отвечает только за IPv6-адреса активных клиентов и префиксы client_subnet; нужен, когда провайдер считает делегированный префикс on-link',
@@ -404,6 +416,8 @@
       'New Password': 'Новый пароль',
       'Hash': 'Хешировать',
       'Password hashed with argon2id': 'Пароль захеширован argon2id',
+    'Legacy burst (not enforced)': 'Устаревший burst (не применяется)',
+    '0 = inherit group or unlimited': '0 = лимит группы или без ограничения',
       'Bandwidth limit (Mbps)': 'Лимит полосы (Мбит/с)',
       'Burst (Mbps)': 'Burst (Мбит/с)',
       '0 = unlimited': '0 = без лимита',
@@ -563,7 +577,7 @@
       'chacha20-poly1305 (recommended)': 'chacha20-poly1305 (рекомендуется)',
       'datetime — 2026-07-18 18:10:03.259 (local)': 'datetime — 2026-07-18 18:10:03.259 (локальное)',
       'epoch — 1782000603.259 (unix)': 'epoch — 1782000603.259 (unix)',
-      'json (structured) — not implemented yet': 'json (структурированный) — пока не реализован',
+      'json (structured)': 'json (структурированный)',
       'none — journald/syslog stamps it already': 'none — journald/syslog уже добавляет время',
       'plain (human-readable)': 'plain (для чтения человеком)',
       'rfc3339 — 2026-07-18T18:10:03.259Z (UTC)': 'rfc3339 — 2026-07-18T18:10:03.259Z (UTC)',
@@ -661,7 +675,7 @@
       'Log format': 'Формат логов',
       'Output format for log lines': 'Формат строк лога',
       'Log file path': 'Путь к файлу логов',
-      'Leave empty to use stderr / journald': 'Пусто — использовать stderr / journald',
+      'Leave empty to use stderr / journald. Files rotate at 10 MiB with 3 archives.': 'Пусто — stderr / journald. Файлы ротируются при 10 МиБ с тремя архивами.',
 
       // ── config: identity ──
       "Each profile has its own pinned public key. Set it as": 'У каждого профиля свой пиннингованный публичный ключ. Задайте его как',
@@ -694,6 +708,8 @@
       'TX queue length': 'Длина очереди TX',
       'Kernel transmit queue size. Higher = more buffering.': 'Размер очереди передачи в ядре. Больше = больше буферизации.',
       'TUN queues (multi-queue)': 'Очереди TUN (multi-queue)',
+      'IFF_MULTI_QUEUE: 0 = auto (CPU count), 1 = single queue, up to 256 explicitly.':
+        'IFF_MULTI_QUEUE: 0 = автоматически (по числу CPU), 1 = одна очередь, явное значение — до 256.',
       'IFF_MULTI_QUEUE: 0 = auto (CPU count) so the kernel RSS-spreads packets across cores. 1 = single queue.':
         'IFF_MULTI_QUEUE: 0 = авто (число CPU), ядро RSS-распределяет пакеты по ядрам. 1 = одна очередь.',
 
@@ -747,6 +763,8 @@
       'TCP (reliable)': 'TCP (надёжнее)',
       'Cache size': 'Размер кэша',
       'Number of DNS entries to cache': 'Сколько DNS-записей кэшировать',
+      '0 disables caching; up to 10000 entries and 16 MiB of cached packets per profile':
+        '0 отключает кэш; до 10 000 записей и 16 МиБ кэшированных пакетов на профиль',
       'Timeout (seconds)': 'Таймаут (сек)',
       'Upstream query timeout': 'Таймаут upstream-запроса',
       'Upstream DNS servers': 'Upstream DNS-серверы',
@@ -790,6 +808,8 @@
       'Required for obfs mode — must match the client exactly': 'Обязательно для режима obfs — должно точно совпадать с клиентом',
       'Generate': 'Сгенерировать',
       'SNI (Server Name)': 'SNI (имя сервера)',
+      'SNI in generated fake-TLS share links. REALITY links use the proxy target automatically.':
+        'SNI в создаваемых ссылках fake-TLS. В ссылках REALITY автоматически используется адрес прокси.',
       'Domain in the fake TLS ClientHello — should be a real CDN/HTTPS site': 'Домен в фейковом TLS ClientHello — должен быть реальным CDN/HTTPS-сайтом',
       'TLS session ID': 'TLS session ID',
       'Include a random TLS session ID (more realistic handshake)': 'Включать случайный TLS session ID (реалистичнее рукопожатие)',
@@ -888,9 +908,9 @@
       'Keepalive interval (s)': 'Интервал keepalive (с)',
       'TCP keepalive probe interval': 'Интервал TCP keepalive-проб',
       'Send buffer (bytes)': 'Буфер отправки (байт)',
-      'SO_SNDBUF for client sockets': 'SO_SNDBUF для клиентских сокетов',
+      '0 = OS autotuning; non-zero = fixed send buffer': '0 — автонастройка ОС; другое значение — фиксированный буфер отправки',
       'Recv buffer (bytes)': 'Буфер приёма (байт)',
-      'SO_RCVBUF for client sockets': 'SO_RCVBUF для клиентских сокетов',
+      '0 = OS autotuning; non-zero = fixed receive buffer': '0 — автонастройка ОС; другое значение — фиксированный буфер приёма',
       'Read buffer size (bytes)': 'Размер буфера чтения (байт)',
       'Buffer for reading from the TUN interface': 'Буфер для чтения из интерфейса TUN',
       'Write buffer size (bytes)': 'Размер буфера записи (байт)',
@@ -911,6 +931,7 @@
 
       // ── logs ──
       'All levels': 'Все уровни',
+      'Log level filters': 'Фильтры уровней журнала',
       'ERROR': 'ERROR',
       'WARN': 'WARN',
       'INFO': 'INFO',
@@ -967,6 +988,14 @@
 
       // ── dashboard: host metrics + per-user usage (Tier) ──
       'Host load': 'Нагрузка хоста',
+      'Attention required': 'Требует внимания',
+      'Metrics unavailable': 'Метрики недоступны',
+      'Collecting metrics…': 'Сбор метрик…',
+      'Connections': 'Соединения',
+      'Host uptime': 'Аптайм хоста',
+      '1 / 5 / 15 min': '1 / 5 / 15 мин',
+      'Memory usage': 'Использование памяти',
+      'Disk usage': 'Использование диска',
       'Tunnel throughput': 'Пропускная способность',
       'load avg': 'ср. нагрузка',
       'qeli proc': 'процесс qeli',
@@ -998,8 +1027,8 @@
         'REALITY-прокси: чужой/зондирующий трафик проксируется на реальный сайт; наши клиенты опознаются по токену short_id (fake-TLS, без внутреннего TLS).',
       'Mimics a TLS 1.3 handshake. Near-zero overhead — the lightweight default.':
         'Имитирует рукопожатие TLS 1.3. Почти без накладных расходов — лёгкий вариант.',
-      'ChaCha20 stream + WebSocket fronting. Structure-free, beats "fully-encrypted" / entropy DPI.':
-        'Поток ChaCha20 + WebSocket-фронтинг. Без структуры, обходит DPI «полностью зашифрованного» / энтропийный.',
+      'ChaCha20 stream inside binary WebSocket frames. HTTP Upgrade changes the initial wire signature; DPI resistance depends on the network.':
+        'Поток ChaCha20 внутри бинарных кадров WebSocket. HTTP Upgrade меняет начальную сигнатуру; устойчивость к DPI зависит от сети.',
       'ChaCha20 stream obfuscation without fronting — bare random-looking stream.':
         'Обфускация ChaCha20 без фронтинга — голый случайный поток.',
       'Raw tunnel, no obfuscation. For debugging or fully trusted links only.':
@@ -1115,9 +1144,20 @@
       'A client tunnel session ended (TCP clean close). Off by default.': 'Туннельная сессия клиента завершилась (чистое TCP-закрытие). По умолчанию выкл.',
       'Send test': 'Отправить тест',
       'Test result': 'Результат теста',
+      'Password changed while hashing. Run Hash again.': 'Пароль изменён во время хеширования. Нажмите «Hash» повторно.',
+      'Invalid configuration response': 'Некорректный ответ конфигурации',
+      'Settings revision unavailable. Reload before saving.': 'Ревизия настроек недоступна. Обновите данные перед сохранением.',
+      'Settings changed while loading. Retry to reload.': 'Настройки изменены во время загрузки. Повторите загрузку.',
       'Notification settings saved': 'Настройки уведомлений сохранены',
       'Test sent — see the result below': 'Тест отправлен — см. результат ниже',
       'Save failed': 'Не удалось сохранить',
+      'How long an admin login stays valid before re-auth. Valid range: 60 seconds to 30 days. Default 86400 (1 day).': 'Срок действия входа администратора до повторной аутентификации. Допустимо от 60 секунд до 30 дней. По умолчанию 86400 (1 день).',
+      'reality-tls = genuine browser-shaped TLS/HTTP/2; fake-tls = TLS-shaped compatibility framing; obfs = structure-free stream. Must match the client.': 'reality-tls = настоящий TLS/HTTP/2 с формой браузера; fake-tls = совместимый TLS-подобный фрейминг; obfs = поток без структуры. Должно совпадать с клиентом.',
+      'reality-tls (genuine TLS/HTTP/2)': 'reality-tls (настоящий TLS/HTTP/2)',
+      'plain (raw TCP, no masking)': 'plain (чистый TCP без маскировки)',
+      'bytes) before the handshake, mimicking AmneziaWG. TCP obfs requires the same': 'байт) перед рукопожатием, имитируя AmneziaWG. Для TCP obfs требуется одинаковое',
+      'on both ends; on UDP jc is sender-only and does not need to match.': 'на обеих сторонах; для UDP jc относится только к отправителю и совпадать не обязан.',
+      'Maximum positive cover-traffic budget while shaping is enabled': 'Максимальный положительный бюджет cover-трафика при включённом shaping',
       'Test failed': 'Не удалось отправить тест',
       'configure Telegram or a webhook URL first': 'сначала настройте Telegram или URL webhook',
 
@@ -1128,11 +1168,16 @@
       'Lockout policy': 'Политика блокировки',
       '— panel login and VPN auth are limited independently':
         '— вход в панель и VPN-аутентификация ограничиваются независимо',
-      "Applied live (no restart); saving resets that surface's failure counters. Turn a switch off to disable rate-limiting for that surface entirely.":
-        'Применяется на лету (без рестарта); сохранение сбрасывает счётчики этой поверхности. Выключите переключатель, чтобы полностью отключить ограничение для неё.',
+      "Policies are saved to INI and applied live when reload succeeds; applying changed thresholds resets that surface's failure counters. Turn a switch off to disable rate-limiting for that surface entirely.":
+        'Политики сохраняются в INI и применяются без рестарта при успешной перезагрузке; изменение порогов сбрасывает счётчики этой поверхности. Выключите переключатель, чтобы полностью отключить ограничение для неё.',
       'VPN authentication': 'Аутентификация VPN',
       'Panel login': 'Вход в панель',
       'Saved — applied live': 'Сохранено — применено на лету',
+      'Saved — VPN reload requested': 'Сохранено — запрошено обновление VPN worker',
+      'Saved — VPN policy awaits worker restart': 'Сохранено — VPN-политика применится при следующем запуске worker',
+      'Saved panel policy is not active; check INI and logs before restart': 'Сохранённая политика панели не действует; проверьте INI и журнал перед рестартом',
+      'Saved — panel reload failed; VPN policy awaits worker restart': 'Сохранено — перезагрузка панели не удалась; VPN-политика ждёт рестарта worker',
+      'Saved — panel settings reload failed; check INI and logs': 'Сохранено — перезагрузка панели не удалась; проверьте INI и журнал',
       'Applies to both web-panel login and VPN authentication':
         'Действует и на вход в веб-панель, и на аутентификацию VPN',
       'After this many failed attempts within the window, a source IP is locked out for the lockout duration.':
@@ -1229,8 +1274,11 @@
       // ── config: logging ──
       'Log timestamp': 'Метка времени в журнале',
       'Shape of the timestamp in front of each line': 'Формат метки времени перед каждой строкой',
-      'Shape of the line itself — not implemented yet, the line is always plain':
-        'Формат самой строки — пока не реализовано, строка всегда простая',
+      'Line format for server logs: readable text or one JSON object per line':
+        'Формат серверного лога: текст или один JSON-объект на строку',
+      '10s · ≤60s on error': '10 с · до 60 с при ошибке',
+      'This profile is disabled. The configuration can be prepared, but connections will work only after the profile is enabled and the server is restarted.':
+        'Профиль выключен. Конфигурацию можно подготовить, но подключение заработает после включения профиля и рестарта сервера.',
 
       // ── config: profiles / listeners ──
       'Duplicate': 'Дублировать',
@@ -1416,6 +1464,10 @@
 
       // ── JS-built toasts / dialogs (wrapped in qeliT() at the call site) ──
       'Copied': 'Скопировано',
+      'Profile revision unavailable. Reload before deleting.': 'Ревизия профиля недоступна. Обновите список перед удалением.',
+      'Saved "{}"': 'Профиль «{}» сохранён',
+      'Saved "{}". Disconnect and Connect to apply changes.':
+        'Профиль «{}» сохранён. Для применения изменений отключите его и подключите снова.',
       'Link copied': 'Ссылка скопирована',
       'Network error:': 'Сетевая ошибка:',
       'Failed to load config:': 'Не удалось загрузить конфигурацию:',

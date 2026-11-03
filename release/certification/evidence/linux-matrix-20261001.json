@@ -1,0 +1,902 @@
+{
+  "schema_version": 1,
+  "kind": "qeli-release-matrix-lab-evidence",
+  "executed_at": "2026-10-01T19:27:31.378764+00:00",
+  "artifact_sha256": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0",
+  "environment": "Linux 6.12.105+deb13-amd64 x86_64 GNU/Linux",
+  "functional_cases_passed": 18,
+  "assertions_passed": 327,
+  "certification_acceptance": "accepted after root-cause reconciliation and stable five-case recheck of the identical artifact; original nonmatching host snapshots retained",
+  "full_run": {
+    "schema_version": 1,
+    "kind": "qeli-release-matrix-isolated-lab",
+    "executed_at": "2026-10-01T19:27:31.378764+00:00",
+    "host": "10.66.116.11",
+    "artifact_sha256": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0",
+    "source_commit": "f4124a812681a2ff5c7ce1dd1aeb68682df78ceb",
+    "native_source_digest": "d39a334335d8a0110a59683bbdf354dfbfb4bd8e5919bdc5981a4b08278f43a5",
+    "fixture_sha256": {
+      "ipv6_netns_case.sh": {
+        "source": "877468a189f9a25ad4b3ec5521af1efb3e40a6fb08bca43cef8491e69c7f2791",
+        "runtime": "877468a189f9a25ad4b3ec5521af1efb3e40a6fb08bca43cef8491e69c7f2791"
+      },
+      "ipv6_dns_pair.sh": {
+        "source": "af4fedc54317c3cc38d500819373258214c48d43acf81cc1672bd3222bfb40db",
+        "runtime": "af4fedc54317c3cc38d500819373258214c48d43acf81cc1672bd3222bfb40db"
+      },
+      "ipv6_mtu_pair.sh": {
+        "source": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a",
+        "runtime": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a"
+      },
+      "ipv6_legacy_pair.sh": {
+        "source": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6",
+        "runtime": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6"
+      },
+      "dns_test_server.py": {
+        "source": "ee3366636bc0853c89ab91ac38ca9d7dc02099c1b83ec279a87f053b63e34848",
+        "runtime": "ee3366636bc0853c89ab91ac38ca9d7dc02099c1b83ec279a87f053b63e34848"
+      },
+      "tap_ipv6_control_probe.py": {
+        "source": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757",
+        "runtime": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757"
+      }
+    },
+    "remote": "/var/tmp/qeli-release-matrix-20261001T192731378764Z",
+    "results": [
+      {
+        "id": "linux.outer4.inner4.tcp.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.764,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner4.tcp.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 4 tcp fake-tls full",
+        "log": "linux.outer4.inner4.tcp.full.log"
+      },
+      {
+        "id": "linux.outer4.inner6.tcp.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.793,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner6.tcp.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 6 tcp fake-tls full",
+        "log": "linux.outer4.inner6.tcp.full.log"
+      },
+      {
+        "id": "linux.outer6.inner4.tcp.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.788,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner4.tcp.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 4 tcp fake-tls full",
+        "log": "linux.outer6.inner4.tcp.full.log"
+      },
+      {
+        "id": "linux.outer6.inner6.tcp.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.763,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner6.tcp.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 6 tcp fake-tls full",
+        "log": "linux.outer6.inner6.tcp.full.log"
+      },
+      {
+        "id": "linux.outer4.inner4.udp-fake-tls.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.799,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner4.udp-fake-tls.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 4 udp fake-tls full",
+        "log": "linux.outer4.inner4.udp-fake-tls.full.log"
+      },
+      {
+        "id": "linux.outer4.inner6.udp-fake-tls.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.76,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner6.udp-fake-tls.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 6 udp fake-tls full",
+        "log": "linux.outer4.inner6.udp-fake-tls.full.log"
+      },
+      {
+        "id": "linux.outer6.inner4.udp-fake-tls.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.771,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner4.udp-fake-tls.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 4 udp fake-tls full",
+        "log": "linux.outer6.inner4.udp-fake-tls.full.log"
+      },
+      {
+        "id": "linux.outer6.inner6.udp-fake-tls.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.771,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner6.udp-fake-tls.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 6 udp fake-tls full",
+        "log": "linux.outer6.inner6.udp-fake-tls.full.log"
+      },
+      {
+        "id": "linux.outer4.inner4.udp-quic.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.783,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner4.udp-quic.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 4 udp quic full",
+        "log": "linux.outer4.inner4.udp-quic.full.log"
+      },
+      {
+        "id": "linux.outer4.inner6.udp-quic.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.759,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner6.udp-quic.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 6 udp quic full",
+        "log": "linux.outer4.inner6.udp-quic.full.log"
+      },
+      {
+        "id": "linux.outer6.inner4.udp-quic.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.77,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner4.udp-quic.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 4 udp quic full",
+        "log": "linux.outer6.inner4.udp-quic.full.log"
+      },
+      {
+        "id": "linux.outer6.inner6.udp-quic.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.79,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner6.udp-quic.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 6 udp quic full",
+        "log": "linux.outer6.inner6.udp-quic.full.log"
+      },
+      {
+        "id": "linux.dual.tcp.split",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 7.891,
+        "checks_passed": 19,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.dual.tcp.split 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 dual tcp fake-tls split",
+        "log": "linux.dual.tcp.split.log"
+      },
+      {
+        "id": "linux.dual.udp.split",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 7.879,
+        "checks_passed": 19,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.dual.udp.split 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 dual udp fake-tls split",
+        "log": "linux.dual.udp.split.log"
+      },
+      {
+        "id": "linux.tap.ndp-ra",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 7.812,
+        "checks_passed": 15,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.tap.ndp-ra 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 6 tcp fake-tls full tap",
+        "log": "linux.tap.ndp-ra.log"
+      },
+      {
+        "id": "linux.dns.ipv4-ipv6",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 16.826,
+        "checks_passed": 56,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.dns.ipv4-ipv6 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_dns_pair.sh /root/qeli-src/target/release/qeli",
+        "log": "linux.dns.ipv4-ipv6.log"
+      },
+      {
+        "id": "linux.mtu.1280-pmtu-ptb",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 17.549,
+        "checks_passed": 36,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.mtu.1280-pmtu-ptb 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_mtu_pair.sh /root/qeli-src/target/release/qeli",
+        "log": "linux.mtu.1280-pmtu-ptb.log"
+      },
+      {
+        "id": "linux.legacy-peer",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 11.169,
+        "checks_passed": 26,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.legacy-peer 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_legacy_pair.sh /root/qeli-src/target/release/qeli /var/tmp/qeli-release-matrix-20261001T192731378764Z/legacy/usr/bin/qeli",
+        "log": "linux.legacy-peer.log"
+      }
+    ],
+    "host_before": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "environment": "Linux 6.12.105+deb13-amd64 x86_64 GNU/Linux",
+    "version": "qeli 0.8.2",
+    "isolation_sha256": "c44cb9ea31635fa82fff6fd8f33d5c1b47a18b89affce188dd128aefa4cdd7b5",
+    "legacy_deb_sha256": "0db63ae27501f528dc2fafa028880966f7f33093ac23b28e01800c81ee3b2e5d",
+    "legacy_version": "qeli 0.7.16",
+    "legacy_artifact_sha256": "6139d7f0280a129e635c188b80bfba93f8256ca76295f24e10e740f99c5ef8bd",
+    "aggregate_leak_passed": true,
+    "host_after": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT\n-A FORWARD -i vpn0 -j ACCEPT\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "host_restored": false
+  },
+  "legacy_repeat": {
+    "schema_version": 1,
+    "kind": "qeli-release-matrix-isolated-lab",
+    "executed_at": "2026-10-01T19:37:36.682029+00:00",
+    "host": "10.66.116.11",
+    "artifact_sha256": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0",
+    "source_commit": "f4124a812681a2ff5c7ce1dd1aeb68682df78ceb",
+    "native_source_digest": "d39a334335d8a0110a59683bbdf354dfbfb4bd8e5919bdc5981a4b08278f43a5",
+    "fixture_sha256": {
+      "ipv6_netns_case.sh": {
+        "source": "877468a189f9a25ad4b3ec5521af1efb3e40a6fb08bca43cef8491e69c7f2791",
+        "runtime": "877468a189f9a25ad4b3ec5521af1efb3e40a6fb08bca43cef8491e69c7f2791"
+      },
+      "ipv6_dns_pair.sh": {
+        "source": "af4fedc54317c3cc38d500819373258214c48d43acf81cc1672bd3222bfb40db",
+        "runtime": "af4fedc54317c3cc38d500819373258214c48d43acf81cc1672bd3222bfb40db"
+      },
+      "ipv6_mtu_pair.sh": {
+        "source": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a",
+        "runtime": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a"
+      },
+      "ipv6_legacy_pair.sh": {
+        "source": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6",
+        "runtime": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6"
+      },
+      "dns_test_server.py": {
+        "source": "ee3366636bc0853c89ab91ac38ca9d7dc02099c1b83ec279a87f053b63e34848",
+        "runtime": "ee3366636bc0853c89ab91ac38ca9d7dc02099c1b83ec279a87f053b63e34848"
+      },
+      "tap_ipv6_control_probe.py": {
+        "source": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757",
+        "runtime": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757"
+      }
+    },
+    "remote": "/var/tmp/qeli-release-matrix-20261001T193736682029Z",
+    "results": [
+      {
+        "id": "linux.legacy-peer",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 11.203,
+        "checks_passed": 26,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T193736682029Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T193736682029Z/linux.legacy-peer 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T193736682029Z/scripts/ipv6_legacy_pair.sh /root/qeli-src/target/release/qeli /var/tmp/qeli-release-matrix-20261001T193736682029Z/legacy/usr/bin/qeli",
+        "log": "linux.legacy-peer.log"
+      }
+    ],
+    "host_before": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT\n-A FORWARD -i vpn0 -j ACCEPT\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "environment": "Linux 6.12.105+deb13-amd64 x86_64 GNU/Linux",
+    "version": "qeli 0.8.2",
+    "isolation_sha256": "c44cb9ea31635fa82fff6fd8f33d5c1b47a18b89affce188dd128aefa4cdd7b5",
+    "legacy_deb_sha256": "0db63ae27501f528dc2fafa028880966f7f33093ac23b28e01800c81ee3b2e5d",
+    "legacy_version": "qeli 0.7.16",
+    "legacy_artifact_sha256": "6139d7f0280a129e635c188b80bfba93f8256ca76295f24e10e740f99c5ef8bd",
+    "aggregate_leak_passed": false,
+    "host_after": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "host_restored": false
+  },
+  "product_tree_unchanged_since_d13": "040000 tree f0649180abda2161d04fbe40c9d8af9d0e50696f\tqeli",
+  "results": [
+    {
+      "id": "linux.outer4.inner4.tcp.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.764,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner4.tcp.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 4 tcp fake-tls full",
+      "log": "linux.outer4.inner4.tcp.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer4.inner6.tcp.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.793,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner6.tcp.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 6 tcp fake-tls full",
+      "log": "linux.outer4.inner6.tcp.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner4.tcp.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.788,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner4.tcp.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 4 tcp fake-tls full",
+      "log": "linux.outer6.inner4.tcp.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner6.tcp.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.763,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner6.tcp.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 6 tcp fake-tls full",
+      "log": "linux.outer6.inner6.tcp.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/tcp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=6 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-fake-tls.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.799,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner4.udp-fake-tls.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 4 udp fake-tls full",
+      "log": "linux.outer4.inner4.udp-fake-tls.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=udp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-fake-tls.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.76,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner6.udp-fake-tls.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 6 udp fake-tls full",
+      "log": "linux.outer4.inner6.udp-fake-tls.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=udp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-fake-tls.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.771,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner4.udp-fake-tls.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 4 udp fake-tls full",
+      "log": "linux.outer6.inner4.udp-fake-tls.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/udp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=4 transport=udp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-fake-tls.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.771,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner6.udp-fake-tls.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 6 udp fake-tls full",
+      "log": "linux.outer6.inner6.udp-fake-tls.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=6 transport=udp wire=fake-tls routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-quic.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.783,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner4.udp-quic.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 4 udp quic full",
+      "log": "linux.outer4.inner4.udp-quic.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=udp wire=quic routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-quic.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.759,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer4.inner6.udp-quic.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 6 udp quic full",
+      "log": "linux.outer4.inner6.udp-quic.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=udp wire=quic routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-quic.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.77,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner4.udp-quic.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 4 udp quic full",
+      "log": "linux.outer6.inner4.udp-quic.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/udp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=4 transport=udp wire=quic routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-quic.full",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 5.79,
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.outer6.inner6.udp-quic.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 6 udp quic full",
+      "log": "linux.outer6.inner6.udp-quic.full.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=6 transport=udp wire=quic routing=full: 13 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.dual.tcp.split",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 7.891,
+      "checks_passed": 19,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.dual.tcp.split 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 dual tcp fake-tls split",
+      "log": "linux.dual.tcp.split.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner dual TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  unrelated IPv4 remains outside a split tunnel\n  PASS  unrelated IPv6 remains outside a split tunnel\n  PASS  unrelated split IPv4 remains reachable\n  PASS  unrelated split IPv6 remains reachable\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=dual transport=tcp wire=fake-tls routing=split: 19 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.dual.udp.split",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 7.879,
+      "checks_passed": 19,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.dual.udp.split 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 dual udp fake-tls split",
+      "log": "linux.dual.udp.split.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner dual TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  unrelated IPv4 remains outside a split tunnel\n  PASS  unrelated IPv6 remains outside a split tunnel\n  PASS  unrelated split IPv4 remains reachable\n  PASS  unrelated split IPv6 remains reachable\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=dual transport=udp wire=fake-tls routing=split: 19 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.tap.ndp-ra",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 7.812,
+      "checks_passed": 15,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.tap.ndp-ra 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 6 tcp fake-tls full tap",
+      "log": "linux.tap.ndp-ra.log",
+      "output": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  client interface is a real TAP device\n  PASS  TAP answers IPv6 NDP and Router Solicitation locally\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=tcp wire=fake-tls routing=full: 15 passed, 0 failed ===\n"
+    },
+    {
+      "id": "linux.dns.ipv4-ipv6",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 16.826,
+      "checks_passed": 56,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.dns.ipv4-ipv6 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_dns_pair.sh /root/qeli-src/target/release/qeli",
+      "log": "linux.dns.ipv4-ipv6.log",
+      "output": "=== dual DNS via IPv4 upstream ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  deterministic IPv4 DNS upstream is listening\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner dual TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  DNS owns the current link marker\n  PASS  real resolved reports both tunnel DNS servers\n  PASS  real resolved reports the catch-all domain\nPASS: A a-stub.release.test via 127.0.0.53 -> 192.0.2.80\n  PASS  A query crosses the real systemd-resolved stub and tunnel\nPASS: AAAA aaaa-stub.release.test via 127.0.0.53 -> 2001:db8::80\n  PASS  AAAA query crosses the real systemd-resolved stub and tunnel\nPASS: A a-v4.release.test via 10.86.0.1 -> 192.0.2.80\n  PASS  A query resolves through the IPv4 tunnel DNS listener\nPASS: AAAA aaaa-v4.release.test via 10.86.0.1 -> 2001:db8::80\n  PASS  AAAA query resolves through the IPv4 tunnel DNS listener\nPASS: A a-v6.release.test via fd86::1 -> 192.0.2.80\n  PASS  A query resolves through the IPv6 tunnel DNS listener\nPASS: AAAA aaaa-v6.release.test via fd86::1 -> 2001:db8::80\n  PASS  AAAA query resolves through the IPv6 tunnel DNS listener\n  PASS  the configured IPv4 upstream received A and AAAA\n  PASS  client stopped cleanly\n  PASS  clean stop reverted per-link DNS\n  PASS  clean stop removed the resolver ownership marker\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=dual transport=tcp wire=fake-tls routing=full: 28 passed, 0 failed ===\n=== dual DNS via IPv6 upstream ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  deterministic IPv6 DNS upstream is listening\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner dual TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  DNS owns the current link marker\n  PASS  real resolved reports both tunnel DNS servers\n  PASS  real resolved reports the catch-all domain\nPASS: A a-stub.release.test via 127.0.0.53 -> 192.0.2.80\n  PASS  A query crosses the real systemd-resolved stub and tunnel\nPASS: AAAA aaaa-stub.release.test via 127.0.0.53 -> 2001:db8::80\n  PASS  AAAA query crosses the real systemd-resolved stub and tunnel\nPASS: A a-v4.release.test via 10.86.0.1 -> 192.0.2.80\n  PASS  A query resolves through the IPv4 tunnel DNS listener\nPASS: AAAA aaaa-v4.release.test via 10.86.0.1 -> 2001:db8::80\n  PASS  AAAA query resolves through the IPv4 tunnel DNS listener\nPASS: A a-v6.release.test via fd86::1 -> 192.0.2.80\n  PASS  A query resolves through the IPv6 tunnel DNS listener\nPASS: AAAA aaaa-v6.release.test via fd86::1 -> 2001:db8::80\n  PASS  AAAA query resolves through the IPv6 tunnel DNS listener\n  PASS  the configured IPv6 upstream received A and AAAA\n  PASS  client stopped cleanly\n  PASS  clean stop reverted per-link DNS\n  PASS  clean stop removed the resolver ownership marker\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=dual transport=tcp wire=fake-tls routing=full: 28 passed, 0 failed ===\n=== RESULT dual-stack DNS: both upstream families passed ===\n"
+    },
+    {
+      "id": "linux.mtu.1280-pmtu-ptb",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 17.549,
+      "checks_passed": 36,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.mtu.1280-pmtu-ptb 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_mtu_pair.sh /root/qeli-src/target/release/qeli",
+      "log": "linux.mtu.1280-pmtu-ptb.log",
+      "output": "=== auto PMTU and DATA_FRAG on outer MTU 1280 ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  uplink PMTU certified the 1280-byte outer path\n  PASS  downlink PMTU certified the 1280-byte outer path\n  PASS  uplink budget fits the 1280-byte carrier\n  PASS  downlink budget fits the 1280-byte carrier\n  PASS  auto MTU keeps the negotiated 1400-byte inner TUN\n  PASS  a 1400-byte inner IPv6 packet crosses the certified path via DATA_FRAG\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=udp wire=quic routing=full: 19 passed, 0 failed ===\n=== explicit inner MTU 1280 and ICMPv6 PTB ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  client TUN uses the IPv6 minimum MTU\n  PASS  a full 1280-byte inner IPv6 packet crosses DATA_FRAG\n  PASS  oversized downlink receives ICMPv6 Packet Too Big with MTU 1280\n  PASS  downlink succeeds at the advertised 1280-byte MTU\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=udp wire=quic routing=full: 17 passed, 0 failed ===\n=== RESULT MTU 1280/PMTU/PTB: both runtime modes passed ===\n"
+    },
+    {
+      "id": "linux.legacy-peer",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 11.169,
+      "checks_passed": 26,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T192731378764Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T192731378764Z/linux.legacy-peer 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T192731378764Z/scripts/ipv6_legacy_pair.sh /root/qeli-src/target/release/qeli /var/tmp/qeli-release-matrix-20261001T192731378764Z/legacy/usr/bin/qeli",
+      "log": "linux.legacy-peer.log",
+      "output": "new_version=qeli 0.8.2\nnew_sha256=a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0\nlegacy_version=qeli 0.7.16\nlegacy_sha256=6139d7f0280a129e635c188b80bfba93f8256ca76295f24e10e740f99c5ef8bd\n=== new server -> 0.7.16 client ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n=== 0.7.16 server -> new client ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n=== RESULT legacy peer: both directions passed ===\n"
+    }
+  ],
+  "raw_sha256": {
+    "d14-release-matrix-20261001/full-01/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-YKZXOC/add-user.log": "5009bab2f23fac5afec3a218340505cbde7c00a0f62c4dcc18cdf500474ef9d9",
+    "d14-release-matrix-20261001/full-01/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-YKZXOC/server.log": "438ec7e0d8961fab8574c64aecd698ca9c1e90ff5fb731e1acc3dbf0af1a057c",
+    "d14-release-matrix-20261001/full-01/linux.outer4.inner4.tcp.full.log": "407157bdfb8d9403f0b65f4e63e7fb8b367a9be15280163b69ef8033b6d3e29d",
+    "d14-release-matrix-20261001/full-01/linux.outer4.inner6.tcp.full/tmp/qeli-ipv6-SzOnGk/add-user.log": "8232fd79ce2592c2cbc9cc2af173a023c93f113d909e282be4ddc69382ec057c",
+    "d14-release-matrix-20261001/full-01/linux.outer4.inner6.tcp.full/tmp/qeli-ipv6-SzOnGk/server.log": "4ad2b9208b32fa8b28a6305c443bd8f3916fe79a52191558696b7a6659b08ba5",
+    "d14-release-matrix-20261001/full-01/linux.outer4.inner6.tcp.full.log": "f53e7d6bf20fdac807fd72e61724304b447d5f46dc9e542618380d37657ae478",
+    "d14-release-matrix-20261001/full-01/linux.outer6.inner4.tcp.full/tmp/qeli-ipv6-dLHwNX/add-user.log": "17cecf74385415bbf5e48949b4b921291eb2d774ffe0153bfe95aed01d668c0a",
+    "d14-release-matrix-20261001/full-01/linux.outer6.inner4.tcp.full/tmp/qeli-ipv6-dLHwNX/server.log": "59046d3db052044cef184d08535d2984845caa6702325db3ee2a03ef42d33386",
+    "d14-release-matrix-20261001/full-01/linux.outer6.inner4.tcp.full.log": "1224304b73190f42df959e0e981acd3bffa0489ba714c423fa74fc8746f287fd",
+    "d14-release-matrix-20261001/full-01/linux.outer6.inner6.tcp.full/tmp/qeli-ipv6-LoX3O3/add-user.log": "8d476c673656c93b5ae220317d5a740a89c1ec94059a415be5cbdba3dc2fc85c",
+    "d14-release-matrix-20261001/full-01/linux.outer6.inner6.tcp.full/tmp/qeli-ipv6-LoX3O3/server.log": "1cc98787b58ad1986aa6c3012d5a2e64b438186d80fb05228810ad41bb1e7384",
+    "d14-release-matrix-20261001/full-01/linux.outer6.inner6.tcp.full.log": "c77e8ec567208ad77d41642a423a841727529c9ad8299d64542ad1a7aaaca57d",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-ef7K0E/add-user.log": "36ac5b8acd90124f3c63cd1405ba7729bbe17dbc9140e12e4643a1b94e6428f7",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-ef7K0E/client.log": "fecc72b0c639368f53f3badb103eccdeb14e14a6f27489423272ca006411502e",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-ef7K0E/dbus.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-ef7K0E/dns-upstream.log": "3438c753a2ea0ed273b89b846cd77fa54b4bbb44ce476728b4feafa071899bb1",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-ef7K0E/resolved.log": "42cfdae5f8841d13caca14b33a3c82bdcedfa42170b5773856a96dd191a1ba1e",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-ef7K0E/server.log": "b8b5caeb09ca9a0bd9dfda50e5f84bda781b17cd1efa9a4e3061af863d0d0119",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-Ifnig8/add-user.log": "44b19bf6e18c961da6802c95d56721943c0d6a3ba4d83ce1c7d47557fc520d50",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-Ifnig8/client.log": "7f4432f300e19d4114d8fc2b1798d86e96b60e89abde5868e8feb3c790e9c24d",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-Ifnig8/dbus.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-Ifnig8/dns-upstream.log": "6929b648e6fa3285a45137dec5fdddc499391d9182f345a1b8c6b6ac90d5da51",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-Ifnig8/resolved.log": "12a1ee1514f6f8ab7cfdbbfa2eb78f5b3d398a8131663f0234a2b3cf2f244941",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-Ifnig8/server.log": "17ec7289fd2526c118293699227193768f644a8fc271099ae864432ec059eefb",
+    "d14-release-matrix-20261001/full-02/linux.dns.ipv4-ipv6.log": "b70ea005a84b8898d3617f9eddda51937cc0e1c602b641fb2fe0b8d7e0af4629",
+    "d14-release-matrix-20261001/full-02/linux.dual.tcp.split/tmp/qeli-ipv6-ZlCFYZ/add-user.log": "492c9b79f2f287cdb56e1b665f710043915ee1e73c0082a5fceeae8d757402a8",
+    "d14-release-matrix-20261001/full-02/linux.dual.tcp.split/tmp/qeli-ipv6-ZlCFYZ/client.log": "d6e6bddf4a971c5c31ba38bc24e9e0878d0c45238e6a988becc43cdac535eceb",
+    "d14-release-matrix-20261001/full-02/linux.dual.tcp.split/tmp/qeli-ipv6-ZlCFYZ/server.log": "b08c9c1826194ae10ec33118db7521a5d1516bc66430fd51b607a2d11fa15e7f",
+    "d14-release-matrix-20261001/full-02/linux.dual.tcp.split.log": "b5f93193aae0d04c5980986df8c1179fbd42b52d3baaa32d36a7f2aab16e076f",
+    "d14-release-matrix-20261001/full-02/linux.dual.udp.split/tmp/qeli-ipv6-Nv5OYm/add-user.log": "603c131e4bb257be6d5636fb981d058bc84d7ddbedc8f4a2ad58ad703a7d432d",
+    "d14-release-matrix-20261001/full-02/linux.dual.udp.split/tmp/qeli-ipv6-Nv5OYm/client.log": "0bbc806e9dd73eb87a2d8c202ccede33d3c23dda686335f972db4c3d8f3554d1",
+    "d14-release-matrix-20261001/full-02/linux.dual.udp.split/tmp/qeli-ipv6-Nv5OYm/server.log": "fced98520cedefe6154ff0a14ada0efc71f60312a0a433d2f3ff2d54c7e29fca",
+    "d14-release-matrix-20261001/full-02/linux.dual.udp.split.log": "5ca998e986e444cf3d28a551a49afdf6ae989847bc8ad7a6bd92d7cfdb8dfe0f",
+    "d14-release-matrix-20261001/full-02/linux.legacy-peer/tmp/qeli-ipv6-wpLiA6/add-user.log": "3f7f2729091228f086d79d4b0e17393408d9c972998406867894efee062f857a",
+    "d14-release-matrix-20261001/full-02/linux.legacy-peer/tmp/qeli-ipv6-wpLiA6/client.log": "40931d32390322239a27600a9a0a68edce64459a7e4734555c9fb8e6dd9e02a5",
+    "d14-release-matrix-20261001/full-02/linux.legacy-peer/tmp/qeli-ipv6-wpLiA6/server.log": "6f133ce3e22ee396eb866e40b83a611b712c379bd1abb341c88efa53a92594cc",
+    "d14-release-matrix-20261001/full-02/linux.legacy-peer/tmp/qeli-ipv6-YxQS1g/add-user.log": "ee2609cc99b562b8bc4a9a4e73ca4154648f291e5eef947bec986cd53676a68a",
+    "d14-release-matrix-20261001/full-02/linux.legacy-peer/tmp/qeli-ipv6-YxQS1g/client.log": "cb60de85f02ae62894a1e0cc7d8f39f79176a5374fd218d262c13f42d4955ebb",
+    "d14-release-matrix-20261001/full-02/linux.legacy-peer/tmp/qeli-ipv6-YxQS1g/server.log": "475caa5571d666aab5e46e3541f1997586b94887b1942c588bba8c21ef3e8b32",
+    "d14-release-matrix-20261001/full-02/linux.legacy-peer.log": "2da9a708f9536e8879e5fd265b918be0f16f2e2111d4d0a0a0a251fe57c97199",
+    "d14-release-matrix-20261001/full-02/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-DxEvCv/add-user.log": "f723f93c37a6e1795ddb81314b8acbef952e2e0bbca4c5a9f51bd9f2e8dec8c2",
+    "d14-release-matrix-20261001/full-02/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-DxEvCv/client.log": "e86ade5f8ad47e8aa588a198a6b41dab37dbc9c77a003466e613a71dc6190a0a",
+    "d14-release-matrix-20261001/full-02/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-DxEvCv/ptb.log": "42487b926f17f3391aacaab8ebda396da1b1563a145f3cd17c262a85df87a484",
+    "d14-release-matrix-20261001/full-02/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-DxEvCv/server.log": "2c2cd7ce4b4b15683405bebb5dae8d79e2b6d35f1f90969815d7138d0c01cd8a",
+    "d14-release-matrix-20261001/full-02/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-OzHUKK/add-user.log": "c3de556fbc9d47082acad2389173572831881f88dc2c4422d6087f7774d6d528",
+    "d14-release-matrix-20261001/full-02/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-OzHUKK/client.log": "4099faac6fb0f7d163bab094f408a117151f24b18a167bafc7f25057107f2e42",
+    "d14-release-matrix-20261001/full-02/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-OzHUKK/server.log": "17fe71b78b12307130163937704d4e45517482e4c28dd534b5f9ae5b13b72771",
+    "d14-release-matrix-20261001/full-02/linux.mtu.1280-pmtu-ptb.log": "cbf3a5a3f88ef60d17608067b51a62802bf2c3fd5fc288b7d4be83aa303407ea",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-7LmPef/add-user.log": "b99c1530d9e174bcae43872157c42ec1ed233e9e718d0c28badfc8a109d286c2",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-7LmPef/client.log": "71ecc11aa3c1a94284cef8bf9ec9cb3ee1a472cb4fc4510348a09ca5bb068fcf",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-7LmPef/server.log": "7422c6e2c3a7d18a5016ac061b513e129a3e749bbfdb8ee3aac4031f729e42ac",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.tcp.full.log": "74c9444879e760a565a47ea53f0cd8d82baecd6aa57348fbc1ec83eac6b1b83d",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.udp-fake-tls.full/tmp/qeli-ipv6-w7RadM/add-user.log": "f285d13e2dd9014d17b6bf7db25c4c59ef0bdc70a051797d84554eeabc4c0dab",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.udp-fake-tls.full/tmp/qeli-ipv6-w7RadM/client.log": "3759130fc0617ccd5c1004fe94e69b8c8ce6268026910d846b9e31a7c547d2b2",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.udp-fake-tls.full/tmp/qeli-ipv6-w7RadM/server.log": "b9b498848873fe5f3f5d918410ca257f033523fc3cb71ef085f33b133e8c26eb",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.udp-fake-tls.full.log": "69f806854f48c198b0107e2ccf09d7f290ff2fb3962f7cdc218389370aff3f41",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.udp-quic.full/tmp/qeli-ipv6-C2ft86/add-user.log": "dfb01697bb1bf05c5491eb401f6375099d50a77d0effe3b49e633ab569766b32",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.udp-quic.full/tmp/qeli-ipv6-C2ft86/client.log": "129a7d1244f413c57624631bc68274e137c1eb68e825fce68519d7d8cc8485c7",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.udp-quic.full/tmp/qeli-ipv6-C2ft86/server.log": "10a4a4f8ba9e8164c2823a8947c54c6b3000d98ab46222a51e913276c64b7bad",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner4.udp-quic.full.log": "b2bc05ea9d31ba76a28355af13e37abdea7c87f0b93d99149e67551f037e42da",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.tcp.full/tmp/qeli-ipv6-Oxi9Q4/add-user.log": "75fcb642476595823c8d6a1f85022bb4025cf6c853a4bb7c355bc4121a6bffcc",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.tcp.full/tmp/qeli-ipv6-Oxi9Q4/client.log": "2216fc7cc7763c1aa18ab9c1d2bcbfd143588fb8512e1ebdf5ee28c6ef3744cf",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.tcp.full/tmp/qeli-ipv6-Oxi9Q4/server.log": "70b77327a7309b1bb6cf17f57f75035e51c5604232439cec81b65d9ef825b106",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.tcp.full.log": "2941a63c048f5b8307d32d98b480d1826f827ab97f91f49d2ca3d8e2a7044cdc",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.udp-fake-tls.full/tmp/qeli-ipv6-FmfT0D/add-user.log": "18d54f3b98e23bbff57fbc08029ab12c5c799423f2e73282927d1d198e17d5b0",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.udp-fake-tls.full/tmp/qeli-ipv6-FmfT0D/client.log": "4f4be3bb33d9d82898947d56d1116010207cf3780f42643cd9bc66257a826125",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.udp-fake-tls.full/tmp/qeli-ipv6-FmfT0D/server.log": "38c8da8d1fe73a2cfa6afc327443313e98a368d4bdaa5f07b82c025fbf0a0c6d",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.udp-fake-tls.full.log": "95d36bd01e9bc0d3361193dadd1396eb0cba0493a077596595430a74d0eed9b5",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.udp-quic.full/tmp/qeli-ipv6-g6mYBp/add-user.log": "d13f124689af6615368c89b6e6b9d900e47f6474fea9f806fab07cadd3181c8d",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.udp-quic.full/tmp/qeli-ipv6-g6mYBp/client.log": "bf8fdd1f7045b675fb03d2e8abc348f94088ebbbb2a13b9e8bcb8dc7cd1da4dc",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.udp-quic.full/tmp/qeli-ipv6-g6mYBp/server.log": "0babcfdd3ae9757073716e0866e50db5763eab8b7093393291da8cbf53745e90",
+    "d14-release-matrix-20261001/full-02/linux.outer4.inner6.udp-quic.full.log": "0df2d55d009abb957c80ac62aa0bc82ce8a3e2631ee740f20144cb97a88d62d3",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.tcp.full/tmp/qeli-ipv6-fg6DDx/add-user.log": "a8c39d663dbd21bf67994f47d8ac4d82720e91006b02ed1c6fedaca684d8ba99",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.tcp.full/tmp/qeli-ipv6-fg6DDx/client.log": "811bd26cd09d5aea0f98718a2280aca99fff4335436a4f85158e0eccc1234d5b",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.tcp.full/tmp/qeli-ipv6-fg6DDx/server.log": "49a8a34f5ff7ccc2111315dcaf32244f8d7d01442d82218bb576ee057c6037ef",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.tcp.full.log": "0840f83134ae9deff67b18459d39b23cd4fb434fe532d104871562897d517076",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.udp-fake-tls.full/tmp/qeli-ipv6-QSetta/add-user.log": "198d732b3fef323bf0b413dce251842266f1b432d133e61f0a73b632fbe5aea7",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.udp-fake-tls.full/tmp/qeli-ipv6-QSetta/client.log": "531d73c76b6e7dcb4939e93ef7fe3a55e355e31a5159975e65b29595b5d674f9",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.udp-fake-tls.full/tmp/qeli-ipv6-QSetta/server.log": "a56ee8792d98f40213991d90a14de2a53c0b6a4681745d6bae9f08e3e4a99bb8",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.udp-fake-tls.full.log": "d77ef7cdde47bce9613efee417994d0b87e5bef1a72bf4fa598b4a4d872fc5e4",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.udp-quic.full/tmp/qeli-ipv6-QJQref/add-user.log": "0582a60aabd489c0c1695b18bfc2a6df1bc509bb81e6992f8560056045b30890",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.udp-quic.full/tmp/qeli-ipv6-QJQref/client.log": "a8e45a9669c817fce056f16ce19718da269d5d733040cfda310d699da4371eab",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.udp-quic.full/tmp/qeli-ipv6-QJQref/server.log": "5afcb31c7de675fcb2ec8625b402d0d57a45584cdfb0c3b250312173a9561bb9",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner4.udp-quic.full.log": "57395387d7168dac4b717489cb8f48ce315cebb531caf3ecf8e05831c1a9a95c",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.tcp.full/tmp/qeli-ipv6-z5iLh2/add-user.log": "27fb3aa641d9cec3d897f8cdf99b1b80a47efec7e458ee5a523573371a862dc8",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.tcp.full/tmp/qeli-ipv6-z5iLh2/client.log": "3a4467060c477166b671eb98c1b5843f497794a3dc8365f792db2b2c6472fefe",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.tcp.full/tmp/qeli-ipv6-z5iLh2/server.log": "243e57993190ddcc5d06007fbd288e826c63493dd81924cfb19111513a73ac63",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.tcp.full.log": "cf09bf91d4ccc688ce8eef08b102b36e0c897b36e7864804fd5dafb89d140616",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.udp-fake-tls.full/tmp/qeli-ipv6-roFBkd/add-user.log": "cfe567995dfac0395347e238b3361d7b45a34136425d14b695e973c525cad66c",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.udp-fake-tls.full/tmp/qeli-ipv6-roFBkd/client.log": "29e3727952f6a1c7d8c9cdc1bd8de0875cbe1b5560bf7a8e925e0dd9ea6473a0",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.udp-fake-tls.full/tmp/qeli-ipv6-roFBkd/server.log": "0538dda841969e047e31cbbfaff0122401ed8096e216dae780d4e731ef82401b",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.udp-fake-tls.full.log": "ad2cc5c57b7e76b77e584ee16426768934f6e57c3d6631d6d81138cf85e7dd84",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.udp-quic.full/tmp/qeli-ipv6-tVjiEZ/add-user.log": "da083a25a115820df73b60f5fe65bc875bbe30a6b492519a03949054078f0b3a",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.udp-quic.full/tmp/qeli-ipv6-tVjiEZ/client.log": "ae6edb933ac27cf843a2e49e99e2669f427d49336250b791b75e8f79157eaa71",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.udp-quic.full/tmp/qeli-ipv6-tVjiEZ/server.log": "79876c1ccc9936112ee54501374e74bd5849858b8424d1edfea6ff734ad98232",
+    "d14-release-matrix-20261001/full-02/linux.outer6.inner6.udp-quic.full.log": "046910ad5f98a6ed3da114203df44ac2024a227584395aabe369a732d593e5c4",
+    "d14-release-matrix-20261001/full-02/linux.tap.ndp-ra/tmp/qeli-ipv6-sFiIZS/add-user.log": "ece22456daa5bb3135d78af5e1f58ec5839bd5839f913a0dda54278bf3f3f7e2",
+    "d14-release-matrix-20261001/full-02/linux.tap.ndp-ra/tmp/qeli-ipv6-sFiIZS/client.log": "dca5639f3ea0452749ee703adf15f3085818577c3791c65348d7b5ba84fd7899",
+    "d14-release-matrix-20261001/full-02/linux.tap.ndp-ra/tmp/qeli-ipv6-sFiIZS/server.log": "1f47208c182f37bc239b76d5d20b979e40a7d312df9444cb77ab8d5adeb42422",
+    "d14-release-matrix-20261001/full-02/linux.tap.ndp-ra/tmp/qeli-ipv6-sFiIZS/tap-control.log": "42bc0cb79da51819f2a174f4dcaca0be26719f95c910f1c57a9a81fc5687f7ca",
+    "d14-release-matrix-20261001/full-02/linux.tap.ndp-ra.log": "ae656fff7b04cd26217fae649ea9cf25dc4fd64f8199d26ccd5ee31d4b132a3c",
+    "d14-release-matrix-20261001/legacy-repeat-03/linux.legacy-peer/tmp/qeli-ipv6-Frhj6b/add-user.log": "a252cef3944cb6d105b1e46a6da101dee7d33736e87492ff9860af41e183e820",
+    "d14-release-matrix-20261001/legacy-repeat-03/linux.legacy-peer/tmp/qeli-ipv6-Frhj6b/client.log": "4739cc451d494307795cbd2fe713f570d1aed1105f0899656988b27c72723f62",
+    "d14-release-matrix-20261001/legacy-repeat-03/linux.legacy-peer/tmp/qeli-ipv6-Frhj6b/server.log": "1cda972f9684d913186e05a30221b69b460e85ab562debfe7d0ae5dbb57de2c3",
+    "d14-release-matrix-20261001/legacy-repeat-03/linux.legacy-peer/tmp/qeli-ipv6-maY7xS/add-user.log": "1db255835c8eb1b7f42499447fef5dfe299babd2b3eaf748b5305b312d02809a",
+    "d14-release-matrix-20261001/legacy-repeat-03/linux.legacy-peer/tmp/qeli-ipv6-maY7xS/client.log": "507f55f202b1109376c0784996ff2cb7a126095a619765a8f411f9bc3a68aebc",
+    "d14-release-matrix-20261001/legacy-repeat-03/linux.legacy-peer/tmp/qeli-ipv6-maY7xS/server.log": "9711860ebd650504755cb0a9f5c9439f31f6cbe91e574bb944515a5465310bbb",
+    "d14-release-matrix-20261001/legacy-repeat-03/linux.legacy-peer.log": "2da9a708f9536e8879e5fd265b918be0f16f2e2111d4d0a0a0a251fe57c97199",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-If2Ghx/add-user.log": "4b5d302ac8dc4f79eec4e131613c231ba24ffa32e8e5ecdb18607ab3ffc2fb1a",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-If2Ghx/client.log": "523d3480fc15f46aa6a3ede7880305b3588eb78bb43b573aba6f33710cedd6a8",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-If2Ghx/dbus.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-If2Ghx/dns-upstream.log": "3438c753a2ea0ed273b89b846cd77fa54b4bbb44ce476728b4feafa071899bb1",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-If2Ghx/resolved.log": "42cfdae5f8841d13caca14b33a3c82bdcedfa42170b5773856a96dd191a1ba1e",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-If2Ghx/server.log": "ccdee2642093242da784be42192fddee78ad94602d423296767534b543e6ca31",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-XlPlqi/add-user.log": "a42cc2326acacc1abc5e1bca6888da37fe290c3da5eb3baac944166bdf06802c",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-XlPlqi/client.log": "f439f5b8bf34201c278e952d04eb4b49654df23e67acfcfb84bc128a32df60bd",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-XlPlqi/dbus.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-XlPlqi/dns-upstream.log": "6929b648e6fa3285a45137dec5fdddc499391d9182f345a1b8c6b6ac90d5da51",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-XlPlqi/resolved.log": "9eab27fe6feaf1bfb211ef30c536870e3f82778384f56d7522e8edb0f72af433",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-XlPlqi/server.log": "9783c1e56015ad9e7e9e45b2c6afa386c85b065255433e3af7d7ecd7a88d1baa",
+    "d14-release-matrix-20261001/stable-05/linux.dns.ipv4-ipv6.log": "b70ea005a84b8898d3617f9eddda51937cc0e1c602b641fb2fe0b8d7e0af4629",
+    "d14-release-matrix-20261001/stable-05/linux.legacy-peer/tmp/qeli-ipv6-akgJDw/add-user.log": "de4354ea81ef052ec4eede4c1d981141c67bacffd8ac86829181a5c852c16d28",
+    "d14-release-matrix-20261001/stable-05/linux.legacy-peer/tmp/qeli-ipv6-akgJDw/client.log": "184934e12db815290efef0e3f4c2ddb23c2f2d3edd32f035b960b42f29dfe2b5",
+    "d14-release-matrix-20261001/stable-05/linux.legacy-peer/tmp/qeli-ipv6-akgJDw/server.log": "adbe0c7d587c211cbb3858ba28df1840a589a022938b9607f5422039bd69ea6a",
+    "d14-release-matrix-20261001/stable-05/linux.legacy-peer/tmp/qeli-ipv6-X7591C/add-user.log": "bb10bb68196c126d0461567d7c8e9f94bf658d2f17f28575688a7ad2e685745b",
+    "d14-release-matrix-20261001/stable-05/linux.legacy-peer/tmp/qeli-ipv6-X7591C/client.log": "024070d36e24b0b12179645f68ce08e6daeab3cd9ed82005cd8dd61f527e40b5",
+    "d14-release-matrix-20261001/stable-05/linux.legacy-peer/tmp/qeli-ipv6-X7591C/server.log": "d1c7d605a30da953edc50225e3985f21cb28949fb92adcfa17611c1ab5dc27c2",
+    "d14-release-matrix-20261001/stable-05/linux.legacy-peer.log": "2da9a708f9536e8879e5fd265b918be0f16f2e2111d4d0a0a0a251fe57c97199",
+    "d14-release-matrix-20261001/stable-05/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-eLeIxz/add-user.log": "0fc901f0fceeaf561b29d976aea861b9e4650692b031ab50b0f70460b1f97263",
+    "d14-release-matrix-20261001/stable-05/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-eLeIxz/client.log": "00d4bc8a20ff265eae79a8778424ee1ded5d4d7d0d028cec04cafb23e4ed2209",
+    "d14-release-matrix-20261001/stable-05/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-eLeIxz/server.log": "a841a3a33989eb6e22a14b1ce07e4800596d5ea12554d74fed7f2b1aaa4228f7",
+    "d14-release-matrix-20261001/stable-05/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-ELhOxg/add-user.log": "ff1cac57177574916209ee593a0aa57061f07399c90d342cf58aaca8946171cb",
+    "d14-release-matrix-20261001/stable-05/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-ELhOxg/client.log": "28b4306e9a6b999ec9fc57dc04e955dfde7bb00247e917faf2e8338543d45501",
+    "d14-release-matrix-20261001/stable-05/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-ELhOxg/ptb.log": "42487b926f17f3391aacaab8ebda396da1b1563a145f3cd17c262a85df87a484",
+    "d14-release-matrix-20261001/stable-05/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-ELhOxg/server.log": "2bea9796b3c8586b1755401eccc29774dabf7529c8bf7bfd3162668e50539c3f",
+    "d14-release-matrix-20261001/stable-05/linux.mtu.1280-pmtu-ptb.log": "cbf3a5a3f88ef60d17608067b51a62802bf2c3fd5fc288b7d4be83aa303407ea",
+    "d14-release-matrix-20261001/stable-05/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-w9N8ei/add-user.log": "b563c747d944c2c7184a5be12013eef33ccb2872b03017461a7b4f25cef06056",
+    "d14-release-matrix-20261001/stable-05/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-w9N8ei/client.log": "1aead74934214461534d4b149999b3c93920670e9f5f8f1748cd2fae8f23c4e7",
+    "d14-release-matrix-20261001/stable-05/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-w9N8ei/server.log": "a6e36ca17076842400758d3b4ba0a2dbb2e451b16fdad0301bb2881265f8f4d9",
+    "d14-release-matrix-20261001/stable-05/linux.outer4.inner4.tcp.full.log": "74c9444879e760a565a47ea53f0cd8d82baecd6aa57348fbc1ec83eac6b1b83d",
+    "d14-release-matrix-20261001/stable-05/linux.outer6.inner6.udp-quic.full/tmp/qeli-ipv6-E9d3SK/add-user.log": "493ae54503787a31e99c20cf4224a9632d3161171a9ea502b2b562e6db9c3b37",
+    "d14-release-matrix-20261001/stable-05/linux.outer6.inner6.udp-quic.full/tmp/qeli-ipv6-E9d3SK/client.log": "c778c0dd41480753c46a26d20448eec26cc353d8ebb4ac2771650ff041ea92f9",
+    "d14-release-matrix-20261001/stable-05/linux.outer6.inner6.udp-quic.full/tmp/qeli-ipv6-E9d3SK/server.log": "1165aa0e1fcad8ab3625d9a90432c8d190fcf16c4a181807fb98005502bfab30",
+    "d14-release-matrix-20261001/stable-05/linux.outer6.inner6.udp-quic.full.log": "046910ad5f98a6ed3da114203df44ac2024a227584395aabe369a732d593e5c4",
+    "d14-release-matrix-20261001/lab-crash-loop-owner.json": "956a0a29a1f14ec47b6375b4a26699a39ec75ccbe907582d393c8d92efc46815"
+  },
+  "reused_soak": [
+    {
+      "path": "d13-resource-20261001/qeli-d13-final-soak100.log",
+      "sha256": "ffc03f1f8fb0b73e594011c1030463c7d354265e5b025c6ac527e155809b8b95",
+      "output": "  PASS  path A reaches the server\n  PASS  path B reaches the server with a candidate-compatible reverse-path filter\n  PASS  path B reverse-path filter was restored before Qeli starts\n  PASS  server tun device has the requested kernel kind\n  PASS  client tun device has the requested kernel kind\n  PASS  TCP handover capability was negotiated\n  PASS  initial carrier bypass uses path A\n  PASS  tunnel works before route change\n  RESOURCE baseline transport=tcp client_pid=94024 server_pid=93925 client_rss_kib=51712 server_rss_kib=52100 client_fd=18 server_fd=21 client_sockets=6 server_sockets=7\n  TCP soak progress 10/100 target=qrm-a server_worker_pid=93925 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=51936 server_rss_kib=55728 orphans=0 orphan_bytes=0\n  TCP soak progress 20/100 target=qrm-a server_worker_pid=93925 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=51936 server_rss_kib=55732 orphans=0 orphan_bytes=0\n  TCP soak progress 30/100 target=qrm-a server_worker_pid=93925 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=51936 server_rss_kib=55760 orphans=0 orphan_bytes=0\n  TCP soak progress 40/100 target=qrm-a server_worker_pid=93925 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=51936 server_rss_kib=56020 orphans=0 orphan_bytes=0\n  TCP soak progress 50/100 target=qrm-a server_worker_pid=93925 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=53976 server_rss_kib=56624 orphans=0 orphan_bytes=0\n  TCP soak progress 60/100 target=qrm-a server_worker_pid=93925 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=54236 server_rss_kib=56628 orphans=0 orphan_bytes=0\n  TCP soak progress 70/100 target=qrm-a server_worker_pid=93925 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=54236 server_rss_kib=56628 orphans=0 orphan_bytes=0\n  TCP soak progress 80/100 target=qrm-a server_worker_pid=93925 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=54236 server_rss_kib=56628 orphans=0 orphan_bytes=0\n  TCP soak progress 90/100 target=qrm-a server_worker_pid=93925 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=54236 server_rss_kib=56728 orphans=0 orphan_bytes=0\n  TCP soak progress 100/100 target=qrm-a server_worker_pid=93925 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=54236 server_rss_kib=56764 orphans=0 orphan_bytes=0\n  RESOURCE final transport=tcp client_rss_kib=54104 server_rss_kib=56764 client_rss_delta_kib=2392 server_rss_delta_kib=4664 client_rss_peak_delta_kib=2524 server_rss_peak_delta_kib=4664 client_fd=18 server_fd=21 client_sockets=6 server_sockets=7\n  PASS  TCP soak committed every requested client/server path transaction exactly once\n  PASS  TCP soak retained one authenticated session without reconnect or grace\n  PASS  TCP soak control counters retained one session without failures or orphan state\n  PASS  TCP soak preserved the original client/server worker processes and TUN\n  PASS  TCP soak left one exact carrier bypass and a usable tunnel\n  PASS  TCP soak closed superseded sockets instead of leaking file descriptors\n  PASS  TCP soak did not accumulate socket descriptors\n  PASS  TCP soak kept sampled RSS growth within the 32 MiB acceptance budget\n\n=== RESULT (fake-tls/soak/tun/single): 16 passed, 0 failed ===\n",
+      "captured_at": "2026-10-01T17:01:53.439342+00:00"
+    },
+    {
+      "path": "d13-resource-20261001/udp-quic-100-fixed.log",
+      "sha256": "161a36f01310a1dcc68fa5eccd560c0707cddb9cf93fd6dc04e70908872052b1",
+      "output": "PASS  path A reaches the server\n  PASS  path B reaches the server with a candidate-compatible reverse-path filter\n  PASS  path B reverse-path filter was restored before Qeli starts\n  PASS  server tun device has the requested kernel kind\n  PASS  client tun device has the requested kernel kind\n  PASS  UDP roaming capability was negotiated\n  PASS  initial carrier bypass uses path A\n  PASS  tunnel works before route change\n  RESOURCE baseline transport=udp client_pid=141733 server_pid=141634 client_rss_kib=51532 server_rss_kib=59792 client_fd=18 server_fd=21 client_sockets=6 server_sockets=7\n  soak progress 10/100 target=qru-a server_worker_pid=141634 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=59912 server_rss_kib=66008 candidates=0 cid_aliases=3\n  soak progress 20/100 target=qru-a server_worker_pid=141634 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=59924 server_rss_kib=74204 candidates=0 cid_aliases=3\n  soak progress 30/100 target=qru-a server_worker_pid=141634 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=59924 server_rss_kib=74204 candidates=0 cid_aliases=3\n  soak progress 40/100 target=qru-a server_worker_pid=141634 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=59924 server_rss_kib=74204 candidates=0 cid_aliases=3\n  soak progress 50/100 target=qru-a server_worker_pid=141634 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=59924 server_rss_kib=74728 candidates=0 cid_aliases=3\n  soak progress 60/100 target=qru-a server_worker_pid=141634 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=64580 server_rss_kib=74728 candidates=0 cid_aliases=3\n  soak progress 70/100 target=qru-a server_worker_pid=141634 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=64580 server_rss_kib=74728 candidates=0 cid_aliases=3\n  soak progress 80/100 target=qru-a server_worker_pid=141634 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=64580 server_rss_kib=74728 candidates=0 cid_aliases=3\n  soak progress 90/100 target=qru-a server_worker_pid=141634 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=64580 server_rss_kib=74728 candidates=0 cid_aliases=3\n  soak progress 100/100 target=qru-a server_worker_pid=141634 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=64580 server_rss_kib=74728 candidates=0 cid_aliases=3\n  RESOURCE final transport=udp client_rss_kib=60660 server_rss_kib=74728 client_rss_delta_kib=9128 server_rss_delta_kib=14936 client_rss_peak_delta_kib=13048 server_rss_peak_delta_kib=14936 client_fd=19 server_fd=21 client_sockets=7 server_sockets=7\n  PASS  soak committed every requested client/server path transaction exactly once\n  PASS  soak retained one authenticated session without reconnect\n  PASS  UDP soak control counters retained one session, three CID aliases and no pending candidate\n  PASS  soak preserved the original client/server worker processes and TUN\n  PASS  soak left one exact carrier bypass and a usable tunnel\n  PASS  soak closed superseded sockets instead of leaking file descriptors\n  PASS  soak did not accumulate socket descriptors\n  PASS  soak kept sampled RSS growth within the 32 MiB acceptance budget\n  PASS  soak restored candidate reverse-path filters and released sysctl leases\n\n=== RESULT (quic/soak/tun): 17 passed, 0 failed ===\nEXIT_CODE=0\n",
+      "captured_at": "2026-10-01T18:00:26.908697+00:00"
+    }
+  ],
+  "reuse_reason": "Exact a526c03b release artifact attested in Q25-F204, same native source digest and identical qeli tree; only audit tooling and documentation changed. Soak capture timestamps retained; no new soak claimed.",
+  "reused_unit": {
+    "path": "d13-resource-20261001/qeli-d13-unit-fd4096.log",
+    "sha256": "a81a75966cfff1d7136dd59e4be667d5d2c9ac1845890e3c8bc2bdc262c3214c",
+    "result": "2238 passed, 59 ignored; fd limit 4096, 2 test threads",
+    "reuse_reason": "Identical qeli tree since D13; no compiled product input changed"
+  },
+  "parent_rule_observations": [
+    {
+      "run": "full-02",
+      "change": "added 2 FORWARD rules for vpn0 and MASQUERADE 10.8.0.0/24 -> ens18"
+    },
+    {
+      "run": "legacy-repeat-03",
+      "change": "same 3 rules removed"
+    },
+    {
+      "observed_at": "2026-10-01T19:42:49+00:00",
+      "change": "same 3 rules present again with no audit fixture running"
+    }
+  ],
+  "parent_rule_source": "vpn-nat.service restarted because required vpn-obfuscated.service repeatedly exited with missing password source; exact matching scripts and journal retained.",
+  "stable_recheck": {
+    "schema_version": 1,
+    "kind": "qeli-release-matrix-isolated-lab",
+    "executed_at": "2026-10-01T19:57:06.927715+00:00",
+    "host": "10.66.116.11",
+    "artifact_sha256": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0",
+    "source_commit": "05423fafe0bf03bdc0e4ae52f762b4501f532e37",
+    "native_source_digest": "d39a334335d8a0110a59683bbdf354dfbfb4bd8e5919bdc5981a4b08278f43a5",
+    "fixture_sha256": {
+      "ipv6_netns_case.sh": {
+        "source": "877468a189f9a25ad4b3ec5521af1efb3e40a6fb08bca43cef8491e69c7f2791",
+        "runtime": "877468a189f9a25ad4b3ec5521af1efb3e40a6fb08bca43cef8491e69c7f2791"
+      },
+      "ipv6_dns_pair.sh": {
+        "source": "af4fedc54317c3cc38d500819373258214c48d43acf81cc1672bd3222bfb40db",
+        "runtime": "af4fedc54317c3cc38d500819373258214c48d43acf81cc1672bd3222bfb40db"
+      },
+      "ipv6_mtu_pair.sh": {
+        "source": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a",
+        "runtime": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a"
+      },
+      "ipv6_legacy_pair.sh": {
+        "source": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6",
+        "runtime": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6"
+      },
+      "dns_test_server.py": {
+        "source": "ee3366636bc0853c89ab91ac38ca9d7dc02099c1b83ec279a87f053b63e34848",
+        "runtime": "ee3366636bc0853c89ab91ac38ca9d7dc02099c1b83ec279a87f053b63e34848"
+      },
+      "tap_ipv6_control_probe.py": {
+        "source": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757",
+        "runtime": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757"
+      }
+    },
+    "remote": "/var/tmp/qeli-release-matrix-20261001T195706927715Z",
+    "results": [
+      {
+        "id": "linux.outer4.inner4.tcp.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.741,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T195706927715Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T195706927715Z/linux.outer4.inner4.tcp.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T195706927715Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 4 4 tcp fake-tls full",
+        "log": "linux.outer4.inner4.tcp.full.log"
+      },
+      {
+        "id": "linux.outer6.inner6.udp-quic.full",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 5.747,
+        "checks_passed": 13,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T195706927715Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T195706927715Z/linux.outer6.inner6.udp-quic.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T195706927715Z/scripts/ipv6_netns_case.sh /root/qeli-src/target/release/qeli 6 6 udp quic full",
+        "log": "linux.outer6.inner6.udp-quic.full.log"
+      },
+      {
+        "id": "linux.dns.ipv4-ipv6",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 16.844,
+        "checks_passed": 56,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T195706927715Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T195706927715Z/linux.dns.ipv4-ipv6 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T195706927715Z/scripts/ipv6_dns_pair.sh /root/qeli-src/target/release/qeli",
+        "log": "linux.dns.ipv4-ipv6.log"
+      },
+      {
+        "id": "linux.mtu.1280-pmtu-ptb",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 17.248,
+        "checks_passed": 36,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T195706927715Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T195706927715Z/linux.mtu.1280-pmtu-ptb 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T195706927715Z/scripts/ipv6_mtu_pair.sh /root/qeli-src/target/release/qeli",
+        "log": "linux.mtu.1280-pmtu-ptb.log"
+      },
+      {
+        "id": "linux.legacy-peer",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 11.188,
+        "checks_passed": 26,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261001T195706927715Z/isolated.sh /var/tmp/qeli-release-matrix-20261001T195706927715Z/linux.legacy-peer 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261001T195706927715Z/scripts/ipv6_legacy_pair.sh /root/qeli-src/target/release/qeli /var/tmp/qeli-release-matrix-20261001T195706927715Z/legacy/usr/bin/qeli",
+        "log": "linux.legacy-peer.log"
+      }
+    ],
+    "host_before": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "environment": "Linux 6.12.105+deb13-amd64 x86_64 GNU/Linux",
+    "version": "qeli 0.8.2",
+    "isolation_sha256": "c44cb9ea31635fa82fff6fd8f33d5c1b47a18b89affce188dd128aefa4cdd7b5",
+    "legacy_deb_sha256": "0db63ae27501f528dc2fafa028880966f7f33093ac23b28e01800c81ee3b2e5d",
+    "legacy_version": "qeli 0.7.16",
+    "legacy_artifact_sha256": "6139d7f0280a129e635c188b80bfba93f8256ca76295f24e10e740f99c5ef8bd",
+    "aggregate_leak_passed": false,
+    "host_after": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "host_restored": true
+  },
+  "stable_recheck_outputs": {
+    "linux.outer4.inner4.tcp.full": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n",
+    "linux.outer6.inner6.udp-quic.full": "PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv6/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv6 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=6 inner=6 transport=udp wire=quic routing=full: 13 passed, 0 failed ===\n",
+    "linux.dns.ipv4-ipv6": "=== dual DNS via IPv4 upstream ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  deterministic IPv4 DNS upstream is listening\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner dual TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  DNS owns the current link marker\n  PASS  real resolved reports both tunnel DNS servers\n  PASS  real resolved reports the catch-all domain\nPASS: A a-stub.release.test via 127.0.0.53 -> 192.0.2.80\n  PASS  A query crosses the real systemd-resolved stub and tunnel\nPASS: AAAA aaaa-stub.release.test via 127.0.0.53 -> 2001:db8::80\n  PASS  AAAA query crosses the real systemd-resolved stub and tunnel\nPASS: A a-v4.release.test via 10.86.0.1 -> 192.0.2.80\n  PASS  A query resolves through the IPv4 tunnel DNS listener\nPASS: AAAA aaaa-v4.release.test via 10.86.0.1 -> 2001:db8::80\n  PASS  AAAA query resolves through the IPv4 tunnel DNS listener\nPASS: A a-v6.release.test via fd86::1 -> 192.0.2.80\n  PASS  A query resolves through the IPv6 tunnel DNS listener\nPASS: AAAA aaaa-v6.release.test via fd86::1 -> 2001:db8::80\n  PASS  AAAA query resolves through the IPv6 tunnel DNS listener\n  PASS  the configured IPv4 upstream received A and AAAA\n  PASS  client stopped cleanly\n  PASS  clean stop reverted per-link DNS\n  PASS  clean stop removed the resolver ownership marker\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=dual transport=tcp wire=fake-tls routing=full: 28 passed, 0 failed ===\n=== dual DNS via IPv6 upstream ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  deterministic IPv6 DNS upstream is listening\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner dual TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  DNS owns the current link marker\n  PASS  real resolved reports both tunnel DNS servers\n  PASS  real resolved reports the catch-all domain\nPASS: A a-stub.release.test via 127.0.0.53 -> 192.0.2.80\n  PASS  A query crosses the real systemd-resolved stub and tunnel\nPASS: AAAA aaaa-stub.release.test via 127.0.0.53 -> 2001:db8::80\n  PASS  AAAA query crosses the real systemd-resolved stub and tunnel\nPASS: A a-v4.release.test via 10.86.0.1 -> 192.0.2.80\n  PASS  A query resolves through the IPv4 tunnel DNS listener\nPASS: AAAA aaaa-v4.release.test via 10.86.0.1 -> 2001:db8::80\n  PASS  AAAA query resolves through the IPv4 tunnel DNS listener\nPASS: A a-v6.release.test via fd86::1 -> 192.0.2.80\n  PASS  A query resolves through the IPv6 tunnel DNS listener\nPASS: AAAA aaaa-v6.release.test via fd86::1 -> 2001:db8::80\n  PASS  AAAA query resolves through the IPv6 tunnel DNS listener\n  PASS  the configured IPv6 upstream received A and AAAA\n  PASS  client stopped cleanly\n  PASS  clean stop reverted per-link DNS\n  PASS  clean stop removed the resolver ownership marker\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=dual transport=tcp wire=fake-tls routing=full: 28 passed, 0 failed ===\n=== RESULT dual-stack DNS: both upstream families passed ===\n",
+    "linux.mtu.1280-pmtu-ptb": "=== auto PMTU and DATA_FRAG on outer MTU 1280 ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  uplink PMTU certified the 1280-byte outer path\n  PASS  downlink PMTU certified the 1280-byte outer path\n  PASS  uplink budget fits the 1280-byte carrier\n  PASS  downlink budget fits the 1280-byte carrier\n  PASS  auto MTU keeps the negotiated 1400-byte inner TUN\n  PASS  a 1400-byte inner IPv6 packet crosses the certified path via DATA_FRAG\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=udp wire=quic routing=full: 19 passed, 0 failed ===\n=== explicit inner MTU 1280 and ICMPv6 PTB ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/udp\n  PASS  client established inner 6 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv6 address is installed\n  PASS  IPv6 target route uses the tunnel\n  PASS  inner IPv6 traffic crosses the tunnel\n  PASS  client TUN uses the IPv6 minimum MTU\n  PASS  a full 1280-byte inner IPv6 packet crosses DATA_FRAG\n  PASS  oversized downlink receives ICMPv6 Packet Too Big with MTU 1280\n  PASS  downlink succeeds at the advertised 1280-byte MTU\n  PASS  IPv4 cannot leak from an IPv6-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=6 transport=udp wire=quic routing=full: 17 passed, 0 failed ===\n=== RESULT MTU 1280/PMTU/PTB: both runtime modes passed ===\n",
+    "linux.legacy-peer": "new_version=qeli 0.8.2\nnew_sha256=a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0\nlegacy_version=qeli 0.7.16\nlegacy_sha256=6139d7f0280a129e635c188b80bfba93f8256ca76295f24e10e740f99c5ef8bd\n=== new server -> 0.7.16 client ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n=== 0.7.16 server -> new client ===\n  PASS  direct IPv4 topology works before the VPN\n  PASS  direct IPv6 topology works before the VPN\n  PASS  server listens on outer IPv4/tcp\n  PASS  client established inner 4 TUN\n  PASS  carrier uses the requested outer IPv4 peer\n  PASS  authenticated IPv4 address is installed\n  PASS  IPv4 target route uses the tunnel\n  PASS  inner IPv4 traffic crosses the tunnel\n  PASS  IPv6 cannot leak from an IPv4-only full tunnel\n  PASS  client stopped cleanly\n  PASS  clean stop removed the TUN\n  PASS  clean stop restored direct IPv4 routing\n  PASS  clean stop restored direct IPv6 routing\n=== RESULT outer=4 inner=4 transport=tcp wire=fake-tls routing=full: 13 passed, 0 failed ===\n=== RESULT legacy peer: both directions passed ===\n"
+  },
+  "parent_rule_owner": {
+    "executed_at": "2026-10-01T19:56:34.042819+00:00",
+    "before": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "failing_unit": "MainPID=0\nResult=exit-code\nNRestarts=5109\nExecMainStatus=1\nSubState=auto-restart",
+    "owner_unit": "# /etc/systemd/system/vpn-nat.service\n[Unit]\nDescription=VPN NAT iptables rules\nAfter=network.target vpn-obfuscated.service\nRequires=vpn-obfuscated.service\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/local/bin/vpn-nat.sh\nExecStop=/usr/local/bin/vpn-nat-stop.sh\n\n[Install]\nWantedBy=multi-user.target",
+    "owner_start_script": "#!/bin/bash\nsleep 2\niptables-legacy -t nat -D POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE 2>/dev/null\niptables-legacy -t nat -A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE\niptables-legacy -C FORWARD -i vpn0 -j ACCEPT 2>/dev/null || iptables-legacy -I FORWARD -i vpn0 -j ACCEPT\niptables-legacy -C FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || iptables-legacy -I FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT\necho 1 > /proc/sys/net/ipv4/ip_forward\necho 'VPN NAT applied via iptables-legacy'",
+    "owner_stop_script": "#!/bin/bash\niptables-legacy -t nat -D POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE 2>/dev/null\niptables-legacy -D FORWARD -i vpn0 -j ACCEPT 2>/dev/null\niptables-legacy -D FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null\necho 'VPN NAT rules removed'",
+    "failure_journal": "\u043e\u043a\u0442 01 22:56:19 debian systemd[1]: vpn-obfuscated.service: Main process exited, code=exited, status=1/FAILURE\n\u043e\u043a\u0442 01 22:56:19 debian systemd[1]: vpn-obfuscated.service: Failed with result 'exit-code'.\n\u043e\u043a\u0442 01 22:56:24 debian systemd[1]: vpn-obfuscated.service: Scheduled restart job, restart counter is at 5107.\n\u043e\u043a\u0442 01 22:56:24 debian vpn-obfuscated[195730]: Error: password_file or password_command required\n\u043e\u043a\u0442 01 22:56:24 debian systemd[1]: vpn-obfuscated.service: Main process exited, code=exited, status=1/FAILURE\n\u043e\u043a\u0442 01 22:56:24 debian systemd[1]: vpn-obfuscated.service: Failed with result 'exit-code'.\n\u043e\u043a\u0442 01 22:56:29 debian systemd[1]: vpn-obfuscated.service: Scheduled restart job, restart counter is at 5108.\n\u043e\u043a\u0442 01 22:56:29 debian vpn-obfuscated[195748]: Error: password_file or password_command required\n\u043e\u043a\u0442 01 22:56:29 debian systemd[1]: vpn-obfuscated.service: Main process exited, code=exited, status=1/FAILURE\n\u043e\u043a\u0442 01 22:56:29 debian systemd[1]: vpn-obfuscated.service: Failed with result 'exit-code'.\n\u043e\u043a\u0442 01 22:56:34 debian systemd[1]: vpn-obfuscated.service: Scheduled restart job, restart counter is at 5109.\n\u043e\u043a\u0442 01 22:56:34 debian vpn-obfuscated[195777]: Error: password_file or password_command required\n\u043e\u043a\u0442 01 22:56:34 debian systemd[1]: vpn-obfuscated.service: Main process exited, code=exited, status=1/FAILURE\n\u043e\u043a\u0442 01 22:56:34 debian systemd[1]: vpn-obfuscated.service: Failed with result 'exit-code'.",
+    "after": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "stopped_state": "Id=vpn-obfuscated.service\nActiveState=inactive\nSubState=dead\n\nId=vpn-nat.service\nActiveState=inactive\nSubState=dead\nactive",
+    "action": "Stopped failing vpn-obfuscated and dependent vpn-nat only; files/enabled state unchanged, working qeli.service retained."
+  },
+  "reconciliation_reason": "Parent rules belong to the independent legacy service, not test profiles. Its 5-second restart loop changed only the three exact legacy rules; all other original host snapshot fields match. Stop affected failed legacy units only; subsequent 144 assertions and full host equality passed. Original 18 functional cases and aggregate leak assertions remain valid."
+}

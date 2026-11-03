@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q33_F449_HOOK_PATHS_SCOPED",
+  "source_digest": "235df70a7559b2dffe35c11b71d13c56c5adf98f935ada4881d04d01500b65de",
+  "qualification_source_commit": "5bd56d5127ac1e85ce3367b24d7970f4b236c6f1",
+  "product_source_commit": "e8f5469ed0651d1c0e327e2c81e3976daa1ecb0b",
+  "native_source_digest": "8d1cc8fa632c717e78ccede27dfc10ba9240b8efd94fcff62d4db6707456b705",
+  "findings": [
+    "F449/Q33-F052"
+  ],
+  "verification": {
+    "original_baseline": {
+      "status": "EXPECTED_FAIL_CONFIRMED",
+      "rc": 101,
+      "source_sha256": "f9dd5d08fb16f8781c9b92936c1c5b9e24d21a65c5459a9c37a96dd8dd853a55",
+      "scope": "exact original script_paths and backup protection closure; no hook or server executed"
+    },
+    "targeted": {
+      "status": "PASS",
+      "rc": 0,
+      "source_sha256": "336bc65aa201b6159392a045f0424134f00e11ad9f9be2d1c618b3d23640b36e",
+      "scope": "actual production helper plus vet_staged_dir publication gate on Linux; unreachable .conf/.ini branches stubbed, not HTTP restore"
+    },
+    "build": {
+      "source_commit": "e8f5469ed0651d1c0e327e2c81e3976daa1ecb0b",
+      "rows": [
+        {
+          "name": "build",
+          "command": "cargo +1.97.0 build --offline --locked --bin qeli",
+          "rc": 0
+        },
+        {
+          "name": "bin-tests",
+          "command": "cargo +1.97.0 test --offline --locked --bin qeli",
+          "rc": 0
+        },
+        {
+          "name": "backup-tests",
+          "command": "cargo +1.97.0 test --offline --locked --lib web::api::backup -- --test-threads=1 --include-ignored --skip web::api::backup::io_tests::native_backup_preflight_io_and_cancel_ownership",
+          "rc": 0
+        },
+        {
+          "name": "clippy",
+          "command": "cargo +1.97.0 clippy --offline --locked --bin qeli -- -D warnings",
+          "rc": 0
+        },
+        {
+          "name": "private-io-cancel-0",
+          "command": "unshare --mount --net --pid --fork --mount-proc bash -c 'set -eu; mount --make-rprivate /; mount --bind /var/tmp/qeli-q33-hook-restore-20261008110033136067/io-0/etc /etc/qeli; mount --bind /var/tmp/qeli-q33-hook-restore-20261008110033136067/io-0/tmp /tmp; export QELI_AUDIT_PRIVATE_FS=1 QELI_AUDIT_IO_MODE=backup-read QELI_AUDIT_MARKER=/tmp/io.ready QELI_AUDIT_CANCEL=0 QELI_AUDIT_PID=$$ LD_PRELOAD=/var/tmp/qeli-q33-hook-restore-20261008110033136067/io-shim.so; exec /var/tmp/qeli-q33-hook-restore-20261008110033136067/target/debug/deps/qeli_core-2c5cd8f13984c7e0 --exact web::api::backup::io_tests::native_backup_preflight_io_and_cancel_ownership --ignored --nocapture'",
+          "rc": 0
+        },
+        {
+          "name": "private-io-cancel-1",
+          "command": "unshare --mount --net --pid --fork --mount-proc bash -c 'set -eu; mount --make-rprivate /; mount --bind /var/tmp/qeli-q33-hook-restore-20261008110033136067/io-1/etc /etc/qeli; mount --bind /var/tmp/qeli-q33-hook-restore-20261008110033136067/io-1/tmp /tmp; export QELI_AUDIT_PRIVATE_FS=1 QELI_AUDIT_IO_MODE=backup-read QELI_AUDIT_MARKER=/tmp/io.ready QELI_AUDIT_CANCEL=1 QELI_AUDIT_PID=$$ LD_PRELOAD=/var/tmp/qeli-q33-hook-restore-20261008110033136067/io-shim.so; exec /var/tmp/qeli-q33-hook-restore-20261008110033136067/target/debug/deps/qeli_core-2c5cd8f13984c7e0 --exact web::api::backup::io_tests::native_backup_preflight_io_and_cancel_ownership --ignored --nocapture'",
+          "rc": 0
+        }
+      ]
+    },
+    "binary": {
+      "sha256": "c098a9899ae41042d8ad19ff211aefba1dfed020b753ca33c3dddfbd74f9f289",
+      "size": 78712856,
+      "source_commit": "e8f5469ed0651d1c0e327e2c81e3976daa1ecb0b"
+    },
+    "windows_abi": {
+      "status": "PASS",
+      "library_sha256": "212787c03d296d28325e098a6e77942e7925f062dbce32e47620483f70f75fd1",
+      "checks": [
+        {
+          "check": "ABI 1.16 and declared capabilities",
+          "passed": true
+        },
+        {
+          "check": "null configuration rejected before allocation",
+          "passed": true
+        },
+        {
+          "check": "invalid UTF8 returns no handle",
+          "passed": true
+        },
+        {
+          "check": "Created state",
+          "passed": true
+        },
+        {
+          "check": "device identity requires sixteen nonzero bytes",
+          "passed": true
+        },
+        {
+          "check": "start transitions once",
+          "passed": true
+        },
+        {
+          "check": "publish copies plan and enters AwaitingNetwork",
+          "passed": true
+        },
+        {
+          "check": "buffer size probe preserves plan and future event tail",
+          "passed": true
+        },
+        {
+          "check": "stale generation cannot accept network",
+          "passed": true
+        },
+        {
+          "check": "positive ACK enters Running",
+          "passed": true
+        },
+        {
+          "check": "old stats prefix and caller tail preserved",
+          "passed": true
+        },
+        {
+          "check": "malformed batch has no partial acceptance",
+          "passed": true
+        },
+        {
+          "check": "fixed packet pool applies backpressure",
+          "passed": true
+        },
+        {
+          "check": "empty downlink reports zero bytes",
+          "passed": true
+        },
+        {
+          "check": "stop terminates generation",
+          "passed": true
+        },
+        {
+          "check": "stopped bridge is unavailable",
+          "passed": true
+        },
+        {
+          "check": "free and stale handle refuse reuse",
+          "passed": true
+        },
+        {
+          "check": "100 registry reuse cycles preserve stale-handle isolation",
+          "passed": true
+        },
+        {
+          "check": "eight concurrent frees destroy one generation exactly once",
+          "passed": true
+        },
+        {
+          "check": "second native runner cannot enter an active generation",
+          "passed": true
+        },
+        {
+          "check": "free invalidates public handle while runner is leased",
+          "passed": true
+        },
+        {
+          "check": "free cancels and joins pending native handshake",
+          "passed": true
+        }
+      ],
+      "scope": "Windows packaged C ABI and real localhost handshake cancellation; no Wintun or OS network mutation."
+    },
+    "local": {
+      "status": "PASS",
+      "rows": [
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-B",
+            "native-libs/provenance.py"
+          ],
+          "rc": 0,
+          "output": "OK: native cores match this source and independent A/B builds.\n"
+        },
+        {
+          "command": [
+            "C:/Program Files/Git/bin/bash.exe",
+            "native-libs/verify.sh"
+          ],
+          "rc": 0,
+          "output": "native-libs/android/arm64-v8a/libqeli.so: OK\nqeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so: OK\nnative-libs/android/x86_64/libqeli.so: OK\nqeli-android/app/src/main/jniLibs/x86_64/libqeli.so: OK\nnative-libs/windows-x64/qeli.dll: OK\nqeli-win/QeliWin/native/qeli.dll: OK\nnative-libs/macos-universal/libqeli.dylib: OK\nqeli-mac/QeliMac/native/libqeli.dylib: OK\nnative-libs/third-party/windows-x64/wintun.dll: OK\nqeli-win/QeliWin/wintun/wintun.dll: OK\nnative-libs/third-party/windows-x64/windivert/WinDivert.dll: OK\nqeli-win/QeliWin/windivert/WinDivert.dll: OK\nnative-libs/third-party/windows-x64/windivert/WinDivert64.sys: OK\nqeli-win/QeliWin/windivert/WinDivert64.sys: OK\n\nOK: every committed native library matches the manifest, and each canonical copy\n    matches the copy the build stack consumes.\n"
+        },
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "rc": 0,
+          "output": "checking 686 tracked Markdown files\ufffd\nOK \ufffd all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\n"
+        }
+      ],
+      "native_source_digest": "8d1cc8fa632c717e78ccede27dfc10ba9240b8efd94fcff62d4db6707456b705",
+      "qualified_product_commit": "e8f5469ed0651d1c0e327e2c81e3976daa1ecb0b",
+      "scope": "F449 hook path protection qualified; Q33 remains open for retained hook source review"
+    },
+    "units": {
+      "status": "PASS",
+      "rows": [
+        {
+          "script": "test_native_recipes.py",
+          "tests": 38,
+          "rc": 0
+        },
+        {
+          "script": "test_docker_publish_ref.py",
+          "tests": 7,
+          "rc": 0
+        }
+      ],
+      "initial_wrong_pattern": "test_native_build_recipes.py collected 0 and was not counted as PASS"
+    },
+    "host": {
+      "status": "PASS",
+      "before_sha256": "9ecf2e2ac12c32a218ca180f11dafbb4224d896998637a9cde18c6f1bfc54d7c",
+      "after_sha256": "9ecf2e2ac12c32a218ca180f11dafbb4224d896998637a9cde18c6f1bfc54d7c",
+      "original_pids": [
+        777,
+        845
+      ],
+      "installed_elf_sha256": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a",
+      "scope": "exact service MainPID/ActiveState, process argv and installed ELF identity; mount/net namespace operations owned, no global firewall/sysctl/service mutations"
+    },
+    "cleanup": {
+      "status": "PASS",
+      "own_root_removed": "/var/tmp/qeli-q33-hook-restore-20261008110033136067",
+      "backup_removed_after_local_sha": "/var/tmp/qeli-q33-hook-restore-20261008110033136067-backup.tar.gz",
+      "service": "MainPID=777\nActiveState=active\n",
+      "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "native": {
+      "desktop": {
+        "result": {
+          "status": "PASS",
+          "rc": 0
+        },
+        "reproducibility": {
+          "artifacts": {
+            "native-libs/macos-universal/libqeli.dylib": {
+              "consumed": {
+                "qeli-mac/QeliMac/native/libqeli.dylib": "11374786bc9629b626da6768987afbfc63f0582fcca25d13eac5b20d767c52ce"
+              },
+              "final_sha256": "11374786bc9629b626da6768987afbfc63f0582fcca25d13eac5b20d767c52ce",
+              "pass_a_sha256": "11374786bc9629b626da6768987afbfc63f0582fcca25d13eac5b20d767c52ce",
+              "pass_b_sha256": "11374786bc9629b626da6768987afbfc63f0582fcca25d13eac5b20d767c52ce",
+              "reproducible": true
+            },
+            "native-libs/windows-x64/qeli.dll": {
+              "consumed": {
+                "qeli-win/QeliWin/native/qeli.dll": "212787c03d296d28325e098a6e77942e7925f062dbce32e47620483f70f75fd1"
+              },
+              "final_sha256": "212787c03d296d28325e098a6e77942e7925f062dbce32e47620483f70f75fd1",
+              "pass_a_sha256": "212787c03d296d28325e098a6e77942e7925f062dbce32e47620483f70f75fd1",
+              "pass_b_sha256": "212787c03d296d28325e098a6e77942e7925f062dbce32e47620483f70f75fd1",
+              "reproducible": true
+            }
+          },
+          "recipe": "qeli-native-repro-v1",
+          "schema": 1,
+          "source_commit": "e8f5469ed0651d1c0e327e2c81e3976daa1ecb0b",
+          "source_date_epoch": 1791459076,
+          "source_digest": "8d1cc8fa632c717e78ccede27dfc10ba9240b8efd94fcff62d4db6707456b705",
+          "source_dirty": false,
+          "toolchain": {
+            "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+            "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+            "cargo_zigbuild_version": "0.23.0",
+            "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+            "rcodesign": "apple-codesign 0.29.0",
+            "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+            "rust_toolchain": "1.97.0",
+            "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+            "zig": "0.13.0"
+          }
+        },
+        "cleanup": {
+          "status": "PASS",
+          "own_root_removed": "/var/tmp/qeli-q33-hook-native-20261008.k3RtT8",
+          "backup_removed_after_local_sha": "/var/tmp/qeli-q33-hook-native-20261008.k3RtT8-backup.tar.gz",
+          "service": "MainPID=0\nActiveState=inactive\n",
+          "qeli": "745 /opt/qeli-src/target/debug/qeli server -c /etc/qeli/server.conf\n901 /opt/qeli-src/target/debug/qeli _worker -c /etc/qeli/server.conf\n"
+        }
+      },
+      "android": {
+        "result": {
+          "status": "PASS",
+          "rc": 0
+        },
+        "reproducibility": {
+          "artifacts": {
+            "native-libs/android/arm64-v8a/libqeli.so": {
+              "consumed": {
+                "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "10d7ef6df2f34005c2a4a405099f4f1c39012e538f616a6b013a2278bf4520ce"
+              },
+              "final_sha256": "10d7ef6df2f34005c2a4a405099f4f1c39012e538f616a6b013a2278bf4520ce",
+              "pass_a_sha256": "10d7ef6df2f34005c2a4a405099f4f1c39012e538f616a6b013a2278bf4520ce",
+              "pass_b_sha256": "10d7ef6df2f34005c2a4a405099f4f1c39012e538f616a6b013a2278bf4520ce",
+              "reproducible": true
+            },
+            "native-libs/android/x86_64/libqeli.so": {
+              "consumed": {
+                "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "2e16cd3162297daf2714b432fde009ad90d6bcfc2712b3823225b3297f83d5d6"
+              },
+              "final_sha256": "2e16cd3162297daf2714b432fde009ad90d6bcfc2712b3823225b3297f83d5d6",
+              "pass_a_sha256": "2e16cd3162297daf2714b432fde009ad90d6bcfc2712b3823225b3297f83d5d6",
+              "pass_b_sha256": "2e16cd3162297daf2714b432fde009ad90d6bcfc2712b3823225b3297f83d5d6",
+              "reproducible": true
+            }
+          },
+          "recipe": "qeli-native-repro-v1",
+          "schema": 1,
+          "source_commit": "e8f5469ed0651d1c0e327e2c81e3976daa1ecb0b",
+          "source_date_epoch": 1791459076,
+          "source_digest": "8d1cc8fa632c717e78ccede27dfc10ba9240b8efd94fcff62d4db6707456b705",
+          "source_dirty": false,
+          "toolchain": {
+            "android_ndk": "26.3.11579264",
+            "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+            "cargo_ndk": "cargo-ndk v4.1.2:",
+            "cargo_ndk_version": "4.1.2",
+            "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+            "rust_toolchain": "1.97.0",
+            "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+          }
+        },
+        "cleanup": {
+          "status": "PASS",
+          "own_root_removed": "/var/tmp/qeli-q33-hook-native-20261008.n2ql6v",
+          "backup_removed_after_local_sha": "/var/tmp/qeli-q33-hook-native-20261008.n2ql6v-backup.tar.gz",
+          "service": "MainPID=777\nActiveState=active\n",
+          "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+        }
+      }
+    }
+  },
+  "remaining_review": {
+    "status": "SOURCE_REVIEW_OPEN_NOT_RUNTIME_PROVEN",
+    "hypothesis": "A restore removing a hook may leave a ready generation retaining its old post_down command; a subsequent restore collects paths from the now hook-free on-disk INI. Verify whether unchanged worker hook payload becomes replaceable before that generation finishes. Pure source suggests vet_server_config skips empty staged hooks; ServerState startup config/profile_hook_env are retained snapshots. No HTTP exploit or retained-generation execution was run.",
+    "source_files": [
+      {
+        "path": "qeli/src/server/mod.rs",
+        "sha256": "aab19fb710dd959d1defa5a9bc15ca664d409f51891fb64d2786fc0c2af510e0"
+      },
+      {
+        "path": "qeli/src/web/api/backup.rs",
+        "sha256": "81cc90c6e8bbe9977b4c0a2997fdda695c233a4c043b13008ca4323a48841ad2"
+      },
+      {
+        "path": "qeli/src/web/api/config.rs",
+        "sha256": "7d37eef5cee8d4ce2218e01fdcb9b6a9a87895521217646c4df02cc6829b6f9a"
+      }
+    ],
+    "required_next_check": "isolated real restore sequence plus active/ready hook snapshot; if confirmed, protect all retained live commands or refuse unsafe removal before publication. Do not close Q33 while this is unresolved."
+  },
+  "raw_packet": {
+    "name": "q33-hook-restore-20261008",
+    "files": 133,
+    "bytes": 160469796,
+    "manifest_sha256": "e11346af579035340f8446e1f9917db7ffa9bf87cbd400c827c7b4143fd37c03",
+    "runtime_status": "PASS_Q33_HOOK_RESTORE_WITH_RETAINED_BASELINE_FIXTURE_INTERRUPTED_BUILDS",
+    "path": "audit-debt-20260924/q33-hook-restore-20261008",
+    "status": "SEALED"
+  },
+  "scope": "Q33 F449/Q33-F052 hook-file restore protection: exact old collector dot-path expected FAIL; protect original/normalized/canonical existing-prefix paths, quoted/escaped spaces, external/dangling aliases, raw nested shell literals, conservative unknown managed top-level glob/variable/tree reads. Current product e8f5469e Linux actual CLI build/bin5/backup49 plus private-FS/preload normal+cancel IO2/Clippy/fmt PASS, standalone production helper+vet_staged_dir14PASS (unreachable config branches have explicit seams, not HTTP exploit). Fresh independent Windows/macOS universal2/Android arm64+x86_64 A-B six actual compiler commands, offline private registry/cache/targets,jobs1,panicunwind,exports6Reality22client21AndroidJNI;current native source8d1cc8fa,all14SHA/canonical-consumed/provenancePASS;actual refreshed Windows DLL22 C ABI/control/localhost cancellation PASS,noWintun/OSroutes. New native bytes recorded,prior ABI/runtime not relabeled. Retained intermediate source aborted-own compiler rc143/two partial builds, missing conformance/type adapter/UTF8/IO-precondition harness failures and approval-review timeout; safe retry/guard archives SHA downloaded/cleanup preserved .11original777-845/ELF75bc,.10original745-901;credential scanSEALED. Old Docker/package/systemd/VPN/installer gates reused only for unchanged paths,not rebuilt images on this patch. Source review OPEN: potential second-restore replacement while a ready generation retains old post_down after first hook-free config; not runtime proven,requires next isolated actual restore+ready-generation check,Q33remainsIN_PROGRESS. Overall29-37DONE78.4%,8remain;old14debtDONE+D06accepted,Q29SIGKILLFAILENONET,Q30Applecallbacks,Q31capacity3-5sourcecut/currentActions,USER_EXCLUDED preserved.41cases69prior supplements modulo source_digest preserved,append70;20requiredautomated21advisory unchanged. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

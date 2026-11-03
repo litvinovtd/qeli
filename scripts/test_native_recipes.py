@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import ast
 import os
 import subprocess
 import sys
@@ -9,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import build_android_so_11 as android
 import build_native_libs_p4 as desktop
 import build_mac_universal as macpack
 
@@ -50,9 +52,12 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn("guard_ok = rc2 != 0", lab_gate)
         self.assertIn(error, lab_gate)
         self.assertIn(
-            "cargo build --release --features jemalloc --bin qeli", keenetic_gate
+            "cargo build --locked --release --features jemalloc --bin qeli", keenetic_gate
         )
-        self.assertIn("server_build=", keenetic_gate)
+        self.assertIn(
+            '("server_build", "cargo build --locked --release --features jemalloc --bin qeli --jobs 1")',
+            keenetic_gate,
+        )
 
 
     def test_release_stripping_is_cross_target_safe(self):
@@ -71,6 +76,31 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertNotIn("-no_uuid", flags)
         self.assertNotIn("desktop-a", flags)
         self.assertNotIn("desktop-b", flags)
+
+    def test_native_builds_use_private_sources_and_one_job(self):
+        class RecordingClient:
+            def __init__(self):
+                self.commands = []
+
+            def checked(self, command, _label):
+                self.commands.append(command)
+                return ""
+
+            def run(self, command):
+                self.commands.append(command)
+                return "CodeSignatureFlags(ADHOC)\n" * 2, 0
+
+        client = RecordingClient()
+        desktop.build_pass(client, "a", "1.97.0", 1)
+        android.build_pass(client, "a", "1.97.0", 1)
+        builds = [command for command in client.commands if "cargo +1.97.0" in command]
+        self.assertEqual(len(builds), 3)
+        for command in builds:
+            self.assertIn("--jobs 1", command)
+            self.assertNotIn("/opt/qeli-src", command)
+            self.assertNotIn("/root/qeli-src", command)
+            self.assertIn("/var/tmp/qeli-native-repro/", command)
+        self.assertNotEqual(desktop.REMOTE_SOURCE, android.REMOTE_SOURCE)
 
     def test_independent_artifacts_still_have_distinct_storage(self):
         first = desktop.artifact_path("a", desktop.MAC_TARGET, "libqeli.dylib")
@@ -91,23 +121,21 @@ class NativeRecipeTests(unittest.TestCase):
     def test_apk_rebuild_uses_strict_shared_lab_connection(self):
         source = (Path(__file__).parent / "rebuild_apk.py").read_text(encoding="utf-8")
         self.assertIn("from native_lab import connect_lab", source)
-        self.assertIn("apksigner} verify", source)
+        self.assertIn("signer)} verify", source)
         self.assertIn("pull_verified_artifact", source)
-        self.assertIn('CONFORMANCE = REPO_ROOT / "conformance"', source)
-        self.assertIn('CONFORMANCE.glob("*.json")', source)
-        self.assertIn('REMOTE, "conformance", fixture.name', source)
-        for tree in (
-            "app/src/androidTest",
-            "app/src/main/kotlin",
-            "app/src/main/res",
-            "app/src/test",
-        ):
-            self.assertIn(f'"{tree}"', source)
+        self.assertIn('SOURCE_PATHS = ("qeli", "qeli-android", "conformance", "LICENSE", "LICENSING.md")', source)
+        self.assertIn('git(root, "archive", "--format=tar", commit', source)
+        self.assertIn('validate_evidence(root, digest)', source)
+        self.assertIn('qeli-android/app/gradle.lockfile', source)
+        self.assertIn('qeli-android/gradle/verification-metadata.xml', source)
+        self.assertIn('mktemp -d /var/tmp/qeli-apk-build.', source)
+        self.assertIn('sha256sum --status -c source.sha256', source)
         self.assertIn("--max-workers=1", source)
         self.assertIn("-Xmx1536m", source)
         self.assertIn("splitlines()[-80:]", source)
-        self.assertIn("shutil.copy2(cur, prev)", source)
-        self.assertNotIn("os.replace(cur, prev)", source)
+        self.assertIn('local_run = "dist/"+snapshot["commit"]', source)
+        self.assertNotIn('MIRRORED_SOURCE_TREES', source)
+        self.assertNotIn('REMOTE_QELI = "/root/qeli-src"', source)
         self.assertNotIn("AutoAddPolicy", source)
 
         root = Path(__file__).resolve().parents[1]
@@ -137,7 +165,7 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn('"CodeSignatureFlags(ADHOC"', macpack.REMOTE_SIGN_PY)
         source = Path(macpack.__file__).read_text(encoding="utf-8")
         self.assertIn("python3 sign_app.py", source)
-        self.assertIn("remote_sha256(c, cached) != expected", source)
+        self.assertIn("remote_sha256(c, remote) != expected", source)
 
     def test_android_e2e_uses_current_abi_strict_ssh_and_exact_restore(self):
         source = (Path(__file__).parent / "e2e_final.py").read_text(encoding="utf-8")
@@ -189,8 +217,8 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn('[ "$MSS_ADDED" = "1" ] || [ "$MSS6_ADDED" = "1" ]', source)
         self.assertIn('[ "$ENABLE_IPV6_LISTENER" = "1" ]', source)
         self.assertIn('--host "${PUBLIC_AUTHORITY_HOST}:${PORT}"', source)
-        self.assertIn("apt-get install -y curl ca-certificates jq iptables iproute2 openssl", source)
-        self.assertIn("Debian/Ubuntu ship both iptables and ip6tables in this one package", source)
+        # Dependency installation is exercised by test_installer_admission.py;
+        # do not require unconditional apt or a particular dependency command string.
         self.assertIn("command -v ip6tables", source)
         self.assertIn("ip6tables -t nat -S", source)
         self.assertIn("ip -6 route get 2606:4700:4700::1111", source)
@@ -334,7 +362,8 @@ class NativeRecipeTests(unittest.TestCase):
         )
 
         self.assertIn("as user '${logValue(config.username)}'", android)
-        self.assertIn("activeConfig?.username?.let(::logValue)", android)
+        self.assertIn("val config = activeConfig", android)
+        self.assertIn("val username = logValue(config.username)", android)
         self.assertIn("Auth OK: user='$username'", android)
         self.assertIn("plan.connectionLog.forEach(::broadcastLog)", android)
 
@@ -487,8 +516,8 @@ class NativeRecipeTests(unittest.TestCase):
         )
         self.assertIn('HOST_DEB_ARCH="$(dpkg --print-architecture)"', source)
         self.assertIn('endswith("_" + $arch + ".deb")', source)
-        self.assertIn('dpkg-deb -f "$TMP_DEB" Architecture', source)
-        self.assertIn('"$HOST_DEB_ARCH"|all', source)
+        # Package name/architecture/status admission is exercised with real dpkg
+        # in test_installer_admission.py rather than matching a helper variable.
 
     def test_release_checksum_is_lf_only_and_installer_handles_crlf_defensively(self):
         root = Path(__file__).resolve().parents[1]
@@ -521,7 +550,8 @@ class NativeRecipeTests(unittest.TestCase):
         validation = source.index('qeli check-config --config "$CONF"')
         restart = source.index("systemctl restart qeli")
         self.assertLess(validation, restart)
-        self.assertIn("final configuration validation failed", source)
+        # Failure, publication and restart ordering are exercised by the isolated
+        # installer config suite; do not bind the contract to error wording.
 
     def test_config_matrix_uses_strict_server_client_and_users_validation(self):
         source = (Path(__file__).parent / "config_functest.py").read_text(
@@ -544,7 +574,7 @@ class NativeRecipeTests(unittest.TestCase):
         main_source = (Path(__file__).parent.parent / "qeli/src/main.rs").read_text(
             encoding="utf-8"
         )
-        self.assertIn("server::load_users_db(&cfg).map_err", main_source)
+        self.assertIn("server::load_users_db_for_runtime(&cfg).map_err", main_source)
         self.assertNotIn("valid empty first install", main_source)
 
         multiprofile = (Path(__file__).parent / "pool2_multiprofile.py").read_text(
@@ -597,7 +627,9 @@ class NativeRecipeTests(unittest.TestCase):
         )
         self.assertEqual(desktop.EXPECTED_CLIENT_EXPORTS, "22")
         self.assertIn('EXPECTED_CLIENT_EXPORTS = "22"', source)
-        self.assertIn('EXPECTED_JNI_EXPORTS = "21"', source)
+        self.assertIn('EXPECTED_JNI_EXPORTS = "22"', source)
+        jni_source = (Path(__file__).resolve().parents[1] / "qeli/src/transport_core/jni.rs").read_text(encoding="utf-8")
+        self.assertEqual(jni_source.count('pub extern "system" fn Java_com_qeli_TransportCore_'), 22)
         self.assertIn("core.strip() != EXPECTED_CLIENT_EXPORTS", source)
         self.assertIn("jni.strip() != EXPECTED_JNI_EXPORTS", source)
 
@@ -646,6 +678,21 @@ class NativeRecipeTests(unittest.TestCase):
             self.assertIn("qeli_core::", source, target.name)
 
 
+    def test_retired_lab_rebuild_refuses_before_optional_imports(self):
+        script = Path(__file__).parent / "lab_sync_build.py"
+        # -S omits Paramiko: a refusal must happen before imports or SSH, even
+        # for old package commands and --help. No lab credentials are required.
+        for arguments in ([], ["--help"], ["package"], ["--unknown"]):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [sys.executable, "-S", "-B", str(script), *arguments],
+                    capture_output=True, text=True, encoding="utf-8", timeout=10,
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, "")
+                self.assertTrue(result.stderr.startswith("RETIRED:"), result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
     def test_lab_gate_syncs_integration_tests_and_their_release_fixture(self):
         source = (Path(__file__).parent / "lab_sync_build.py").read_text(encoding="utf-8")
         self.assertIn('"tests"', source)
@@ -682,12 +729,20 @@ class NativeRecipeTests(unittest.TestCase):
         )
         for recipe in recipes:
             source = recipe.read_text(encoding="utf-8")
-            self.assertIn('crate-type = [\\"rlib\\"]', source, recipe.name)
-            self.assertIn("restore_router_manifest(c)", source, recipe.name)
+            self.assertIn("restrict_crate_types(c, REMOTE_ROOT)",source,recipe.name)
+            self.assertIn("create_router_checkout(c,",source,recipe.name)
+            self.assertNotIn("restore_router_manifest",source,recipe.name)
+            self.assertNotIn('REMOTE_ROOT = "/opt/qeli-src"',source,recipe.name)
+            self.assertIn("pull_router_artifact",source,recipe.name)
             self.assertIn("raise SystemExit(1)", source, recipe.name)
-            self.assertIn('PINNED_CARGO_ZIGBUILD = "0.23.0"', source, recipe.name)
-            self.assertIn("cargo install --list", source, recipe.name)
-            self.assertNotIn("cargo zigbuild --version", source, recipe.name)
+            self.assertIn("ensure_router_toolchain(c, selected)", source, recipe.name)
+            self.assertIn("router_build_command(REMOTE_ROOT,", source, recipe.name)
+            self.assertNotIn("cargo +nightly zigbuild", source, recipe.name)
+        policy = (root / "scripts/router_toolchain.py").read_text(encoding="utf-8")
+        self.assertIn('ROUTER_NIGHTLY = "nightly-2026-06-10"', policy)
+        self.assertIn("DEFAULT_RUST_TOOLCHAIN", policy)
+        self.assertIn("DEFAULT_ZIG_VERSION", policy)
+        self.assertIn("DEFAULT_CARGO_ZIGBUILD_VERSION", policy)
 
         ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         attest = (root / ".github/workflows/release-attest.yml").read_text(encoding="utf-8")
@@ -697,6 +752,19 @@ class NativeRecipeTests(unittest.TestCase):
             )
             self.assertNotIn("run: cargo install cargo-zigbuild --locked", workflow)
         self.assertIn('crate-type = ["rlib"]', ci)
+
+        router_ci = ci.split("  keenetic-cross:", 1)[1].split("  fuzz-smoke:", 1)[0]
+        self.assertEqual(router_ci.count("toolchain: 1.97.0"), 3)
+        self.assertEqual(router_ci.count("toolchain: nightly-2026-06-10"), 1)
+        for target in ("aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl",
+                       "armv7-unknown-linux-musleabihf", "mipsel-unknown-linux-musl"):
+            self.assertIn("target: " + target, router_ci)
+        self.assertNotIn("toolchain: stable", router_ci)
+        self.assertNotIn("toolchain: nightly\n", router_ci)
+        self.assertEqual(router_ci.count("zigbuild --locked --jobs 1"), 2)
+        self.assertIn("unset CARGO_ENCODED_RUSTFLAGS RUSTC CARGO_BUILD_RUSTC CARGO_BUILD_RUSTFLAGS", router_ci)
+        self.assertIn("RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_INCREMENTAL=0", router_ci)
+        self.assertIn("validate_router_elf(data, target)", router_ci)
 
     def test_retired_root_ssh_scenarios_exit_before_network_or_mutation(self):
         root = Path(__file__).parent.parent
@@ -748,6 +816,16 @@ class NativeRecipeTests(unittest.TestCase):
             )
             self.assertGreaterEqual(guard, 0, f"{relative} has no retirement guard")
             self.assertLess(guard, dangerous, f"{relative} can act before its retirement guard")
+            statements = ast.parse(source).body
+            self.assertIsInstance(statements[-1], ast.Raise, f"{relative} retains a dead legacy body")
+            for statement in statements[:-1]:
+                documentation = (isinstance(statement, ast.Expr)
+                                 and isinstance(statement.value, ast.Constant)
+                                 and isinstance(statement.value.value, str))
+                annotations = (isinstance(statement, ast.ImportFrom)
+                               and statement.module == "__future__"
+                               and all(alias.name == "annotations" for alias in statement.names))
+                self.assertTrue(documentation or annotations, f"{relative} is not a refusal-only stub")
 
         for path in (root / "test").glob("*.sh"):
             source = path.read_text(encoding="utf-8")
@@ -758,6 +836,8 @@ class NativeRecipeTests(unittest.TestCase):
                 default=len(source),
             )
             self.assertLess(source.find("exit 1"), dangerous, path.name)
+            self.assertEqual(source.strip().splitlines()[-1], "exit 1", f"{path.name} retains dead code")
+            self.assertEqual(len(source.strip().splitlines()), 3, f"{path.name} is not a refusal-only stub")
 
     def test_tracked_python_scenarios_never_silently_trust_a_new_ssh_host(self):
         root = Path(__file__).resolve().parents[1]

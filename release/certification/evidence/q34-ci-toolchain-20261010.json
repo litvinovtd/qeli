@@ -1,0 +1,383 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS_Q34_CI_COMPILER_SELECTION_SCOPED",
+  "source_digest": "c5c4d6c789f7bfeeb6ab346de00d521d493fc4d9d6cca003391c95ab43a0a187",
+  "qualification_source_commit": "0c67fe4bf781d2efacc236a5d4722d3383e2a637",
+  "product_source_commit": "0c67fe4bf781d2efacc236a5d4722d3383e2a637",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F501/Q34-F055"
+  ],
+  "verification": {
+    "baseline": {
+      "status": "CONFIRMED_7_IMPLICIT_MOVING_COMPILERS",
+      "missing_jobs": [
+        "build-test",
+        "deb-package",
+        "android-build",
+        "android-instrumented",
+        "windows-build",
+        "macos-build",
+        "ios-build"
+      ],
+      "all_rust_steps": [
+        {
+          "job": "build-test",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": null,
+          "effective": "stable"
+        },
+        {
+          "job": "deb-package",
+          "step": 2,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": null,
+          "effective": "stable"
+        },
+        {
+          "job": "lint",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        },
+        {
+          "job": "android-build",
+          "step": 4,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": null,
+          "effective": "stable"
+        },
+        {
+          "job": "android-instrumented",
+          "step": 3,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": null,
+          "effective": "stable"
+        },
+        {
+          "job": "windows-build",
+          "step": 3,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": null,
+          "effective": "stable"
+        },
+        {
+          "job": "macos-build",
+          "step": 2,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": null,
+          "effective": "stable"
+        },
+        {
+          "job": "ios-build",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": null,
+          "effective": "stable"
+        },
+        {
+          "job": "keenetic-cross",
+          "step": 2,
+          "uses": "dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c",
+          "input": "${{ matrix.toolchain }}",
+          "effective": "${{ matrix.toolchain }}"
+        },
+        {
+          "job": "fuzz-smoke",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2",
+          "input": "${{ env.QELI_FUZZ_TOOLCHAIN }}",
+          "effective": "${{ env.QELI_FUZZ_TOOLCHAIN }}"
+        },
+        {
+          "job": "fuzz-nightly",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2",
+          "input": "${{ env.QELI_FUZZ_TOOLCHAIN }}",
+          "effective": "${{ env.QELI_FUZZ_TOOLCHAIN }}"
+        },
+        {
+          "job": "security-audit",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        }
+      ],
+      "action_url": "https://raw.githubusercontent.com/dtolnay/rust-toolchain/4cda84d5c5c54efe2404f9d843567869ab1699d4/action.yml",
+      "action_sha256": "909cee58151b62fdfd3d6fa758493a402a4b3ee2e97204f71aa29f11df2af59e",
+      "parser": "PyYAML6.0.3 BaseLoader",
+      "parser_archive_sha256": "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f",
+      "scope": "Actual YAML plus exact pinned action definition; effective default selection, no hosted runner execution."
+    },
+    "windows": {
+      "status": "PASS",
+      "methods": 65,
+      "checks": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_native_recipes.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 38
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_check_workflows.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 11
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_toolchain_licenses.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 16
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/check_workflows.py",
+            "--actionlint",
+            "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-fuzz-context-20261009\\actionlint.exe"
+          ],
+          "returncode": 0,
+          "output": "actionlint 1.7.12: 4 workflows PASS (Actions semantics only)\r\n"
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/toolchain_licenses.py"
+          ],
+          "returncode": 0,
+          "output": "{\"bytes\": 3999768, \"components\": 7, \"files\": 69, \"resources\": 65, \"status\": \"PASS\"}\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ]
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-PUBLICATION-GATES.md"
+      ],
+      "removed_paths": [],
+      "qualified_paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "662df4bddca37e123168e77b1b2304c7d5bafa96bf3bbf1d36895c8665139079",
+          "normalization": "LF"
+        }
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    },
+    "compiler_selection": {
+      "status": "PASS_ALL_12_RUST_INSTALL_STEPS_EXPLICIT",
+      "repaired_jobs": [
+        "build-test",
+        "deb-package",
+        "android-build",
+        "android-instrumented",
+        "windows-build",
+        "macos-build",
+        "ios-build"
+      ],
+      "all_rust_steps": [
+        {
+          "job": "build-test",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        },
+        {
+          "job": "deb-package",
+          "step": 2,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        },
+        {
+          "job": "lint",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        },
+        {
+          "job": "android-build",
+          "step": 4,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        },
+        {
+          "job": "android-instrumented",
+          "step": 3,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        },
+        {
+          "job": "windows-build",
+          "step": 3,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        },
+        {
+          "job": "macos-build",
+          "step": 2,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        },
+        {
+          "job": "ios-build",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        },
+        {
+          "job": "keenetic-cross",
+          "step": 2,
+          "uses": "dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c",
+          "input": "${{ matrix.toolchain }}",
+          "effective": "${{ matrix.toolchain }}"
+        },
+        {
+          "job": "fuzz-smoke",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2",
+          "input": "${{ env.QELI_FUZZ_TOOLCHAIN }}",
+          "effective": "${{ env.QELI_FUZZ_TOOLCHAIN }}"
+        },
+        {
+          "job": "fuzz-nightly",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2",
+          "input": "${{ env.QELI_FUZZ_TOOLCHAIN }}",
+          "effective": "${{ env.QELI_FUZZ_TOOLCHAIN }}"
+        },
+        {
+          "job": "security-audit",
+          "step": 1,
+          "uses": "dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4",
+          "input": "1.97.0",
+          "effective": "1.97.0"
+        }
+      ],
+      "structural_identity_except_7_added_inputs": true,
+      "toolchain": "1.97.0",
+      "policy_source": "scripts/native_repro.py:DEFAULT_RUST_TOOLCHAIN",
+      "scope": "Exact pinned action default and actual YAML selection; unchanged existing lint/security/router/nightly pins. Not hosted Actions or a compiler rebuild."
+    },
+    "qualified_source": {
+      "status": "PASS",
+      "producer_commit": "6d4df639bf081e50ea695a2300c5b4bec9a93216",
+      "workflow_sha256": "662df4bddca37e123168e77b1b2304c7d5bafa96bf3bbf1d36895c8665139079",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "labs": "UNUSED",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-ci-toolchain-20261010",
+    "files": 22,
+    "bytes": 1183992,
+    "manifest_sha256": "3a2362b4f92fadd4dffee764d264748923aa941115c528d20a1f9376f528be8d",
+    "runtime_status": "PASS_Q34_CI_COMPILER_SELECTION_SCOPED",
+    "path": "audit-debt-20260924/q34-ci-toolchain-20261010",
+    "status": "SEALED"
+  },
+  "scope": "F501/Q34-F055 implicit moving Rust compiler selection in7CIjobs closed. Exact stable action4cda84d5 definition from pinned raw GitHub URL confirms defaultstable. Actual SHAqualified PyYAML6.0.3 BaseLoader reproduces7implicitstable jobs:build-test/deb-package/android-build/android-instrumented/windows-build/macos-build/ios-build. Added explicit1.97.0 matching DEFAULT_RUST_TOOLCHAIN/reviewed notices. All12Rust installsteps explicit, existingformat/security/router4matrixchoices and2fuzznightly steps unchanged. Removingonly7addedwithinputs yieldssemanticYAMLidenticalbaseline, preservingtriggers/jobs/matrix/components/othersteps.65relatedmethods38native-recipes11workflow16toolchainPASS; officialSHApinnedactionlint1.7.12all4workflowsPASS,toolchainresourcesand724Markdown9checksPASS. Source/configselection qualification only,nohostedActions/compilerinstallation/clientbuild/lab; previousactual matrix/nativeexecution inherited,noSDK/native/APKrebuild. Nativee3fb14SHA/qelitree/protected/OpenWrtcut unchanged.41cases100priorsupplements preservedmodulosourcedigestbookkeeping;append101. Q34IN_PROGRESS30/37DONE81.1percent7remain, allpreviousopen/accepted/USER_EXCLUDED retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE",
+  "inherited_prior_post_seal_note": {
+    "path": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-mac-universal-post-seal-note.json",
+    "sha256": "33b984d7eb151435a557fd2274689a7c694da7923e45f1bb5d9f38417f611580",
+    "scope": "Current immutable seal retained after docs pathspec/ENOSPC refusals; exact archive-backed own scratch recovery and resumed docs commit"
+  }
+}

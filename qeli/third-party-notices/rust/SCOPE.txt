@@ -1,0 +1,5 @@
+Cargo.lock superset: includes client, server, target-specific, build and test dependencies.
+Presence here does not imply linkage into every packaged binary.
+Upstream legal resources are preserved byte for byte; license expressions are not rewritten.
+Reviewed toolchain notices are retained in the optional policy-bound toolchains layer.
+Matching source publication and per-binary runtime linkage require separate review.

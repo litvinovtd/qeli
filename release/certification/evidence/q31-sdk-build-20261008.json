@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_F399_Q31_V010_SDK_INTEGRATION_WITH_DOCUMENTED_SCOPE",
+  "source_digest": "18968579e285e0433fb3248e3c319bb8573958a0af71206e1a8ad8b4ce64fd3a",
+  "qualification_source_commit": "5d018c974dbc42684b4f02d7f753213f5314c4ad",
+  "base_worktree_commit": "b68bf9075ec894c1ffd303bee2708411ad54885a",
+  "base_dev_commit": "293aaf771060a2f26f44004133740024e9e469fa",
+  "findings": [
+    "F399"
+  ],
+  "verification_id": "Q31-V010",
+  "baseline": {
+    "actual_sdk_nested_make": "FAIL_before_Cargo_sed_unterminated_s_command",
+    "log": "compile-package-baseline.log"
+  },
+  "verification": {
+    "sdk": "official OpenWrt24.10.4 x86/64 SHA229e871f734a2cee5ce3ad6a3e98d3836b0899bfdeaea4d9c2c5cc7b1fce1407",
+    "qeli_tree": "bfa0cfc6b25f7c2ddd1a15799bcf75ecf80f38e8",
+    "source_archive": {
+      "fixture_pin": "d2468368419c22212a1a8205be5ca4744d975169",
+      "sha256": "7438f1447a812a97345ddc1e6212a3a0e3f657d0f871635eeaeab7984040a83e",
+      "size": 1548205,
+      "production_source_pin_hash": "UNCHANGED; only private fixture URL/pin/hash substituted"
+    },
+    "actual_sdk_stages": [
+      "Git download/source archive",
+      "hash admission",
+      "prepare",
+      "client-only Cargo metadata/install",
+      "SDK GCC13.3 musl link",
+      "install",
+      "stock library dependency verification",
+      "strip",
+      "IPK pack"
+    ],
+    "toolchain": "private official prebuilt Rust/std1.89.0; one compiler; existing registry copied; no upstream Rust bootstrap/cold-hermetic claim",
+    "package": {
+      "path": "sdk/bin/targets/x86/64/packages/qeli_0.8.2-r1_x86_64.ipk",
+      "size": 2259448,
+      "sha256": "f73c53d42de06b8cc885e7a9829bbf0bbb84c22abfdbcaa4a4169889883382fa"
+    },
+    "elf_sha256": "bdc20d2a9330c1a5a890357bea9ec08976cd5ef85b8c8c6e22033ef936439bb5",
+    "elf_needed": [
+      "libc.so",
+      "libgcc_s.so.1"
+    ],
+    "compile_methods": 6,
+    "offline_opkg_methods": 7,
+    "sdk_client_executions": [
+      {
+        "case": "version",
+        "rc": 0,
+        "stdout": "qeli-client 0.8.2\n"
+      },
+      {
+        "case": "legacy",
+        "rc": 0,
+        "expected": "legacy",
+        "stdout": "legacy\n",
+        "stderr": ""
+      },
+      {
+        "case": "quoted-bom",
+        "rc": 0,
+        "expected": "legacy",
+        "stdout": "legacy\n",
+        "stderr": ""
+      },
+      {
+        "case": "core-exit-node",
+        "rc": 0,
+        "expected": "core",
+        "stdout": "core\n",
+        "stderr": ""
+      },
+      {
+        "case": "attached",
+        "rc": 0,
+        "expected": "legacy",
+        "stdout": "legacy\n",
+        "stderr": ""
+      },
+      {
+        "case": "wrong-device",
+        "rc": 1,
+        "expected": null,
+        "stdout": "",
+        "stderr": "Error: router template TUN does not match configured dev\n"
+      },
+      {
+        "case": "wrong-attach",
+        "rc": 1,
+        "expected": null,
+        "stdout": "",
+        "stderr": "Error: router template attachment mode does not match configured dev_attach\n"
+      },
+      {
+        "case": "tap-refusal",
+        "rc": 1,
+        "expected": null,
+        "stdout": "",
+        "stderr": "Error: router template requires device_type=tun\n"
+      },
+      {
+        "case": "invalid-ini",
+        "rc": 1,
+        "expected": null,
+        "stdout": "",
+        "stderr": "Error: qeli.mtu: invalid field value\n"
+      }
+    ],
+    "skips": 0,
+    "opkg": "genuine SHA-verified official rootfs and earlier signature-admitted cached dependencies; nft/legacy; no force-depends or fake installed records; r2 SDK-packed upgrade fixture",
+    "namespace_scope": "mount/net/PID/chroot; metadata CLI only; no VPN/host firewall",
+    "prepared_source_after_packaging": "SDK stock autoremove; original exact source fixture/archive/logs retained; post-packaging source byte comparison NOT_CLAIMED",
+    "native": "Rust/ABI/build inputs unchanged;14SHA and independent A/B provenance PASS",
+    "documentation": "both normative languages and README/INSTALL;9check_docs checks, config bindings generation,38 recipe fixture methods PASS",
+    "backup_cleanup": {
+      "root": "/var/tmp/qeli-sdk-build-20261008.xDWXpz",
+      "process_mount_resolved_path_guards": "PASS",
+      "backup_sha256": "ffa58b9d723ea42886474af09cb24bcb5d344fc89213974e4b0009daa9cd3fcb",
+      "removed": "OWNED_ROOT_REMOVED",
+      "service": "MainPID=777\nActiveState=active"
+    },
+    "original_service": "active MainPID777/worker845 unchanged; .10 untouched",
+    "input_integrity": {
+      "qeli_tree": "UNCHANGED_MATCHES_ACTUAL_SDK_FIXTURE",
+      "test_script_bytes": "THREE_EXACT_CURRENT_SOURCE",
+      "installed_script_bytes": "THREE_EXACT_PRODUCTION_FILES",
+      "production_pin_hash": "UNCHANGED",
+      "backup_sha256_verified": true,
+      "credential_scan": "PASS"
+    },
+    "preparation_errors": {
+      "scope": "preparation errors remain visible and are not product runtime failures",
+      "notes": [
+        "initial detached launch SSH timeout was inspected/resumed without duplicate job; missing SDK tmp directory repaired",
+        "actual old nested Make compile fails sed before Cargo (F399 baseline)",
+        "fixed Cargo/link passed; first packaging lacked stock libc/libgcc provides; stock toolchain package populated them, final package compile rc0; outer fixed helper exit0 did not represent inner make rc2, build-proof-fixed records rc2",
+        "first opkg fixture: missing rootfs tmp/lock and invalid option lists_dir ext, seven methods failed; only opkg/runtime rerun after fixture repair; six compile tests not repeated",
+        "dependency inspector first had Python string newline syntax error and only read-only inspection was retried",
+        "first backup selector expected prepared Cargo.toml after stock SDK autoremove and failed without deleting files; backed up original fixture/archive/logs/IPKs/tools instead; no post-autoremove source comparison claimed"
+      ]
+    }
+  },
+  "raw_packet": {
+    "path": "audit-debt-20260924/q31-sdk-build-20261008",
+    "status": "SEALED",
+    "files": 96,
+    "bytes": 32838727,
+    "manifest_sha256": "50bb52324c3ee752f674a743c998bc1b71dbe1eeb873bc13d3f82fc8d9f7e14d"
+  },
+  "remaining": [
+    "upstream SDK Rust compiler bootstrap",
+    "production release source pin/hash/archive cut",
+    "successful current-commit Actions and whole preflight",
+    "other SDK architectures/full VPN/firmware runtime (firmware USER_EXCLUDED)"
+  ],
+  "dispositions": {
+    "q31": "3/5 IN_PROGRESS",
+    "full_audit": "29/37 DONE 78.4%;8remain",
+    "old_debt": "14DONE;D06 ACCEPTED_LIMITATION",
+    "q29": "SIGKILL FAIL/auto-null ENONET retained",
+    "q30": "Apple/callback scope retained",
+    "platforms": "user exclusions retained"
+  },
+  "historical_evidence_policy": "41 cases/acceptance and53 prior supplements preserved modulo source_digest; metadata applicability update is not new execution of full matrix, benchmark, soak or native build",
+  "actions": "local commits only; no push/deploy/release"
+}

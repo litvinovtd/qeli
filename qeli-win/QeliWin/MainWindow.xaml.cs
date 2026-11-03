@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     // import, delete), so the OnProfileSelected auto-restart fires ONLY for a genuine user
     // pick — not for a selection that shifts because the collection was mutated.
     private bool _suppressAutoSwitch;
+    private long _profileRevision;
     private VpnStatus _status = VpnStatus.Disconnected;
     private VpnStatus _prevStatus = VpnStatus.Disconnected;
     private string? _lastExtra;
@@ -49,12 +50,13 @@ public partial class MainWindow : Window
 
     // Windows-service mode: the VPN runs in the service; the GUI polls its status/log.
     private bool _serviceMode;
+    private bool _serviceBusy;
+    private bool _settingsOpen;
     private DispatcherTimer? _serviceTimer;
-    private long _serviceLogPos;
 
     // Live stats (sampled once a second while connected): speed tiles + sparkline.
     private DispatcherTimer? _statsTimer;
-    private long _prevUp, _prevDown, _prevStatsTick;
+    private readonly TrafficHistory _trafficHistory = new();
     private ServiceStatus? _svc;                      // last service snapshot (service mode)
     private ICollectionView? _view;                   // profiles view (for search filtering)
 
@@ -214,14 +216,20 @@ public partial class MainWindow : Window
 
     private async Task OpenSettings()
     {
-        bool saved = SettingsWindow.Show(this, _profiles);
-        if (saved)
+        if (_settingsOpen || _serviceBusy || _toggleBusy || _exiting) return;
+        _settingsOpen = true;
+        bool previouslyEnabled = AppSettings.Current.ServiceEnabled;
+        try
         {
-            _tunnel.LogLevel = AppSettings.Current.LogLevel;
-            await ApplyServiceSettings();
-            ReapplyLanguage(); // language may have changed (live)
-            ConfigureProbeTimer(); // auto-poll toggle / interval may have changed
+            if (SettingsWindow.Show(this, _profiles))
+            {
+                _tunnel.LogLevel = AppSettings.Current.LogLevel;
+                await ApplyServiceSettings(connectRequested: !previouslyEnabled);
+                ReapplyLanguage();
+                ConfigureProbeTimer();
+            }
         }
+        finally { _settingsOpen = false; }
     }
 
     /// <summary>Resolve a saved profile reference (service / auto-connect) to a live profile.
@@ -254,12 +262,18 @@ public partial class MainWindow : Window
     // ── Windows-service mode ─────────────────────────────────────────────────────
     private void RefreshServiceMode()
     {
-        bool nowService = ServiceManager.IsInstalled();
+        bool nowService;
+        try { nowService = ServiceManager.IsInstalled(); }
+        catch (Exception error)
+        {
+            // Unknown SCM state must not launch a competing in-process tunnel.
+            nowService = true;
+            RenderStatus(VpnStatus.Error, $"Cannot query installed service: {error.Message}");
+        }
         _serviceMode = nowService;
         if (nowService)
         {
             ConnectBtn.IsEnabled = true;
-            _serviceLogPos = 0;
             LogBox.Clear();
             StartServicePolling();
             ServicePollTick(null, EventArgs.Empty);
@@ -289,14 +303,24 @@ public partial class MainWindow : Window
     private void ServicePollTick(object? sender, EventArgs e)
     {
         if (!_serviceMode) return;
-        var snapshot = ServiceState.ReadStatus();
-        _svc = snapshot;
-        VpnStatus status = VpnStatus.Disconnected;
-        string? extra = snapshot?.Extra;
-        if (snapshot != null && Enum.TryParse<VpnStatus>(snapshot.Status, out var parsed)) status = parsed;
-        if (!ServiceManager.IsRunning()) { status = VpnStatus.Disconnected; extra = null; }
-
+        VpnStatus status;
+        string? extra;
+        try
+        {
+            var observed = ServiceObservation.Resolve(ServiceManager.GetStatus(),
+                ServiceState.ReadStatus(), DateTime.Now);
+            _svc = observed.Snapshot;
+            status = observed.Status;
+            extra = observed.Extra;
+        }
+        catch (Exception error)
+        {
+            _svc = null;
+            status = VpnStatus.Error;
+            extra = $"Cannot observe service: {error.Message}";
+        }
         if (status != _status) OnStatus(status, extra);
+        else if (extra != _lastExtra) RenderStatus(status, extra);
         TailServiceLog();
     }
 
@@ -304,70 +328,77 @@ public partial class MainWindow : Window
     {
         try
         {
-            var path = ServiceState.LogFile;
-            if (!File.Exists(path)) return;
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            if (fs.Length < _serviceLogPos) _serviceLogPos = 0; // log was rotated
-            if (fs.Length == _serviceLogPos) return;
-            fs.Seek(_serviceLogPos, SeekOrigin.Begin);
-            using var sr = new StreamReader(fs);
-            var text = sr.ReadToEnd();
-            _serviceLogPos = fs.Length;
-            if (text.Length > 0) { LogBox.AppendText(text); LogBox.ScrollToEnd(); }
+            var text = ServiceState.ReadLog();
+            if (text != LogBox.Text) { LogBox.Text = text; LogBox.ScrollToEnd(); }
         }
-        catch { /* ignore transient IO */ }
+        catch { /* preserve the last bounded view during a partial write or IO failure */ }
     }
 
-    private async Task ApplyServiceSettings()
+    private async Task ApplyServiceSettings(bool connectRequested = false, VpnConfig? profileOverride = null)
     {
-        var s = AppSettings.Current;
+        if (_serviceBusy) return;
+        _serviceBusy = true;
+        ConnectBtn.IsEnabled = false;
         try
         {
-            if (s.ServiceEnabled)
+            var s = AppSettings.Current;
+            VpnConfig? snapshot = null;
+            if (s.ServiceEnabled || profileOverride != null)
             {
-                var p = ResolveProfile(s.ServiceProfile) ?? _profiles.FirstOrDefault();
-                if (p == null)
+                var p = profileOverride ?? ResolveProfile(s.ServiceProfile) ?? _profiles.FirstOrDefault();
+                if (p is null)
                 {
                     MessageBox.Show(this, Loc.T("NoServiceProfile"), Loc.T("ServiceWord"),
                         MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
-                // Avoid two tunnels fighting over the Wintun adapter.
-                if (_status is VpnStatus.Connected or VpnStatus.Connecting)
+                snapshot = ServiceProfileTransition.Snapshot(p, s.LogLevel);
+                // Serialize with Start and stop retained Error/reconnect attempts too.
+                if (!_serviceMode)
+                {
                     await Task.Run(_tunnel.Stop);
-                p.LoggingLevel = s.LogLevel;
-                ServiceState.SaveProfile(p);
-                if (!ServiceManager.IsInstalled()) ServiceManager.Install();
-                ServiceManager.Start();
+                    _activeProfile = null;
+                }
             }
-            else if (ServiceManager.IsInstalled())
-            {
-                ServiceManager.Uninstall();
-            }
+            await Task.Run(() => ServiceProfileTransition.Current.Apply(snapshot, connectRequested));
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, Loc.F("ServiceApplyError", ex.Message),
                 Loc.T("ServiceWord"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
-        RefreshServiceMode();
+        finally
+        {
+            _serviceBusy = false;
+            RefreshServiceMode();
+            ConnectBtn.IsEnabled = _serviceMode || Selected != null;
+        }
     }
 
-    private void ToggleService()
+    private async Task ToggleService()
     {
+        if (_serviceBusy || _settingsOpen || _exiting) return;
+        _serviceBusy = true;
+        ConnectBtn.IsEnabled = false;
         try
         {
-            // The auto-started service may be running but intentionally idle. Toggle the
-            // persisted connection intent, not the SCM process state.
-            if (ServiceState.DesiredConnected()) ServiceManager.Stop();
-            else ServiceManager.Start();
+            await Task.Run(() =>
+            {
+                if (ServiceState.DesiredConnected()) ServiceManager.Stop();
+                else ServiceManager.Start();
+            });
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, Loc.F("ServiceControlError", ex.Message),
                 Loc.T("ServiceWord"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
-        ServicePollTick(null, EventArgs.Empty);
+        finally
+        {
+            _serviceBusy = false;
+            ConnectBtn.IsEnabled = true;
+            ServicePollTick(null, EventArgs.Empty);
+        }
     }
 
     /// <summary>Quit: tear the tunnel down, then shut the app down.
@@ -723,11 +754,11 @@ public partial class MainWindow : Window
 
     private void OnImport(object sender, RoutedEventArgs e)
     {
-        var text = InputDialog.Show(this, Loc.T("ImportTitle"), Loc.T("ImportPrompt"), "", multiline: true);
+        var text = InputDialog.Show(this, Loc.T("ImportTitle"), Loc.T("ImportPrompt"), "", multiline: true, geometryKey: "import");
         if (string.IsNullOrWhiteSpace(text)) return;
         try
         {
-            var cfg = VpnConfig.Parse(text.Trim());
+            var cfg = VpnConfig.Parse(text);
             // IMPORT boundary: run the semantic checks that `FromIni` deliberately
             // skips (it stays lenient so the editor can open a broken profile). A
             // pasted profile is exactly as untrusted as a scanned link — without this,
@@ -735,7 +766,6 @@ public partial class MainWindow : Window
             // (Audit 2026-08-04, H-07.)
             cfg.Validate(platformCapabilities: false);
             cfg.Name ??= cfg.ServerAddress;
-            _profiles.Add(cfg);
             PersistAndSelect(cfg);
         }
         catch (Exception ex)
@@ -749,8 +779,12 @@ public partial class MainWindow : Window
     {
         var cfg = ConfigEditorWindow.Show(this, null);
         if (cfg == null) return;
-        _profiles.Add(cfg);
-        PersistAndSelect(cfg);
+        try { PersistAndSelect(cfg); }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, error.Message, "Qeli",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     // Per-card "⋯" menu: Edit / Duplicate / Share-QR / Delete.
@@ -767,15 +801,28 @@ public partial class MainWindow : Window
     private static VpnConfig? Ctx(object sender) => (sender as FrameworkElement)?.DataContext as VpnConfig;
     private void OnMenuEdit(object sender, RoutedEventArgs e) { if (Ctx(sender) is { } p) EditProfile(p); }
     private void OnMenuDelete(object sender, RoutedEventArgs e) { if (Ctx(sender) is { } p) DeleteProfile(p); }
-    private void OnMenuShare(object sender, RoutedEventArgs e) { if (Ctx(sender) is { } p) QrShareWindow.Show(this, p); }
+    private void OnMenuShare(object sender, RoutedEventArgs e)
+    {
+        if (Ctx(sender) is not { } p) return;
+        try { QrShareWindow.Show(this, p); }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, error.Message, "Qeli",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
 
     private void OnMenuDuplicate(object sender, RoutedEventArgs e)
     {
         if (Ctx(sender) is not { } p) return;
         var copy = p.Clone();
         copy.Name = p.DisplayName + Loc.T("CopySuffix");
-        _profiles.Add(copy);
-        PersistAndSelect(copy);
+        try { PersistAndSelect(copy); }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, error.Message, "Qeli",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     /// <summary>True when <paramref name="p"/> is the profile the tunnel is currently
@@ -803,10 +850,25 @@ public partial class MainWindow : Window
 
     private async void EditProfile(VpnConfig p)
     {
+        if (_serviceBusy || _settingsOpen || _exiting) return;
+        long openedAtRevision = _profileRevision;
         var edited = ConfigEditorWindow.Show(this, p);
         if (edited == null) return;
+        if (_profileRevision != openedAtRevision)
+        {
+            MessageBox.Show(this, Loc.T("ProfileListChanged"), "Qeli",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        bool serviceProfile;
+        try { serviceProfile = _serviceMode && ServiceProfileTransition.Current.UsesProfile(p.Id); }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, Loc.F("ServiceApplyError", error.Message), Loc.T("ServiceWord"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
         bool wasRunning = IsRunning(p);
-        int idx = _profiles.IndexOf(p);
         if (wasRunning && !_serviceMode)
         {
             try
@@ -824,13 +886,35 @@ public partial class MainWindow : Window
         // Replacing the item + reselecting it both raise SelectionChanged; suppress the
         // auto-switch so it doesn't restart the tunnel here — the wasRunning branch below
         // owns the restart (and only when the LIVE profile was the one edited).
+        if (_profileRevision != openedAtRevision)
+        {
+            MessageBox.Show(this, Loc.T("ProfileListChanged"), "Qeli",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (wasRunning && !_serviceMode && !_tunnel.IsRunning && _profiles.Contains(p))
+                await StartTunnel(p);
+            return;
+        }
+        int idx = _profiles.IndexOf(p);
+        if (idx < 0) return;
+        var updated = _profiles.ToList();
+        updated[idx] = edited;
+        try { ProfileStore.Save(updated); }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, error.Message, "Qeli",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            if (wasRunning && !_serviceMode) await StartTunnel(p);
+            return;
+        }
+        _profileRevision++;
         Programmatic(() =>
         {
             _profiles[idx] = edited;
             ProfilesList.SelectedItem = edited;
         });
-        ProfileStore.Save(_profiles);
         CheckReachability(edited);
+        if (serviceProfile)
+            await ApplyServiceSettings(profileOverride: edited);
         // If we just edited the live profile (e.g. changed the server IP), the running
         // tunnel is still on the OLD config — restart it on the edited one so the change
         // takes effect instead of the reconnect loop retrying the stale endpoint.
@@ -843,12 +927,36 @@ public partial class MainWindow : Window
 
     private async void DeleteProfile(VpnConfig p)
     {
+        if (_serviceBusy || _settingsOpen || _exiting) return;
+        try
+        {
+            if (_serviceMode && ServiceProfileTransition.Current.UsesProfile(p.Id))
+            {
+                MessageBox.Show(this, Loc.T("ServiceProfileDeleteBlocked"), Loc.T("ServiceWord"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+        }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, Loc.F("ServiceApplyError", error.Message), Loc.T("ServiceWord"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        long openedAtRevision = _profileRevision;
         if (MessageBox.Show(this, Loc.F("DeleteConfirm", p.DisplayName), Loc.T("DeleteTitle"),
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (_profileRevision != openedAtRevision)
+        {
+            MessageBox.Show(this, Loc.T("ProfileListChanged"), "Qeli",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
         // Tear down the tunnel FIRST if we're deleting the profile it's running on —
         // otherwise its reconnect loop (owned by the tunnel, not the list) keeps trying
         // the deleted server's IP long after the profile is gone.
-        if (IsRunning(p) && !_serviceMode)
+        bool wasRunning = IsRunning(p);
+        if (wasRunning && !_serviceMode)
         {
             try { await Task.Run(_tunnel.Stop); }
             catch (Exception error)
@@ -862,8 +970,25 @@ public partial class MainWindow : Window
         // Removing the selected item shifts the selection → SelectionChanged; suppress so a
         // delete of a NON-running profile while connected doesn't restart onto whatever
         // becomes selected. The running-profile case is handled above.
+        if (_profileRevision != openedAtRevision)
+        {
+            MessageBox.Show(this, Loc.T("ProfileListChanged"), "Qeli",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (wasRunning && !_serviceMode && !_tunnel.IsRunning && _profiles.Contains(p))
+                await StartTunnel(p);
+            return;
+        }
+        if (!_profiles.Contains(p)) return;
+        try { ProfileStore.Save(_profiles.Where(item => !ReferenceEquals(item, p)).ToList()); }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, error.Message, "Qeli",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            if (wasRunning && !_serviceMode) await StartTunnel(p);
+            return;
+        }
+        _profileRevision++;
         Programmatic(() => _profiles.Remove(p));
-        ProfileStore.Save(_profiles);
         UpdateEmptyHint();
     }
 
@@ -997,8 +1122,7 @@ public partial class MainWindow : Window
 
     private void StartStatsTimer()
     {
-        var (up, down, _) = StatsSource();
-        _prevUp = up; _prevDown = down; _prevStatsTick = Environment.TickCount64;
+        _trafficHistory.Clear();
         _statsTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _statsTimer.Tick -= StatsTick;
         _statsTimer.Tick += StatsTick;
@@ -1014,7 +1138,10 @@ public partial class MainWindow : Window
     private void ResetTiles()
     {
         if (DownVal == null) return;
-        DownVal.Text = UpVal.Text = SessionVal.Text = IpVal.Text = "—";
+        DownVal.Text = UpVal.Text = SessionVal.Text = IpVal.Text = Ip6Val.Text = "—";
+        CopyIpv4.IsEnabled = CopyIpv6.IsEnabled = false;
+        _trafficHistory.Clear();
+        TrafficUp.Points.Clear(); TrafficDown.Points.Clear(); TrafficScale.Text = "—";
         TotalDownVal.Text = TotalUpVal.Text = "—";
         SessionSubVal.Text = IpSubVal.Text = "";
     }
@@ -1022,22 +1149,55 @@ public partial class MainWindow : Window
     private void StatsTick(object? sender, EventArgs e)
     {
         var (up, down, since) = StatsSource();
-        long now = Environment.TickCount64;
-        double secs = Math.Max(now - _prevStatsTick, 1) / 1000.0;
-        long upRate = (long)Math.Max((up - _prevUp) / secs, 0);
-        long downRate = (long)Math.Max((down - _prevDown) / secs, 0);
-        _prevUp = up; _prevDown = down; _prevStatsTick = now;
-
-        DownVal.Text = FormatRate(downRate);
-        UpVal.Text = FormatRate(upRate);
+        if (!IsVisible || WindowState == WindowState.Minimized) { _trafficHistory.Clear(); return; }
+        long? nowMonotonicMs = _serviceMode && _svc?.MonotonicTimeMs is not null
+            ? ServiceMonotonicClock.NowMilliseconds : null;
+        bool fresh = _status == VpnStatus.Connected && (!_serviceMode ||
+            (_svc is not null && DesktopServiceStatus.Fresh(_svc, DateTime.Now, TimeSpan.FromSeconds(10), nowMonotonicMs)));
+        // New services supply uptime; AddService falls back to Time for old services
+        // and resets the history when the source clock changes.
+        var rate = _serviceMode && _svc is { } snapshot
+            ? _trafficHistory.AddService(snapshot, fresh)
+            : _trafficHistory.Add(Environment.TickCount64, up, down, since, fresh);
+        DownVal.Text = rate is { } current ? FormatRate((long)current.Down) : "—";
+        UpVal.Text = rate is { } currentUp ? FormatRate((long)currentUp.Up) : "—";
+        RenderTraffic();
         SessionVal.Text = since is DateTime t ? FormatDuration(DateTime.Now - t) : "—";
-        IpVal.Text = string.IsNullOrEmpty(_lastExtra) ? "—" : _lastExtra;
+        var addresses = fresh ? (_serviceMode ? _svc?.Addresses : _tunnel.TunnelAddresses) : null;
+        IpVal.Text = addresses?.Ipv4 ?? "—";
+        Ip6Val.Text = addresses?.Ipv6 ?? "—";
+        CopyIpv4.IsEnabled = addresses?.Ipv4 is not null;
+        CopyIpv6.IsEnabled = addresses?.Ipv6 is not null;
 
         // Context sub-lines: session totals (since connect), session start, wire mode.
         TotalDownVal.Text = Loc.F("StatTotal", FormatBytes(down));
         TotalUpVal.Text = Loc.F("StatTotal", FormatBytes(up));
         SessionSubVal.Text = since is DateTime s ? Loc.F("StatSince", s.ToString("HH:mm")) : "";
         IpSubVal.Text = Selected?.WireMode ?? "";
+    }
+
+    private void OnCopyIp(object sender, RoutedEventArgs e)
+    {
+        var value = ReferenceEquals(sender, CopyIpv4) ? IpVal.Text : Ip6Val.Text;
+        if (value == "—") return;
+        try { Clipboard.SetText(value); }
+        catch (System.Runtime.InteropServices.ExternalException error) { OnLog($"Cannot copy IP: {error.Message}"); }
+    }
+
+    private void RenderTraffic()
+    {
+        var samples = _trafficHistory.Samples.ToArray();
+        double maximum = Math.Max(1, samples.Select(s => Math.Max(s.Up, s.Down)).DefaultIfEmpty(0).Max());
+        double width = Math.Max(1, TrafficCanvas.ActualWidth), height = Math.Max(1, TrafficCanvas.ActualHeight);
+        var up = new PointCollection(); var down = new PointCollection();
+        for (int i = 0; i < samples.Length; i++)
+        {
+            double x = width * i / (TrafficHistory.Capacity - 1);
+            up.Add(new Point(x, height * (1 - samples[i].Up / maximum)));
+            down.Add(new Point(x, height * (1 - samples[i].Down / maximum)));
+        }
+        TrafficUp.Points = up; TrafficDown.Points = down;
+        TrafficScale.Text = samples.Length == 0 ? "—" : FormatRate((long)maximum);
     }
 
     private static string FormatRate(long bytesPerSec)
@@ -1063,9 +1223,15 @@ public partial class MainWindow : Window
 
     private void PersistAndSelect(VpnConfig cfg)
     {
-        ProfileStore.Save(_profiles);
+        // Persist a proposed list before changing the visible collection.
+        ProfileStore.Save(_profiles.Append(cfg));
+        _profileRevision++;
         // New/imported/duplicated profile: select it but don't hijack a live tunnel.
-        Programmatic(() => ProfilesList.SelectedItem = cfg);
+        Programmatic(() =>
+        {
+            _profiles.Add(cfg);
+            ProfilesList.SelectedItem = cfg;
+        });
         UpdateEmptyHint();
         CheckReachability(cfg);
     }
@@ -1076,7 +1242,8 @@ public partial class MainWindow : Window
     private bool _toggleBusy;
     private async void ToggleConnection()
     {
-        if (_serviceMode) { ToggleService(); return; }
+        if (_serviceBusy || _settingsOpen || _exiting) return;
+        if (_serviceMode) { await ToggleService(); return; }
         // Debounce: ignore re-entrant taps while a transition is in flight. This is the
         // fix for the "click once → window froze → clicked again → it disconnected then
         // reconnected" report: the second click used to queue behind the blocked UI

@@ -57,6 +57,8 @@
     <string name="log_detail">Log detail</string>
     <string name="log_compact">Compact</string>
     <string name="log_detailed">Detailed diagnostics</string>
+    <string name="clear_log_on_disconnect">Clear log after disconnect</string>
+    <string name="clear_log_on_disconnect_desc">Clear the log tab and saved history when VPN stops, including after an error. Disable to keep diagnostics. Reconnects do not clear the log.</string>
     <string name="log_time_short">Time only (18:10:03.259)</string>
     <string name="log_time_datetime">Date and time (2026-07-18 18:10:03.259)</string>
     <string name="log_time_rfc3339">RFC 3339, UTC (2026-07-18T18:10:03.259Z)</string>
@@ -117,6 +119,8 @@
     <string name="paste_link_hint">qeli://…</string>
     <string name="duplicate_suffix">%1$s (copy)</string>
     <string name="active_profile_toast">Active: %1$s</string>
+    <string name="profile_changed_during_edit">Profiles changed while this dialog was open. Reopen it before saving.</string>
+    <string name="profile_reconnect_required">Profile saved. Disconnect and reconnect to apply the new settings.</string>
     <string name="switch_blocked">Disconnect first to switch profile</string>
     <string name="delete_profile_confirm">Delete “%1$s”?</string>
     <string name="import_profile_title">Import profile?</string>
@@ -145,6 +149,10 @@
     <string name="wrong_passphrase">Wrong passphrase or corrupt backup</string>
     <string name="restore_failed">Restore failed: %1$s</string>
     <string name="restore_confirm">Replace all current profiles with %1$d from the backup?</string>
+    <string name="profile_store_unavailable_title">Profile store unavailable</string>
+    <string name="profile_store_unavailable_message">Saved profiles could not be read. Existing data was not replaced. Restart the app; if the problem persists, restore a profile backup.</string>
+    <string name="profile_store_stale">Saved profiles changed in another app window. Restart Qeli before saving.</string>
+    <string name="profile_store_write_blocked">Saved profiles could not be read; restart the app or restore a backup before making changes.</string>
     <string name="restored">Restored %1$d profile(s)</string>
 
     <!-- ── Per-app routing dialog ── -->
@@ -251,4 +259,15 @@
     <!-- Only a sample of the pushed routes is ever rendered; %2$d is what is left over. -->
     <string name="detail_routes_more">%1$s and %2$d more</string>
     <string name="detail_routes_partial">%1$s — only %2$d of %3$d installed</string>
+    <string name="diagnostic_report">Report</string>
+    <string name="diagnostic_report_desc">Export network event times, session IDs, event types and available numeric carrier metrics. Free-text messages, profiles, keys and network addresses are omitted. Metrics describe local writes, not confirmed delivery. Choose the destination file yourself. Clear removes both the current journal and the saved last error report.</string>
+    <string name="retain_error_report">Keep the last error report</string>
+    <string name="retain_error_report_desc">Optional. Keep one limited diagnostic report after a terminal connection error, even when the current journal is cleared on disconnect. It remains after app restart until replaced or deleted. Turning this off or using Clear deletes it. Reports contain event metadata and numeric metrics, without free-text messages or profiles.</string>
+    <string name="report_current">Current</string>
+    <string name="report_last_error">Last error</string>
+    <string name="report_not_available">No saved error report. Enable retention in Settings before the next error.</string>
+    <string name="report_saved">Diagnostic report saved</string>
+    <string name="report_failed">Could not save the report. Please try again.</string>
+    <string name="report_expired">The report expired or was cleared. Export it again.</string>
+    <string name="report_clear_failed">Could not delete diagnostic data. Please try Clear again.</string>
 </resources>

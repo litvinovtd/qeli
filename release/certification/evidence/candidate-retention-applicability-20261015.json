@@ -1,0 +1,17 @@
+{
+  "status": "CANDIDATE_OUTPUT_WORKFLOW_APPLICABILITY",
+  "prior_commit": "8b4a372c8f96343b39797ba954e7207645942cab",
+  "workflow_commit": "b8b2bbdb6c13a8e30cf9dc5d8ffaa0143351b558",
+  "source_digest": "90c6668643aab1118c7020174d54a8b1dd7b7a6972d54be37eb6bbe02fed3c0d",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "scope": "Workflow retains tested outputs only for explicit dev candidate pushes and packages two Mac architectures with qualified canonical native inputs. Rust/managed runtime, Linux runtime harness and native A/B source identity unchanged. Hosted packaging results pending. Original Linux20 execution/artifact/time facts and21physical rows preserved.",
+  "workflow_evidence": "release/certification/evidence/candidate-artifact-retention-20261015.json",
+  "exact_source_delta": {
+    ".github/workflows/ci.yml": "a8ce00db3cc9eb2344c7c88b425636e421cc49683e4912a1215da806dcb8d952",
+    "release/RELEASE_NOTES_0.8.2.md": "993f8218280e3beceab185d8a162399a230d0d83a1ce1eca252e4057fef47fe7"
+  },
+  "prior_exact_CI": "https://github.com/litvinovtd/qeli/actions/runs/38765755756",
+  "new_Linux_runtime_runs": 0,
+  "physical_rows_unchanged": true,
+  "accepted_API34_limitation_unchanged": true
+}

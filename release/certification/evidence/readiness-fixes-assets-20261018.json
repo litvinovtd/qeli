@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "source_commit": "b1c68ab48915506162071ddf677730623ded61fd",
+  "source_digest": "c4cde5e25e48100d54118c91fe475c62d8e78ad61d2a17a4bb004aaf457bd5b7",
+  "original_application_build_commit": "8b18038849873125219b2a2f6ed8f8d339800ee5",
+  "application_input_equivalence": {
+    "build_commit": "8b18038849873125219b2a2f6ed8f8d339800ee5",
+    "checked_commit": "b1c68ab48915506162071ddf677730623ded61fd",
+    "paths": [
+      "qeli/src",
+      "qeli/Cargo.toml",
+      "qeli/Cargo.lock",
+      "qeli/.cargo",
+      "qeli-android/app",
+      "qeli-win/QeliWin",
+      "qeli-mac/QeliMac",
+      "qeli-ios",
+      "qeli-shared",
+      "Directory.Build.props",
+      "Directory.Build.targets",
+      "global.json",
+      "NuGet.Config"
+    ],
+    "unchanged": true
+  },
+  "assets": {
+    "install-keenetic.sh": {
+      "sha256": "2c8f695d7509651d49db6986183d5fcb876554a490200f084e12c3068d969429",
+      "bytes": 8426
+    },
+    "qeli-android-0.8.2.apk": {
+      "sha256": "f84334d2b9b7666cd4b9164dd26c30a472e9909ddb25926b852ce3680540158c",
+      "bytes": 12217380
+    },
+    "qeli-client-keenetic-aarch64": {
+      "sha256": "d5f55dbe1a253afb0c8dbe26afb8850a6cd0cdb3f1013c27e82b43d5cadfd8bd",
+      "bytes": 9331744
+    },
+    "qeli-client-keenetic-mipsel": {
+      "sha256": "8af622644881dfec5995f47a9186b235df19b31fffb1408d7d62d05f33a0c35b",
+      "bytes": 11378968
+    },
+    "qeli-client-openwrt-aarch64": {
+      "sha256": "d5f55dbe1a253afb0c8dbe26afb8850a6cd0cdb3f1013c27e82b43d5cadfd8bd",
+      "bytes": 9331744
+    },
+    "qeli-client-openwrt-armv7": {
+      "sha256": "d54070211dbd0d150f3a0c98901b034f7e8fd39d17a94a7d2f937500395c44d8",
+      "bytes": 9487420
+    },
+    "qeli-client-openwrt-mipsel": {
+      "sha256": "8af622644881dfec5995f47a9186b235df19b31fffb1408d7d62d05f33a0c35b",
+      "bytes": 11378968
+    },
+    "qeli-client-openwrt-x86_64": {
+      "sha256": "8d08f59c71ba8a67a7ddaf00c1a68e3baa4f7b1b9d4332a87a9c2ba55a7a2408",
+      "bytes": 10093736
+    },
+    "qeli-keenetic-files.tar.gz": {
+      "sha256": "a2a2bde1ac2db61d84a2559424292a5a0ac7f29fc398eeb0b7b6eaedb4a625a2",
+      "bytes": 43262
+    },
+    "qeli-linux-amd64": {
+      "sha256": "1d94d4c412f6c1fd231765b760196b0b4f518c20135bf0ccd1b52b192710cf76",
+      "bytes": 18814616
+    },
+    "Qeli-macOS-universal.zip": {
+      "sha256": "a17f5338aaa7162f5eb0e26882e033b542618049d58d8a2dcfbd067a26e2d5a0",
+      "bytes": 61454232
+    },
+    "qeli-openwrt-files.tar.gz": {
+      "sha256": "bb4cff943c185330bd98c295122c1c7ca71a3834a3f05406470f23cb81d77e94",
+      "bytes": 51805
+    },
+    "QeliWin-net-required.exe": {
+      "sha256": "eb73c7648eb6cb9a5dac109b13434c60660edbce1d8c5d406e3288dc493cf22b",
+      "bytes": 20367883
+    },
+    "QeliWin-standalone.exe": {
+      "sha256": "5ad93ada7300eb17756918d41f526b1a0a04e973adeb419e4e946193c9cac6a6",
+      "bytes": 74407625
+    },
+    "qeli_0.8.2_amd64.deb": {
+      "sha256": "3151dce0f3b42df427efb9da50ebd4bc8373798dbba35382150744b97c1288a7",
+      "bytes": 4832288
+    },
+    "SHA256SUMS": {
+      "sha256": "55a7ea090fb53ee5a58788f13803e6b7b19dc03e27af5f15fb6197ad53aaee89",
+      "bytes": 1362
+    }
+  },
+  "changed_assets": [
+    "Qeli-macOS-universal.zip",
+    "SHA256SUMS",
+    "qeli-keenetic-files.tar.gz",
+    "qeli-openwrt-files.tar.gz"
+  ],
+  "unchanged_assets": 12,
+  "macos": {
+    "minimum_macos": "15.0",
+    "machos": 19,
+    "architectures": [
+      "arm64",
+      "x86_64"
+    ],
+    "changed_entries": [
+      "Qeli.app/Contents/Info.plist",
+      "Qeli.app/Contents/MacOS/QeliMac"
+    ],
+    "code_unchanged_outside_signature_blobs": true,
+    "ad_hoc_signed": true,
+    "notarized": false,
+    "packaging_source_commit": "b1c68ab48915506162071ddf677730623ded61fd"
+  },
+  "original_build_CI": "https://github.com/litvinovtd/qeli/actions/runs/39050213313",
+  "final_exact_commit_CI": "Required independently after this evidence commit; not claimed by this record.",
+  "resolved_findings": {
+    "R01": "LSMinimumSystemVersion=15.0; seven negative/positive load-command tests; 19 actual Mach-O deployment checks and re-signing.",
+    "R02": "Both TROUBLESHOOTING editions describe working server plain/json logging and full restart.",
+    "R03": "Historical Android persistence bullet now states that terminal disconnect persistence requires disabling the default cleanup option.",
+    "R04": "Docker README distinguishes stable latest, beta version tags, development dev and a private build image name.",
+    "R05": "Ready Keenetic archive+ELF+checksum workflow added to embedded README and both manuals; shell recipe passed for both architectures.",
+    "R06": "Keenetic/OpenWrt claims now explicitly retain historical scope and exclude fresh physical-router qualification.",
+    "R07": "Actual MiB sizes and additional staging/backup/dependency space replace obsolete estimates.",
+    "R08": "Provenance uses A/B source commit, removes stale inferred compilation date, separates source epoch and provenance refresh time.",
+    "R09": "Frozen statistics remain verified; obsolete 1228 defect-count wording removed in both languages.",
+    "R10": "English INI example added; both operations guides describe a covered version rather than asserting that publication already happened."
+  },
+  "local_checks": {
+    "deployment_cases": 7,
+    "macos_packager_cases": 34,
+    "docs_checks": 9,
+    "actionlint_workflows": 4,
+    "Keenetic_ready_instructions": "PASS for aarch64 and mipsel, no installation performed"
+  },
+  "native_source_digest": "42672aca87de8e95b2e289cad35b576196f88e92874d121e1804e7845152976b",
+  "runtime_evidence": "release/certification/evidence/readiness-fixes-runtime-20261018.json",
+  "physical_checks_executed": false,
+  "published": false,
+  "tag_created": false
+}

@@ -9,10 +9,13 @@ import NetworkExtension
 final class PreferenceMutationGate {
     private var held = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    var queuedOperationCount: Int { waiters.count }
 
-    func withLock<T>(_ operation: @MainActor () async throws -> T) async rethrows -> T {
+    func withLock<T>(_ operation: @MainActor () async throws -> T) async throws -> T {
+        try Task.checkCancellation()
         await acquire()
         defer { release() }
+        try Task.checkCancellation()
         return try await operation()
     }
 
@@ -46,6 +49,7 @@ final class TunnelManager: NSObject, ObservableObject {
     private var statusObserver: NSObjectProtocol?
     private var statsTimer: Timer?
     private var operationGeneration: UInt64 = 0
+    private var snapshotResponseGate = ProviderSnapshotResponseGate()
     /// Revision assigned synchronously by the UI before it launches an asynchronous
     /// On-Demand preference write. This is separate from `operationGeneration`: a
     /// settings edit must not cancel a tunnel connection attempt, but an older edit
@@ -80,8 +84,7 @@ final class TunnelManager: NSObject, ObservableObject {
 
     func prepare() async throws {
         if let manager {
-            systemStatus = manager.connection.status
-            consume(status: systemStatus)
+            consume(status: manager.connection.status)
             return
         }
         let task: Task<NETunnelProviderManager, Error>
@@ -102,8 +105,7 @@ final class TunnelManager: NSObject, ObservableObject {
             if manager == nil { manager = loaded }
             prepareTask = nil
             if let manager {
-                systemStatus = manager.connection.status
-                consume(status: systemStatus)
+                consume(status: manager.connection.status)
             }
         } catch {
             prepareTask = nil
@@ -121,6 +123,7 @@ final class TunnelManager: NSObject, ObservableObject {
            config.serverPublicKeyHex?.isEmpty != false || config.realityShortID?.isEmpty != false {
             throw TunnelManagerError.realityRequiresPinnedKey
         }
+        snapshotResponseGate.invalidate()
         operationGeneration &+= 1
         invalidatePendingOnDemandUpdates()
         let generation = operationGeneration
@@ -179,27 +182,39 @@ final class TunnelManager: NSObject, ObservableObject {
     /// Persists the profile UUID used by future On-Demand/provider launches without
     /// starting or replacing the currently running tunnel. Managed app policy uses
     /// this so a background start cannot fall back to a previously selected profile.
-    func applyProfileConfiguration(profile: Profile, settings: AppSettings) async throws {
+    func applyProfileConfiguration(
+        profile: Profile,
+        settings: @MainActor () -> AppSettings
+    ) async throws {
         invalidatePendingOnDemandUpdates()
+        let generation = operationGeneration
         let config = try VPNConfig(parsing: profile.configText)
         try await prepare()
+        try ensureCurrent(generation)
         guard let manager else { throw TunnelManagerError.managerUnavailable }
         try await preferenceMutationGate.withLock {
-            Self.configure(manager, profile: profile, config: config, settings: settings)
+            try ensureCurrent(generation)
+            // Read settings at admission, after prepare/queue suspension. A newer UI edit
+            // may already have persisted while this managed profile update was waiting.
+            Self.configure(manager, profile: profile, config: config, settings: settings())
             try await Self.save(manager)
+            try ensureCurrent(generation)
             try await Self.load(manager)
+            try ensureCurrent(generation)
         }
-        systemStatus = manager.connection.status
-        consume(status: systemStatus)
+        consume(status: manager.connection.status)
     }
 
     /// Stops and disables a previously installed Qeli configuration when an
     /// MDM-selected profile cannot be resolved. Keeping the old provider UUID or
     /// On-Demand rules here would turn a policy error into an unmanaged fallback.
     func failClosedForManagedProfilePolicy() async throws {
+        snapshotResponseGate.invalidate()
         operationGeneration &+= 1
         invalidatePendingOnDemandUpdates()
+        let generation = operationGeneration
         try await prepare()
+        try ensureCurrent(generation)
         guard let manager else { throw TunnelManagerError.managerUnavailable }
 
         let qeliProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol
@@ -208,7 +223,8 @@ final class TunnelManager: NSObject, ObservableObject {
             // its provider identifier changed. Preserve the original fail-closed contract:
             // stop the selected manager and remove automatic restart rules, but do not
             // disable or overwrite another provider's protocol configuration.
-            await preferenceMutationGate.withLock {
+            try await preferenceMutationGate.withLock {
+                try ensureCurrent(generation)
                 manager.connection.stopVPNTunnel()
                 manager.onDemandRules = []
                 manager.isOnDemandEnabled = false
@@ -222,15 +238,17 @@ final class TunnelManager: NSObject, ObservableObject {
         }
 
         try await preferenceMutationGate.withLock {
+            try ensureCurrent(generation)
             manager.connection.stopVPNTunnel()
             manager.onDemandRules = []
             manager.isOnDemandEnabled = false
             manager.isEnabled = false
             try await Self.save(manager)
+            try ensureCurrent(generation)
             try await Self.load(manager)
+            try ensureCurrent(generation)
         }
-        systemStatus = manager.connection.status
-        consume(status: systemStatus)
+        consume(status: manager.connection.status)
     }
 
     /// Reserves an ordering revision before the caller creates an asynchronous Task.
@@ -262,8 +280,7 @@ final class TunnelManager: NSObject, ObservableObject {
             // action (notably manual stop); the queued latest revision will replace it.
             try ensureCurrentOnDemandRevision(revision)
         }
-        systemStatus = manager.connection.status
-        consume(status: systemStatus)
+        consume(status: manager.connection.status)
     }
 
     func reloadProviderSettings() async throws {
@@ -271,23 +288,40 @@ final class TunnelManager: NSObject, ObservableObject {
               let session = manager?.connection as? NETunnelProviderSession else {
             throw TunnelManagerError.sessionUnavailable
         }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            do {
-                try session.sendProviderMessage(Data("reload-settings".utf8)) { data in
-                    guard let data, let response = String(data: data, encoding: .utf8) else {
-                        continuation.resume(throwing: TunnelManagerError.providerMessageRejected("empty response"))
-                        return
-                    }
-                    if response == "ok" { continuation.resume(returning: ()) }
-                    else { continuation.resume(throwing: TunnelManagerError.providerMessageRejected(response)) }
-                }
-            } catch {
-                continuation.resume(throwing: error)
+        let generation = operationGeneration
+        let token = snapshotResponseGate.issue()
+        let data: Data?
+        do {
+            // The provider's settings budget is 15s; allow 5s for IPC scheduling.
+            data = try await ProviderMessageRequest.send(timeoutNanoseconds: 20_000_000_000) { reply in
+                try session.sendProviderMessage(Data("reload-settings".utf8), responseHandler: reply)
             }
+        } catch {
+            try ensureCurrentProviderRequest(generation: generation, token: token, session: session)
+            if case ProviderMessageRequest.RequestError.timedOut = error {
+                throw TunnelManagerError.providerMessageTimedOut
+            }
+            throw error
         }
+        try ensureCurrentProviderRequest(generation: generation, token: token, session: session)
+        guard let data, let response = String(data: data, encoding: .utf8) else {
+            throw TunnelManagerError.providerMessageRejected("empty response")
+        }
+        guard response == "ok" else { throw TunnelManagerError.providerMessageRejected(response) }
+    }
+
+    private func ensureCurrentProviderRequest(
+        generation: UInt64,
+        token: ProviderSnapshotResponseGate.Token,
+        session: NETunnelProviderSession
+    ) throws {
+        try ensureCurrent(generation)
+        guard snapshotResponseGate.isCurrent(token), systemStatus == .connected,
+              manager?.connection === session else { throw CancellationError() }
     }
 
     func disconnect() {
+        snapshotResponseGate.invalidate()
         operationGeneration &+= 1
         let status = manager?.connection.status ?? .invalid
         var value = snapshot
@@ -312,6 +346,7 @@ final class TunnelManager: NSObject, ObservableObject {
     }
 
     private func consume(status: NEVPNStatus) {
+        if systemStatus != status { snapshotResponseGate.invalidate() }
         systemStatus = status
         var value = sharedStore.snapshot()
         switch status {
@@ -387,14 +422,24 @@ final class TunnelManager: NSObject, ObservableObject {
     }
 
     private func requestProviderSnapshot() {
-        guard let session = manager?.connection as? NETunnelProviderSession else { return }
+        guard systemStatus == .connected || systemStatus == .reasserting,
+              snapshot.phase != .disconnecting,
+              let session = manager?.connection as? NETunnelProviderSession else { return }
+        guard let token = snapshotResponseGate.beginPolling() else { return }
         do {
             try session.sendProviderMessage(Data("snapshot".utf8)) { [weak self] data in
-                guard let data,
-                      let value = try? JSONDecoder().decode(TunnelSnapshot.self, from: data) else { return }
-                Task { @MainActor in self?.publish(value) }
+                let value = data.flatMap { try? JSONDecoder().decode(TunnelSnapshot.self, from: $0) }
+                Task { @MainActor [weak self] in
+                    guard let self, self.snapshotResponseGate.finishPolling(token),
+                          let value,
+                          self.systemStatus == .connected || self.systemStatus == .reasserting,
+                          self.snapshot.phase != .disconnecting,
+                          self.snapshotResponseGate.accept(token) else { return }
+                    self.publish(value)
+                }
             }
         } catch {
+            _ = snapshotResponseGate.finishPolling(token)
             // A connection can transition between the status check and this message.
         }
     }
@@ -407,10 +452,12 @@ final class TunnelManager: NSObject, ObservableObject {
     }
 
     private func ensureCurrent(_ generation: UInt64) throws {
+        try Task.checkCancellation()
         guard operationGeneration == generation else { throw CancellationError() }
     }
 
     private func ensureCurrentOnDemandRevision(_ revision: UInt64) throws {
+        try Task.checkCancellation()
         guard onDemandPreferenceRevision == revision else { throw CancellationError() }
     }
 
@@ -513,6 +560,7 @@ enum TunnelManagerError: LocalizedError {
     case sessionUnavailable
     case connectAlreadyInProgress
     case providerMessageRejected(String)
+    case providerMessageTimedOut
     case realityRequiresPinnedKey
 
     var errorDescription: String? {
@@ -522,6 +570,7 @@ enum TunnelManagerError: LocalizedError {
         case .connectAlreadyInProgress: return "A Qeli connection attempt is already in progress."
         case .realityRequiresPinnedKey:
             return "reality-tls needs both the pinned server key and reality_sid; add them to the profile."
+        case .providerMessageTimedOut: return "The Packet Tunnel did not respond to the settings update in time."
         case .providerMessageRejected(let message): return "The Packet Tunnel rejected the settings update: \(message)"
         }
     }

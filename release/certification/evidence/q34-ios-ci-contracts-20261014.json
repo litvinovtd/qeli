@@ -1,0 +1,63 @@
+{
+  "status": "IOS_CI_SIGNING_ADMISSION_AND_ROAMING_CONTRACT_QUALIFIED_MDM_NONFINITE_SOURCE_FIX_APPLE_RUNTIME_PENDING",
+  "qualification": {
+    "status": "IOS_CI_SIGNING_ADMISSION_AND_ROAMING_CONTRACT_QUALIFIED_MDM_NONFINITE_SOURCE_FIX_APPLE_RUNTIME_PENDING",
+    "base_commit": "212456f748e2313e089d08da70296c2e3e7a3ad1",
+    "changed_product_files": [
+      ".github/workflows/ci.yml",
+      "scripts/verify_ios_ipa.py",
+      "scripts/verify_ios_simulator.py",
+      "scripts/test_verify_ios_simulator.py",
+      "qeli-ios/QeliCore/Management/ManagedConfiguration.swift",
+      "qeli-ios/QeliIOSTests/ManagedConfigurationTests.swift",
+      "qeli-ios/QeliIOSTests/RoamingPolicyTests.swift"
+    ],
+    "source_sha256": {
+      ".github/workflows/ci.yml": "c2b55bd11a97f7337916f83a0a8dc88d6a665e66d56708397856ac6d017a0238",
+      "scripts/verify_ios_ipa.py": "6087cec04d7907623a20344dd8e39e133467364ac5755cfd0e268c1f6faebe3b",
+      "scripts/verify_ios_simulator.py": "a881c0bf6f1a9298fef554caae2996cc137a7f13e630b653ad462ae4875a72fd",
+      "scripts/test_verify_ios_simulator.py": "f1ea32debdcd21ea7f3c2459745de87a2a7604b6a225cdfa18922eb8ecf23b73",
+      "qeli-ios/QeliCore/Management/ManagedConfiguration.swift": "ed8bdb61ec94957660bd3e3983d3c028b43773f251590aa54a902bd5c7abe714",
+      "qeli-ios/QeliIOSTests/ManagedConfigurationTests.swift": "dc701737f33a954fd0e47763d543729d85683e331348187a3074246012a463ee",
+      "qeli-ios/QeliIOSTests/RoamingPolicyTests.swift": "859be0b0bc801590e3dbbb82a44c52c168d7b4d552fcdd1de3a518b1c10d3ae2"
+    },
+    "portable_signature_and_IPA_tests": 17,
+    "previous_unchanged_native_key_surface_tests": 8,
+    "native_ABI_requests": 32,
+    "native_ABI_sha256": "47becc90466e4752b8504bed55b343dee953f3b7e5b9a96b0f33afa0a5bcd90e",
+    "real_actionlint": true,
+    "exact_CI_shell_scenarios": 5,
+    "existing_CI_source_equal_to_baseline": true,
+    "MDM_finite_guard_source_review": true,
+    "fresh_Swift_compile": false,
+    "fresh_Apple_Keychain_runtime": false,
+    "fresh_current_hosted_CI": false,
+    "physical_Apple_user_excluded": true,
+    "host_preserved": true,
+    "own_roots_archives_removed": true,
+    "proof_sha256": {
+      "q34-ios-ci-contracts-20261014/native-contracts.json": "5ff1f98eac65727ddc1bd968389c6670824a10fd4b11ce8d208e858cc775b644",
+      "q34-ios-ci-contracts-20261014/portable-unit-r2-proof.json": "e415300c6b704787bd1251d9fe026d316f9f06718d44acbd97167f42f7441a25",
+      "q34-ios-ci-contracts-20261014/test_verify_ios_simulator-r2.log": "fe3e8f1e5d1dd1438daab39e201e7f629c0d776ddad75a7e5d6e6d5f823e938c",
+      "q34-ios-ci-contracts-20261014/test_verify_ios_ipa-r2.log": "4362eff9f610063128729946cbe29be8cce126516a4d97ad3d3038fdee0d1671",
+      "q34-ios-ci-contracts-20261014/ci-source-comparison.json": "6defa8550265fd7a45c4ceb75ab10caea0598697c904ede674d1c7fdb600dbd8",
+      "q34-ios-ci-contracts-20261014/swift-archive-head.json": "9cc961cde9396545ed936461dac4eb4606741ae9ba32e85b725a41e0cfff2118",
+      "q34-ios-ci-contracts-20261014/result.json": "3c005048d24a5f2c0ebedaf1499ce49a677d29fcaac778d9c6e31f9837c6d690",
+      "q34-ios-ci-contracts-20261014/lab-cleanup.json": "6a180e4f0d7765f6a8a24bf36e4cbfea4a587c8d12137448fa580047b40e4984",
+      "q34-ios-ci-contracts-20261014/lab-completion.json": "986d0153556cb190e35ecb5de836a0dbcbde110104aff5941a8afc74e4679abe",
+      "q34-ios-ci-contracts-20261014/controller-pre-SSH-failure.json": "7ce44986189e26f7f0a3b8b2fc20df5e29b406d13fced37cb748f9db1c05ccc7",
+      "q34-ios-ci-shell-r2-20261014/result.json": "0a4aa3623549d7fd389b893c2cebd14e768c963392aaef45664d65a93f398901",
+      "q34-ios-ci-shell-r2-20261014/actionlint.log": "fe4cf09bdbb521f966e3f1adbd6c584356ba77121dfdb5c71a5abbe16b8d9615",
+      "q34-ios-ci-shell-r2-20261014/lab-cleanup.json": "6a180e4f0d7765f6a8a24bf36e4cbfea4a587c8d12137448fa580047b40e4984",
+      "q34-ios-ci-shell-r2-20261014/lab-completion.json": "c179f0f174943ea43de827d8ea6d08bc1cc829343a930d34d82fa5a947ef8a97",
+      "q34-ios-ci-shell-r2-20261014/lab-archive.json": "d5b899d71ca135e15a521374599bf72afabfc4485649f522f018685cb114db91",
+      "q34-ios-ci-shell-r2-20261014/lab-inputs-r2.json": "481118c201412b07ac3f2587e6115ba21ae84a487f8e45d8d37407c0809e6d03"
+    },
+    "scope": "One Swift finite-number guard plus two Swift test fixes; simulator-only ad-hoc CI build/actual effective entitlements preflight/test-without-building; reusable existing IPA signed-entitlement reader bounded. Actual Windows native DTO core and portable admission/shell fixtures, no Apple runtime or Rust/native rebuild. Old e7 CI failures, preparation quoting/CRLF failures retained.",
+    "no_push_deploy_release": true
+  },
+  "qualification_sha256": "08639559b867800de3af544eadea3107099399adc69e8a95a8e2f804ae8a5433",
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-ios-ci-contracts-20261014",
+  "scope": "Seven iOS source/test/CI/admission files and four reports/plans. Finite-number guard source reviewed only, fresh Swift and real Apple Keychain/signatures NOT_RUN. Actual native DTO core, portable signing admission and exact shell stand-ins plus real actionlint checked. Rust/native input digest and all50 actual Linux runtime harness dependencies unchanged; preserve original20 Linux and physical21 execution facts. Prepared simulator signing change is not current hosted CI PASS.",
+  "no_push_deploy_release": true
+}

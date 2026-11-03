@@ -1,0 +1,359 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q34_ANDROID_MAVEN_SECURITY_SCOPED_NO_DEVICE_RUNTIME",
+  "source_digest": "7050cddc7f470a52d0396d2fc646278e8313541ea5c0880baa49d1a422259e69",
+  "qualification_source_commit": "ce128b8896dff4b80492caa662928cf616468d3b",
+  "product_source_commit": "ce128b8896dff4b80492caa662928cf616468d3b",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F466/Q34-F020",
+    "F467/Q34-F021",
+    "F468/Q34-F022"
+  ],
+  "verification": {
+    "jvm": {
+      "status": "PASS",
+      "tests": 201,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "native": "sealed ConfigCore hostJNI SHA6b6d956f reused unchanged; loaded during actual new Java17 JVM tests"
+    },
+    "negative": {
+      "status": "PASS",
+      "rows": [
+        {
+          "label": "missing-security-policy",
+          "rc": 1,
+          "status": "PASS"
+        },
+        {
+          "label": "kgp-security-lock-drift",
+          "rc": 1,
+          "status": "PASS"
+        },
+        {
+          "label": "restored-security-policy",
+          "rc": 0,
+          "status": "PASS"
+        }
+      ]
+    },
+    "actual_osv_gate": {
+      "status": "PASS",
+      "rows": [
+        {
+          "label": "vulnerable-build-only",
+          "rc": 1,
+          "expected": 1,
+          "packages": 1,
+          "affected_packages": 1,
+          "advisories": [
+            "GHSA-2363-cqg2-863c"
+          ]
+        },
+        {
+          "label": "patched-build-only",
+          "rc": 0,
+          "expected": 0,
+          "packages": 1,
+          "affected_packages": 0,
+          "advisories": []
+        }
+      ],
+      "method": "production CLI with fresh real OSV responses; isolated buildscript-only JDOM fixtures"
+    },
+    "backup": {
+      "status": "PASS",
+      "archive_scope": "Complete qualified Android/conformance sources/APK/test/lint/mapping/logs and reused sealed production host JNI. Regenerable public SDK/JDK/Gradle caches excluded; downloaded JDK/source inputs and Maven checksum review retained in local raw evidence.",
+      "backup": "/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx-backup.tar.gz",
+      "sha256": "7cd085fdf16cdbfc164c01cd92537ba896200171e109607da2288caba2610286",
+      "bytes": 32720631,
+      "final": {
+        "status": "PASS",
+        "inputs_lf_sha256": {
+          "qeli-android/build.gradle.kts": "a1db19b41e416a438eceb268348564c63b44facddc3a3734eb6346a6f5ac8026",
+          "qeli-android/settings.gradle.kts": "156895c969a618cfac5705f111512b8e755ff67b5f3f5cc2a345e2593f555097",
+          "qeli-android/buildscript-gradle.lockfile": "7747198ff4d3314f88007d43a7e745d5cd6df903c63eb673eee2f4df928b26e6",
+          "qeli-android/app/buildscript-gradle.lockfile": "8b30b614f19c3b6f43575c7fd28704ff2167606e52ea6940d88ea5fb9acd0110",
+          "qeli-android/app/gradle.lockfile": "570e0e81578ec86f7b7f4b1650ed92932af58da09b44904ddf2ee8d5a236aa31",
+          "qeli-android/gradle/verification-metadata.xml": "df30c19c72f88b4a24b882579820db9f30886d9bfdc345f4541d9ee612d76b3b",
+          "qeli-android/gradle/security-versions.properties": "ef740976191767a72b241ef285e72d864cf29a454d28f9d7d5d242840419ffe4",
+          "qeli-android/app/src/test/kotlin/com/qeli/crypto/BackupCryptoTest.kt": "b6cb566a00af50c035ec90dc8f1e292884d9b5ab2a14737cfc41df7ba7207aff",
+          "qeli-android/app/src/androidTest/kotlin/com/qeli/PermissionFlowInstrumentedTest.kt": "acd2d632ff8e916d5a86adddac8085b5b6125cef918ed42fb4c523cd6a15bdf1"
+        },
+        "native_inputs": {
+          "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0",
+          "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+        },
+        "lint": {
+          "Error": 0,
+          "Fatal": 0,
+          "Warning": 53,
+          "Information": 0
+        },
+        "jvm": {
+          "tests": 201,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "apks": [
+          {
+            "path": "source/qeli-android/app/build/outputs/apk/debug/app-debug.apk",
+            "sha256": "0b91ad0f9f7fda5ed6d06175cf545dffb64ddefd7ea95194da65b4c876d91633",
+            "bytes": 28450785,
+            "native": {
+              "lib/arm64-v8a/libqeli.so": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0",
+              "lib/x86_64/libqeli.so": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+            },
+            "license_entries": [
+              "META-INF/androidx/annotation/annotation/LICENSE.txt",
+              "META-INF/androidx/collection/collection/LICENSE.txt",
+              "META-INF/androidx/constraintlayout/constraintlayout-core/LICENSE.txt",
+              "META-INF/androidx/lifecycle/lifecycle-common/LICENSE.txt"
+            ]
+          },
+          {
+            "path": "source/qeli-android/app/build/outputs/apk/release/app-release-unsigned.apk",
+            "sha256": "e475123c15d7c8b5f4bf798e44a2328cf468624ae9f7fa35ac202131a4badb6f",
+            "bytes": 10460314,
+            "native": {
+              "lib/arm64-v8a/libqeli.so": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0",
+              "lib/x86_64/libqeli.so": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+            },
+            "license_entries": [
+              "META-INF/androidx/annotation/annotation/LICENSE.txt",
+              "META-INF/androidx/collection/collection/LICENSE.txt",
+              "META-INF/androidx/constraintlayout/constraintlayout-core/LICENSE.txt",
+              "META-INF/androidx/lifecycle/lifecycle-common/LICENSE.txt"
+            ]
+          },
+          {
+            "path": "source/qeli-android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+            "sha256": "9818c1796e415b08fe03c14bf0d0ed4b88049012793068496e5d10831190d283",
+            "bytes": 1127447,
+            "native": {},
+            "license_entries": [
+              "LICENSE-junit.txt"
+            ]
+          },
+          {
+            "path": "source/qeli-android/app/build/outputs/apk/androidTest/release/app-release-androidTest.apk",
+            "sha256": "c9016c86ff92ea1495c32fd72648c17eb7d6a8863ebc68fd080331a2062234fc",
+            "bytes": 768053,
+            "native": {},
+            "license_entries": [
+              "LICENSE-junit.txt"
+            ]
+          }
+        ],
+        "sdk_input_hashes": {
+          "platform-tools/source.properties": "fbd87c8567afbc6dc78e140097fcde234f4a61fa7065e85081d43e442ccd3d24",
+          "platform-tools/adb": "00108217733707a40debfc92c86d4232fd6e68870be5966515d74c071193ea90",
+          "platform-tools/package.xml": "c244852fc0cf20bcccca9fd1ad266ba2b8b6a754495d128aafd1c0119e9b2a6b",
+          "platforms/android-37.0/android.jar": "bf1b4387cc7ca94fc6ef684f040d9d16fbf16248e181819f020736ea2053f177",
+          "platforms/android-37.0/source.properties": "fa89029fc0cee414cb5e44a37cd3033771217eeecb5086577bb6d9b1b03b5b5f",
+          "platforms/android-37.0/package.xml": "7f8001358f1b6432ea6186dd0fe6ba00bb67ea8daf24c708d05a02f5570091d7",
+          "build-tools/36.0.0/source.properties": "7dee6632e9ad6cb111da2bb99d747211e27927061b1276d040bb1d71fded5ebb",
+          "build-tools/36.0.0/aapt2": "1a6a396b9cd071f7040071fdd108718cb98c3c9f4960044f373b288993d19eb7",
+          "build-tools/36.0.0/package.xml": "737904dbcee0845bc18385d3627cd6238bf5f1395f07c7300f88db717b7303b7"
+        },
+        "qeli_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n",
+        "installed_qeli_sha256": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n",
+        "service": "MainPID=777\nActiveState=active\n"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "own_root_removed": "/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx",
+      "backup_removed_after_local_sha": "/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx-backup.tar.gz",
+      "qeli_processes_preserved": [
+        777,
+        845
+      ],
+      "service": "MainPID=777\nActiveState=active\n"
+    },
+    "local": {
+      "status": "PASS",
+      "rows": [
+        {
+          "label": "maven-policy-tests",
+          "rc": 0
+        },
+        {
+          "label": "native-units",
+          "rc": 0
+        },
+        {
+          "label": "release-units",
+          "rc": 0
+        }
+      ],
+      "native_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_files": 14,
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "inputs_lf_sha256": {
+        ".github\\workflows\\ci.yml": "bbce7cd98e6b7b682da131f84bdc712f92a0f94ca0483f0b62a9071974ee78e1",
+        "scripts\\audit_android_dependencies.py": "b28fe11baac19a414fd0b9a7648dcaef87bd71c256a61ac901af7c6688c67ea7",
+        "scripts\\test_audit_android_dependencies.py": "4c633f0423340d789196ba42be34555f1f849900014912649697a53df84c1256"
+      },
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "scripts/audit_android_dependencies.py",
+        "scripts/test_audit_android_dependencies.py",
+        "qeli-android/README.md",
+        "qeli-android/build.gradle.kts",
+        "qeli-android/buildscript-gradle.lockfile",
+        "qeli-android/app/gradle.lockfile",
+        "qeli-android/gradle/verification-metadata.xml",
+        "qeli-android/gradle/security-versions.properties",
+        "qeli-android/app/src/test/kotlin/com/qeli/crypto/BackupCryptoTest.kt",
+        "qeli-android/app/src/androidTest/kotlin/com/qeli/PermissionFlowInstrumentedTest.kt",
+        "docs/ru/index.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/reports/AUDIT-Q34-MAVEN-SECURITY.md",
+        "docs/eng/index.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/reports/AUDIT-Q34-MAVEN-SECURITY.md"
+      ],
+      "docs": 696,
+      "docs_checks": 9,
+      "ci_scope": "Only added root-working-directory Maven fixture/gate steps; no workflow dispatch/current-GitHub PASS claim"
+    },
+    "qualified_inputs": {
+      "status": "PASS",
+      "paths": [
+        {
+          "path": ".github\\workflows\\ci.yml",
+          "sha256": "bbce7cd98e6b7b682da131f84bdc712f92a0f94ca0483f0b62a9071974ee78e1"
+        },
+        {
+          "path": "qeli-android/app/buildscript-gradle.lockfile",
+          "sha256": "8b30b614f19c3b6f43575c7fd28704ff2167606e52ea6940d88ea5fb9acd0110"
+        },
+        {
+          "path": "qeli-android/app/gradle.lockfile",
+          "sha256": "570e0e81578ec86f7b7f4b1650ed92932af58da09b44904ddf2ee8d5a236aa31"
+        },
+        {
+          "path": "qeli-android/app/src/androidTest/kotlin/com/qeli/PermissionFlowInstrumentedTest.kt",
+          "sha256": "acd2d632ff8e916d5a86adddac8085b5b6125cef918ed42fb4c523cd6a15bdf1"
+        },
+        {
+          "path": "qeli-android/app/src/test/kotlin/com/qeli/crypto/BackupCryptoTest.kt",
+          "sha256": "b6cb566a00af50c035ec90dc8f1e292884d9b5ab2a14737cfc41df7ba7207aff"
+        },
+        {
+          "path": "qeli-android/build.gradle.kts",
+          "sha256": "a1db19b41e416a438eceb268348564c63b44facddc3a3734eb6346a6f5ac8026"
+        },
+        {
+          "path": "qeli-android/buildscript-gradle.lockfile",
+          "sha256": "7747198ff4d3314f88007d43a7e745d5cd6df903c63eb673eee2f4df928b26e6"
+        },
+        {
+          "path": "qeli-android/gradle/security-versions.properties",
+          "sha256": "ef740976191767a72b241ef285e72d864cf29a454d28f9d7d5d242840419ffe4"
+        },
+        {
+          "path": "qeli-android/gradle/verification-metadata.xml",
+          "sha256": "df30c19c72f88b4a24b882579820db9f30886d9bfdc345f4541d9ee612d76b3b"
+        },
+        {
+          "path": "qeli-android/settings.gradle.kts",
+          "sha256": "156895c969a618cfac5705f111512b8e755ff67b5f3f5cc2a345e2593f555097"
+        },
+        {
+          "path": "scripts\\audit_android_dependencies.py",
+          "sha256": "b28fe11baac19a414fd0b9a7648dcaef87bd71c256a61ac901af7c6688c67ea7"
+        },
+        {
+          "path": "scripts\\test_audit_android_dependencies.py",
+          "sha256": "4c633f0423340d789196ba42be34555f1f849900014912649697a53df84c1256"
+        }
+      ],
+      "binding": "Actual archived lab Android build/test/lock inputs + Windows-qualified policy/script/CI inputs, LF-normalized; native byte hashes recorded separately"
+    },
+    "strict_builds": [
+      {
+        "label": "strict-debug-release",
+        "rc": 0,
+        "seconds": 335.94,
+        "command": "export JAVA_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/java/jdk-17.0.20.1+1 ANDROID_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --offline --dependency-verification strict assembleDebug assembleRelease assembleDebugAndroidTest testDebugUnitTest"
+      },
+      {
+        "label": "strict-lint",
+        "rc": 0,
+        "seconds": 80.12,
+        "command": "export JAVA_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/java/jdk-17.0.20.1+1 ANDROID_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --offline --dependency-verification strict lintRelease"
+      },
+      {
+        "label": "strict-release-instrumentation",
+        "rc": 0,
+        "seconds": 138.05,
+        "command": "export JAVA_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/java/jdk-17.0.20.1+1 ANDROID_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --offline --dependency-verification strict -PqeliTestBuildType=release assembleReleaseAndroidTest printInstrumentationAbiClasspaths"
+      }
+    ],
+    "retry_builds": [
+      {
+        "label": "seed-jvm-retry",
+        "rc": 0,
+        "seconds": 42.63,
+        "command": "export JAVA_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/java/jdk-17.0.20.1+1 ANDROID_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --write-locks --write-verification-metadata sha256 testDebugUnitTest"
+      },
+      {
+        "label": "seed-debug-instrumentation-retry",
+        "rc": 0,
+        "seconds": 25.5,
+        "command": "export JAVA_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/java/jdk-17.0.20.1+1 ANDROID_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --write-locks --write-verification-metadata sha256 assembleDebugAndroidTest"
+      },
+      {
+        "label": "seed-lint-retry",
+        "rc": 0,
+        "seconds": 80.51,
+        "command": "export JAVA_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/java/jdk-17.0.20.1+1 ANDROID_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --write-locks --write-verification-metadata sha256 lintRelease"
+      },
+      {
+        "label": "seed-release-instrumentation-retry",
+        "rc": 0,
+        "seconds": 136.7,
+        "command": "export JAVA_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/java/jdk-17.0.20.1+1 ANDROID_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-maven-review-20261008.QWS84jnx/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --write-locks --write-verification-metadata sha256 -PqeliTestBuildType=release assembleReleaseAndroidTest printInstrumentationAbiClasspaths"
+      }
+    ],
+    "independent_artifacts": {
+      "status": "PASS",
+      "artifacts": 730,
+      "bytes": 453799614,
+      "metadata_sha256": "5b9520c7efb1bac57bf8cdc2d6a5074587f0c898931ea577f8cdee61ac6b23f6",
+      "method": "Changed/new records use independent HTTPS stream SHA256; unchanged exact coordinates+artifact+SHA retain sealed prior review, explicitly not fresh downloads",
+      "inherited_manifest_sha256": "8a94278f86b39bcfc43d02b89c68697ce3e30f88aa67ef8d9a8adba2b4be22f0",
+      "fresh_artifacts": 104,
+      "inherited_artifacts": 626
+    },
+    "final_osv": {
+      "packages": 318,
+      "affected_packages": 0,
+      "raw_response": "final-osv-result.json"
+    },
+    "license_metadata_scope": "318records;24officialPOM/tag fallbacks;APK/nativeNOTICE/copyleft source-cut notclosed"
+  },
+  "metadata_binding": "committed LF build/test/policy/CI inputs match qualified-inputs; Java17 private environment recorded separately; native hostJNI explicit sealed reuse",
+  "raw_packet": {
+    "name": "q34-maven-review-20261008",
+    "files": 824,
+    "bytes": 245841311,
+    "manifest_sha256": "1bf34d5f422e52d1c66d6c66ac1f3b123e93c134b310813612268e0b67bca3ce",
+    "runtime_status": "PASS_ANDROID_MAVEN_SECURITY_JAVA17_SCOPED_NO_DEVICE_RUNTIME",
+    "path": "audit-debt-20260924/q34-maven-review-20261008",
+    "status": "SEALED"
+  },
+  "scope": "Q34F466-F468/Q34-F020-F022 scoped Maven build-security fixes: one early-plugin/project policy, KGP2.4.21/Netty4.1.137/BC1.85/CommonsLang3.18/Jose0.9.6/JDOM2.0.6.1/HttpClient4.5.14,actual regenerated strict locks and obsolete checksum admission removed. Initial326package-version19affected50distinctadvisories;fresh production OSV gate final318zeroaffected. Maven security CI added with explicit root working-directory;8fail-closed fixtures/incomplete-pagination-network-policy errors and actual vulnerable/patched build-only JDOM CLI PASS. Wrong-passphrase test now exact AEADBadTagException and nullable enum reflection explicit; original compileFAIL retained. Official SHA-qualified private Temurin17.0.20.1+1:debug/defaultunsignedR8/debug-releaseInstrumentationAPK/JVM201zeroerrors-failures-skips/lint0errors53warnings/normaloffline-strict PASS; production hostJNI6b6 reused from unchanged sealed native evidence,notfreshRustbuild.730checksum records:104freshindependentHTTPS and626exactinheritedsealed;unchangednonLinuxAAPT2policy only/noOSbuilds. Actualoffline missingpolicy/KGPdrift refusals and restoredpositive PASS;drift includes uncached2.4.20/notisolatedcompletecache.318license metadata resolved with24officialPOM/tag fallbacks,original404/503/harnessassumptions preserved;APKfourAndroidXlicenseentries/nativeAGPL-MPLnotice/sourcecut/deviceVPN/currentexactActions remain OPEN. FreshActions37765333335 uses anotherSHAf84a78d9,failedoldSDKtools/Rustdeps;no dispatch. OriginalUnicode/edit/cwd/Adoptium403/negativeharnessSyntaxError retained. Own32,720,631byteSHArecoverableAndroidsource/APK/test-lint-mapping/log/reusedJNIarchive and proc-mountguardcleanup77784575bcCLI preserved;publicregenerableSDK-JDK-Gradlecaches excluded and official JDK input retained locally.696docs9/native12/release11 PASS. Nativee3fb/distributed14SHA-copies/CSSCHANGELOGusers unchanged;no freshnativeAB/deviceVPN/otherOS/currentCI-release claim.41cases75prior supplements preserved modulo source_digest bookkeeping,append76scoped. Q34IN_PROGRESS/full30-37DONE81.1percent7remain;bracesF459/Q29SIGKILLFAIL-ENONET/Q30Applecallbacks/Q31capacity-sourcecut-currentCI/D06accepted/USER_EXCLUDED unchanged. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

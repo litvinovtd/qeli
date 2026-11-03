@@ -15,7 +15,13 @@ tcp_resume_block_rule() {
 }
 
 run_tcp_resume_case() {
-  local client_probe_pid server_probe_pid
+  local client_probe_pid server_probe_pid expected_streams=1
+  if [ "$MULTIPATH_MODE" = fixed ]; then
+    expected_streams=$MULTIPATH_MAX_STREAMS
+  elif [ "$MULTIPATH_MODE" = adaptive ]; then
+    expected_streams=$(sed -n 's/.*Multipath adaptive: ramped to \([0-9][0-9]*\) stream.*/\1/p' "$WORK/client.log" | tail -n1)
+    expected_streams=${expected_streams:-1}
+  fi
 
   check "server can send tunnel traffic before carrier loss" \
     "ip netns exec $SRV_NS ping -c3 -W1 10.88.0.2"
@@ -67,10 +73,15 @@ run_tcp_resume_case() {
     check "full reconnect restored tunnel traffic" \
       "ip netns exec $CLI_NS ping -c5 -W1 10.88.0.1"
   else
-    if wait_for 150 "grep -q 'TCP stream slot 0 resumed; 1/1 stream(s) active' $WORK/client.log"; then
+    if wait_for 150 "grep -Eq 'TCP stream slot 0 resumed; [1-9][0-9]*/$expected_streams stream' $WORK/client.log"; then
       ok "client resumed slot zero within server grace"
     else
       bad "client did not resume slot zero within server grace"
+    fi
+    if wait_for 100 "grep -Eq 'TCP stream slot [0-9]+ resumed; $expected_streams/$expected_streams stream' $WORK/client.log"; then
+      ok "hard resume restored the original bonded width"
+    else
+      bad "hard resume did not restore the original bonded width"
     fi
     check "server attached exactly one authenticated resume carrier" \
       "test \"\$(grep -c 'Stream #0 JOINed session' $WORK/server.log || true)\" -eq 1"

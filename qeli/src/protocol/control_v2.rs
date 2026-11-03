@@ -6,6 +6,7 @@
 //! capability-gated by the client and server session code.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -395,12 +396,31 @@ struct Assembly {
     started_at: Instant,
 }
 
+#[derive(Debug)]
+struct Completed {
+    message_id: u32,
+    message_type: u8,
+    flags: u8,
+    parts: Vec<[u8; 32]>,
+    management_validated: bool,
+}
+
+impl Completed {
+    fn matches(&self, frame: &Frame<'_>) -> bool {
+        self.message_type == frame.message_type
+            && self.flags == frame.flags
+            && self.parts.len() == frame.part_count as usize
+            && self.parts[frame.part_index as usize]
+                == <[u8; 32]>::from(Sha256::digest(frame.payload))
+    }
+}
+
 /// Per-direction bounded assembler. A session owns one instance for each receive direction;
 /// sharing IDs across directions would let an ACK suppress an unrelated peer message.
 #[derive(Debug, Default)]
 pub struct Reassembler {
     inflight: HashMap<u32, Assembly>,
-    completed: VecDeque<u32>,
+    completed: VecDeque<Completed>,
 }
 
 impl Reassembler {
@@ -416,11 +436,51 @@ impl Reassembler {
         before - self.inflight.len()
     }
 
-    fn remember_completed(&mut self, message_id: u32) {
+    fn remember_completed(&mut self, completed: Completed) {
         if self.completed.len() == COMPLETED_ID_CACHE {
             self.completed.pop_front();
         }
-        self.completed.push_back(message_id);
+        self.completed.push_back(completed);
+    }
+
+    /// Management receipts require semantic acceptance, not just complete wire framing.
+    /// Call while holding the session's receive lock so another bonded stream cannot
+    /// observe a rejected message in the completed cache.
+    pub fn push_management(
+        &mut self,
+        now: Instant,
+        frame: Frame<'_>,
+    ) -> Result<ReassemblyOutcome, ControlV2Error> {
+        if !matches!(frame.message_type, TYPE_NOTICE | TYPE_KICK) {
+            return Err(ControlV2Error::InvalidManagementPayload(
+                "unsupported management message type".to_string(),
+            ));
+        }
+        let outcome = self.push(now, frame)?;
+        if let ReassemblyOutcome::Complete(message) = &outcome {
+            if let Err(error) = decode_management(message) {
+                self.completed
+                    .retain(|entry| entry.message_id != message.message_id);
+                return Err(error);
+            }
+            if let Some(entry) = self
+                .completed
+                .iter_mut()
+                .find(|entry| entry.message_id == message.message_id)
+            {
+                entry.management_validated = true;
+            }
+        } else if outcome == ReassemblyOutcome::Duplicate
+            && !self
+                .completed
+                .iter()
+                .any(|entry| entry.message_id == frame.message_id && entry.management_validated)
+        {
+            return Err(ControlV2Error::InvalidManagementPayload(
+                "message has no validated management receipt".to_string(),
+            ));
+        }
+        Ok(outcome)
     }
 
     pub fn push(
@@ -430,15 +490,29 @@ impl Reassembler {
     ) -> Result<ReassemblyOutcome, ControlV2Error> {
         validate_metadata(&frame)?;
         self.expire(now);
-        if self.completed.contains(&frame.message_id) {
-            return Ok(ReassemblyOutcome::Duplicate);
+        if let Some(completed) = self
+            .completed
+            .iter()
+            .find(|entry| entry.message_id == frame.message_id)
+        {
+            return if completed.matches(&frame) {
+                Ok(ReassemblyOutcome::Duplicate)
+            } else {
+                Err(ControlV2Error::Conflict)
+            };
         }
 
         if frame.part_count == 1 {
             if self.inflight.contains_key(&frame.message_id) {
                 return Err(ControlV2Error::Conflict);
             }
-            self.remember_completed(frame.message_id);
+            self.remember_completed(Completed {
+                message_id: frame.message_id,
+                message_type: frame.message_type,
+                flags: frame.flags,
+                parts: vec![Sha256::digest(frame.payload).into()],
+                management_validated: false,
+            });
             return Ok(ReassemblyOutcome::Complete(Message {
                 message_type: frame.message_type,
                 flags: frame.flags,
@@ -481,7 +555,8 @@ impl Reassembler {
         let index = frame.part_index as usize;
         if index < assembly.parts.len() {
             return if assembly.parts[index].as_slice() == frame.payload {
-                Ok(ReassemblyOutcome::Duplicate)
+                // This repeats a part of an unfinished message, not a full receipt.
+                Ok(ReassemblyOutcome::Pending)
             } else {
                 Err(ControlV2Error::Conflict)
             };
@@ -508,10 +583,21 @@ impl Reassembler {
             .remove(&frame.message_id)
             .expect("complete assembly remains registered");
         let mut payload = Vec::with_capacity(assembly.total_len);
+        let parts = assembly
+            .parts
+            .iter()
+            .map(|part| Sha256::digest(part).into())
+            .collect();
         for part in assembly.parts {
             payload.extend_from_slice(&part);
         }
-        self.remember_completed(frame.message_id);
+        self.remember_completed(Completed {
+            message_id: frame.message_id,
+            message_type: assembly.message_type,
+            flags: assembly.flags,
+            parts,
+            management_validated: false,
+        });
         Ok(ReassemblyOutcome::Complete(Message {
             message_type: assembly.message_type,
             flags: assembly.flags,
@@ -524,6 +610,83 @@ impl Reassembler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completed_ids_require_exact_fragment_identity() {
+        let now = Instant::now();
+        let mut receiver = Reassembler::new();
+        let frame = Frame {
+            message_type: TYPE_NOTICE,
+            flags: 0,
+            message_id: 9,
+            part_index: 0,
+            part_count: 1,
+            payload: b"one",
+        };
+        assert!(matches!(
+            receiver.push(now, frame).unwrap(),
+            ReassemblyOutcome::Complete(_)
+        ));
+        for changed in [
+            Frame {
+                payload: b"two",
+                ..frame
+            },
+            Frame {
+                message_type: TYPE_KICK,
+                ..frame
+            },
+            Frame {
+                flags: FLAG_ACK_REQUIRED,
+                ..frame
+            },
+            Frame {
+                part_count: 2,
+                ..frame
+            },
+        ] {
+            assert_eq!(receiver.push(now, changed), Err(ControlV2Error::Conflict));
+        }
+        assert_eq!(
+            receiver.push(now, frame).unwrap(),
+            ReassemblyOutcome::Duplicate
+        );
+    }
+
+    #[test]
+    fn rejected_management_does_not_poison_a_corrected_message_id() {
+        let now = Instant::now();
+        let mut receiver = Reassembler::new();
+        let bad = Frame {
+            message_type: TYPE_KICK,
+            flags: FLAG_ACK_REQUIRED,
+            message_id: 10,
+            part_index: 0,
+            part_count: 1,
+            payload: b"{}",
+        };
+        for _ in 0..2 {
+            assert!(receiver.push_management(now, bad).is_err());
+        }
+        let event = ManagementEvent::Kick(Kick {
+            reason: KickReason::Administrative,
+            message: "Stopped".into(),
+            reconnect_allowed: false,
+        });
+        let wire = management_frames(&event, 10).unwrap().remove(0);
+        assert!(matches!(
+            receiver
+                .push_management(now, decode(&wire).unwrap())
+                .unwrap(),
+            ReassemblyOutcome::Complete(_)
+        ));
+        assert_eq!(
+            receiver
+                .push_management(now, decode(&wire).unwrap())
+                .unwrap(),
+            ReassemblyOutcome::Duplicate
+        );
+    }
 
     #[test]
     fn exact_single_part_wire_vector_roundtrips() {
@@ -624,7 +787,7 @@ mod tests {
         );
         assert_eq!(
             reassembler.push(now, decode(&frames[0]).unwrap()).unwrap(),
-            ReassemblyOutcome::Duplicate
+            ReassemblyOutcome::Pending
         );
         assert_eq!(
             reassembler.push(now, decode(&frames[1]).unwrap()).unwrap(),

@@ -1,5 +1,148 @@
 use super::*;
 
+struct DropObserved(DuplexStream, std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl Drop for DropObserved {
+    fn drop(&mut self) {
+        self.1.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+impl AsyncRead for DropObserved {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+impl AsyncWrite for DropObserved {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+
+async fn assert_dropped(flag: &std::sync::atomic::AtomicBool) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !flag.load(std::sync::atomic::Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("carrier leaked its outer transport");
+}
+
+#[tokio::test]
+async fn dropping_either_owner_releases_its_idle_outer_transport() {
+    for drop_client in [true, false] {
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let client_dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let server_dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed_server = DropObserved(server_io, server_dropped.clone());
+        let server = tokio::spawn(async move { accept(observed_server).await.unwrap() });
+        let client = connect(
+            DropObserved(client_io, client_dropped.clone()),
+            "example.com",
+        )
+        .await
+        .unwrap();
+        let server = server.await.unwrap();
+        if drop_client {
+            drop(client);
+            assert_dropped(&client_dropped).await;
+            drop(server);
+        } else {
+            drop(server);
+            assert_dropped(&server_dropped).await;
+            drop(client);
+        }
+    }
+}
+
+#[tokio::test]
+async fn cancelling_connect_while_peer_withholds_response_releases_driver() {
+    let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (seen, request_seen) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let mut connection = configure_server()
+            .handshake::<_, Bytes>(server_io)
+            .await
+            .unwrap();
+        let _request = connection.accept().await.unwrap().unwrap();
+        seen.send(()).unwrap();
+        std::future::pending::<()>().await;
+    });
+    let client = tokio::spawn(connect(
+        DropObserved(client_io, flag.clone()),
+        "example.com",
+    ));
+    request_seen.await.unwrap();
+    client.abort();
+    let _ = client.await;
+    assert_dropped(&flag).await;
+    server.abort();
+}
+
+#[tokio::test]
+async fn data_larger_than_peer_window_makes_progress_and_ends_once() {
+    let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+    let server = tokio::spawn(async move {
+        let mut builder = configure_server();
+        builder.initial_window_size(1024);
+        let mut connection = builder.handshake::<_, Bytes>(server_io).await.unwrap();
+        let (request, mut respond) = connection.accept().await.unwrap().unwrap();
+        let _response = respond
+            .send_response(Response::builder().status(200).body(()).unwrap(), false)
+            .unwrap();
+        let driver = tokio::spawn(async move { while connection.accept().await.is_some() {} });
+        let _guard = Tasks(vec![driver.abort_handle()]);
+        let mut body = request.into_body();
+        let mut count = 0;
+        while let Some(chunk) = body.data().await {
+            let chunk = chunk.unwrap();
+            count += chunk.len();
+            body.flow_control().release_capacity(chunk.len()).unwrap();
+        }
+        count
+    });
+    let (mut request, connection) = configure_client()
+        .handshake::<_, Bytes>(client_io)
+        .await
+        .unwrap();
+    let driver = tokio::spawn(connection);
+    let _guard = Tasks(vec![driver.abort_handle()]);
+    let (response, mut stream) = request
+        .send_request(
+            raw_request(
+                Method::POST,
+                CARRIER_PATH,
+                Some(GRPC_MEDIA_TYPE),
+                Some("trailers"),
+            ),
+            false,
+        )
+        .unwrap();
+    let _response = response.await.unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        send_with_flow_control(&mut stream, Bytes::from(vec![42; 5000]), true),
+    )
+    .await
+    .expect("partial capacity deadlocked")
+    .unwrap();
+    assert_eq!(server.await.unwrap(), 5000);
+}
+
 fn raw_request(
     method: Method,
     path: &str,
@@ -241,4 +384,80 @@ async fn connect_rejects_non_ok_response() {
     assert_eq!(error.kind(), io::ErrorKind::ConnectionRefused);
     assert!(error.to_string().contains("503"));
     server.await.unwrap();
+}
+
+#[tokio::test]
+async fn q11_reset_and_goaway_release_zero_window_backpressure() {
+    for goaway in [false, true] {
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let client = tokio::spawn(connect(
+            DropObserved(client_io, flag.clone()),
+            "example.com",
+        ));
+        let mut builder = configure_server();
+        builder.initial_window_size(0);
+        let mut connection = builder.handshake::<_, Bytes>(server_io).await.unwrap();
+        let (_, mut response) = connection.accept().await.unwrap().unwrap();
+        let mut body = response
+            .send_response(Response::builder().status(200).body(()).unwrap(), false)
+            .unwrap();
+        let (terminate, command) = tokio::sync::oneshot::channel();
+        let driver = tokio::spawn(async move {
+            tokio::select! {
+                _ = command => if goaway { connection.abrupt_shutdown(h2::Reason::ENHANCE_YOUR_CALM); },
+                _ = connection.accept() => {},
+            }
+            while connection.accept().await.is_some() {}
+        });
+        let mut client = tokio::time::timeout(Duration::from_secs(2), client)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let payload = vec![0x42; 1024 * 1024];
+        let mut transfer = Box::pin(client.write_all(&payload));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut transfer)
+                .await
+                .is_err(),
+            "zero peer window must apply backpressure"
+        );
+        if !goaway {
+            body.send_reset(h2::Reason::CANCEL);
+        }
+        terminate.send(()).unwrap();
+        assert!(tokio::time::timeout(Duration::from_secs(2), transfer)
+            .await
+            .expect("H2 termination left blocked writer hanging")
+            .is_err());
+        assert_dropped(&flag).await;
+        drop(client);
+        drop(body);
+        driver.abort();
+        let _ = driver.await;
+    }
+}
+
+#[tokio::test]
+async fn q11_malformed_settings_and_window_update_are_bounded() {
+    // SETTINGS with ACK must be empty; WINDOW_UPDATE increment cannot be zero.
+    for frame in [
+        vec![0, 0, 6, 4, 1, 0, 0, 0, 0, 0, 4, 0, 0, 0, 1],
+        vec![0, 0, 4, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ] {
+        let (mut client_io, server_io) = tokio::io::duplex(4096);
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let server = tokio::spawn(accept(DropObserved(server_io, flag.clone())));
+        let mut wire = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n".to_vec();
+        wire.extend([0, 0, 0, 4, 0, 0, 0, 0, 0]);
+        wire.extend(frame);
+        client_io.write_all(&wire).await.unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .expect("malformed H2 frame stalled acceptance")
+            .unwrap();
+        assert!(result.is_err());
+        assert_dropped(&flag).await;
+    }
 }

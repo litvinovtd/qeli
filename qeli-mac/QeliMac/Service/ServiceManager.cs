@@ -102,20 +102,6 @@ public static class ServiceManager
     // thing the user needs to replace.
     public static bool IsInstalled() => File.Exists(PlistPath) || File.Exists(LegacyPlistPath);
 
-    public static bool IsRunning()
-    {
-        try
-        {
-            // `print system/<label>` exits 0 only when the daemon is bootstrapped.
-            var (_, code) = Run($"print {ServiceTarget}");
-            if (code == 0) return true;
-            if (!File.Exists(LegacyPlistPath)) return false;
-            var (_, legacyCode) = Run($"print {LegacyServiceTarget}");
-            return legacyCode == 0;
-        }
-        catch { return false; }
-    }
-
     /// <summary>
     /// Refuse to register a root LaunchDaemon pointing at a binary a non-root user
     /// can replace.
@@ -172,9 +158,22 @@ public static class ServiceManager
         }
     }
 
-    public static void Install()
+    internal static void EnsureRegistration()
     {
         EnsureProtectedLocation(ExePath);
+        foreach (var (path, label) in new[] { (PlistPath, ServiceName), (LegacyPlistPath, LegacyServiceName) })
+        {
+            var bytes = ServiceState.ReadTrustedFile(path, 1024 * 1024);
+            if (bytes is null) continue;
+            EnsureProtectedLocation(path);
+            PlistRegistration.Validate(bytes, label, ExePath);
+        }
+    }
+
+    public static void Install()
+    {
+        using var control = ServiceState.EnterControl();
+        EnsureRegistration();
         // Same reason as Start(): do not depend on the caller having written the profile
         // first for the daemon's log directory to exist.
         ServiceState.EnsureDir();
@@ -187,11 +186,11 @@ public static class ServiceManager
         NetworkConfigurator.SweepDns(ServiceState.AppendLog, requireReleased: true);
         File.WriteAllText(PlistPath, Plist());
         // chown root:wheel + 0644 so launchd accepts it as a system daemon.
-        Run2("/usr/sbin/chown", $"root:wheel \"{PlistPath}\"");
-        Run2("/bin/chmod", $"644 \"{PlistPath}\"");
+        CheckedTool("/usr/sbin/chown", $"root:wheel \"{PlistPath}\"");
+        CheckedTool("/bin/chmod", $"644 \"{PlistPath}\"");
         // Modern bootstrap/bootout — the legacy `load -w`/`unload -w` hang when invoked
         // outside an Aqua login session (e.g. under the osascript privilege trampoline).
-        Run($"enable {ServiceTarget}");           // clear a disabled override (the legacy `-w`)
+        CheckedTool("/bin/launchctl", $"enable {ServiceTarget}");           // clear a disabled override (the legacy `-w`)
         ServiceState.SetDesiredConnected(true);
         var beforeInstall = StatusStamp();
         LaunchctlChecked($"bootstrap system \"{PlistPath}\"", "Loading the daemon",
@@ -200,6 +199,8 @@ public static class ServiceManager
 
     public static void Uninstall()
     {
+        using var control = ServiceState.EnterControl();
+        EnsureRegistration();
         ServiceState.SetDesiredConnected(false);
         RemoveLegacy();
         BootoutChecked(ServiceTarget, "Stopping the daemon");
@@ -211,6 +212,8 @@ public static class ServiceManager
 
     public static void Start()
     {
+        using var control = ServiceState.EnterControl();
+        EnsureRegistration();
         // Deliberately checks the CURRENT plist rather than IsInstalled(): after an upgrade
         // only the legacy one exists, and bootstrapping a path that isn't there would fail.
         // Install() writes the new plist and clears the legacy registration on the way.
@@ -231,7 +234,7 @@ public static class ServiceManager
         // installation, which is how a GUI failure could look nothing like a terminal run.
         EnsureProtectedLocation(ExePath);
         RemoveLegacy();
-        Run($"enable {ServiceTarget}");
+        CheckedTool("/bin/launchctl", $"enable {ServiceTarget}");
         var beforeStart = StatusStamp();
         LaunchctlChecked($"bootstrap system \"{PlistPath}\"", "Starting the daemon",
                          () => StatusStamp() > beforeStart);
@@ -239,6 +242,8 @@ public static class ServiceManager
 
     public static void Stop()
     {
+        using var control = ServiceState.EnterControl();
+        EnsureRegistration();
         // Persist intent first. Even if launchctl fails, a still-running daemon observes the
         // file within one second and retries its own cleanup; after reboot RunAtLoad stays idle.
         ServiceState.SetDesiredConnected(false);
@@ -247,7 +252,23 @@ public static class ServiceManager
         BootoutChecked(ServiceTarget, "Stopping the daemon");
         // Do not print "OK stopped" while networksetup still points at qeli. Once bootout has
         // completed no legitimate owner remains, so LiveOwner is also an error here.
-        NetworkConfigurator.SweepDns(ServiceState.AppendLog, requireReleased: true);
+        ServiceStatusTransition.CompleteStop(new Action[]
+        {
+            () => NetworkConfigurator.SweepDns(ServiceState.AppendLog, requireReleased: true),
+            () =>
+            {
+                KillSwitch.Sweep(ServiceState.AppendLog);
+                if (ServiceState.ReadProtected("killswitch.state", 4096) is not null)
+                    throw new IOException("Kill-switch recovery remains pending or has a live owner");
+            },
+            () =>
+            {
+                ForwardingJournal.Sweep(ServiceState.AppendLog);
+                if (ServiceState.ReadProtected("forwarding-state.json", ForwardingJournal.MaximumBytes) is not null)
+                    throw new IOException("Forwarding recovery remains pending or has a live owner");
+            },
+        }, ServiceState.ReadStatus,
+            (status, extra, stopped) => ServiceState.WriteStatusRequired(status, extra, stopped: stopped));
     }
 
     /// <summary>
@@ -288,22 +309,10 @@ public static class ServiceManager
         psi.ArgumentList.Add("-e");
         psi.ArgumentList.Add(script);
 
-        using var p = Process.Start(psi)!;
-        var stdoutTask = p.StandardOutput.ReadToEndAsync();
-        var stderrTask = p.StandardError.ReadToEndAsync();
-        // Cap the whole prompt+install (the user has to type the password within this).
-        // Backstop only — the caller already runs this off the UI thread.
-        if (!p.WaitForExit(300_000))
-        {
-            try { p.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            return (false, "timed out waiting for the administrator prompt", false);
-        }
-        string outp = stdoutTask.GetAwaiter().GetResult();
-        string err = stderrTask.GetAwaiter().GetResult();
-        // osascript reports a user-cancelled auth dialog as error -128.
-        bool canceled = p.ExitCode != 0 && err.Contains("-128");
-        string msg = string.IsNullOrWhiteSpace(err) ? outp.Trim() : err.Trim();
-        return (p.ExitCode == 0, msg, canceled);
+        var result = ToolProcess.Run(psi, 300_000);
+        bool canceled = result.ExitCode != 0 && result.Error.Contains("-128", StringComparison.Ordinal);
+        string msg = string.IsNullOrWhiteSpace(result.Error) ? result.Output.Trim() : result.Error.Trim();
+        return (result.ExitCode == 0, msg, canceled);
     }
 
     /// <summary>POSIX single-quote a token so /bin/sh treats it literally.</summary>
@@ -319,7 +328,7 @@ public static class ServiceManager
             <string>{ServiceName}</string>
             <key>ProgramArguments</key>
             <array>
-                <string>{ExePath}</string>
+                <string>{PlistRegistration.Escape(ExePath)}</string>
                 <string>--service</string>
             </array>
             <key>RunAtLoad</key>
@@ -341,13 +350,8 @@ public static class ServiceManager
         </plist>
         """;
 
-    private static (string outp, int code) Run(string args) => Run2("/bin/launchctl", args);
-
-    private static (string outp, int code) Run2(string exe, string args)
-    {
-        var (outp, _, code) = Run3(exe, args);
-        return (outp, code);
-    }
+    private static void CheckedTool(string executable, string args) =>
+        ToolProcess.RequireSuccess(ToolProcess.Run(new ProcessStartInfo(executable, args)), executable);
 
     /// <summary>
     /// Run a tool and return stdout, stderr and the exit code separately.
@@ -360,27 +364,10 @@ public static class ServiceManager
     /// while nothing had been loaded. Kept SEPARATE from stdout, not merged: callers parse
     /// stdout (stat's `uid gid mode`), and folding a warning into it would corrupt the parse.
     /// </remarks>
-    private static (string outp, string err, int code) Run3(string exe, string args)
+    private static (string outp, string err, int code) Run3(string exe, string args, int milliseconds = 20_000)
     {
-        var psi = new ProcessStartInfo(exe, args)
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using var p = Process.Start(psi)!;
-        // Drain both pipes concurrently (a single sequential ReadToEnd can deadlock if
-        // the other pipe's buffer fills) and bound the call so a wedged launchctl can't
-        // hang the elevated helper forever.
-        var so = p.StandardOutput.ReadToEndAsync();
-        var se = p.StandardError.ReadToEndAsync();
-        if (!p.WaitForExit(20_000))
-        {
-            try { p.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            return ("", $"`{exe} {args}` timed out after 20s", -1);
-        }
-        return (so.GetAwaiter().GetResult(), se.GetAwaiter().GetResult(), p.ExitCode);
+        var result = ToolProcess.Run(new ProcessStartInfo(exe, args), milliseconds);
+        return (result.Output, result.Error, result.ExitCode);
     }
 
     /// <summary>
@@ -395,69 +382,40 @@ public static class ServiceManager
     /// </remarks>
     private static void LaunchctlChecked(string args, string what, Func<bool> succeeded)
     {
-        var psi = new ProcessStartInfo("/bin/launchctl", args)
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using var p = Process.Start(psi)!;
-        var so = p.StandardOutput.ReadToEndAsync();
-        var se = p.StandardError.ReadToEndAsync();
-
-        // Watch the OUTCOME, not the process. `launchctl bootstrap` regularly takes tens of
-        // seconds to return under the osascript privilege trampoline while the daemon it
-        // started is already up and serving after one — waiting for launchctl to finish was
-        // the whole of the delay users saw between pressing Connect and anything happening,
-        // and long enough that they pressed again. It is also why a hard timeout was the
-        // wrong tool: the call was not stuck, just slow to report.
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (DateTime.UtcNow < deadline)
-        {
-            if (succeeded()) return;                       // daemon is alive — done, whatever launchctl is doing
-            if (p.HasExited && p.ExitCode == 0) return;    // nothing to wait for
-            Thread.Sleep(250);
-        }
-
-        try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { /* best effort */ }
-        var detail = (se.IsCompletedSuccessfully ? se.Result : "").Trim();
-        if (detail.Length == 0) detail = (so.IsCompletedSuccessfully ? so.Result : "").Trim();
-        throw new InvalidOperationException(
-            $"{what} failed: the daemon did not come up within 30s of `launchctl {args}`" +
-            (detail.Length == 0 ? "." : $" — {detail}"));
+        var result = ToolProcess.Run(new ProcessStartInfo("/bin/launchctl", args), 30_000, succeeded);
+        ToolProcess.RequireSuccess(result, what);
     }
 
     /// <summary>Unload a launchd job and verify the job is actually gone before returning.</summary>
     private static void BootoutChecked(string target, string what)
     {
-        var (outp, err, _) = Run3("/bin/launchctl", $"bootout {target}");
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (DateTime.UtcNow < deadline)
+        var elapsed = Stopwatch.StartNew();
+        var (outp, err, _) = Run3("/bin/launchctl", $"bootout {target}", 20_000);
+        while (elapsed.ElapsedMilliseconds < 30_000)
         {
-            if (!LaunchdHasTarget(target)) return; // includes the normal "not loaded" case
-            Thread.Sleep(250);
+            int remaining = (int)Math.Max(1, 30_000 - elapsed.ElapsedMilliseconds);
+            var (output, error, code) = Run3("/bin/launchctl", $"print {target}", Math.Min(20_000, remaining));
+            if (ConfirmsAbsent(target, output, error, code)) return;
+            Thread.Sleep(Math.Min(250, Math.Max(1, remaining)));
         }
-
-        string detail = string.IsNullOrWhiteSpace(err) ? outp.Trim() : err.Trim();
-        throw new InvalidOperationException(
-            $"{what} failed: launchd still reports '{target}' after 30s" +
-            (detail.Length == 0 ? "." : $" — {detail}"));
+        throw new InvalidOperationException($"{what} failed: launchd absence was not confirmed for '{target}' — {err.Trim()}");
     }
 
-    private static bool LaunchdHasTarget(string target)
+    internal static bool ConfirmsAbsent(string target, string output, string error, int code)
     {
-        try
+        if (!target.StartsWith("system/", StringComparison.Ordinal) || code is 0 or -1) return false;
+        string expected = $"Could not find service \"{target[7..]}\" in domain for system";
+        // Unknown errors (including permission/I/O failures) are never proof of absence.
+        // macOS 27 prefixes the same message with a "Bad request." line; nothing else is
+        // tolerated, so absence was never confirmed there and every install timed out here.
+        if (!string.IsNullOrWhiteSpace(output)) return false;
+        var lines = error.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        return lines.Length switch
         {
-            var (_, _, code) = Run3("/bin/launchctl", $"print {target}");
-            return code == 0 || code == -1; // timeout/unknown is not proof of absence
-        }
-        catch
-        {
-            // Failure to query is not proof that the privileged daemon stopped. Keep waiting
-            // until BootoutChecked can surface the failure instead of claiming success.
-            return true;
-        }
+            1 => lines[0] == expected,
+            2 => lines[0] == "Bad request." && lines[1] == expected,
+            _ => false,
+        };
     }
 
     /// <summary>
@@ -476,8 +434,9 @@ public static class ServiceManager
     {
         try
         {
-            var f = new FileInfo(ServiceState.StatusFile);
-            return f.Exists ? f.LastWriteTimeUtc : DateTime.MinValue;
+            var snapshot = ServiceState.ReadStatus();
+            return snapshot is not null && Qeli.Shared.Model.DesktopServiceStatus.Fresh(snapshot, DateTime.Now, TimeSpan.FromSeconds(5))
+                ? snapshot.Time.ToUniversalTime() : DateTime.MinValue;
         }
         catch { return DateTime.MinValue; }
     }

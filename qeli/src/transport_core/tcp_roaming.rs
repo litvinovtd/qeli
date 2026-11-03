@@ -523,7 +523,12 @@ impl SessionLifecycle {
         })
     }
 
-    pub fn abort_resume(&mut self, reservation: ResumeReservation) -> Result<(), LifecycleError> {
+    /// Return the exact orphan timer that must be rearmed after a prepared resume aborts.
+    /// Its original deadline may have passed while reap deferred to the reservation.
+    pub fn abort_resume(
+        &mut self,
+        reservation: ResumeReservation,
+    ) -> Result<Option<ReapTicket>, LifecycleError> {
         let fallback = match self.state {
             State::Resuming {
                 reservation: current,
@@ -532,11 +537,17 @@ impl SessionLifecycle {
             State::Closing | State::Revoked => return Err(LifecycleError::Terminal),
             _ => return Err(LifecycleError::StaleReservation),
         };
-        self.state = match fallback {
-            ResumeFallback::Active => State::Active,
-            ResumeFallback::Orphaned(ticket) => State::Orphaned(ticket),
+        let ticket = match fallback {
+            ResumeFallback::Active => {
+                self.state = State::Active;
+                None
+            }
+            ResumeFallback::Orphaned(ticket) => {
+                self.state = State::Orphaned(ticket);
+                Some(ticket)
+            }
         };
-        Ok(())
+        Ok(ticket)
     }
 
     pub fn complete_drain(
@@ -782,7 +793,7 @@ mod tests {
 
         assert!(reservation.is_handover());
         assert_eq!(session.ready_transport(0), Some(410));
-        session.abort_resume(reservation).unwrap();
+        assert_eq!(session.abort_resume(reservation).unwrap(), None);
 
         assert_eq!(session.state(), LifecycleState::Active);
         assert_eq!(session.ready_transport(0), Some(410));
@@ -828,6 +839,56 @@ mod tests {
         );
         assert!(!session.complete_drain(0, committed.slot_generation + 1, 50));
         assert_eq!(session.draining_transport(0), Some(50));
+    }
+
+    #[test]
+    fn abort_after_grace_rearms_the_original_orphan_ticket() {
+        let now = Instant::now();
+        let mut limiter = OrphanLimiter::new(2, 4096);
+        let mut session = lifecycle(71, 710);
+        let ticket = match session
+            .detach(710, DetachReason::Unexpected, now, 1024, &mut limiter)
+            .unwrap()
+        {
+            DetachOutcome::Orphaned(ticket) => ticket,
+            other => panic!("unexpected detach outcome: {other:?}"),
+        };
+        let transcript = [8; 32];
+        let reservation = session
+            .begin_resume(&join(transcript, 1, 0, false), &transcript, &SECRET)
+            .unwrap();
+        // This is the server's one-shot timer: it deliberately yields to a prepared JOIN.
+        assert!(!session.reap(ticket, ticket.deadline(), &mut limiter));
+        let rearmed = session.abort_resume(reservation).unwrap();
+        assert_eq!(rearmed, Some(ticket));
+        assert_eq!(rearmed.unwrap().deadline(), ticket.deadline());
+        assert!(session.reap(rearmed.unwrap(), ticket.deadline(), &mut limiter));
+        assert_eq!(session.state(), LifecycleState::Closing);
+        assert_eq!((limiter.sessions(), limiter.bytes()), (0, 0));
+        assert!(!session.reap(ticket, ticket.deadline(), &mut limiter));
+        assert!(session.abort_resume(reservation).is_err());
+    }
+
+    #[test]
+    fn handover_abort_rearms_grace_when_old_transport_died_during_prepare() {
+        let now = Instant::now();
+        let mut limiter = OrphanLimiter::new(2, 4096);
+        let mut session = lifecycle(72, 720);
+        let transcript = [9; 32];
+        let reservation = session
+            .begin_resume(&join(transcript, 1, 0, true), &transcript, &SECRET)
+            .unwrap();
+        let ticket = match session
+            .detach(720, DetachReason::Unexpected, now, 512, &mut limiter)
+            .unwrap()
+        {
+            DetachOutcome::Orphaned(ticket) => ticket,
+            other => panic!("unexpected detach outcome: {other:?}"),
+        };
+        assert!(!session.reap(ticket, ticket.deadline(), &mut limiter));
+        assert_eq!(session.abort_resume(reservation).unwrap(), Some(ticket));
+        assert!(session.reap(ticket, ticket.deadline(), &mut limiter));
+        assert_eq!((limiter.sessions(), limiter.bytes()), (0, 0));
     }
 
     #[test]

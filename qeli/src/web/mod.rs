@@ -1,6 +1,7 @@
 pub mod api;
 pub mod assets;
 pub mod auth;
+mod lifetime;
 pub mod pages;
 pub mod tls;
 
@@ -10,7 +11,7 @@ use axum::{
     extract::{ConnectInfo, State},
     http::{header, HeaderMap, HeaderValue, Method, Request, StatusCode},
     middleware::{self, Next},
-    response::Response,
+    response::{Redirect, Response},
     Router,
 };
 use std::net::{IpAddr, SocketAddr};
@@ -33,6 +34,17 @@ fn base_href(prefix: &str) -> String {
         "/".to_string()
     } else {
         format!("{prefix}/")
+    }
+}
+
+/// Canonical panel-root URL used by the Dashboard navigation link. Unlike
+/// [`base_href`], a non-root prefix must not end in `/`: axum's `Router::nest`
+/// mounts the nested `/` route at `/qeli`, while `/qeli/` is a distinct path.
+fn base_root(prefix: &str) -> String {
+    if prefix.is_empty() {
+        "/".to_string()
+    } else {
+        prefix.to_string()
     }
 }
 
@@ -105,8 +117,9 @@ fn req_prefix(
 
 /// Make the panel work under a reverse-proxy sub-path without touching handlers:
 /// fill `{{basehref}}` in HTML pages with the request's prefix (so relative
-/// asset/API/nav URLs re-root via `<base href>`), and prepend the prefix to
-/// root-absolute `Location` redirects (which `<base>` cannot re-root).
+/// asset/API/nav URLs re-root via `<base href>`), fill `{{baseroot}}` with the
+/// canonical slashless panel root, and prepend the prefix to root-absolute
+/// `Location` redirects (which `<base>` cannot re-root).
 async fn base_path_rewrite(
     State(state): State<Arc<ServerState>>,
     req: Request<Body>,
@@ -128,7 +141,12 @@ async fn base_path_rewrite(
             if let Ok(s) = loc.to_str() {
                 let already = s == prefix || s.starts_with(&format!("{prefix}/"));
                 if s.starts_with('/') && !already {
-                    if let Ok(v) = HeaderValue::from_str(&format!("{prefix}{s}")) {
+                    let rooted = if s == "/" {
+                        prefix.clone()
+                    } else {
+                        format!("{prefix}{s}")
+                    };
+                    if let Ok(v) = HeaderValue::from_str(&rooted) {
                         parts.headers.insert(header::LOCATION, v);
                     }
                 }
@@ -149,7 +167,9 @@ async fn base_path_rewrite(
         Ok(b) => b,
         Err(_) => return Response::from_parts(parts, Body::empty()),
     };
-    let mut html = String::from_utf8_lossy(&bytes).replace("{{basehref}}", &base_href(&prefix));
+    let mut html = String::from_utf8_lossy(&bytes)
+        .replace("{{basehref}}", &base_href(&prefix))
+        .replace("{{baseroot}}", &base_root(&prefix));
     // Stamp the CSP nonce onto every script tag so the nonce-based policy set upstream
     // actually lets the panel's own scripts run. A plain `<script` prefix match is safe
     // here: these templates are ours, every tag is either `<script>` or
@@ -160,6 +180,31 @@ async fn base_path_rewrite(
     }
     parts.headers.remove(header::CONTENT_LENGTH);
     Response::from_parts(parts, Body::from(html))
+}
+
+/// Mount the panel below its configured base path. axum deliberately treats
+/// `/qeli` and `/qeli/` as different paths for a nested router, so accept the
+/// accidental trailing-slash spelling too and redirect it to the canonical
+/// root instead of returning a surprising 404.
+fn mount_at_base<S>(routes: Router<S>, base: &str) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    if base.is_empty() {
+        routes
+    } else {
+        let slash_path = format!("{base}/");
+        let canonical = base.to_string();
+        Router::new()
+            .route(
+                &slash_path,
+                axum::routing::get(move || {
+                    let canonical = canonical.clone();
+                    async move { Redirect::permanent(&canonical) }
+                }),
+            )
+            .nest(base, routes)
+    }
 }
 
 /// Normalize a configured origin (`host`, `host:port`, or a full
@@ -245,7 +290,7 @@ async fn csrf_same_origin(
         if allowed_hosts.iter().any(|h| host_port == h.as_str()) {
             return true;
         }
-        // Trust a loopback Origin regardless of PORT — but only when the panel itself is
+        // The former port-agnostic exception trusted loopback only when the panel was
         // bound to loopback.
         //
         // The reasoning behind the port-agnostic rule is sound as far as it goes: a REMOTE
@@ -575,7 +620,11 @@ async fn security_headers(
 /// port was refused — TLS misconfigured, address unparseable, port taken. The signal is sent
 /// once, the moment the outcome is known, so the caller can say what is actually true.
 /// (Audit 2026-08-01, §P2.)
-pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::Sender<bool>>) {
+pub async fn start(
+    state: Arc<ServerState>,
+    ready: Option<tokio::sync::oneshot::Sender<bool>>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) -> anyhow::Result<()> {
     // Fires exactly once; later calls are no-ops because the sender is consumed.
     let mut ready = ready;
     let mut report = move |up: bool| {
@@ -602,7 +651,7 @@ pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::
              panel is genuinely what you want — set web.insecure_no_auth = true."
         );
         report(false);
-        return;
+        return Ok(());
     }
     if web_cfg.password_hash.is_empty() {
         log::warn!(
@@ -702,11 +751,7 @@ pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::
         );
         String::new()
     };
-    let routes = if base.is_empty() {
-        routes
-    } else {
-        Router::new().nest(&base, routes)
-    };
+    let routes = mount_at_base(routes, &base);
 
     let app = routes
         // Innermost: post-processes handler responses for the sub-path.
@@ -734,15 +779,7 @@ pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::
             Err(e) => {
                 log::error!("Web panel TLS init failed: {e} — panel not started");
                 report(false);
-                return;
-            }
-        };
-        let sockaddr: SocketAddr = match addr.parse() {
-            Ok(a) => a,
-            Err(e) => {
-                log::error!("Web panel bind '{addr}' is not a socket address: {e}");
-                report(false);
-                return;
+                return Ok(());
             }
         };
         // Bind EXPLICITLY, before reporting success.
@@ -754,12 +791,12 @@ pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::
         // says nothing about whether anything can listen on it. `from_tcp_rustls` takes a
         // listener we already own, which is what makes the report truthful.
         // (Audit 2026-08-01, §4.)
-        let listener = match std::net::TcpListener::bind(sockaddr) {
+        let listener = match std::net::TcpListener::bind(&addr) {
             Ok(l) => l,
             Err(e) => {
                 log::error!("Web UI failed to bind {addr}: {e}");
                 report(false);
-                return;
+                return Ok(());
             }
         };
         // A std listener is BLOCKING; tokio requires a non-blocking one and neither
@@ -774,7 +811,7 @@ pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::
         if let Err(e) = listener.set_nonblocking(true) {
             log::error!("Web UI could not set the listener non-blocking on {addr}: {e}");
             report(false);
-            return;
+            return Ok(());
         }
         let rustls_cfg = axum_server::tls_rustls::RustlsConfig::from_config(tls_cfg);
         let server = match axum_server::from_tcp_rustls(listener, rustls_cfg) {
@@ -782,22 +819,34 @@ pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::
             Err(e) => {
                 log::error!("Web panel could not adopt the listener on {addr}: {e}");
                 report(false);
-                return;
+                return Ok(());
             }
         };
         log::info!("Web UI (HTTPS) listening on https://{}", addr);
         report(true);
-        if let Err(e) = server.serve(make).await {
-            log::error!("Web panel (HTTPS) stopped: {e}");
-        }
+        let guard = lifetime::StopOnDrop(axum_server::Handle::new());
+        let server = server
+            .handle(guard.0.clone())
+            .map(|inner| lifetime::StoppableAccept {
+                inner,
+                shutdown: shutdown.clone(),
+            });
+        lifetime::serve(server.serve(make), guard, &mut shutdown).await?;
     } else {
         match tokio::net::TcpListener::bind(&addr).await {
             Ok(l) => {
                 log::info!("Web UI listening on http://{}", addr);
                 report(true);
-                if let Err(e) = axum::serve(l, make).await {
-                    log::error!("Web panel stopped: {e}");
-                }
+                let server = axum_server::from_tcp(l.into_std()?)?;
+                let guard = lifetime::StopOnDrop(axum_server::Handle::new());
+                let server =
+                    server
+                        .handle(guard.0.clone())
+                        .map(|inner| lifetime::StoppableAccept {
+                            inner,
+                            shutdown: shutdown.clone(),
+                        });
+                lifetime::serve(server.serve(make), guard, &mut shutdown).await?;
             }
             Err(e) => {
                 log::error!("Web UI failed to bind {}: {}", addr, e);
@@ -805,6 +854,7 @@ pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -842,6 +892,56 @@ mod tests {
         assert!(!super::is_safe_prefix("a>b"));
         assert!(!super::is_safe_prefix("a b"));
         assert!(!super::is_safe_prefix(&"x".repeat(129)));
+    }
+
+    #[test]
+    fn panel_base_urls_keep_directory_and_root_semantics_distinct() {
+        assert_eq!(super::base_href(""), "/");
+        assert_eq!(super::base_root(""), "/");
+        assert_eq!(super::base_href("/qeli"), "/qeli/");
+        assert_eq!(super::base_root("/qeli"), "/qeli");
+
+        let layout = include_str!("templates/layout.html");
+        assert!(
+            layout.contains("<a href=\"{{baseroot}}\" class=\"nav-link\""),
+            "Dashboard must use the canonical panel root, not '.'/basehref"
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_base_redirects_trailing_slash_to_canonical_root() {
+        use axum::body::Body;
+        use axum::http::{header, Request, StatusCode};
+        use tower::ServiceExt;
+
+        let app: Router = super::mount_at_base(
+            Router::new().route("/", get(|| async { "dashboard" })),
+            "/custom",
+        );
+
+        let canonical = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/custom")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(canonical.status(), StatusCode::OK);
+
+        let trailing = app
+            .oneshot(
+                Request::builder()
+                    .uri("/custom/")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(trailing.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(trailing.headers()[header::LOCATION], "/custom");
     }
 
     /// The header only counts from a configured trusted proxy — a directly-exposed

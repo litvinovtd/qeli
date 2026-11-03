@@ -2,19 +2,19 @@ use crate::crypto::{
     build_server_auth_message, derive_keys, derive_keys_bound, derive_keys_hybrid,
     derive_keys_hybrid_bound, handshake_transcript_hash, Keypair,
 };
-#[cfg(feature = "experimental-roaming")]
 use crate::crypto::{
     derive_session_material, derive_session_material_bound, derive_session_material_hybrid,
     derive_session_material_hybrid_bound,
 };
 use crate::protocol::obfs::SplitStream;
+use crate::protocol::stream_io::WriteAllFlush;
 use crate::protocol::{
-    read_record, read_record_into, read_tls_record, FakeTlsHandshake, Framing, Obfuscator,
-    PacketCodec,
+    read_record, read_tls_record, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
 };
 use crate::server::{
     lock_or_recover, ExitAccess, ProfileRuntime, ServerState, ServerTunPacket, TunIngress,
 };
+#[cfg(feature = "experimental-roaming")]
 use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
 #[cfg(feature = "experimental-roaming")]
 use crate::transport_core::tcp_roaming::{
@@ -71,7 +71,7 @@ pub(crate) fn server_wire_pool(
     pcfg: &crate::config::server::ProfileConfig,
 ) -> std::io::Result<BufferPool> {
     let buffer_capacity = server_wire_buffer_capacity(pcfg);
-    BufferPool::new(SERVER_WIRE_BUFFER_BYTES / buffer_capacity, buffer_capacity)
+    BufferPool::new_lazy(SERVER_WIRE_BUFFER_BYTES / buffer_capacity, buffer_capacity)
 }
 
 // Stream-bonding wire constants live in `crate::protocol` (shared with the
@@ -139,9 +139,8 @@ impl RateBucket {
 
     /// Account `bits` against a `limit_mbps` cap (0 = unlimited → no delay) and
     /// return how long to sleep before sending. Token accumulation is capped at one
-    /// second so an idle session can't bank an unbounded burst; the returned sleep
-    /// is capped at one second purely as a guard against a degenerate tiny limit
-    /// (a single ≤16 KB record at the 1 Mbps minimum needs only ~130 ms).
+    /// second so an idle session can't bank an unbounded burst. The returned sleep
+    /// includes ALL outstanding reservations, including other bonded streams.
     pub fn consume(&self, bits: u64, limit_mbps: u32) -> Duration {
         if limit_mbps == 0 {
             return Duration::ZERO;
@@ -156,7 +155,7 @@ impl RateBucket {
         if s.tokens >= 0.0 {
             Duration::ZERO
         } else {
-            Duration::from_secs_f64((-s.tokens / limit_bps).min(1.0))
+            Duration::from_secs_f64(-s.tokens / limit_bps)
         }
     }
 }
@@ -284,9 +283,11 @@ impl TcpRoamingSession {
         lifecycle.commit_resume(reservation, transport_id, &mut limiter)
     }
 
-    fn abort_resume(&self, reservation: ResumeReservation) {
-        let _ = lock_or_recover(&self.lifecycle, "TcpRoamingSession::abort_resume")
-            .abort_resume(reservation);
+    fn abort_resume(&self, reservation: ResumeReservation) -> Option<ReapTicket> {
+        lock_or_recover(&self.lifecycle, "TcpRoamingSession::abort_resume")
+            .abort_resume(reservation)
+            .ok()
+            .flatten()
     }
 
     fn detach(
@@ -402,6 +403,8 @@ pub fn note_client_info(
 }
 
 pub struct SessionShared {
+    /// Published only after kernel routes and the primary AuthOK have committed.
+    pub(crate) ndp_ready: std::sync::atomic::AtomicBool,
     pub session_id: u64,
     pub username: String,
     /// Per-device key (`username:hex(device_id)` or just `username`). Sessions are
@@ -981,7 +984,8 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static + SplitStream,
 {
     let pcfg = &profile.config;
-    let handshake_timeout = Duration::from_secs(pcfg.performance.connection.handshake_timeout_secs);
+    let handshake_deadline = tokio::time::Instant::now()
+        + Duration::from_secs(pcfg.performance.connection.handshake_timeout_secs);
     let framing = if pcfg.obfuscation.mode == "plain" || inner_raw {
         Framing::Raw
     } else {
@@ -997,12 +1001,11 @@ where
         transcript_hash,
         _handshake_resume_secret,
         first,
-    ) = tokio::time::timeout(
-        handshake_timeout,
+    ) = handshake_until(
+        handshake_deadline,
         qeli_handshake(&server_state, &profile, &mut stream, addr, pcfg, inner_raw),
     )
     .await
-    .map_err(|_| anyhow::anyhow!("handshake timeout for {}", addr))?
     .map_err(|e| anyhow::anyhow!("handshake failed for {}: {}", addr, e))?;
     let max_streams = if pcfg.obfuscation.multipath.enabled {
         pcfg.obfuscation.multipath.max_streams.max(1)
@@ -1030,17 +1033,20 @@ where
                 pcfg.name,
                 crate::util::log_identity(&username)
             );
-            verify_client_auth(
-                &server_state,
-                &profile,
-                addr,
-                "TCP",
-                &proof,
-                &username,
-                &password,
-                &static_shared,
-                &shared,
-                &transcript_hash,
+            handshake_until(
+                handshake_deadline,
+                verify_client_auth(
+                    &server_state,
+                    &profile,
+                    addr,
+                    "TCP",
+                    &proof,
+                    &username,
+                    &password,
+                    &static_shared,
+                    &shared,
+                    &transcript_hash,
+                ),
             )
             .await?;
 
@@ -1054,7 +1060,12 @@ where
                     let reason = error.to_string();
                     let message = build_auth_error(&reason);
                     if let Ok(record) = server_tx_codec.encrypt_packet(message.as_bytes(), &[]) {
-                        if let Err(send_error) = stream.write_all(&record).await {
+                        if let Err(send_error) = handshake_until(handshake_deadline, async {
+                            stream.write_all_flush(&record).await?;
+                            Ok(())
+                        })
+                        .await
+                        {
                             log::debug!(
                                 "TCP {addr}: failed to send recordizer negotiation error: {send_error}"
                             );
@@ -1076,7 +1087,12 @@ where
                     let message = build_auth_error(&reason);
                     match server_tx_codec.encrypt_packet(message.as_bytes(), &[]) {
                         Ok(record) => {
-                            if let Err(send_error) = stream.write_all(&record).await {
+                            if let Err(send_error) = handshake_until(handshake_deadline, async {
+                                stream.write_all_flush(&record).await?;
+                                Ok(())
+                            })
+                            .await
+                            {
                                 log::debug!(
                                     "TCP {addr}: failed to send authenticated negotiation error: {send_error}"
                                 );
@@ -1133,132 +1149,49 @@ where
             // while holding the sessions write lock).
             // Pool leases, session ownership and kernel iroutes must change atomically
             // across TCP and UDP authentication for this profile.
-            let admission_guard = profile.admission.lock().await;
+            let admission_guard = handshake_until(handshake_deadline, async {
+                Ok(profile.admission.lock().await)
+            })
+            .await?;
             let mut programmed_client_routes: Vec<String> = Vec::new();
             let mut evicted_client_routes: Vec<String> = Vec::new();
             // Devices evicted by the per-user session cap below whose pool IP must be
             // released AFTER the sessions write lock drops (lock order: sessions → pool).
             let mut cap_evicted = Vec::new();
-            let mut superseded = Vec::new();
-            {
-                let mut sessions = profile.sessions.write().await;
-                let stale: Vec<std::net::IpAddr> = sessions
-                    .by_ip
-                    .iter()
-                    .filter(|(_, s)| s.device_key == dkey)
-                    .map(|(ip, _)| *ip)
-                    .collect();
-                for ip in stale {
-                    if let Some(old) = sessions.remove(ip) {
-                        old.kick_all();
-                        // Strip the old session's inbound iroutes from the map — a dead
-                        // ClientRoute would otherwise win route_lookup or stack a duplicate
-                        // on this same-device reconnect. Kernel deletion is deferred until
-                        // after the sessions lock drops, then completed under the same
-                        // admission guard before the replacement uses fail-closed `route add`.
-                        evicted_client_routes.extend(sessions.take_client_routes(ip));
-                        log::info!(
-                            "Superseding previous session for device '{}' (was {}) on profile '{}' — reconnect from {}",
-                            dkey, ip, profile.name, addr
-                        );
-                        superseded.push(old);
-                    }
-                }
-                // Static IP (variant-b): evict whoever currently holds this user's fixed
-                // address — a different device of theirs, or a dynamic user who grabbed it
-                // while the owner was offline — so we can steal it below. (Our own prior
-                // session was already dropped by the supersede loop above.)
-                let fixed_addresses = fixed_ip
-                    .filter(|_| {
-                        matches!(
-                            negotiated_ip_mode,
-                            crate::config::server::IpMode::Ipv4
-                                | crate::config::server::IpMode::Dual
-                        )
-                    })
-                    .map(std::net::IpAddr::V4)
-                    .into_iter()
-                    .chain(
-                        fixed_ipv6
-                            .filter(|_| {
-                                matches!(
-                                    negotiated_ip_mode,
-                                    crate::config::server::IpMode::Ipv6
-                                        | crate::config::server::IpMode::Dual
-                                )
-                            })
-                            .map(std::net::IpAddr::V6),
+            let fixed_addresses = fixed_ip
+                .filter(|_| {
+                    matches!(
+                        negotiated_ip_mode,
+                        crate::config::server::IpMode::Ipv4 | crate::config::server::IpMode::Dual
                     )
-                    .collect::<Vec<_>>();
-                for address in fixed_addresses {
-                    let holder_primary = sessions
-                        .get_by_address(address)
-                        .map(|holder| holder.client_ip);
-                    if let Some(old) = holder_primary.and_then(|primary| sessions.remove(primary)) {
-                        old.kick_all();
-                        // Strip the evicted holder's iroutes (map only — see the supersede
-                        // note above; the admitted session re-programs the kernel).
-                        evicted_client_routes.extend(sessions.take_client_routes(old.client_ip));
-                        log::info!(
-                            "Static IP {} for user '{}' — evicting current holder device '{}' on profile '{}'",
-                            address, crate::util::log_identity(&username), crate::util::log_device_identity(&old.device_key), profile.name
-                        );
-                        cap_evicted.push(old);
-                    }
+                })
+                .map(std::net::IpAddr::V4)
+                .into_iter()
+                .chain(
+                    fixed_ipv6
+                        .filter(|_| {
+                            matches!(
+                                negotiated_ip_mode,
+                                crate::config::server::IpMode::Ipv6
+                                    | crate::config::server::IpMode::Dual
+                            )
+                        })
+                        .map(std::net::IpAddr::V6),
+                )
+                .collect::<Vec<_>>();
+            let (evicted, routes) = supersede_admission_sessions(
+                &profile,
+                &username,
+                &dkey,
+                max_sessions,
+                &fixed_addresses,
+            )
+            .await;
+            evicted_client_routes.extend(routes);
+            for old in evicted {
+                if old.device_key != dkey {
+                    cap_evicted.push(old);
                 }
-                // This device freed its own slot above, so the remaining count is of
-                // OTHER devices of this user; evict the oldest until the new one fits.
-                if max_sessions > 0 {
-                    loop {
-                        let mut user_sessions: Vec<(std::net::IpAddr, Instant)> = sessions
-                            .by_ip
-                            .iter()
-                            .filter(|(_, s)| s.username == username)
-                            .map(|(ip, s)| (*ip, s.connected_at))
-                            .collect();
-                        if user_sessions.len() < max_sessions as usize {
-                            break;
-                        }
-                        user_sessions.sort_by_key(|(_, t)| *t); // oldest first
-                        let oldest_ip = user_sessions[0].0;
-                        match sessions.remove(oldest_ip) {
-                            Some(old) => {
-                                old.kick_all();
-                                // Strip the evicted device's iroutes (map only).
-                                evicted_client_routes
-                                    .extend(sessions.take_client_routes(oldest_ip));
-                                log::info!(
-                                    "User '{}' at session cap {} — evicting oldest device {} on profile '{}' for new device '{}'",
-                                    crate::util::log_identity(&username), max_sessions, oldest_ip, profile.name, crate::util::log_device_identity(&dkey)
-                                );
-                                // This evicted device's own stream won't release its IP
-                                // (it's no longer in by_ip under its session_id), so the
-                                // address would leak — release it post-lock below.
-                                cap_evicted.push(old);
-                            }
-                            None => break,
-                        }
-                    }
-                }
-            }
-            // Notify (opt-in): forcibly evicted (static-IP steal / session-cap).
-            // Already out of by_ip, so the TCP teardown guard won't double-fire.
-            //
-            // The addresses themselves are NOT released here any more — see the single
-            // pool-lock block below. This loop used to release each one under its own
-            // `profile.pool.lock()`, i.e. released → dropped the lock → hit at least two
-            // more await points (`sessions.read()`, then re-taking the pool lock) before
-            // allocating our own. `IpPool::release` pushes onto `freed` and `allocate` pops
-            // `freed` FIRST, so a concurrent handler in that window was HANDED the address
-            // we had just evicted someone from. Our `allocate_fixed` then took it back — but
-            // only in the pool's bookkeeping (`user_allocations.retain`), because killing the
-            // session is the caller's job and this caller only knew about the holders it
-            // had seen under the earlier write lock. Result: two live sessions on one tunnel
-            // IP. The orphan keeps injecting packets with that source while all return
-            // traffic — including replies to its own connections — is routed to the other
-            // client. (Audit 2026-08-04.)
-            for s in superseded.iter().chain(&cap_evicted) {
-                crate::server::notify::fire_disconnect(&s.username, &profile.name, s.peer);
             }
 
             let max_clients = pcfg.performance.connection.max_clients;
@@ -1393,6 +1326,7 @@ where
             };
 
             let session = Arc::new(SessionShared {
+                ndp_ready: std::sync::atomic::AtomicBool::new(false),
                 session_id,
                 username: username.clone(),
                 device_key: dkey.clone(),
@@ -1463,6 +1397,12 @@ where
                 // the report stays here, and both surfaces show it as unknown.
                 client_info: Arc::new(std::sync::Mutex::new(None)),
             });
+            server_state.usage.track(
+                session.session_id,
+                &session.username,
+                session.bytes_sent.clone(),
+                session.bytes_recv.clone(),
+            );
             let mut replaced_session = None;
             let mut replaced_routes = Vec::new();
             {
@@ -1471,7 +1411,6 @@ where
                 // competing authenticator. Handle an inconsistent pre-existing owner
                 // defensively instead of silently dropping its routes and lease.
                 if let Some(old) = sessions.insert(session.clone()) {
-                    old.kick_all();
                     replaced_routes.extend(sessions.take_client_routes(old.client_ip));
                     replaced_session = Some(old);
                 }
@@ -1497,6 +1436,7 @@ where
                 let _ = program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
             }
             if let Some(old) = &replaced_session {
+                supersede_sessions(std::slice::from_ref(old)).await;
                 if old.device_key != dkey {
                     profile.pool.lock().await.release(&old.device_key);
                 }
@@ -1549,7 +1489,7 @@ where
             // ids until the pool or the cap was exhausted (`max_sessions = 0` is the
             // default). Roll the whole thing back before propagating the error.
             // (Audit 2026-07-27, B5.)
-            let send_result = async {
+            let send_result = handshake_until(handshake_deadline, async {
                 let msg = build_auth_ok_for_addresses(
                     assigned,
                     pcfg,
@@ -1559,9 +1499,9 @@ where
                     capabilities,
                 );
                 let auth_response = server_tx_codec.encrypt_packet(msg.as_bytes(), &[])?;
-                stream.write_all(&auth_response).await?;
+                stream.write_all_flush(&auth_response).await?;
                 Ok::<(), anyhow::Error>(())
-            }
+            })
             .await;
             if let Err(e) = send_result {
                 let orphan_routes = {
@@ -1585,6 +1525,10 @@ where
                 );
                 return Err(e);
             }
+
+            session
+                .ndp_ready
+                .store(true, std::sync::atomic::Ordering::Release);
 
             // Client-visible admission commits at AUTH OK. Keeping the profile admission
             // guard through this small write prevents a concurrent TCP/UDP reconnect from
@@ -1783,7 +1727,7 @@ async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             crate::protocol::capabilities::server_capabilities_for_profile(pcfg.roaming.enabled),
         );
         let encrypted = server_tx.encrypt_packet(&auth_msg, &[])?;
-        stream.write_all(&encrypted).await?;
+        stream.write_all_flush(&encrypted).await?;
         log::debug!("Sent server auth proof to {}", addr);
     }
 
@@ -1815,9 +1759,11 @@ fn parse_first_message(plaintext: &[u8]) -> anyhow::Result<FirstMessage> {
             .map_err(|error| anyhow::anyhow!("invalid TCP resume JOIN: {error}"))?;
         return Ok(FirstMessage::Resume { join });
     }
-    if plaintext.len() > JOIN_MAGIC.len() + JOIN_TOKEN_LEN
-        && &plaintext[..JOIN_MAGIC.len()] == JOIN_MAGIC.as_slice()
-    {
+    if plaintext.starts_with(JOIN_MAGIC.as_slice()) {
+        anyhow::ensure!(
+            plaintext.len() == JOIN_MAGIC.len() + JOIN_TOKEN_LEN + 1,
+            "invalid TCP JOIN length"
+        );
         let off = JOIN_MAGIC.len();
         let mut token = [0u8; JOIN_TOKEN_LEN];
         token.copy_from_slice(&plaintext[off..off + JOIN_TOKEN_LEN]);
@@ -1925,6 +1871,42 @@ mod tcp_resume_handler_tests {
         assert_eq!((limiter.sessions(), limiter.bytes()), (0, 0));
         drop(limiter);
         assert!(!session.reap(ticket, now + Duration::from_secs(31)));
+    }
+
+    #[test]
+    fn aborted_server_resume_returns_an_overdue_generation_scoped_reap_ticket() {
+        let limiter = Arc::new(Mutex::new(OrphanLimiter::new(1, 4 * 1024 * 1024)));
+        let session = TcpRoamingSession::new(
+            9,
+            LOCATOR,
+            1,
+            90,
+            zeroize::Zeroizing::new(SECRET),
+            limiter.clone(),
+            TcpRoamingPolicy {
+                grace: Duration::from_secs(30),
+                handover_enabled: true,
+            },
+        )
+        .unwrap();
+        session.mark_initial_transport_attached();
+        let ticket = match session
+            .detach(90, DetachReason::Unexpected, Instant::now())
+            .unwrap()
+        {
+            DetachOutcome::Orphaned(ticket) => ticket,
+            _ => panic!("last transport must enter grace"),
+        };
+        let transcript = [0x44; 32];
+        let reservation = session
+            .begin_resume(&resume(transcript, 1, false), &transcript)
+            .unwrap();
+        assert!(!session.reap(ticket, ticket.deadline()));
+        assert_eq!(session.abort_resume(reservation), Some(ticket));
+        assert!(session.reap(ticket, ticket.deadline()));
+        assert_eq!(session.abort_resume(reservation), None);
+        let limiter = limiter.lock().unwrap();
+        assert_eq!((limiter.sessions(), limiter.bytes()), (0, 0));
     }
 
     #[test]
@@ -2127,6 +2109,105 @@ fn handle_server_control(
     }
     None
 }
+/// Select old owners while admission is held, deliver the terminal reason while their
+/// routing/carriers are still live, then remove only those exact session IDs. Both TCP
+/// and UDP use this transition; their callers release leases under the allocation lock.
+pub(crate) async fn supersede_admission_sessions(
+    profile: &Arc<ProfileRuntime>,
+    username: &str,
+    device_key: &str,
+    max_sessions: u32,
+    fixed_addresses: &[std::net::IpAddr],
+) -> (Vec<Arc<SessionShared>>, Vec<String>) {
+    let victims = {
+        let sessions = profile.sessions.read().await;
+        let mut ids = std::collections::HashSet::new();
+        let mut victims = Vec::new();
+        for session in sessions.by_ip.values() {
+            if session.device_key == device_key && ids.insert(session.session_id) {
+                victims.push(session.clone());
+            }
+        }
+        for address in fixed_addresses {
+            if let Some(holder) = sessions.get_by_address(*address) {
+                if ids.insert(holder.session_id) {
+                    victims.push(holder.clone());
+                }
+            }
+        }
+        if max_sessions > 0 {
+            let mut remaining = sessions
+                .by_ip
+                .values()
+                .filter(|s| s.username == username && !ids.contains(&s.session_id))
+                .cloned()
+                .collect::<Vec<_>>();
+            remaining.sort_by_key(|s| (s.connected_at, s.session_id));
+            let evict_count = remaining.len().saturating_sub(max_sessions as usize - 1);
+            victims.extend(remaining.into_iter().take(evict_count));
+        }
+        victims
+    };
+    supersede_sessions(&victims).await;
+    let mut removed = Vec::new();
+    let mut routes = Vec::new();
+    {
+        let mut sessions = profile.sessions.write().await;
+        for victim in victims {
+            if sessions
+                .by_ip
+                .get(&victim.client_ip)
+                .is_some_and(|current| current.session_id == victim.session_id)
+            {
+                sessions.remove(victim.client_ip);
+                routes.extend(sessions.take_client_routes(victim.client_ip));
+                removed.push(victim);
+            }
+        }
+    }
+    for victim in &removed {
+        log::info!(
+            "Replacing session for user '{}' at {} on profile '{}' with a newer connection",
+            crate::util::log_identity(&victim.username),
+            victim.peer,
+            profile.name
+        );
+        crate::server::notify::fire_disconnect(&victim.username, &profile.name, victim.peer);
+    }
+    (removed, routes)
+}
+
+/// Tell supported clients that replacement is terminal before closing their carriers.
+/// One deadline covers the entire eviction batch; an unresponsive/legacy peer cannot
+/// multiply admission latency. Leases remain owned until this bounded delivery ends.
+async fn supersede_sessions(sessions: &[Arc<SessionShared>]) {
+    #[cfg(feature = "experimental-roaming")]
+    {
+        let mut deliveries = tokio::task::JoinSet::new();
+        for session in sessions {
+            let session = session.clone();
+            deliveries.spawn(async move {
+                let event = crate::protocol::control_v2::ManagementEvent::Kick(
+                    crate::protocol::control_v2::Kick {
+                        reason: crate::protocol::control_v2::KickReason::SessionSuperseded,
+                        message: "Session replaced by a newer connection".to_string(),
+                        reconnect_allowed: false,
+                    },
+                );
+                let _ = session.send_management(&event).await;
+            });
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(4), async {
+            while deliveries.join_next().await.is_some() {}
+        })
+        .await;
+        // Dropping JoinSet aborts any remaining delivery before leases are reassigned.
+    }
+    for session in sessions {
+        session.kick_all();
+    }
+}
+
 async fn forward_server_uplink_packet(
     packet: ServerTunPacket,
     profile: &Arc<ProfileRuntime>,
@@ -2206,7 +2287,7 @@ pub(crate) fn encrypt_server_stream_payload(
         pad_cfg.probability,
         padding,
     );
-    if normalization_padding != 0 {
+    if norm_cfg.enabled && !norm_cfg.round_sizes.is_empty() {
         obf.append_normalization_padding_into(
             data.len(),
             &norm_cfg.round_sizes,
@@ -2229,7 +2310,7 @@ async fn run_stream<R, W>(
     addr: SocketAddr,
     tun_tx: TunIngress,
     mut read_half: R,
-    mut write_half: W,
+    write_half: W,
     server_tx: Arc<std::sync::Mutex<PacketCodec>>,
     server_rx: PacketCodec,
     framing: Framing,
@@ -2237,8 +2318,10 @@ async fn run_stream<R, W>(
     stream_attach: StreamAttach,
 ) where
     R: AsyncRead + Unpin + Send + 'static,
-    W: AsyncWrite + Unpin + Send,
+    W: crate::protocol::obfs::CarrierWriteControl + Unpin + Send,
 {
+    let progress = write_half.write_progress();
+    let mut write_half = crate::protocol::stream_io::StallGuard::observing(write_half, progress);
     let pcfg = &profile.config;
     let hb_config = &pcfg.obfuscation.heartbeat;
     let heartbeat_enabled = hb_config.enabled
@@ -2251,7 +2334,11 @@ async fn run_stream<R, W>(
     });
     let idle_timeout = Duration::from_secs(pcfg.performance.connection.idle_timeout_secs);
 
-    let (tx, mut rx) = mpsc::channel::<PooledBuffer>(session.wire_pool.buffer_count());
+    let queue_capacity = crate::transport_core::buffer_pool::bonded_queue_capacity(
+        session.wire_pool.buffer_count(),
+        session.max_streams,
+    );
+    let (tx, mut rx) = mpsc::channel::<PooledBuffer>(queue_capacity);
     #[cfg(feature = "experimental-roaming")]
     let (terminal_management_tx, mut terminal_management_rx) = mpsc::channel(1);
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
@@ -2283,9 +2370,7 @@ async fn run_stream<R, W>(
         #[cfg(feature = "experimental-roaming")]
         if let StreamAttach::Resume { reservation } = stream_attach {
             profile.tcp_roaming_metrics.note_failure();
-            if let Some(roaming) = &session.tcp_roaming {
-                roaming.abort_resume(reservation);
-            }
+            abort_tcp_resume(&profile, &session, reservation, addr);
         }
         return;
     }
@@ -2317,7 +2402,7 @@ async fn run_stream<R, W>(
         };
         let ack_result = match ack {
             Ok(bytes) => write_half
-                .write_all(&bytes)
+                .write_all_flush(&bytes)
                 .await
                 .map_err(anyhow::Error::from),
             Err(error) => Err(anyhow::Error::from(error)),
@@ -2335,9 +2420,7 @@ async fn run_stream<R, W>(
             if let StreamAttach::Resume { reservation } = stream_attach {
                 profile.tcp_roaming_metrics.note_failure();
                 session.remove_stream(stream_id);
-                if let Some(roaming) = &session.tcp_roaming {
-                    roaming.abort_resume(reservation);
-                }
+                abort_tcp_resume(&profile, &session, reservation, addr);
                 return;
             }
             detach_stream(&profile, &session, stream_id, addr).await;
@@ -2363,9 +2446,7 @@ async fn run_stream<R, W>(
             if let Err(error) = client_commit {
                 profile.tcp_roaming_metrics.note_failure();
                 session.remove_stream(stream_id);
-                if let Some(roaming) = &session.tcp_roaming {
-                    roaming.abort_resume(reservation);
-                }
+                abort_tcp_resume(&profile, &session, reservation, addr);
                 log::warn!(
                     "TCP resume candidate for '{}' aborted before commit; old carrier remains active: {}",
                     crate::util::log_identity(&session.username),
@@ -2384,7 +2465,7 @@ async fn run_stream<R, W>(
                 Err(error) => {
                     profile.tcp_roaming_metrics.note_failure();
                     session.remove_stream(stream_id);
-                    roaming.abort_resume(reservation);
+                    abort_tcp_resume(&profile, &session, reservation, addr);
                     log::warn!(
                         "Authenticated JOIN for '{}' lost its reservation before commit: {}",
                         crate::util::log_identity(&session.username),
@@ -2402,7 +2483,7 @@ async fn run_stream<R, W>(
             };
             let commit_ack_result = match commit_ack {
                 Ok(bytes) => write_half
-                    .write_all(&bytes)
+                    .write_all_flush(&bytes)
                     .await
                     .map_err(anyhow::Error::from),
                 Err(error) => Err(anyhow::Error::from(error)),
@@ -2441,7 +2522,7 @@ async fn run_stream<R, W>(
     let last_rx = Arc::new(AtomicU64::new(0));
     let (dead_tx, mut dead_rx) = mpsc::channel::<()>(1);
 
-    {
+    let reader_abort = {
         let tun_tx = tun_tx.clone();
         let profile_r = profile.clone();
         let bytes_recv = session.bytes_recv.clone();
@@ -2450,7 +2531,7 @@ async fn run_stream<R, W>(
         let last_rx = last_rx.clone();
         let addr_r = addr;
         let mut shutdown_rx = shutdown_rx;
-        profile.tasks.spawn(async move {
+        profile.tasks.spawner().spawn_abortable(async move {
             let recordizer_runtime = session_r.recordizer.as_ref().map(|config| {
                 crate::protocol::recordizer::RuntimeConfig::from_config(
                     config,
@@ -2462,34 +2543,21 @@ async fn run_stream<R, W>(
             let mut mux_rx =
                 recordizer_runtime.map(crate::protocol::recordizer::Reassembler::new);
             'reader: loop {
-                // Acquire before reading so queue depth and allocation count are one fixed
-                // budget. Race both the pool wait and the socket read against shutdown: a
-                // kicked client must not remain parked on either resource.
-                let mut plaintext = tokio::select! {
-                    biased;
-                    _ = shutdown_rx.changed() => break,
-                    packet = tun_tx.pool.acquire() => match packet {
-                        Some(packet) => packet,
-                        None => break,
-                    },
-                };
-                // Cancellation-safety invariant: cancelling read_record_into may leave the
-                // framing reader between a header and its payload. That is safe here only
-                // because shutdown_rx is terminal for this stream: after this branch we break,
-                // drop read_half and never attempt another record read on it. Do not add a
-                // "soft" pause/reload branch to this select without moving the reader into an
-                // owning task or retaining its partial-record state across cancellation.
+                // Idle streams must not reserve the shared TUN pool. Read one prefix byte
+                // before acquiring a slot; the rest of the record retains the same bounded
+                // pool/backpressure policy. Cancellation remains terminal: never reuse a
+                // stream after consuming a prefix or a partial record.
                 let record = tokio::select! {
                     biased;
                     _ = shutdown_rx.changed() => break,
-                    result = read_record_into(
+                    result = crate::transport_core::pooled_record::read_pooled_record(
                         &mut read_half,
                         framing,
-                        plaintext.as_vec_mut(),
+                        &tun_tx.pool,
                     ) => result,
                 };
                 match record {
-                    Ok(()) => {
+                    Ok(mut plaintext) => {
                         let now = base.elapsed().as_millis() as u64;
                         match server_rx.decrypt_packet_in_place(plaintext.as_vec_mut()) {
                             Ok(()) => {
@@ -2627,8 +2695,8 @@ async fn run_stream<R, W>(
                 }
             }
             let _ = dead_tx.try_send(());
-        });
-    }
+        })
+    };
 
     let mut idle_check = tokio::time::interval(Duration::from_secs(5));
     idle_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -2678,310 +2746,338 @@ async fn run_stream<R, W>(
     });
     let mut recordizer = recordizer_runtime.map(crate::protocol::recordizer::Recordizer::new);
 
-    'writer: loop {
-        let mux_deadline = recordizer
-            .as_ref()
-            .and_then(|mux| mux.deadline())
-            .map(tokio::time::Instant::from_std)
-            .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400));
-        #[cfg(feature = "experimental-roaming")]
-        let terminal_management = terminal_management_rx.recv();
-        #[cfg(not(feature = "experimental-roaming"))]
-        let terminal_management = std::future::pending::<()>();
-        tokio::pin!(terminal_management);
-        tokio::select! {
-            biased;
-
-            _terminal_event = &mut terminal_management => {
-                #[cfg(feature = "experimental-roaming")]
-                {
-                let Some(terminal) = _terminal_event else { break };
-                let mut delivered = true;
-                'terminal: for _ in 0..terminal.repetitions {
-                    for frame in &terminal.frames {
-                        if !encrypt_server_stream_payload(
-                            &server_tx,
-                            frame,
-                            crate::protocol::packet::MAX_TUNNEL_MTU,
-                            pcfg,
-                            &mut wire_record,
-                            &mut padding,
-                        ) || write_half.write_all(&wire_record).await.is_err()
-                        {
-                            delivered = false;
-                            break 'terminal;
-                        }
-                        session
-                            .bytes_sent
-                            .fetch_add(frame.len() as u64, Ordering::Relaxed);
-                        last_tx_ms = base.elapsed().as_millis() as u64;
-                        heartbeat_deadline = tokio::time::Instant::now()
-                            + crate::protocol::randomized_heartbeat_delay(
-                                heartbeat_interval,
-                                Duration::from_millis(hb_config.jitter_ms),
-                            );
-                    }
-                }
-                let _ = terminal.sent.send(delivered);
-                if !delivered {
-                    break 'writer;
-                }
-                }
-                #[cfg(not(feature = "experimental-roaming"))]
-                unreachable!("disabled terminal-management future is pending");
+    // Reapers and cancellation supervise the whole pump, not individual select
+    // branches. A pending record/flush or long pacing wait cannot hide expiry.
+    let health = async {
+        loop {
+            idle_check.tick().await;
+            let now = base.elapsed().as_millis() as u64;
+            if idle_ms > 0 && now.saturating_sub(last_act.load(Ordering::Relaxed)) > idle_ms {
+                break;
             }
-
-            _ = kick_rx.recv() => { break; }
-            _ = dead_rx.recv() => { break; }
-
-            Some(packet) = rx.recv() => {
-                last_act.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
-                crate::trace::record(
-                    crate::trace::Dir::Tx, "server.stream", packet.len(), stream_id,
-                );
-                // Aggregate per-session download throttle: all bonded writers share this
-                // bucket, so multipath cannot multiply the cap by N. Upload has an
-                // independent bucket, allowing the configured rate in both directions.
-                // Stealth mode caps the data plane to the (lower) stealth rate so the
-                // flow stops looking like a line-rate bulk download.
-                let priority_control =
-                    crate::protocol::control_v2::is_control_v2(packet.as_ref());
-                let bw = session.bandwidth_limit_mbps.load(Ordering::Relaxed);
-                let limit = if shaping_on && shaper.stealth() {
-                    let sr = shaper.stealth_rate_mbps();
-                    if bw == 0 { sr } else { bw.min(sr) }
-                } else {
-                    bw
-                };
-                let delay = if priority_control {
-                    Duration::ZERO
-                } else {
-                    session
-                        .rates
-                        .download
-                        .consume(packet.len() as u64 * 8, limit)
-                };
-                if shaping_on && shaper.stealth() && !delay.is_zero() {
-                    // STEALTH: instead of one smooth sleep (which evens the spacing
-                    // into a metronome — a WORSE tell), fill the rate-cap gap with
-                    // jittered small cover packets. This (a) breaks the 100% full-MTU
-                    // size histogram and (b) makes the timing irregular (not a flat
-                    // rate). Cover is budget-capped separately from the data rate.
-                    let mut remaining = delay;
-                    while remaining > Duration::from_millis(6) {
-                        let csize = shaper.next_size(&mut rand::rng());
-                        let cover_ready = if shaper.try_spend(csize, std::time::Instant::now()) {
-                            let mut obf = Obfuscator::new();
-                            obf.generate_padding_into(
-                                csize as u16,
-                                csize as u16,
-                                &mut padding,
-                            );
-                            let mut codec = lock_or_recover(&server_tx, "handler::stealth_cover");
-                            codec
-                                .encrypt_packet_into(&[], &padding, &mut cover_record)
-                                .is_ok()
-                        } else {
-                            false
-                        };
-                        if cover_ready && write_half.write_all(&cover_record).await.is_err() {
-                            break;
-                        }
-                        let step = Duration::from_millis(rand::rng().random_range(4..=18));
-                        let s = step.min(remaining);
-                        tokio::time::sleep(s).await;
-                        remaining = remaining.saturating_sub(s);
-                    }
-                } else if !delay.is_zero() {
-                    tokio::time::sleep(delay).await;
-                }
-                let packet_len = packet.len();
-                session.bytes_sent.fetch_add(packet_len as u64, Ordering::Relaxed);
-                if let Some(mux) = recordizer.as_mut() {
-                    let ready = mux.push(packet.as_ref(), std::time::Instant::now());
-                    drop(packet);
-                    let mut payloads = match ready {
-                        Ok(payloads) => payloads,
-                        Err(error) => {
-                            log::debug!("server TCP recordizer dropped a packet: {error}");
-                            continue;
-                        }
-                    };
-                    if priority_control {
-                        if let Some(payload) = mux.flush() {
-                            payloads.push(payload);
-                        }
-                    }
-                    for payload in payloads {
-                        if !encrypt_server_stream_payload(
-                            &server_tx,
-                            &payload,
-                            crate::protocol::packet::MAX_TUNNEL_MTU,
-                            pcfg,
-                            &mut wire_record,
-                            &mut padding,
-                        ) {
-                            continue;
-                        }
-                        if write_half.write_all(&wire_record).await.is_err() {
-                            break 'writer;
-                        }
-                        last_tx_ms = base.elapsed().as_millis() as u64;
-                        heartbeat_deadline = tokio::time::Instant::now()
-                            + crate::protocol::randomized_heartbeat_delay(
-                                heartbeat_interval,
-                                Duration::from_millis(hb_config.jitter_ms),
-                            );
-                    }
-                } else {
-                    let packet_budget = crate::protocol::ip::parse_ip_packet(packet.as_ref())
-                        .ok()
-                        .and_then(|meta| session.downlink_mtu(pcfg.tun.mtu, meta.version))
-                        .map(usize::from)
-                        .unwrap_or_else(|| pcfg.tun.mtu.max(0) as usize)
-                        .max(packet_len)
-                        .min(crate::protocol::packet::MAX_TUNNEL_MTU);
-                    let encrypted = encrypt_server_stream_payload(
-                        &server_tx,
-                        packet.as_ref(),
-                        packet_budget,
-                        pcfg,
-                        &mut wire_record,
-                        &mut padding,
+            if let Some(rx_dead) = rx_dead_ms {
+                if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
+                    log::info!(
+                        "Stream {} ({}) reaped: no inbound for >{}s on profile '{}'",
+                        addr,
+                        crate::util::log_identity(&session.username),
+                        rx_dead / 1000,
+                        profile.name
                     );
-                    drop(packet);
-                    if encrypted {
-                        if write_half.write_all(&wire_record).await.is_err() {
-                            break;
-                        }
-                        last_tx_ms = base.elapsed().as_millis() as u64;
-                        heartbeat_deadline = tokio::time::Instant::now()
-                            + crate::protocol::randomized_heartbeat_delay(
-                                heartbeat_interval,
-                                Duration::from_millis(hb_config.jitter_ms),
-                            );
-                    }
-                }
-            }
-
-            _ = tokio::time::sleep_until(mux_deadline),
-                if recordizer.as_ref().is_some_and(|mux| mux.is_pending()) =>
-            {
-                if let Some(payload) = recordizer
-                    .as_mut()
-                    .and_then(|mux| mux.flush_due(std::time::Instant::now()))
-                {
-                    let encrypted = encrypt_server_stream_payload(
-                        &server_tx,
-                        &payload,
-                        crate::protocol::packet::MAX_TUNNEL_MTU,
-                        pcfg,
-                        &mut wire_record,
-                        &mut padding,
-                    );
-                    if encrypted && write_half.write_all(&wire_record).await.is_err() {
-                        break;
-                    }
-                    last_tx_ms = base.elapsed().as_millis() as u64;
-                    heartbeat_deadline = tokio::time::Instant::now()
-                        + crate::protocol::randomized_heartbeat_delay(
-                            heartbeat_interval,
-                            Duration::from_millis(hb_config.jitter_ms),
-                        );
-                }
-            }
-
-            _ = tokio::time::sleep_until(heartbeat_deadline), if heartbeat_enabled => {
-                let heartbeat_ready = {
-                    let mut obf = Obfuscator::new();
-                    obf.generate_padding_into(
-                        hb_config.data_size_bytes,
-                        hb_config.data_size_bytes.saturating_add(32),
-                        &mut padding,
-                    );
-                    let mut codec = lock_or_recover(&server_tx, "handler::heartbeat");
-                    codec
-                        .encrypt_packet_into(&[], &padding, &mut cover_record)
-                        .is_ok()
-                };
-                if heartbeat_ready && write_half.write_all(&cover_record).await.is_err() {
                     break;
-                }
-                let now_ms = base.elapsed().as_millis() as u64;
-                last_act.store(now_ms, Ordering::Relaxed);
-                last_tx_ms = now_ms;
-                heartbeat_deadline = tokio::time::Instant::now()
-                    + crate::protocol::randomized_heartbeat_delay(
-                        heartbeat_interval,
-                        Duration::from_millis(hb_config.jitter_ms),
-                    );
-            }
-            _ = tokio::time::sleep_until(cover_deadline), if shaping_on => {
-                let now_ms = base.elapsed().as_millis() as u64;
-                // Normally fill only GENUINE idle (save budget when traffic flows).
-                // In STEALTH, run cover UNDER LOAD too: the small cover packets mix
-                // into the rate-capped full-MTU stream, breaking the size+timing tell.
-                if shaper.stealth() || now_ms.saturating_sub(last_tx_ms) >= 50 {
-                    let size = shaper.next_size(&mut rand::rng());
-                    if shaper.try_spend(size, std::time::Instant::now()) {
-                        let cover_ready = {
-                            let mut obf = Obfuscator::new();
-                            obf.generate_padding_into(
-                                size as u16,
-                                size as u16,
-                                &mut padding,
-                            );
-                            let mut codec = lock_or_recover(&server_tx, "handler::cover");
-                            codec
-                                .encrypt_packet_into(&[], &padding, &mut cover_record)
-                                .is_ok()
-                        };
-                        if cover_ready {
-                            if write_half.write_all(&cover_record).await.is_err() {
-                                break;
-                            }
-                            let n = base.elapsed().as_millis() as u64;
-                            last_act.store(n, Ordering::Relaxed);
-                            last_tx_ms = n;
-                        }
-                    }
-                }
-                cover_deadline =
-                    tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
-            }
-
-            _ = idle_check.tick() => {
-                // saturating_sub, not `-`: `now` is sampled before the atomic load, and the
-                // READER task (a different task) writes `last_act`/`last_rx` in between. A
-                // timestamp newer than `now` therefore happens under load, and release
-                // builds have `overflow-checks` off — plain subtraction wrapped to ~2^64,
-                // sailed past the threshold and reaped a perfectly healthy session. The
-                // cover-traffic arm above already uses saturating_sub for the same value.
-                // (Audit 2026-07-27, F2.)
-                let now = base.elapsed().as_millis() as u64;
-                if idle_timeout.as_secs() > 0
-                    && now.saturating_sub(last_act.load(Ordering::Relaxed)) > idle_ms {
-                    break;
-                }
-                // An RX deadline is meaningful only while the client promises
-                // heartbeat/shaping traffic. With both disabled a healthy TCP tunnel
-                // may legitimately be silent for hours; the old 120 s fallback reaped it.
-                if let Some(rx_dead) = rx_dead_ms {
-                    if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
-                        log::info!("Stream {} ({}) reaped: no inbound for >{}s on profile '{}'",
-                            addr, crate::util::log_identity(&session.username), rx_dead / 1000, profile.name);
-                        break;
-                    }
                 }
             }
         }
+    };
+    {
+        let pump = async {
+            'writer: loop {
+                let mux_deadline = recordizer
+                    .as_ref()
+                    .and_then(|mux| mux.deadline())
+                    .map(tokio::time::Instant::from_std)
+                    .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400));
+                #[cfg(feature = "experimental-roaming")]
+                let terminal_management = terminal_management_rx.recv();
+                #[cfg(not(feature = "experimental-roaming"))]
+                let terminal_management = std::future::pending::<()>();
+                tokio::pin!(terminal_management);
+                tokio::select! {
+                    biased;
+
+                    control = std::future::poll_fn(|cx| crate::protocol::obfs::CarrierWriteControl::poll_control(&mut write_half,cx)) => {
+                        if control.is_err() {break;}
+                    }
+
+                    _terminal_event = &mut terminal_management => {
+                        #[cfg(feature = "experimental-roaming")]
+                        {
+                        let Some(terminal) = _terminal_event else { break };
+                        let mut delivered = true;
+                        'terminal: for _ in 0..terminal.repetitions {
+                            for frame in &terminal.frames {
+                                if !encrypt_server_stream_payload(
+                                    &server_tx,
+                                    frame,
+                                    crate::protocol::packet::MAX_TUNNEL_MTU,
+                                    pcfg,
+                                    &mut wire_record,
+                                    &mut padding,
+                                ) || write_half.write_all_flush(&wire_record).await.is_err()
+                                {
+                                    delivered = false;
+                                    break 'terminal;
+                                }
+                                session
+                                    .bytes_sent
+                                    .fetch_add(frame.len() as u64, Ordering::Relaxed);
+                                last_tx_ms = base.elapsed().as_millis() as u64;
+                                heartbeat_deadline = tokio::time::Instant::now()
+                                    + crate::protocol::randomized_heartbeat_delay(
+                                        heartbeat_interval,
+                                        Duration::from_millis(hb_config.jitter_ms),
+                                    );
+                            }
+                        }
+                        let _ = terminal.sent.send(delivered);
+                        if !delivered {
+                            break 'writer;
+                        }
+                        }
+                        #[cfg(not(feature = "experimental-roaming"))]
+                        unreachable!("disabled terminal-management future is pending");
+                    }
+
+                    Some(packet) = rx.recv() => {
+                        last_act.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
+                        crate::trace::record(
+                            crate::trace::Dir::Tx, "server.stream", packet.len(), stream_id,
+                        );
+                        // Aggregate per-session download throttle: all bonded writers share this
+                        // bucket, so multipath cannot multiply the cap by N. Upload has an
+                        // independent bucket, allowing the configured rate in both directions.
+                        // Stealth mode caps the data plane to the (lower) stealth rate so the
+                        // flow stops looking like a line-rate bulk download.
+                        let priority_control =
+                            crate::protocol::control_v2::is_control_v2(packet.as_ref());
+                        let bw = session.bandwidth_limit_mbps.load(Ordering::Relaxed);
+                        let limit = if shaping_on && shaper.stealth() {
+                            let sr = shaper.stealth_rate_mbps();
+                            if bw == 0 { sr } else { bw.min(sr) }
+                        } else {
+                            bw
+                        };
+                        let delay = if priority_control {
+                            Duration::ZERO
+                        } else {
+                            session
+                                .rates
+                                .download
+                                .consume(packet.len() as u64 * 8, limit)
+                        };
+                        if shaping_on && shaper.stealth() && !delay.is_zero() {
+                            // STEALTH: instead of one smooth sleep (which evens the spacing
+                            // into a metronome — a WORSE tell), fill the rate-cap gap with
+                            // jittered small cover packets. This (a) breaks the 100% full-MTU
+                            // size histogram and (b) makes the timing irregular (not a flat
+                            // rate). Cover is budget-capped separately from the data rate.
+                            let pacing = crate::protocol::shaper::StealthPacing::new(delay);
+                            while let Some(step) = pacing.next_step() {
+                                let csize = shaper.next_size(&mut rand::rng());
+                                let cover_ready = if step.cover && shaper.try_spend(csize, std::time::Instant::now()) {
+                                    let mut obf = Obfuscator::new();
+                                    obf.generate_padding_into(
+                                        csize as u16,
+                                        csize as u16,
+                                        &mut padding,
+                                    );
+                                    let mut codec = lock_or_recover(&server_tx, "handler::stealth_cover");
+                                    codec
+                                        .encrypt_packet_into(&[], &padding, &mut cover_record)
+                                        .is_ok()
+                                } else {
+                                    false
+                                };
+                                if cover_ready && write_half.write_all_flush(&cover_record).await.is_err() {
+                                    break 'writer;
+                                }
+                                tokio::time::sleep_until(step.resume_at).await;
+                            }
+                        } else if !delay.is_zero() {
+                            tokio::time::sleep(delay).await;
+                        }
+                        let packet_len = packet.len();
+                        session.bytes_sent.fetch_add(packet_len as u64, Ordering::Relaxed);
+                        if let Some(mux) = recordizer.as_mut() {
+                            let ready = mux.push(packet.as_ref(), std::time::Instant::now());
+                            drop(packet);
+                            let mut payloads = match ready {
+                                Ok(payloads) => payloads,
+                                Err(error) => {
+                                    log::debug!("server TCP recordizer dropped a packet: {error}");
+                                    continue;
+                                }
+                            };
+                            if priority_control {
+                                if let Some(payload) = mux.flush() {
+                                    payloads.push(payload);
+                                }
+                            }
+                            for payload in payloads {
+                                if !encrypt_server_stream_payload(
+                                    &server_tx,
+                                    &payload,
+                                    crate::protocol::packet::MAX_TUNNEL_MTU,
+                                    pcfg,
+                                    &mut wire_record,
+                                    &mut padding,
+                                ) {
+                                    continue;
+                                }
+                                if write_half.write_all_flush(&wire_record).await.is_err() {
+                                    break 'writer;
+                                }
+                                last_tx_ms = base.elapsed().as_millis() as u64;
+                                heartbeat_deadline = tokio::time::Instant::now()
+                                    + crate::protocol::randomized_heartbeat_delay(
+                                        heartbeat_interval,
+                                        Duration::from_millis(hb_config.jitter_ms),
+                                    );
+                            }
+                        } else {
+                            let packet_budget = crate::protocol::ip::parse_ip_packet(packet.as_ref())
+                                .ok()
+                                .and_then(|meta| session.downlink_mtu(pcfg.tun.mtu, meta.version))
+                                .map(usize::from)
+                                .unwrap_or_else(|| pcfg.tun.mtu.max(0) as usize)
+                                .max(packet_len)
+                                .min(crate::protocol::packet::MAX_TUNNEL_MTU);
+                            let encrypted = encrypt_server_stream_payload(
+                                &server_tx,
+                                packet.as_ref(),
+                                packet_budget,
+                                pcfg,
+                                &mut wire_record,
+                                &mut padding,
+                            );
+                            drop(packet);
+                            if encrypted {
+                                if write_half.write_all_flush(&wire_record).await.is_err() {
+                                    break;
+                                }
+                                last_tx_ms = base.elapsed().as_millis() as u64;
+                                heartbeat_deadline = tokio::time::Instant::now()
+                                    + crate::protocol::randomized_heartbeat_delay(
+                                        heartbeat_interval,
+                                        Duration::from_millis(hb_config.jitter_ms),
+                                    );
+                            }
+                        }
+                    }
+
+                    _ = tokio::time::sleep_until(mux_deadline),
+                        if recordizer.as_ref().is_some_and(|mux| mux.is_pending()) =>
+                    {
+                        if let Some(payload) = recordizer
+                            .as_mut()
+                            .and_then(|mux| mux.flush_due(std::time::Instant::now()))
+                        {
+                            let encrypted = encrypt_server_stream_payload(
+                                &server_tx,
+                                &payload,
+                                crate::protocol::packet::MAX_TUNNEL_MTU,
+                                pcfg,
+                                &mut wire_record,
+                                &mut padding,
+                            );
+                            if encrypted && write_half.write_all_flush(&wire_record).await.is_err() {
+                                break;
+                            }
+                            last_tx_ms = base.elapsed().as_millis() as u64;
+                            heartbeat_deadline = tokio::time::Instant::now()
+                                + crate::protocol::randomized_heartbeat_delay(
+                                    heartbeat_interval,
+                                    Duration::from_millis(hb_config.jitter_ms),
+                                );
+                        }
+                    }
+
+                    _ = tokio::time::sleep_until(heartbeat_deadline), if heartbeat_enabled => {
+                        let heartbeat_ready = {
+                            let mut obf = Obfuscator::new();
+                            obf.generate_padding_into(
+                                hb_config.data_size_bytes,
+                                hb_config.data_size_bytes.saturating_add(32),
+                                &mut padding,
+                            );
+                            let mut codec = lock_or_recover(&server_tx, "handler::heartbeat");
+                            codec
+                                .encrypt_packet_into(&[], &padding, &mut cover_record)
+                                .is_ok()
+                        };
+                        if heartbeat_ready && write_half.write_all_flush(&cover_record).await.is_err() {
+                            break;
+                        }
+                        let now_ms = base.elapsed().as_millis() as u64;
+                        last_act.store(now_ms, Ordering::Relaxed);
+                        last_tx_ms = now_ms;
+                        heartbeat_deadline = tokio::time::Instant::now()
+                            + crate::protocol::randomized_heartbeat_delay(
+                                heartbeat_interval,
+                                Duration::from_millis(hb_config.jitter_ms),
+                            );
+                    }
+                    _ = tokio::time::sleep_until(cover_deadline), if shaping_on => {
+                        let now_ms = base.elapsed().as_millis() as u64;
+                        // Normally fill only GENUINE idle (save budget when traffic flows).
+                        // In STEALTH, run cover UNDER LOAD too: the small cover packets mix
+                        // into the rate-capped full-MTU stream, breaking the size+timing tell.
+                        if shaper.stealth() || now_ms.saturating_sub(last_tx_ms) >= 50 {
+                            let size = shaper.next_size(&mut rand::rng());
+                            if shaper.try_spend(size, std::time::Instant::now()) {
+                                let cover_ready = {
+                                    let mut obf = Obfuscator::new();
+                                    obf.generate_padding_into(
+                                        size as u16,
+                                        size as u16,
+                                        &mut padding,
+                                    );
+                                    let mut codec = lock_or_recover(&server_tx, "handler::cover");
+                                    codec
+                                        .encrypt_packet_into(&[], &padding, &mut cover_record)
+                                        .is_ok()
+                                };
+                                if cover_ready {
+                                    if write_half.write_all_flush(&cover_record).await.is_err() {
+                                        break;
+                                    }
+                                    let n = base.elapsed().as_millis() as u64;
+                                    last_act.store(n, Ordering::Relaxed);
+                                    last_tx_ms = n;
+                                }
+                            }
+                        }
+                        cover_deadline =
+                            tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
+                    }
+
+                }
+            }
+        };
+        tokio::select! {
+            biased;
+            _ = kick_rx.recv() => {},
+            _ = dead_rx.recv() => {},
+            _ = health => {},
+            _ = pump => {},
+        }
     }
 
-    // The writer loop has ended — for ANY reason: kick, idle reap, rx-dead reap,
-    // peer close. Take the reader with it. The two reapers above live in this loop,
-    // so once it exits nothing else bounds the reader in time; without this a stream
-    // that died on a timeout could leave a reader forwarding uploads indefinitely.
+    // Cancellation may interrupt a partially written encrypted record. Close both
+    // halves terminally; never reuse this writer or retry the record on a sibling.
+    drop(write_half);
     let _ = shutdown_tx.send(true);
+    if let Some(reader) = reader_abort {
+        reader.abort();
+        // Abort requests cancellation; it does not prove resource destruction.
+        // Bound the normal cleanup wait without pretending a timed-out task died.
+        let stopped = tokio::time::timeout(Duration::from_secs(2), async {
+            while !reader.is_finished() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok();
+        if !stopped {
+            session.kick_all();
+            log::error!("TCP reader cleanup exceeded 2s; session fenced, retaining stream lease until task destruction");
+        }
+        // The profile owns both this deferred cleanup and the reader join. Keep
+        // its stream counted/lease reserved until destruction is established.
+        while !reader.is_finished() {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
 
     detach_stream(&profile, &session, stream_id, addr).await;
 }
@@ -3067,6 +3163,27 @@ async fn detach_stream(
             // Notify (opt-in) — this guarded block is the fire-once per-session TCP
             // teardown (clean close), so no double-fire across bonded streams.
             crate::server::notify::fire_disconnect(&session.username, &profile.name, addr);
+        }
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
+fn abort_tcp_resume(
+    profile: &Arc<ProfileRuntime>,
+    session: &Arc<SessionShared>,
+    reservation: ResumeReservation,
+    addr: SocketAddr,
+) {
+    if let Some(ticket) = session
+        .tcp_roaming
+        .as_ref()
+        .and_then(|roaming| roaming.abort_resume(reservation))
+    {
+        // Before the deadline the original timer still owns cleanup. Rearm only an overdue
+        // ticket, because its one-shot reaper may have yielded while JOIN was prepared.
+        // Keep the exact generation/deadline; never create another future grace timer.
+        if ticket.deadline() <= Instant::now() {
+            schedule_tcp_orphan_reaper(profile.clone(), session.clone(), ticket, addr);
         }
     }
 }
@@ -3218,14 +3335,14 @@ async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             )
         };
         for (i, part) in parts.iter().enumerate() {
-            stream.write_all(part).await?;
+            stream.write_all_flush(part).await?;
             stream.flush().await?;
             if i + 1 < parts.len() {
                 tokio::time::sleep(std::time::Duration::from_millis(2)).await;
             }
         }
 
-        stream.write_all(&ccs).await?;
+        stream.write_all_flush(&ccs).await?;
         stream.flush().await?;
         tokio::time::sleep(std::time::Duration::from_millis(1)).await;
 
@@ -3233,19 +3350,19 @@ async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         cert_fin.extend_from_slice(&cert);
         cert_fin.extend_from_slice(&finished);
         let cf_split = 3 + (cert_fin.len() - 3) % 7;
-        stream.write_all(&cert_fin[..cf_split]).await?;
+        stream.write_all_flush(&cert_fin[..cf_split]).await?;
         stream.flush().await?;
         tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        stream.write_all(&cert_fin[cf_split..]).await?;
+        stream.write_all_flush(&cert_fin[cf_split..]).await?;
         stream.flush().await?;
 
-        stream.write_all(&nst).await?;
+        stream.write_all_flush(&nst).await?;
     } else {
-        stream.write_all(&server_hello).await?;
-        stream.write_all(&ccs).await?;
-        stream.write_all(&cert).await?;
-        stream.write_all(&finished).await?;
-        stream.write_all(&nst).await?;
+        stream.write_all_flush(&server_hello).await?;
+        stream.write_all_flush(&ccs).await?;
+        stream.write_all_flush(&cert).await?;
+        stream.write_all_flush(&finished).await?;
+        stream.write_all_flush(&nst).await?;
     }
 
     Ok((client_pub, transcript_hash, mlkem_shared))
@@ -3264,7 +3381,9 @@ async fn raw_server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         .await
         .map_err(|e| anyhow::anyhow!("failed to read client key (plain): {}", e))?;
     let client_pub = crate::crypto::PublicKey::from_bytes(&cp);
-    stream.write_all(server_kp.public().as_bytes()).await?;
+    stream
+        .write_all_flush(server_kp.public().as_bytes())
+        .await?;
     let transcript_hash = handshake_transcript_hash(&[&cp, server_kp.public().as_bytes()]);
     Ok((client_pub, transcript_hash))
 }
@@ -3453,6 +3572,22 @@ fn dummy_selector_is_stable_and_uses_configured_costs() {
     assert!(first.contains("m=16384,t=2,p=1"));
 }
 
+/// Keep one original deadline across handshake and authentication stages.
+/// Only wrap cancellation-safe stages; admission mutations must explicitly roll back.
+pub(super) async fn handshake_until<T>(
+    deadline: tokio::time::Instant,
+    operation: impl std::future::Future<Output = anyhow::Result<T>>,
+) -> anyhow::Result<T> {
+    // timeout_at may poll an immediately-ready operation before an expired timer.
+    anyhow::ensure!(
+        tokio::time::Instant::now() < deadline,
+        "handshake authentication deadline exceeded"
+    );
+    tokio::time::timeout_at(deadline, operation)
+        .await
+        .map_err(|_| anyhow::anyhow!("handshake authentication deadline exceeded"))?
+}
+
 /// Verify a client's authentication (after the parsed `[key_proof][user:pass]`).
 /// Runs every check in the canonical order — server-key-proof (when required),
 /// brute-force lockout, user lookup, Argon2 password, per-profile authorisation
@@ -3559,8 +3694,8 @@ pub async fn verify_client_auth(
                 // load, which is the point of doing this work in the first place.
                 let pw_bytes = password.as_bytes().to_vec();
                 {
-                    let _permit = crate::server::argon2_gate().acquire().await;
-                    let _ = tokio::task::spawn_blocking(move || {
+                    let permit = crate::server::argon2_gate().acquire().await?;
+                    let _ = crate::server::run_argon2(permit, move || {
                         use argon2::PasswordVerifier;
                         if let Ok(ph) = argon2::PasswordHash::new(&selected_dummy) {
                             let _ = argon2::Argon2::default().verify_password(&pw_bytes, &ph);
@@ -3583,8 +3718,7 @@ pub async fn verify_client_auth(
                             addr.ip(),
                             crate::util::log_identity(username)
                         ),
-                    )
-                    .await;
+                    );
                 }
                 return Err(anyhow::anyhow!(
                     "user not found or disabled: {}",
@@ -3600,8 +3734,8 @@ pub async fn verify_client_auth(
     // finished, so a burst of auth datagrams/connections all passed the pre-check and
     // each started its own ~19 MiB Argon2 job; up to MAX_PENDING_HANDSHAKES of them on
     // the UDP path alone. Held across the verify.
-    let _permit = crate::server::argon2_gate().acquire().await;
-    let auth_result = tokio::task::spawn_blocking(move || {
+    let permit = crate::server::argon2_gate().acquire().await?;
+    let auth_result = crate::server::run_argon2(permit, move || {
         let ph = argon2::PasswordHash::new(&password_hash)
             .map_err(|e| anyhow::anyhow!("invalid password hash: {}", e))?;
         use argon2::PasswordVerifier;
@@ -3638,8 +3772,7 @@ pub async fn verify_client_auth(
                     addr.ip(),
                     crate::util::log_identity(username)
                 ),
-            )
-            .await;
+            );
         }
         return Err(e);
     }
@@ -3884,12 +4017,12 @@ pub(crate) fn build_auth_ok_for_addresses_with_udp_roaming(
     };
     let routes: serde_json::Value =
         serde_json::from_str(routes_json).unwrap_or_else(|_| serde_json::json!([]));
-    // DNS pushed to the client: an explicit `dns.push_servers` (first entry) wins and
-    // works WITHOUT the in-tunnel proxy — hand clients a chosen resolver (a LAN /
-    // AdGuard / NextDNS box) directly. Otherwise push the proxy's listen IP only when
-    // the proxy runs (its default 10.9.0.1 resolves nowhere — pushing it would black-
-    // hole client name resolution). Empty => the client keeps its own resolvers. The
-    // client strict-IP-validates the pushed value before touching resolv.conf.
+    // Filter explicit DNS pushes to negotiated inner families, independently of
+    // the proxy. If none remain, an enabled proxy supplies its active listeners.
+    // Typed plans carry the complete list; the legacy field below carries the first
+    // address. Client planning prefers explicit client resolvers, then server push,
+    // then configured/platform fallbacks; a full tunnel in `dns = tunnel` mode
+    // refuses an empty resolver plan instead of silently retaining host DNS.
     let family_is_active = |address: std::net::IpAddr| {
         (address.is_ipv4() && assigned.ipv4.is_some())
             || (address.is_ipv6() && assigned.ipv6.is_some())
@@ -3950,12 +4083,10 @@ pub(crate) fn build_auth_ok_for_addresses_with_udp_roaming(
         // Additive: older clients ignore the field and use their own default.
         "mtu": pcfg.tun.mtu,
         "dns": pushed_dns,
-        // ALWAYS 53, never pcfg.dns.port. No client platform can express a different one —
-        // VpnService.Builder and NEDNSSettings take an address and nothing else, Windows and
-        // macOS configure resolvers by IP, while the Rust client uses resolvectl's `IP#port`
-        // form. Pushing the real port therefore black-holed DNS on every client but one. The
-        // proxy keeps its own port; `nat::enable_dns_redirect` bridges 53 to it inside the tunnel.
-        // (Audit 2026-07-31.)
+        // ALWAYS 53, never pcfg.dns.port: mobile/platform resolver APIs accept only IPs.
+        // Linux can apply custom ports through SetLinkDNSEx, but server-pushed DNS
+        // uses one portable contract. The proxy keeps its own port;
+        // `nat::setup_dns_firewall` bridges 53 to it inside the tunnel.
         "dns_port": 53,
         "routes": routes,
         "obfuscation": obf,
@@ -4777,6 +4908,44 @@ mod iroute_family_tests {
     }
 }
 
+/// Packet permissions are compiled into a session. A reload must revoke that
+/// session when the effective permissions change, before accepting its old ACL,
+/// delegated source addresses or exit-node defaults indefinitely.
+pub(crate) fn session_access_policy_matches(
+    pcfg: &crate::config::server::ProfileConfig,
+    users_db: &crate::config::users::UsersDb,
+    session: &SessionShared,
+) -> bool {
+    let Some(user) = users_db.find_user(&session.username) else {
+        return false;
+    };
+    let who = crate::util::log_identity(&session.username);
+    let acl = crate::server::acl::DstAcl::compile(
+        &crate::server::acl::effective_allowed_networks(user, &users_db.groups),
+        &who,
+    );
+    if acl != session.dst_acl {
+        return false;
+    }
+    let assigned = crate::server::pool::AssignedAddresses {
+        ipv4: session.client_ipv4,
+        ipv6: session.client_ipv6,
+    };
+    let sources: Vec<_> = assigned
+        .ipv4
+        .map(std::net::IpAddr::V4)
+        .into_iter()
+        .chain(assigned.ipv6.map(std::net::IpAddr::V6))
+        .collect();
+    if crate::server::acl::SrcGuard::new_dual(&sources, &user.client_subnets, &who)
+        != session.src_guard
+    {
+        return false;
+    }
+    let routes = build_routes_json_for_user(pcfg, users_db, &session.username, assigned);
+    exit_access_from_routes_json(&routes) == session.exit_access
+}
+
 fn build_routes_json_for_user(
     pcfg: &crate::config::server::ProfileConfig,
     users_db: &crate::config::users::UsersDb,
@@ -4899,6 +5068,18 @@ mod rate_bucket_tests {
     use super::{DirectionalRateBuckets, RateBucket};
     use std::sync::Arc;
     use std::time::Duration;
+
+    #[test]
+    fn bonded_reservations_keep_the_entire_shared_debt() {
+        let bucket = RateBucket::new();
+        let mut delays = Vec::new();
+        for _ in 0..16 {
+            delays.push(bucket.consume(250_000, 1));
+        }
+        assert!(delays[15] > Duration::from_millis(3500));
+        assert!(delays[15] < Duration::from_millis(4100));
+        assert!(delays.windows(2).all(|pair| pair[1] > pair[0]));
+    }
 
     #[test]
     fn zero_limit_never_delays() {
@@ -5031,5 +5212,88 @@ mod downlink_mtu_tests {
             downlink_mtu_for_packet(1280, 1500, IpVersion::V6),
             Some(1280)
         );
+    }
+}
+
+#[cfg(test)]
+mod handshake_deadline_tests {
+    use super::{handshake_until, parse_first_message, FirstMessage, JOIN_MAGIC, JOIN_TOKEN_LEN};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::io::AsyncWriteExt;
+    use tokio::time::Instant;
+
+    #[tokio::test]
+    async fn expired_deadline_rejects_even_immediately_ready_auth() {
+        let result =
+            handshake_until(Instant::now() - Duration::from_millis(1), async { Ok(42) }).await;
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("authentication deadline"));
+        assert_eq!(
+            handshake_until(Instant::now() + Duration::from_secs(1), async { Ok(42) })
+                .await
+                .unwrap(),
+            42
+        );
+    }
+
+    #[tokio::test]
+    async fn auth_wait_cancellation_releases_pre_auth_permit() {
+        let gate = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = gate.clone().acquire_owned().await.unwrap();
+        let deadline = Instant::now() + Duration::from_millis(20);
+        let result = handshake_until(deadline, async move {
+            let _permit = permit;
+            std::future::pending::<anyhow::Result<()>>().await
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(gate.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn blocked_auth_ok_write_obeys_original_deadline() {
+        let (mut stream, _nonreading_peer) = tokio::io::duplex(1);
+        let deadline = Instant::now() + Duration::from_millis(20);
+        let result = handshake_until(deadline, async {
+            stream.write_all(&[0; 64]).await?;
+            Ok(())
+        })
+        .await;
+        assert!(result.is_err());
+        // A follow-up stage must not receive a fresh time budget.
+        assert!(handshake_until(deadline, async { Ok(()) }).await.is_err());
+    }
+
+    #[test]
+    fn legacy_join_has_one_exact_wire_length() {
+        let mut join = JOIN_MAGIC.to_vec();
+        join.extend_from_slice(&[0x61; JOIN_TOKEN_LEN]);
+        join.push(2);
+        assert!(matches!(
+            parse_first_message(&join).unwrap(),
+            FirstMessage::Join {
+                stream_index: 2,
+                ..
+            }
+        ));
+        for end in JOIN_MAGIC.len()..join.len() {
+            assert!(parse_first_message(&join[..end]).is_err());
+        }
+        join.push(0);
+        assert!(parse_first_message(&join).is_err());
+        let mut auth = vec![0x72; 32];
+        auth.extend_from_slice(b"legacy:password:with:colon");
+        match parse_first_message(&auth).unwrap() {
+            FirstMessage::Auth {
+                username, password, ..
+            } => {
+                assert_eq!(username, "legacy");
+                assert_eq!(password, "password:with:colon");
+            }
+            _ => panic!("legacy AUTH changed classification"),
+        }
     }
 }

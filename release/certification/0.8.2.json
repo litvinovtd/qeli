@@ -1,0 +1,905 @@
+{
+  "schema_version": 1,
+  "release_version": "0.8.2",
+  "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+  "cases": [
+    {
+      "id": "linux.outer4.inner4.tcp.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer4.inner6.tcp.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer6.inner4.tcp.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer6.inner6.tcp.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-quic.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-quic.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-quic.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-quic.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.dual.tcp.split",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.dual.udp.split",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.tap.ndp-ra",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.dns.ipv4-ipv6",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.mtu.1280-pmtu-ptb",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.legacy-peer",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.roaming-flap-soak",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "linux.leak.ipv4-ipv6",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "d3e0086972ad9badc11b9ad451fd25346a2ea639ddd0490355448a816964c081",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00",
+      "evidence": "release/certification/evidence/publication-metadata-20261020.json"
+    },
+    {
+      "id": "android.wifi-to-cellular",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "android.cellular-to-wifi",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "android.carrier-gap-background",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "android.sleep-wake-nat-rebind",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "android.ipv6-dns-leak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "android.roaming-race-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "ios.wifi-cellular-nat64",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "ios.sleep-wake-rollback",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "ios.per-app-mdm",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "ios.roaming-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "windows.ethernet-wifi",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "windows.sleep-wake",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "windows.ipv6-per-app-leak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "windows.roaming-race-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "macos.wifi-ethernet",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "macos.sleep-wake",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "macos.ipv6-pf-per-app-leak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "macos.networkextension-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "openwrt.ipv6-roaming-flap-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "keenetic.ipv6-roaming-flap-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    },
+    {
+      "id": "rollout.canary-legacy-peer",
+      "kind": "physical",
+      "status": "pending",
+      "reason": "Production canary has not been executed; lab interop is a separate automated case.",
+      "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3"
+    }
+  ],
+  "acceptance": {
+    "status": "n04_cli_actual_distribution_qualified",
+    "automated_cases_passed": 20,
+    "actual_ordinary_executions": 19,
+    "runtime_assertions": 409,
+    "current_linux_matrix": {
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "source_commit": "ea03c092e6f42f6a4e5d04944988e487f24e94db",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "executed_source_commit": "ea03c092e6f42f6a4e5d04944988e487f24e94db",
+      "source_applicability": {
+        "status": "PASS",
+        "build_commit": "ea03c092e6f42f6a4e5d04944988e487f24e94db",
+        "documentation_commit": "ea03c092e6f42f6a4e5d04944988e487f24e94db",
+        "changed_paths": [],
+        "actual_ELF_sizes": {
+          "aarch64": {
+            "bytes": 9359248,
+            "MiB": "8.93",
+            "sha256": "476ce6548201dbb76f878fca2c0419ff1f8aca2d655b56c20c9ddfc40196d6f5"
+          },
+          "armv7": {
+            "bytes": 9514540,
+            "MiB": "9.07",
+            "sha256": "3479ed22c69e861b22212a519f311fd140d033b8fc39ebd8729514320e162d6b"
+          },
+          "x86_64-musl": {
+            "bytes": 10130088,
+            "MiB": "9.66",
+            "sha256": "9e513bcc32aa238ab7f01b71ca96a375f2b31854cf29d5291df8d619acf2680d"
+          },
+          "mipsel": {
+            "bytes": 11398712,
+            "MiB": "10.87",
+            "sha256": "172cfe0e7eaa6faae3384033a83a60441815d8c818228a79e9f124bd6158d6d1"
+          }
+        },
+        "only_size_description_changed": true
+      }
+    },
+    "scope": "N04 Linux CLI runtime locality fix; actual rebuilt distribution checked. Earlier failures, accepted API34 ENONET/D06 and physical exclusions remain. Residual high-load TUN/UDP drops remain documented; no universal zero-loss guarantee.",
+    "final_CI_and_preflight": "Mandatory exact final dev HEAD before draft refresh.",
+    "physical_qualification_complete": false,
+    "push_deploy_release": false
+  },
+  "source_qualification_supplements": [
+    {
+      "evidence": "release/certification/evidence/current-slot-linux-matrix-20261014.json",
+      "scope": "Fresh current-core execution; subsequent exact four Markdown report/plan changes only. All actual source/time/CLI/rows/log/archive facts retained. No additional execution or physical qualification claimed."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-current-slot-documentation-applicability-20261014.json",
+      "scope": "Fresh current-core execution; subsequent exact four Markdown report/plan changes only. All actual source/time/CLI/rows/log/archive facts retained. No additional execution or physical qualification claimed."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-slot-native-20261013.json",
+      "scope": "Actual current native consumer A/B, ABI/JNI and APK checks; original failures retained."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-pre-slot-certification-20261014.json",
+      "scope": "Superseded original manifest, including historical supplements; retained as history, not transferred across the Rust delta."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-current-slot-source-cut-20261014.json",
+      "scope": "Exact two OpenWrt pin/hash literals and qualification date plus five Markdown files only; Compile/Install/public URL and all qeli/native inputs unchanged. Fresh SDK cut separately qualified. Current-core 20 Linux execution source/time/CLI/raw preserved without rerun. Prior 32-bit package results not rebound across the core delta."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-current-slot-source-applicability-20261014.json",
+      "scope": "Exact two OpenWrt pin/hash literals and qualification date plus five Markdown files only; Compile/Install/public URL and all qeli/native inputs unchanged. Fresh SDK cut separately qualified. Current-core 20 Linux execution source/time/CLI/raw preserved without rerun. Prior 32-bit package results not rebound across the core delta."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-current-slot-32bit-20261014.json",
+      "scope": "Exact five Markdown report/plan/README changes only. Fresh current ARMv7/MIPS compiler/ELF/SHA/QEMU evidence qualified separately. Current Linux20 actual source/time/CLI/raw unchanged; no new Linux matrix. SDK/IPK and physical runtime not qualified by this package."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-current-slot-documentation-applicability-20261014.json",
+      "scope": "Exact five Markdown report/plan/README changes only. Fresh current ARMv7/MIPS compiler/ELF/SHA/QEMU evidence qualified separately. Current Linux20 actual source/time/CLI/raw unchanged; no new Linux matrix. SDK/IPK and physical runtime not qualified by this package."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-current-slot-sdk-20261014.json",
+      "scope": "Exact five Markdown report/plan/README changes plus separately qualified opkg test-wrapper child-kill/partial-log fix only; current SDK/IPK/opkg/userspace qualification separate. Actual Linux20 source/time/CLI/raw preserved without rerun; no bootstrap, physical firmware or hosted/public release claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-current-slot-sdk-documentation-applicability-20261014.json",
+      "scope": "Exact five Markdown report/plan/README changes plus separately qualified opkg test-wrapper child-kill/partial-log fix only; current SDK/IPK/opkg/userspace qualification separate. Actual Linux20 source/time/CLI/raw preserved without rerun; no bootstrap, physical firmware or hosted/public release claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-f459-current-graph-20261014.json",
+      "scope": "Exact four Markdown report/plan changes only. Fresh npm audit checks the unchanged adopted frontend graph; prior CSS/HTTP and Linux20 execution dates/source/binary/raw facts retained. No new build/device/network runtime, upstream braces patch or hosted release claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-f459-documentation-applicability-20261014.json",
+      "scope": "Exact four Markdown report/plan changes only. Fresh npm audit checks the unchanged adopted frontend graph; prior CSS/HTTP and Linux20 execution dates/source/binary/raw facts retained. No new build/device/network runtime, upstream braces patch or hosted release claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-current-legacy-mux-20261014.json",
+      "scope": "Exact four Markdown report/plan changes only. Fresh current-product finite legacy/mux performance population separately qualified; original functional Linux20 execution source/time/CLI/raw and physical21 facts preserved. No full capacity, all-loss fix, before/after patch estimate, new compilation or hosted release claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-current-legacy-mux-documentation-applicability-20261014.json",
+      "scope": "Exact four Markdown report/plan changes only. Fresh current-product finite legacy/mux performance population separately qualified; original functional Linux20 execution source/time/CLI/raw and physical21 facts preserved. No full capacity, all-loss fix, before/after patch estimate, new compilation or hosted release claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-legacy-contract-20261014.json",
+      "scope": "Exact four Markdown report/plan changes only. Separately qualified extracted production component contract and negative controls, with counter domain clarification; no product Rust/INI/native/CLI change or new VPN runtime. Original Linux20 execution identities, performance populations and physical21 facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-legacy-contract-documentation-applicability-20261014.json",
+      "scope": "Exact four Markdown report/plan changes only. Separately qualified extracted production component contract and negative controls, with counter domain clarification; no product Rust/INI/native/CLI change or new VPN runtime. Original Linux20 execution identities, performance populations and physical21 facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-host-configure-20261014.json",
+      "scope": "Exact four Markdown report/plan changes only. Actual complete SDK-pinned Rust feed Host/Prepare/Host/Configure and semantic host/target checks, not compiler bootstrap. No Qeli Rust/native/INI/package/runtime change. Original current Linux20 execution identities, performance cohorts and physical21 facts retained."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-host-configure-documentation-applicability-20261014.json",
+      "scope": "Exact four Markdown report/plan changes only. Actual complete SDK-pinned Rust feed Host/Prepare/Host/Configure and semantic host/target checks, not compiler bootstrap. No Qeli Rust/native/INI/package/runtime change. Original current Linux20 execution identities, performance cohorts and physical21 facts retained."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-ci-owner-20261014.json",
+      "scope": "Exact five files: one isolated Keenetic test fixture and four Markdown reports/plans. Actual root/nonroot fixture owner/rollback checks, no production router/native/Qeli changes. All50 actual Linux harness dependencies remain unchanged; original20 runtime and physical21 facts retained. Existing public e7 CI failures and pin404 are distinct from current local candidate validation."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-ci-owner-applicability-20261014.json",
+      "scope": "Exact five files: one isolated Keenetic test fixture and four Markdown reports/plans. Actual root/nonroot fixture owner/rollback checks, no production router/native/Qeli changes. All50 actual Linux harness dependencies remain unchanged; original20 runtime and physical21 facts retained. Existing public e7 CI failures and pin404 are distinct from current local candidate validation."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-key-publication-20261014.json",
+      "scope": "Three Mac service/key files plus four Markdown reports/plans. Exact whole-state pinned managed compile and key-block Windows/Linux positive/old-Unix negative checks. Mac production exclusive primitive preserves directory/root/no-follow/mode/complete-temp/fsync invariants. Rust/native input digest and all50 actual Linux harness dependencies unchanged. Original20 Linux runtime and physical21 facts retained; no claim of new Apple runtime/complete UI build/current hosted CI."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-key-publication-applicability-20261014.json",
+      "scope": "Three Mac service/key files plus four Markdown reports/plans. Exact whole-state pinned managed compile and key-block Windows/Linux positive/old-Unix negative checks. Mac production exclusive primitive preserves directory/root/no-follow/mode/complete-temp/fsync invariants. Rust/native input digest and all50 actual Linux harness dependencies unchanged. Original20 Linux runtime and physical21 facts retained; no claim of new Apple runtime/complete UI build/current hosted CI."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-ios-ci-contracts-20261014.json",
+      "scope": "Seven iOS source/test/CI/admission files and four reports/plans. Finite-number guard source reviewed only, fresh Swift and real Apple Keychain/signatures NOT_RUN. Actual native DTO core, portable signing admission and exact shell stand-ins plus real actionlint checked. Rust/native input digest and all50 actual Linux runtime harness dependencies unchanged; preserve original20 Linux and physical21 execution facts. Prepared simulator signing change is not current hosted CI PASS."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-ios-ci-contracts-applicability-20261014.json",
+      "scope": "Seven iOS source/test/CI/admission files and four reports/plans. Finite-number guard source reviewed only, fresh Swift and real Apple Keychain/signatures NOT_RUN. Actual native DTO core, portable signing admission and exact shell stand-ins plus real actionlint checked. Rust/native input digest and all50 actual Linux runtime harness dependencies unchanged; preserve original20 Linux and physical21 execution facts. Prepared simulator signing change is not current hosted CI PASS."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-perf-methodology-20261014.json",
+      "scope": "Nine benchmark/refusal/test files plus six Markdown reports/plans. Six dormant scripts have no executable callers; retirement and per-phase duplicate admission verified on Windows/Linux. Actual18 current retained raw identities remain unique in two comparable cohorts; old runtime-imported population/sample_policy functions unchanged. Rust/native build digest and all50 actual Linux runtime harness dependencies unchanged. Original20 Linux and physical21 execution facts preserved; no fresh VPN/performance/Apple/hosted CI claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-perf-methodology-applicability-20261014.json",
+      "scope": "Nine benchmark/refusal/test files plus six Markdown reports/plans. Six dormant scripts have no executable callers; retirement and per-phase duplicate admission verified on Windows/Linux. Actual18 current retained raw identities remain unique in two comparable cohorts; old runtime-imported population/sample_policy functions unchanged. Rust/native build digest and all50 actual Linux runtime harness dependencies unchanged. Original20 Linux and physical21 execution facts preserved; no fresh VPN/performance/Apple/hosted CI claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-current-slot-statistics-20261014.json",
+      "scope": "Fresh qualified current CLI36 sessions/144 receiver windows, outer4/inner4 all12 modes P1/P4 TCP/UDP; no pooling with old builds, no capacity or cause PASS. Six Markdown deltas; Rust/native and all50 actual Linux runtime dependencies unchanged. Original20 automated and21 physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-current-slot-statistics-applicability-20261014.json",
+      "scope": "Fresh qualified current CLI36 sessions/144 receiver windows, outer4/inner4 all12 modes P1/P4 TCP/UDP; no pooling with old builds, no capacity or cause PASS. Six Markdown deltas; Rust/native and all50 actual Linux runtime dependencies unchanged. Original20 automated and21 physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-stock-tun-drop-reason-20261014.json",
+      "scope": "Nine actual current-CLI control/trace/control sessions,27 windows;3490FULL_RING events with9exact own-TUN counter matches and0lost trace events; full global trace/host/archive cleanup. No general observer overhead/ACK stage/performance PASS. Eight Markdown files only; Rust/native and50Linux runtime dependencies unchanged. Stale Android manual corrected to previously executed ordinaryR8 recovery; unchanged five JVM/manifest sources bound, no new Android runtime/native-byte equivalence claim. Original20Linux/21physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-stock-tun-drop-reason-applicability-20261014.json",
+      "scope": "Nine actual current-CLI control/trace/control sessions,27 windows;3490FULL_RING events with9exact own-TUN counter matches and0lost trace events; full global trace/host/archive cleanup. No general observer overhead/ACK stage/performance PASS. Eight Markdown files only; Rust/native and50Linux runtime dependencies unchanged. Stale Android manual corrected to previously executed ordinaryR8 recovery; unchanged five JVM/manifest sources bound, no new Android runtime/native-byte equivalence claim. Original20Linux/21physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-reader-cohort-review-20261014.json",
+      "scope": "Six-source TUN wait-boundary review and retained45session/171window revalidation. Four Markdown files clarify legacy/one versus mux/two carriers and original untraced groups. No new runtime, compiler, timing attribution or product fix. Rust/native and50Linux runtime inputs unchanged; original20Linux/21physical facts retained."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-reader-cohort-applicability-20261014.json",
+      "scope": "Six-source TUN wait-boundary review and retained45session/171window revalidation. Four Markdown files clarify legacy/one versus mux/two carriers and original untraced groups. No new runtime, compiler, timing attribution or product fix. Rust/native and50Linux runtime inputs unchanged; original20Linux/21physical facts retained."
+    },
+    {
+      "evidence": "release/certification/evidence/q29-dns-selector-reconciliation-20261014.json",
+      "scope": "Two Markdown reports only. Retained12October six-cell/36socket observations revalidated against SHA archives and Android14 seven-file native selector review. No new Android runtime/APK or transparent fix, no exact AVD source equivalence. Rust/native and50Linux runtime dependencies unchanged; original20Linux/21physical facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q29-dns-selector-applicability-20261014.json",
+      "scope": "Two Markdown reports only. Retained12October six-cell/36socket observations revalidated against SHA archives and Android14 seven-file native selector review. No new Android runtime/APK or transparent fix, no exact AVD source equivalence. Rust/native and50Linux runtime dependencies unchanged; original20Linux/21physical facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-cold-bootstrap-20261014.json",
+      "scope": "Six Markdown report/plan/installation changes only. Actual cold Host/Compile completed bootstrap then refused on4HTTP404 LLVM CI download; full compiler/cold graph remains FAIL/unqualified. No Qeli native/source/recipe change. Original20Linux/21physical execution identities retained;50Linux dependencies and native digest unchanged."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-cold-bootstrap-applicability-20261014.json",
+      "scope": "Six Markdown report/plan/installation changes only. Actual cold Host/Compile completed bootstrap then refused on4HTTP404 LLVM CI download; full compiler/cold graph remains FAIL/unqualified. No Qeli native/source/recipe change. Original20Linux/21physical execution identities retained;50Linux dependencies and native digest unchanged."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-source-llvm-20261014.json",
+      "scope": "Six Markdown report/plan/install changes only. Actual private-feed one-flag source LLVM fallback passed configuration/bootstrap and entered C++ compilation, then owned guard stopped it; full compiler/cold graph unqualified. Original CI404/raw retained. Rust/native and50Linux dependencies unchanged; original20Linux/21physical identities preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-source-llvm-applicability-20261014.json",
+      "scope": "Six Markdown report/plan/install changes only. Actual private-feed one-flag source LLVM fallback passed configuration/bootstrap and entered C++ compilation, then owned guard stopped it; full compiler/cold graph unqualified. Original CI404/raw retained. Rust/native and50Linux dependencies unchanged; original20Linux/21physical identities preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-long-compiler-oom-20261014.json",
+      "scope": "Four Markdown report/plan changes only. Actual source compiler cgroup OOM and qualified owned cleanup retained as failure; no SDK/native/VPN runtime relabel. Rust/native and Linux script closure unchanged; original automated and physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-long-compiler-oom-applicability-20261014.json",
+      "scope": "Four Markdown report/plan changes only. Actual source compiler cgroup OOM and qualified owned cleanup retained as failure; no SDK/native/VPN runtime relabel. Rust/native and Linux script closure unchanged; original automated and physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-second-oom-20261014.json",
+      "scope": "Six Markdown report/plan changes only; actual second compiler OOM, refused SDK consumer, current Qeli stock TUN read pilot and failed first overlap retained with exact scopes. Product/native and Linux script closure unchanged; original automated and physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-stock-read-pilot-20261014.json",
+      "scope": "Six Markdown report/plan changes only; actual second compiler OOM, refused SDK consumer, current Qeli stock TUN read pilot and failed first overlap retained with exact scopes. Product/native and Linux script closure unchanged; original automated and physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-q36-checkpoint-applicability-20261014.json",
+      "scope": "Six Markdown report/plan changes only; actual second compiler OOM, refused SDK consumer, current Qeli stock TUN read pilot and failed first overlap retained with exact scopes. Product/native and Linux script closure unchanged; original automated and physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-stock-small-copy-pilot-20261014.json",
+      "scope": "Four Markdown report/plan changes only; actual current Qeli small-copy pilot, matched ACK/control timing and observer limitations. Product/native and Linux script closure unchanged; original automated and physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-stock-small-copy-applicability-20261014.json",
+      "scope": "Four Markdown report/plan changes only; actual current Qeli small-copy pilot, matched ACK/control timing and observer limitations. Product/native and Linux script closure unchanged; original automated and physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-server-sndbuf-causal-20261014.json",
+      "scope": "Six Markdown reports/plans/manuals only. Two actual12-window current-CLI buffer interventions and exact scope/limitations; no product/native/LINUX-script delta. Original automated and physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-server-rcvbuf-causal-20261014.json",
+      "scope": "Six Markdown reports/plans/manuals only. Two actual12-window current-CLI buffer interventions and exact scope/limitations; no product/native/LINUX-script delta. Original automated and physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-socket-causal-applicability-20261014.json",
+      "scope": "Six Markdown reports/plans/manuals only. Two actual12-window current-CLI buffer interventions and exact scope/limitations; no product/native/LINUX-script delta. Original automated and physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-client-writer-priority-20261014.json",
+      "scope": "Four Markdown report/plan changes only; actual12-window current-CLI writer priority intervention with exact thread/config/ACK/cleanup scopes. No product/native/Linux-script delta; original automated/physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-client-writer-priority-applicability-20261014.json",
+      "scope": "Four Markdown report/plan changes only; actual12-window current-CLI writer priority intervention with exact thread/config/ACK/cleanup scopes. No product/native/Linux-script delta; original automated/physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-ack-stage-pilot-20261014.json",
+      "scope": "Four Markdown report/plan changes only; actual6-window stock/OFF/ON private diagnostic pilot with exact config/ACK/stage/cleanup scopes. No product/native/Linux-script delta; original automated/physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-ack-stage-pilot-applicability-20261014.json",
+      "scope": "Four Markdown report/plan changes only; actual6-window stock/OFF/ON private diagnostic pilot with exact config/ACK/stage/cleanup scopes. No product/native/Linux-script delta; original automated/physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-server-handoff-runtime-20261014.json",
+      "scope": "Four Markdown report/plan changes only; actual12-window three-pair sampled server handoff diagnostic with exact config/ACK/stage/cleanup scopes. No product/native/Linux-script delta; original automated/physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-server-handoff-applicability-20261014.json",
+      "scope": "Four Markdown report/plan changes only; actual12-window three-pair sampled server handoff diagnostic with exact config/ACK/stage/cleanup scopes. No product/native/Linux-script delta; original automated/physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-recordizer-handoff-20261014.json",
+      "scope": "Eight Markdown report/plan changes only; actual private12-window and shipping12-window recordizer controls plus five-criterion reconciliation with exact config/ACK/stage/cleanup scopes. No product/native/Linux-script delta; original automated/physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-recordizer-shipping-20261014.json",
+      "scope": "Eight Markdown report/plan changes only; actual private12-window and shipping12-window recordizer controls plus five-criterion reconciliation with exact config/ACK/stage/cleanup scopes. No product/native/Linux-script delta; original automated/physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-final-20261014.json",
+      "scope": "Eight Markdown report/plan changes only; actual private12-window and shipping12-window recordizer controls plus five-criterion reconciliation with exact config/ACK/stage/cleanup scopes. No product/native/Linux-script delta; original automated/physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q36-final-applicability-20261014.json",
+      "scope": "Eight Markdown report/plan changes only; actual private12-window and shipping12-window recordizer controls plus five-criterion reconciliation with exact config/ACK/stage/cleanup scopes. No product/native/Linux-script delta; original automated/physical execution facts preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-clang-disk-floor-20261014.json",
+      "scope": "Six Markdown files only: actual disk-limited Clang compiler outcome, matching OpenWrt README/INSTALL instructions and current audit count. Existing automated and physical execution facts retained; no product/native/Linux script change or hosted CI claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-disk-floor-documentation-applicability-20261014.json",
+      "scope": "Six Markdown files only: actual disk-limited Clang compiler outcome, matching OpenWrt README/INSTALL instructions and current audit count. Existing automated and physical execution facts retained; no product/native/Linux script change or hosted CI claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q29-bypass-lockdown-20261014.json",
+      "scope": "Two Markdown reports document one independent API34 platform cell, two retained fixture outcomes and removal of all owned roots. No Qeli product/native/Linux-script change, no whole release/platform PASS; original automated and physical execution facts retained."
+    },
+    {
+      "evidence": "release/certification/evidence/q29-bypass-lockdown-applicability-20261014.json",
+      "scope": "Two Markdown reports document one independent API34 platform cell, two retained fixture outcomes and removal of all owned roots. No Qeli product/native/Linux-script change, no whole release/platform PASS; original automated and physical execution facts retained."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-native-atomic-cleanup-20261015.json",
+      "scope": "Qualified native atomic-writer delta, rebuilt A/B native assets, six documentation files and scoped native/compiler evidence. Source compiler passed; SDK consumer failed before Qeli compilation. Rust product tree and fifty Linux matrix dependencies unchanged. Original twenty Linux execution/time/artifact/log facts and all physical statuses retained. No new Linux matrix runtime."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-source-compiler-sdk-failure-20261015.json",
+      "scope": "Qualified native atomic-writer delta, rebuilt A/B native assets, six documentation files and scoped native/compiler evidence. Source compiler passed; SDK consumer failed before Qeli compilation. Rust product tree and fifty Linux matrix dependencies unchanged. Original twenty Linux execution/time/artifact/log facts and all physical statuses retained. No new Linux matrix runtime."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-terminal-native-manual-applicability-20261015.json",
+      "scope": "Qualified native atomic-writer delta, rebuilt A/B native assets, six documentation files and scoped native/compiler evidence. Source compiler passed; SDK consumer failed before Qeli compilation. Rust product tree and fifty Linux matrix dependencies unchanged. Original twenty Linux execution/time/artifact/log facts and all physical statuses retained. No new Linux matrix runtime."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-clean-lab-source-sdk-20261015.json",
+      "scope": "Six Markdown files only: actual source Clang compiler/cold SDK results, matching OpenWrt README/INSTALL instructions and current audit count. Existing automated and physical execution facts retained; no product/native/Linux script change or hosted CI claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q31-cleaned-lab-documentation-applicability-20261015.json",
+      "scope": "Six Markdown files only: actual source Clang compiler/cold SDK results, matching OpenWrt README/INSTALL instructions and current audit count. Existing automated and physical execution facts retained; no product/native/Linux script change or hosted CI claim."
+    },
+    {
+      "evidence": "release/certification/evidence/q29-secure-policy-applicability-20261015.json",
+      "scope": "Four Markdown files only: user cancellation of optional DNS bypass and correction to previously qualified recovery summary. No new runtime, product changes or fix claim for generic/null DNS."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-support-fixtures-20261015.json",
+      "scope": "Windows CI exit propagation, its exact-body PowerShell regression test and OpenWrt chroot test PATH normalization only. Rust/native and all50 Linux runtime dependencies unchanged. Original Linux execution facts retained; no fresh .NET publish, Windows networking or hosted Actions qualification."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-hosted-ci-fixtures-20261015.json",
+      "scope": "Debian test source-copy inputs, Android instrumentation cold-store fixture reset, and generated iOS test-bundle Info.plist only. Product Rust/native and all50 Linux runtime dependencies unchanged. Original Linux execution facts and21 physical rows retained; no new Linux VPN runtime. Debian baseline FAIL/fixed16 PASS executed; Android/iOS corrections await actual hosted qualification. The independent rustls security-audit failure remains open."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-simulator-entitlements-20261015.json",
+      "scope": "Simulator CI admission only: retain codesign signature verification; inspect embedded __TEXT,__entitlements from every simulator Mach-O slice, with bounded tables/platform/path checks. Pin shared fake simulator group for build and test.14 portable simulator methods+6 IPA methods and SHA-pinned actionlint4 workflows PASS; no new Apple Keychain runtime PASS yet. Product Rust/native and50 Linux runtime inputs unchanged; original Linux execution facts and21 physical rows retained. Independent rustls advisory upgrade remains open."
+    },
+    {
+      "evidence": "release/certification/evidence/q34-dev-docs-applicability-20261015.json",
+      "scope": "Ten RU/EN reports and plan/debt ledgers only; product, dependency graphs, recipes, workflows, fixtures and runtime harness unchanged since the successful exact-SHA CI and fresh Linux20 execution. Actual execution source, timestamp, CLI hash and rows retained."
+    },
+    {
+      "evidence": "release/certification/evidence/q29-completion-docs-applicability-20261015.json",
+      "scope": "Ten RU/EN Markdown files document explicit human acceptance of the measured API34 generic/null DNS limitation and complete audit 37/37 in agreed scope. No product/native/workflow/runtime change or new execution. Original ENONET FAIL, actual Linux20 execution at 9fa0903a, all artifact/timestamp/qualification facts and 21 physical rows retained. Not full release or universal platform certification."
+    },
+    {
+      "evidence": "release/certification/evidence/release-notes-source-applicability-20261015.json",
+      "scope": "CHANGELOG.md and bilingual draft release notes only; correct removed notify.json migration and rustls0.23.46, summarize existing features, upgrade guidance and accepted API34 limitation. Product/native/build recipes/workflows/runtime inputs unchanged. Preserve all actual Linux20 execution facts and21 physical statuses. No new build, runtime, signing, tag or release publication."
+    },
+    {
+      "evidence": "release/certification/evidence/windows-command-fixture-applicability-20261015.json",
+      "scope": "Windows command self-test positive pipe fixture only; production WindowsCommand, all runtime paths, Rust/native and Linux harness unchanged.12 exact-method local assertions passed; hosted fix CI pending. Original Linux20 timestamps/artifacts/qualification rows and21physical statuses retained. Not new Linux or Windows network runtime."
+    },
+    {
+      "evidence": "release/certification/evidence/candidate-retention-applicability-20261015.json",
+      "scope": "Workflow retains tested outputs only for explicit dev candidate pushes and packages two Mac architectures with qualified canonical native inputs. Rust/managed runtime, Linux runtime harness and native A/B source identity unchanged. Hosted packaging results pending. Original Linux20 execution/artifact/time facts and21physical rows preserved."
+    },
+    {
+      "evidence": "release/certification/evidence/candidate-lipo-order-20261015.json",
+      "scope": "Only three lipo argument orders corrected in candidate Mac packaging step. Input path must precede variadic -verify_arch. No product, native, compiler recipes or Linux runtime harness change; original20 execution facts and21physical statuses retained. Actual new Mac packaging qualification pending."
+    },
+    {
+      "evidence": "release/certification/evidence/candidate-macos-resource-applicability-20261015.json",
+      "scope": "macOS Legal resource placement and build-only asset verb startup dispatch; Mac CI rendering gate, controlled TAR regression and legal path documentation. Linux executable, harness and native recipe/source unchanged; all20 actual Linux execution facts and21physical statuses retained. Actual Mac package/render qualification pending hosted CI."
+    },
+    {
+      "evidence": "release/certification/evidence/candidate-macos-native-input-applicability-20261015.json",
+      "scope": "Explicit macOS package native input copy and byte comparison prevents PreserveNewest retaining host-only CI core; missing override refuses before publish. Workflow architecture diagnostics and10 fixture methods. Product runtime, all native build recipes and Linux harness unchanged;20Linux execution facts and21physical rows retained. Actual hosted Mac qualification pending."
+    },
+    {
+      "evidence": "release/certification/evidence/candidate-distribution-docs-20261015.json",
+      "scope": "Two Markdown documents align Windows whole-publish ZIP and per-architecture Mac TAR instructions with already qualified candidate files. No runtime source, native recipe/library, dependency lock, harness or packaged byte changes; Linux20 actual execution facts and21physical statuses retained."
+    },
+    {
+      "evidence": "release/certification/evidence/prerelease-publication-policy-20261015.json",
+      "scope": "Publication workflow and its policy helper/tests only: automatic prerelease publication preserves the already qualified Linux package/checksum bytes; Docker latest additionally requires a published stable GitHub release, including numeric beta tags. No runtime, dependency, native recipe, runtime harness or candidate package bytes changed; all execution identities and physical statuses retained."
+    },
+    {
+      "evidence": "release/certification/evidence/published-prerelease-docs-20261015.json",
+      "scope": "Ten bilingual manual banners and package commands now identify the published 0.8.2 prerelease. Operations explicitly documents that its preserved candidate .deb has no new release-build attestation, and strict provenance mode still refuses an unattested package. Only Markdown and certification evidence changed; runtime inputs, harnesses, native inputs, actual execution identities and 23 published asset bytes are unchanged. Published tag is not moved."
+    },
+    {
+      "evidence": "release/certification/evidence/publisher-ci-wait-20261015.json",
+      "scope": "Only publisher workflows, exact-tag CI admission helper and its tests changed. The opt-in wait retries only an otherwise valid pending exact-commit push CI; failure, missing/mismatched CI, source changes and timeout still refuse publication. All runtime/dependency/native inputs, runtime harnesses and published package bytes unchanged. The published v0.8.2 tag remains d363fe72 and its in-flight Docker run is not restarted."
+    },
+    {
+      "evidence": "release/certification/evidence/dependabot-integration-20261016.json",
+      "scope": "Fresh dependency-qualified factory CLI and20 Linux cases (19 executions plus derived leak case); 100 TCP and UDP flips, not a new eight-hour run. Native Windows/macOS/Android A/B rebuilt; Android strict-verification debug and unsigned R8 Release plus lint and legal packaging checked. OpenWrt source export/prepare only, not a new full SDK/IPK/physical-router qualification. After Linux execution, only isolated fuzz-lock reference canonicalization (identical packages/checksums/resolved edges), the matching SDK source cut, opt-in Android Release test locks/CI guard, withdrawn-release documentation and temporary-Git test fixture isolation changed. Production Rust sources/Cargo graph/build recipes and shipped Android runtime graphs remain identical. Hosted full CI is a separate mandatory PR merge gate. No release publication is authorized."
+    },
+    {
+      "evidence": "release/certification/evidence/documentation-20261016.json",
+      "scope": "Documentation relocation/corrections and validation guards; exactly three standalone DNS comments changed, with executable lines and source line numbers unchanged. Cargo/build inputs, generated configuration contracts, conformance and platform product sources are unchanged. Fresh pinned native A/B builds on the corrected source produce exactly the same four canonical binaries as the previously executed dependency-qualified baseline. Actual stock-SDK export/prepare is independently repeated and its exact source pin/hash updated. Existing CLI/Linux/Android runtime identities, times, raw results and original failures are retained; this is source-applicability reconciliation, not a new runtime, benchmark, endurance or device qualification. Hosted final CI is still required; release publication is forbidden."
+    },
+    {
+      "evidence": "release/certification/evidence/reconnect-recovery-20261016.json",
+      "scope": "Managed Windows/macOS reconnect lifecycle and conformance tests plus explanatory documentation only. The entire Rust qeli tree, Linux/native build inputs, platform adapters, native artifacts and existing Linux runtime fixture sources are byte-identical to the qualified dev baseline. The 20 retained automated cases are Linux cases and do not execute the changed C# lifecycle. Their original execution commits, times, artifact hashes, raw results and failures are preserved; this is source-applicability reconciliation, not a new Linux runtime or benchmark. Managed conformance adds 18 recovery checks; local SDK 10.0.300 passes 305 checks, and exact-candidate hosted CI with pinned SDK 10.0.401 is still required. No physical Windows/macOS sleep/wake qualification is claimed. Accepted API34 ENONET and physical exclusions are unchanged. Release publication is forbidden."
+    },
+    {
+      "evidence": "release/certification/evidence/release-082-final-20261016.json",
+      "scope": "Fresh actual-release-binary execution of all 20 mandatory Linux cases. Original historical evidence is retained without relabelling its source, failures or scope. Native A/B and OpenWrt export are separately qualified. Final exact-commit CI/preflight remain mandatory; no publication."
+    },
+    {
+      "evidence": "release/certification/evidence/release-draft-docs-20261017.json",
+      "scope": "Only 15 Markdown files changed since the exact qualified dev snapshot. All product trees, native artifacts, build policies/recipes/workflows and runtime harnesses are identical. Existing 20 Linux execution timestamps, artifact hashes and original evidence remain unchanged; source_digest denotes applicability to this docs-only tree, not a new execution. Physical rows, accepted API34 limitation, D06 and original host variance remain. All 16 release files retain their previous bytes. GitHub is to remain draft; no tag/main/publication change."
+    },
+    {
+      "evidence": "release/certification/evidence/release-guide-tag-transition-20261017.json",
+      "scope": "Only Markdown, the guide-version consistency checker, its seven portable regression tests and the CI step invoking those tests changed. Explicit guide package targets distinguish prepared downloads from publication; the full version checker passes both before and in a simulated post-tag state without creating a tag. All product trees, native artifacts, compiler policies/recipes and runtime harnesses are identical. Existing 20 Linux execution timestamps, artifact hashes and original evidence remain unchanged; source_digest denotes applicability to this docs-only tree, not a new execution. Physical rows, accepted API34 limitation, D06 and original host variance remain. All 16 release files retain their previous bytes. GitHub is to remain draft; no tag/main/publication change."
+    },
+    {
+      "evidence": "release/certification/evidence/integrated-tun-queue-release-20261017.json",
+      "scope": "Fresh integrated binary runtime; final CI/preflight remain mandatory."
+    },
+    {
+      "evidence": "release/certification/evidence/integrated-release-assets-20261017.json",
+      "scope": "Exact green candidate artifacts, fresh Android signing, universal macOS packaging, 16-file distribution. Not a release-build attestation."
+    },
+    {
+      "evidence": "release/certification/evidence/readiness-fixes-runtime-20261018.json",
+      "scope": "Fresh isolated functional execution of all 20 required cases; retained CLI bytes, not rebound old runtime."
+    },
+    {
+      "evidence": "release/certification/evidence/readiness-fixes-assets-20261018.json",
+      "scope": "Ten readiness findings corrected; four asset hashes changed, twelve retained. Final exact-commit CI and preflight still required."
+    },
+    {
+      "evidence": "release/certification/evidence/debt-closure-runtime-20261018.json",
+      "scope": "Fresh isolated execution of actual new CLI; all 20 required cases."
+    },
+    {
+      "evidence": "release/certification/evidence/debt-closure-assets-20261018.json",
+      "scope": "N01/N02/N03 closure and 16 newly qualified distribution files; no publication."
+    },
+    {
+      "evidence": "release/certification/evidence/debt-closure-host-variance-20261018.json",
+      "scope": "Original host-guard failure retained separately; unchanged independent qualification attributes exact legacy rule variance to pre-existing host maintenance."
+    },
+    {
+      "evidence": "release/certification/evidence/n04-runtime-20261019.json",
+      "scope": "Actual new N04 CLI, all 20 required Linux cases."
+    },
+    {
+      "evidence": "release/certification/evidence/n04-assets-20261019.json",
+      "scope": "16 refreshed qualified files; final exact CI/preflight still required."
+    },
+    {
+      "evidence": "release/certification/evidence/n04-host-state-20261019.json",
+      "scope": "Fresh host-control outcome and retained original failures."
+    },
+    {
+      "evidence": "release/certification/evidence/n04-packaged-udp-20261019.json",
+      "scope": "Actual new CLI at both endpoints, queue1000/2000, no diagnostic result rebinding."
+    },
+    {
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "scope": "Actual new CLI locality ELF, all 20 required Linux cases."
+    },
+    {
+      "evidence": "release/certification/evidence/n04-cli-assets-20261019.json",
+      "scope": "16 refreshed qualified files; final exact CI/preflight still required."
+    },
+    {
+      "evidence": "release/certification/evidence/n04-cli-host-state-20261019.json",
+      "scope": "Fresh host-control outcome and retained original failures."
+    },
+    {
+      "evidence": "release/certification/evidence/n04-cli-packaged-udp-20261019.json",
+      "scope": "Actual new CLI at both endpoints, default queue1000, three pairs of short mode windows and one 60-second QUIC window; no diagnostic result rebinding."
+    },
+    {
+      "evidence": "release/certification/evidence/docs-finalization-20261019.json",
+      "scope": "Four editorial plans only; unchanged actual runtime, packaged UDP and 16-file distribution evidence applies by explicit source equivalence."
+    },
+    {
+      "evidence": "release/certification/evidence/n04-final-measurements-20261019.json",
+      "scope": "Only release notes and two independent final-ELF measurement exports added. Prior twenty required runtime executions and all advisory statuses preserved; 23-window repeat and 48-window UDP600 matrix remain separate observations. Sixteen distribution files retain exact bytes."
+    },
+    {
+      "evidence": "release/certification/evidence/n04-tcp-finalization-20261019.json",
+      "scope": "Only release notes and a completed 48-window final-ELF TCP export added. The combined table joins 48 TCP and 48 existing UDP600 windows by exact group; earlier 16 functional windows are excluded from medians. Prior twenty required runtime executions, previous exports and all advisory statuses are preserved. Sixteen distribution files retain exact bytes."
+    }
+  ],
+  "release_assets": {
+    "install-keenetic.sh": {
+      "sha256": "2c8f695d7509651d49db6986183d5fcb876554a490200f084e12c3068d969429",
+      "bytes": 8426
+    },
+    "qeli-android-0.8.2.apk": {
+      "sha256": "ee242813ad57348419ef37cb43df770c7c15ed52ba71a59fea247ecbc16f07b8",
+      "bytes": 12246052
+    },
+    "qeli-client-keenetic-aarch64": {
+      "sha256": "476ce6548201dbb76f878fca2c0419ff1f8aca2d655b56c20c9ddfc40196d6f5",
+      "bytes": 9359248
+    },
+    "qeli-client-keenetic-mipsel": {
+      "sha256": "172cfe0e7eaa6faae3384033a83a60441815d8c818228a79e9f124bd6158d6d1",
+      "bytes": 11398712
+    },
+    "qeli-client-openwrt-aarch64": {
+      "sha256": "476ce6548201dbb76f878fca2c0419ff1f8aca2d655b56c20c9ddfc40196d6f5",
+      "bytes": 9359248
+    },
+    "qeli-client-openwrt-armv7": {
+      "sha256": "3479ed22c69e861b22212a519f311fd140d033b8fc39ebd8729514320e162d6b",
+      "bytes": 9514540
+    },
+    "qeli-client-openwrt-mipsel": {
+      "sha256": "172cfe0e7eaa6faae3384033a83a60441815d8c818228a79e9f124bd6158d6d1",
+      "bytes": 11398712
+    },
+    "qeli-client-openwrt-x86_64": {
+      "sha256": "9e513bcc32aa238ab7f01b71ca96a375f2b31854cf29d5291df8d619acf2680d",
+      "bytes": 10130088
+    },
+    "qeli-keenetic-files.tar.gz": {
+      "sha256": "e6e7059bf861358e5318d4330cb93a2004b7b5f41c753bab73ce55fc66f63264",
+      "bytes": 43262
+    },
+    "qeli-linux-amd64": {
+      "sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "bytes": 18904488
+    },
+    "Qeli-macOS-universal.zip": {
+      "sha256": "582cc41fb25fa348f6e704246dc5828673f282750230878a219a969042a58d37",
+      "bytes": 61462973
+    },
+    "qeli-openwrt-files.tar.gz": {
+      "sha256": "5219c750c05290b03c4e52d75533d9d4bda1b7051eb940eac82fe13ede2ca859",
+      "bytes": 51808
+    },
+    "QeliWin-net-required.exe": {
+      "sha256": "78da978d353c52a53f6811766e717adc03cfe193cc04f740a80f40157df69b81",
+      "bytes": 20384267
+    },
+    "QeliWin-standalone.exe": {
+      "sha256": "23cbc8117496c01e30bcf4c9f1582d39b79b95a9649c13fb19ebb9a829de7726",
+      "bytes": 74413023
+    },
+    "qeli_0.8.2_amd64.deb": {
+      "sha256": "77d873e66183d6d730d0c2182953a1a90bbd3581a6ea52c859213f307a40fdb7",
+      "bytes": 4849444
+    },
+    "SHA256SUMS": {
+      "sha256": "47d74a07e5fa6c05471344ffb8e16f27391beea59d5e66b4c1d2bc13815f6c0e",
+      "bytes": 1362
+    }
+  },
+  "documentation_source_applicability": {
+    "evidence": "release/certification/evidence/n04-tcp-finalization-20261019.json",
+    "source_digest": "3ee138ec1fd468a272c362d051073c9fe42846a1d3baa7717a54aa58f11cf456",
+    "prior_qualified_commit": "3f2cadd5d1f9265e098a64fc300bf728f8f0455c",
+    "actual_test_results_unchanged": true,
+    "additional_measurement_exports": [
+      "release/lab-results/n04-final-dist-tcp-matrix-20261019.json"
+    ]
+  }
+}

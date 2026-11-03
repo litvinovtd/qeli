@@ -1,0 +1,790 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "scope": "Fresh actual CI/DEB ELF at both endpoints, not diagnostic-result rebinding.",
+  "source_commit": "ea03c092e6f42f6a4e5d04944988e487f24e94db",
+  "binary_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+  "server_binary_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+  "rows": [
+    {
+      "mode": "udp-faketls",
+      "queue": 1000,
+      "seconds": 15,
+      "omit": 3,
+      "offered_mbps": 900,
+      "goodput_mbps": 899.5747687897621,
+      "iperf_loss_percent": 0.00703432252013486,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "endpoints": {
+        "client": {
+          "udp4": {
+            "InDatagrams": 18,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 1743489,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 101,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 5,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1688765,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 1,
+          "outer": {
+            "tx": {
+              "bytes": 2296797389,
+              "packets": 1743491,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 14679,
+              "packets": 20,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.34708703798242
+        },
+        "server": {
+          "udp4": {
+            "InDatagrams": 1743489,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 18,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 5,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1688666,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 2,
+          "outer": {
+            "tx": {
+              "bytes": 14679,
+              "packets": 20,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 2296797389,
+              "packets": 1743491,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.35494769201614
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "queue": 1000,
+      "seconds": 15,
+      "omit": 3,
+      "offered_mbps": 900,
+      "goodput_mbps": 899.7361127644565,
+      "iperf_loss_percent": 0,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "endpoints": {
+        "client": {
+          "udp4": {
+            "InDatagrams": 18,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 1742569,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 6,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1688597,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 1,
+          "outer": {
+            "tx": {
+              "bytes": 2296616925,
+              "packets": 1742570,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 14513,
+              "packets": 19,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.348569780006073
+        },
+        "server": {
+          "udp4": {
+            "InDatagrams": 1742569,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 18,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 6,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1688597,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 2,
+          "outer": {
+            "tx": {
+              "bytes": 14513,
+              "packets": 19,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 2296616925,
+              "packets": 1742570,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.34934251604136
+        }
+      }
+    },
+    {
+      "mode": "udp-faketls",
+      "queue": 1000,
+      "seconds": 15,
+      "omit": 3,
+      "offered_mbps": 900,
+      "goodput_mbps": 899.7821999218892,
+      "iperf_loss_percent": 0,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "endpoints": {
+        "client": {
+          "udp4": {
+            "InDatagrams": 19,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 1742536,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 4,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1688841,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 1,
+          "outer": {
+            "tx": {
+              "bytes": 2296920919,
+              "packets": 1742537,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 14722,
+              "packets": 20,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.337261004024185
+        },
+        "server": {
+          "udp4": {
+            "InDatagrams": 1742536,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 19,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 4,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1688841,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 2,
+          "outer": {
+            "tx": {
+              "bytes": 14722,
+              "packets": 20,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 2296920919,
+              "packets": 1742537,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.333802753011696
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "queue": 1000,
+      "seconds": 15,
+      "omit": 3,
+      "offered_mbps": 950,
+      "goodput_mbps": 949.4249706385403,
+      "iperf_loss_percent": 0,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "endpoints": {
+        "client": {
+          "udp4": {
+            "InDatagrams": 17,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 1840104,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 5,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1782406,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 1,
+          "outer": {
+            "tx": {
+              "bytes": 2440836920,
+              "packets": 1840105,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 14557,
+              "packets": 18,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.342603604018223
+        },
+        "server": {
+          "udp4": {
+            "InDatagrams": 1840104,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 17,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 5,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1782406,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 2,
+          "outer": {
+            "tx": {
+              "bytes": 14557,
+              "packets": 18,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 2440836920,
+              "packets": 1840105,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.340775895980187
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "queue": 1000,
+      "seconds": 15,
+      "omit": 3,
+      "offered_mbps": 950,
+      "goodput_mbps": 949.3287912760564,
+      "iperf_loss_percent": 0.01979053002943673,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "endpoints": {
+        "client": {
+          "udp4": {
+            "InDatagrams": 19,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 1839469,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 305,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 6,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1782656,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 1,
+          "outer": {
+            "tx": {
+              "bytes": 2440715775,
+              "packets": 1839470,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 14931,
+              "packets": 20,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.356117171992082
+        },
+        "server": {
+          "udp4": {
+            "InDatagrams": 1839469,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 19,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 6,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1782362,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 2,
+          "outer": {
+            "tx": {
+              "bytes": 14931,
+              "packets": 20,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 2440715775,
+              "packets": 1839470,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.355408467003144
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "queue": 1000,
+      "seconds": 15,
+      "omit": 3,
+      "offered_mbps": 950,
+      "goodput_mbps": 949.4492716817892,
+      "iperf_loss_percent": 0,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "endpoints": {
+        "client": {
+          "udp4": {
+            "InDatagrams": 21,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 1839649,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 4,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1782502,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 1,
+          "outer": {
+            "tx": {
+              "bytes": 2440909746,
+              "packets": 1839650,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 15627,
+              "packets": 22,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.35204980202252
+        },
+        "server": {
+          "udp4": {
+            "InDatagrams": 1839649,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 21,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 4,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1782502,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 2,
+          "outer": {
+            "tx": {
+              "bytes": 15627,
+              "packets": 22,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 2440909746,
+              "packets": 1839650,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 18.35117949801497
+        }
+      }
+    },
+    {
+      "mode": "udp-quic",
+      "queue": 1000,
+      "seconds": 60,
+      "omit": 3,
+      "offered_mbps": 950,
+      "goodput_mbps": 949.760512660357,
+      "iperf_loss_percent": 0.002675346680340661,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "endpoints": {
+        "client": {
+          "udp4": {
+            "InDatagrams": 42,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 6441479,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 167,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 19,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 1,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 6240325,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 1,
+          "outer": {
+            "tx": {
+              "bytes": 8545236158,
+              "packets": 6441484,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 41642,
+              "packets": 47,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 63.423490940011106
+        },
+        "server": {
+          "udp4": {
+            "InDatagrams": 6441479,
+            "NoPorts": 0,
+            "InErrors": 0,
+            "OutDatagrams": 42,
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0,
+            "InCsumErrors": 0,
+            "IgnoredMulti": 19,
+            "MemErrors": 0
+          },
+          "udp6": {
+            "Udp6InDatagrams": 6240156,
+            "Udp6NoPorts": 0,
+            "Udp6InErrors": 0,
+            "Udp6OutDatagrams": 1,
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0,
+            "Udp6InCsumErrors": 0,
+            "Udp6IgnoredMulti": 0,
+            "Udp6MemErrors": 0
+          },
+          "qeli_socket_drops": 0,
+          "stable_qeli_sockets": 2,
+          "outer": {
+            "tx": {
+              "bytes": 41642,
+              "packets": 47,
+              "dropped": 0,
+              "errors": 0
+            },
+            "rx": {
+              "bytes": 8545236158,
+              "packets": 6441484,
+              "dropped": 0,
+              "errors": 0
+            }
+          },
+          "elapsed": 63.42510953301098
+        }
+      }
+    }
+  ],
+  "client_queue": 1000,
+  "server_queue": 1000,
+  "actual_client_tun_descriptors": 1,
+  "actual_server_tun_descriptors": 2,
+  "requested_iperf_socket_bytes": 4194304,
+  "actual_socket_bytes": 8388608,
+  "restoration": {
+    "cliready": {
+      "server": {
+        "boot_id": true,
+        "protected_files": true,
+        "sysctls": true,
+        "hostname": true,
+        "kernel": true,
+        "cpus": true,
+        "processes": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      },
+      "client": {
+        "boot_id": true,
+        "protected_files": true,
+        "sysctls": true,
+        "hostname": true,
+        "kernel": true,
+        "cpus": true,
+        "processes": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      }
+    },
+    "clireadylong": {
+      "server": {
+        "boot_id": true,
+        "protected_files": true,
+        "sysctls": true,
+        "hostname": true,
+        "kernel": true,
+        "cpus": true,
+        "processes": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      },
+      "client": {
+        "boot_id": true,
+        "protected_files": true,
+        "sysctls": true,
+        "hostname": true,
+        "kernel": true,
+        "cpus": true,
+        "processes": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      }
+    }
+  },
+  "diagnostic_results_rebound": false,
+  "published": false,
+  "source_applicability": {
+    "status": "PASS",
+    "build_commit": "ea03c092e6f42f6a4e5d04944988e487f24e94db",
+    "documentation_commit": "ea03c092e6f42f6a4e5d04944988e487f24e94db",
+    "changed_paths": [],
+    "actual_ELF_sizes": {
+      "aarch64": {
+        "bytes": 9359248,
+        "MiB": "8.93",
+        "sha256": "476ce6548201dbb76f878fca2c0419ff1f8aca2d655b56c20c9ddfc40196d6f5"
+      },
+      "armv7": {
+        "bytes": 9514540,
+        "MiB": "9.07",
+        "sha256": "3479ed22c69e861b22212a519f311fd140d033b8fc39ebd8729514320e162d6b"
+      },
+      "x86_64-musl": {
+        "bytes": 10130088,
+        "MiB": "9.66",
+        "sha256": "9e513bcc32aa238ab7f01b71ca96a375f2b31854cf29d5291df8d619acf2680d"
+      },
+      "mipsel": {
+        "bytes": 11398712,
+        "MiB": "10.87",
+        "sha256": "172cfe0e7eaa6faae3384033a83a60441815d8c818228a79e9f124bd6158d6d1"
+      }
+    },
+    "only_size_description_changed": true
+  }
+}

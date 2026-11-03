@@ -1,124 +1,117 @@
-"""Verify the Keenetic Phase-1 refactor on the lab server (10.66.116.10).
+"""Maintainer-only host build gate for Keenetic client feature isolation.
 
-Two things must hold:
-  1. The release server+client build with its mandatory jemalloc feature is unregressed
-     by making the server deps optional / the module gating / the portable-atomic swap.
-  2. The new client-only path compiles WITHOUT `ring`:
-       cargo build --release --bin qeli-client --no-default-features --features client-bin
-     and `cargo tree -i ring` confirms `ring` is absent from that feature graph.
-
-Creds from QELI_LAB_PASS (see scripts/lab_env.sh / memory). Run:
-    $env:QELI_LAB_PASS="..."; python scripts/keenetic_verify.py
+This is a Linux host build, not router ABI/firmware qualification. Every run uses
+its own private /var/tmp source/target directory and leaves services untouched.
+The failed or successful checkout is retained for inspection; remove it explicitly
+when no longer needed. Credentials: QELI_LAB_PASS; optional QELI_LAB_SERVER/USER.
+Run: python scripts/keenetic_verify.py. All builds use the committed lockfile and
+one compiler job. Missing credentials exit2; any verification failure exits1.
 """
-import os, sys, posixpath, time
+import os
 from pathlib import Path
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-import paramiko
-import ssh_hostkey
+import re
+import shlex
+import sys
 
-SERVER = (os.environ.get("QELI_LAB_SERVER", "10.66.116.10"), "root",
-          os.environ.get("QELI_LAB_PASS", ""))
+from native_lab import connect_lab, remote_sha256
+from router_source import sync_router_source, require_router_source_ready
+from router_toolchain import ROUTER_RUST, router_host_cargo_prefix
+
 LOCAL_ROOT = Path(__file__).resolve().parents[1] / "qeli"
-REMOTE_ROOT = "/opt/qeli-src"
+CLIENT_FEATURES = "--no-default-features --features client-bin"
+SOURCE_TEMPLATE = "/var/tmp/qeli-keenetic-verify.XXXXXX"
 
 
-def conn(h):
-    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
-    c.connect(h[0], username=h[1], password=h[2], timeout=20,
-              look_for_keys=False, allow_agent=False)
-    return c
+def client_graph_without_ring(output):
+    """Require a successful forward graph, not a reverse-query error message.
+
+    Caller checks cargo exit status first. Normal/build edges exclude dev-only
+    dependencies. Unknown text fails closed rather than being treated as absence.
+    """
+    packages = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or line == "[build-dependencies]":
+            continue
+        match = re.fullmatch(r"([A-Za-z0-9_-]+) v\S+(?: .*)?", line)
+        if match is None:
+            raise RuntimeError("unrecognized cargo dependency graph output")
+        packages.append(match.group(1))
+    if not packages or packages[0] != "qeli":
+        raise RuntimeError("client dependency graph is empty or has the wrong root")
+    if "ring" in packages:
+        raise RuntimeError("ring is present in the client dependency graph")
+    return True
 
 
-def run(c, cmd, t=1200):
-    i, o, e = c.exec_command(cmd, timeout=t)
-    out = o.read().decode("utf-8", "replace") + e.read().decode("utf-8", "replace")
-    rc = o.channel.recv_exit_status()
-    return rc, out.strip()
-
-
-def sync_tree(c):
-    sf = c.open_sftp(); made = set()
-    def ensure(d):
-        if d in made or d in ("", "/"):
-            return
-        ensure(posixpath.dirname(d))
-        try: sf.stat(d)
-        except IOError:
-            try: sf.mkdir(d)
-            except IOError: pass
-        made.add(d)
-    files = []
-    for dp, _dn, fn in os.walk(os.path.join(LOCAL_ROOT, "src")):
-        for f in fn:
-            files.append(os.path.join(dp, f))
-    for extra in ("Cargo.toml", "Cargo.lock"):
-        p = os.path.join(LOCAL_ROOT, extra)
-        if os.path.exists(p): files.append(p)
-    n = 0
-    for lp in files:
-        rel = os.path.relpath(lp, LOCAL_ROOT).replace("\\", "/")
-        rp = posixpath.join(REMOTE_ROOT, rel)
-        ensure(posixpath.dirname(rp))
-        sf.put(lp, rp); n += 1
-    sf.close(); return n
-
-
-def tail(s, n):
-    return "\n".join(s.splitlines()[-n:])
+def verify(connection, local_root=LOCAL_ROOT):
+    # mktemp creates a0700 run directory; validate its output before managed sync.
+    remote_root = connection.checked(
+        f"mktemp -d {shlex.quote(SOURCE_TEMPLATE)}", "create isolated verification checkout", timeout=30)
+    if re.fullmatch(r"/var/tmp/qeli-keenetic-verify\.[A-Za-z0-9]{6,}", remote_root) is None:
+        raise RuntimeError("invalid isolated verification checkout path")
+    print("Verification checkout:", remote_root)
+    count = sync_router_source(connection.client, local_root, remote_root)
+    require_router_source_ready(connection.client, remote_root)
+    print("Synced source files:", count)
+    prefix = ("export PATH=/root/.cargo/bin:$PATH; "
+              f"cd {shlex.quote(remote_root)} && ")
+    cargo = router_host_cargo_prefix(remote_root)
+    print(connection.checked(prefix + f"rustc +{ROUTER_RUST} --version && " + cargo + " --version",
+                             "host toolchain inventory", timeout=30))
+    commands = (
+        ("server_build", "cargo build --locked --release --features jemalloc --bin qeli --jobs 1"),
+        ("unit_tests", "cargo test --locked --lib --jobs 1"),
+        ("client_build", f"cargo build --locked --release --bin qeli-client {CLIENT_FEATURES} --jobs 1"),
+        ("client_clippy", f"cargo clippy --locked --bin qeli-client {CLIENT_FEATURES} --jobs 1 -- -D warnings"),
+    )
+    for name, command in commands:
+        output = connection.checked(prefix + cargo + " " + command.removeprefix("cargo "), name, timeout=1200)
+        print("\n".join(output.splitlines()[-20:]))
+        print(name + "=OK")
+    graph = connection.checked(
+        prefix + cargo + f" tree --locked {CLIENT_FEATURES} --edges normal,build --prefix none --format '{{p}}'",
+        "client dependency graph", timeout=120)
+    client_graph_without_ring(graph)
+    artifact = remote_root + "/target/release/qeli-client"
+    quoted = shlex.quote(artifact)
+    header = connection.checked(
+        f"test -s {quoted} && test -x {quoted} && readelf -h {quoted}",
+        "nonempty executable ELF client artifact", timeout=30)
+    if re.search(r"Magic:\s+7f 45 4c 46(?:\s|$)", header) is None:
+        raise RuntimeError("client artifact is not an ELF executable")
+    digest = remote_sha256(connection, artifact)
+    if digest == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855":
+        raise RuntimeError("client artifact is empty")
+    print("ring_absent=OK; host client ELF sha256=" + digest)
+    return {"remote_root": remote_root, "artifact_sha256": digest, "kind": "Linux host build only"}
 
 
 def main():
-    if not SERVER[2]:
-        print("QELI_LAB_PASS not set — aborting"); sys.exit(2)
-    c = conn(SERVER); print("Connected to", SERVER[0])
-    run(c, "systemctl stop qeli-server.service 2>/dev/null; pkill -9 -x qeli 2>/dev/null; true", t=30)
-    # The client entrypoint moved out of src/bin/ (gitignored `**/bin/`). Drop any
-    # stale src/bin/ on the remote so cargo's bin auto-discovery can't resurrect an
-    # orphaned qeli-client.rs and collide with the explicit [[bin]] in Cargo.toml.
-    run(c, "rm -rf /opt/qeli-src/src/bin", t=30)
-    t0 = time.time(); n = sync_tree(c)
-    print(f"Synced {n} files to {REMOTE_ROOT} in {time.time()-t0:.0f}s")
-
-    print("\n=== [1] SERVER build: cargo build --release --features jemalloc ===")
-    rc_def, o_def = run(c, f"cd {REMOTE_ROOT} && cargo build --release --features jemalloc --bin qeli 2>&1")
-    print(tail(o_def, 20)); print("server build rc:", rc_def)
-
-    print("\n=== [1b] unit tests (default features): cargo test --lib ===")
-    rc_test, o_test = run(c, f"cd {REMOTE_ROOT} && cargo test --lib 2>&1")
-    print(tail(o_test, 12)); print("test rc:", rc_test)
-
-    print("\n=== [2] CLIENT-ONLY build: --no-default-features --features client-bin ===")
-    rc_cli, o_cli = run(c, f"cd {REMOTE_ROOT} && cargo build --release --bin qeli-client "
-                           f"--no-default-features --features client-bin 2>&1")
-    print(tail(o_cli, 25)); print("client-bin build rc:", rc_cli)
-
-    print("\n=== [3] CLIENT-ONLY clippy ===")
-    rc_clp, o_clp = run(c, f"cd {REMOTE_ROOT} && cargo clippy --bin qeli-client "
-                           f"--no-default-features --features client-bin -- -D warnings 2>&1")
-    print(tail(o_clp, 20)); print("client-bin clippy rc:", rc_clp)
-
-    print("\n=== [4] ring absent from client graph? (cargo tree -i ring) ===")
-    _rc_tree, o_tree = run(c, f"cd {REMOTE_ROOT} && cargo tree --no-default-features "
-                              f"--features client-bin -i ring 2>&1")
-    ring_absent = ("did not match any packages" in o_tree) or ("nothing to print" in o_tree)
-    print(tail(o_tree, 8)); print("ring ABSENT from client build:", ring_absent)
-
-    # sanity: the produced binary exists + is a Linux ELF
-    _rc, finfo = run(c, f"file {REMOTE_ROOT}/target/release/qeli-client 2>&1")
-    print("\nqeli-client binary:", finfo)
-
-    run(c, "systemctl start qeli-server.service 2>/dev/null; true", t=30)
-    c.close()
-
-    ok = (rc_def == 0 and rc_test == 0 and rc_cli == 0 and rc_clp == 0 and ring_absent)
-    print("\n===== SUMMARY =====")
-    print(f"server_build={'OK' if rc_def==0 else 'FAIL'}  "
-          f"unit_tests={'OK' if rc_test==0 else 'FAIL'}  "
-          f"client_build={'OK' if rc_cli==0 else 'FAIL'}  "
-          f"client_clippy={'OK' if rc_clp==0 else 'FAIL'}  "
-          f"ring_absent={'OK' if ring_absent else 'FAIL'}")
-    print("KEENETIC_PHASE1:", "PASS" if ok else "FAIL")
+    password = os.environ.get("QELI_LAB_PASS", "")
+    if not password:
+        print("QELI_LAB_PASS not set — aborting", file=sys.stderr)
+        return 2
+    connection = None
+    result = 0
+    try:
+        connection = connect_lab(os.environ.get("QELI_LAB_SERVER", "10.66.116.11"),
+                                 os.environ.get("QELI_LAB_USER", "root"), password)
+        verify(connection)
+    except Exception as error:
+        print(f"KEENETIC_PHASE1: FAIL ({error})", file=sys.stderr)
+        result = 1
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception as error:
+                print(f"KEENETIC_PHASE1: FAIL (SSH close: {error})", file=sys.stderr)
+                result = 1
+    if result == 0:
+        print("KEENETIC_PHASE1: PASS (Linux host; router runtime/ABI unqualified)")
+    return result
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

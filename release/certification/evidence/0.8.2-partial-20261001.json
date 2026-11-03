@@ -1,0 +1,303 @@
+{
+  "schema_version": 1,
+  "release_version": "0.8.2",
+  "source_digest": "a1d4ea2f47eba26f4c7dcaf2ab212172cf0b24e7749f86ab621d3e833e4eb5b2",
+  "cases": [
+    {
+      "id": "linux.outer4.inner4.tcp.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer4.inner6.tcp.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer6.inner4.tcp.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer6.inner6.tcp.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-quic.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-quic.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-quic.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-quic.full",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.dual.tcp.split",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.dual.udp.split",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.dns.ipv4-ipv6",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.mtu.1280-pmtu-ptb",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.leak.ipv4-ipv6",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.tap.ndp-ra",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.legacy-peer",
+      "kind": "automated",
+      "status": "blocked",
+      "observed_status": "passed",
+      "reason": "Functional assertions passed; campaign acceptance held pending unexplained parent legacy firewall mutations.",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json"
+    },
+    {
+      "id": "linux.roaming-flap-soak",
+      "kind": "automated",
+      "status": "passed",
+      "observed_status": "passed",
+      "evidence": "release/certification/evidence/linux-matrix-20261001.json",
+      "source_digest": "a1d4ea2f47eba26f4c7dcaf2ab212172cf0b24e7749f86ab621d3e833e4eb5b2",
+      "artifact_sha256": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0",
+      "executed_at": "2026-10-01T18:00:26.908697+00:00",
+      "environment": "Linux 6.12.105+deb13-amd64 x86_64 GNU/Linux",
+      "reuse_reason": "Exact a526c03b release artifact attested in Q25-F204, same native source digest and identical qeli tree; only audit tooling and documentation changed. Soak capture timestamps retained; no new soak claimed."
+    },
+    {
+      "id": "android.wifi-to-cellular",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests."
+    },
+    {
+      "id": "android.cellular-to-wifi",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests."
+    },
+    {
+      "id": "android.carrier-gap-background",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests."
+    },
+    {
+      "id": "android.sleep-wake-nat-rebind",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests."
+    },
+    {
+      "id": "android.ipv6-dns-leak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests."
+    },
+    {
+      "id": "android.roaming-race-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Only Android emulator available; physical Wi-Fi/cellular/LTE/sleep qualification is not established by AVD tests."
+    },
+    {
+      "id": "ios.wifi-cellular-nat64",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "ios.sleep-wake-rollback",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "ios.per-app-mdm",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "ios.roaming-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "windows.ethernet-wifi",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "windows.sleep-wake",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "windows.ipv6-per-app-leak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "windows.roaming-race-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "macos.wifi-ethernet",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "macos.sleep-wake",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "macos.ipv6-pf-per-app-leak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "macos.networkextension-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "openwrt.ipv6-roaming-flap-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "keenetic.ipv6-roaming-flap-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "User excluded Windows VM/Mac/iOS/router runtime."
+    },
+    {
+      "id": "rollout.canary-legacy-peer",
+      "kind": "physical",
+      "status": "pending",
+      "reason": "Production canary has not been executed; lab interop is a separate automated case."
+    }
+  ],
+  "acceptance": {
+    "status": "incomplete",
+    "functional_matrix": "18 observed PASS / 327 assertions",
+    "lab_integrity": "unresolved parent legacy firewall changes; original reports retained",
+    "scope": "Current committed candidate; user uncommitted changes are outside this certificate"
+  }
+}

@@ -1,0 +1,7 @@
+Reviewed native-toolchain runtime/stdlib legal resources, preserved byte for byte.
+Includes extra targets/build notices; presence is not a per-binary linkage declaration.
+Rust COPYRIGHT-library plus license pool, Zig runtime/libc/unwind, NDK, GCC/MinGW resources.
+NDK qualification covers HTTPS ZIP range members/CRC, not the whole archive hash.
+GCC14.2/MinGW12 match observed lab source versions; old native metadata does not pin GCC minor.
+Rust1.89 covers the reviewed OpenWrt SDK compatibility fixture, not a published SDK source cut.
+Matching source, downstream patches, dynamic system libraries and release admission remain separate.

@@ -1,0 +1,32 @@
+{
+  "status": "CANDIDATE_ARTIFACT_RETENTION_PREPARED_HOSTED_QUALIFICATION_PENDING",
+  "prior_commit": "8b4a372c8f96343b39797ba954e7207645942cab",
+  "scope": "CI output staging/retention, canonical native-library selection for release packaging, two ad-hoc signed Mac architecture archives and bilingual draft notes. No runtime Rust/managed source change.",
+  "admission": "push to dev with [candidate] marker in head commit; successful preceding job steps required",
+  "artifact_retention_days": 7,
+  "artifact_names_include_full_source_SHA": true,
+  "actions_upload_artifact_pin": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+  "outputs": [
+    "tested portable .deb and exact extracted Linux CLI",
+    "two Windows publish trees with legal sidecars",
+    "four validated static router ELF files",
+    "unsigned release Android APK",
+    "ad-hoc signed macOS arm64 and x86_64 archives"
+  ],
+  "canonical_native_packaging": "Use committed A/B-qualified desktop/JNI copies; avoid host-only Mac CI core in the other RID",
+  "local_checks": {
+    "actionlint_workflows": 4,
+    "workflow_gate_methods": 11,
+    "Windows_publish_exit_methods": 3,
+    "documentation_checks": 9
+  },
+  "actual_hosted_artifacts_ready": false,
+  "actual_macOS_package_signatures_qualified": false,
+  "Android_release_signature_qualified": false,
+  "Developer_ID_per_app_package_qualified": false,
+  "local_environment_constraints": "Pinned .NET10.0.401 absent, C free approximately540MiB. Both lab root SSH password/key methods refused. No remote mutations.",
+  "new_manual_compiler_builds": 0,
+  "new_Linux_runtime_runs": 0,
+  "tags_created": false,
+  "releases_created": false
+}

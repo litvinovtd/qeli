@@ -9,6 +9,11 @@
     <p class="text-sm leading-relaxed" style="color:var(--txt-mut)">Get alerted on key server events via Telegram and a generic webhook. The two channels are fully independent — each has its own switch, credentials, event selection and test. Outbound TLS certificates are verified; sends are best-effort and never block the data plane.</p>
   </div>
 
+  <div x-show="loadFailed" role="alert" class="card p-4 mb-5" style="color:var(--red)">
+    <p x-text="loadError"></p>
+    <button class="btn btn-ghost btn-sm mt-2" @click="init()" :disabled="loading || busy || testingTg || testingWh">Reload</button>
+  </div>
+  <fieldset :disabled="!loaded || loading || loadFailed" style="min-width:0;border:0;padding:0;margin:0">
   <!-- Server identity — prefixed to every notification (Telegram + webhook) -->
   <div class="card p-5 mb-5">
     <label class="field-label">Server name</label>
@@ -26,14 +31,14 @@
           <div class="text-xs text-slate-500">Send messages through a Telegram bot.</div>
         </div>
       </div>
-      <div class="toggle-wrap" aria-label="Telegram notifications" @click="cfg.telegram_enabled = !cfg.telegram_enabled">
+      <div class="toggle-wrap" aria-label="Telegram notifications" @click="toggle('telegram_enabled')" :aria-disabled="!canEdit()" :aria-checked="cfg.telegram_enabled">
         <div class="toggle toggle-lg" :class="cfg.telegram_enabled ? 'bg-blue-600' : 'bg-slate-700'">
           <div class="toggle-dot" :class="cfg.telegram_enabled ? 'translate-x-5' : 'translate-x-0.5'"></div>
         </div>
       </div>
     </div>
 
-    <div :style="cfg.telegram_enabled ? '' : 'opacity:.5;pointer-events:none'">
+    <fieldset :disabled="!cfg.telegram_enabled" style="min-width:0;border:0;padding:0;margin:0" :style="cfg.telegram_enabled ? '' : 'opacity:.5'">
       <div class="field">
         <label class="field-label">Bot token</label>
         <p class="field-desc">Create a bot with @BotFather and paste its token. Write-only — leave blank to keep the current one.</p>
@@ -54,7 +59,7 @@
               <div class="text-sm text-white" x-text="ev.label"></div>
               <div class="text-xs text-slate-500" x-text="ev.desc"></div>
             </div>
-            <div class="toggle-wrap" :aria-label="ev.label" @click="cfg.telegram_events[ev.key] = !cfg.telegram_events[ev.key]">
+            <div class="toggle-wrap" :aria-label="ev.label" @click="toggleEvent('telegram', ev.key)" :aria-disabled="!canEdit() || !cfg.telegram_enabled" :aria-checked="cfg.telegram_events[ev.key]">
               <div class="toggle toggle-lg" :class="cfg.telegram_events[ev.key] ? 'bg-blue-600' : 'bg-slate-700'">
                 <div class="toggle-dot" :class="cfg.telegram_events[ev.key] ? 'translate-x-5' : 'translate-x-0.5'"></div>
               </div>
@@ -64,13 +69,13 @@
       </div>
 
       <div class="flex items-center gap-3 mt-4">
-        <button class="btn btn-ghost btn-sm" @click="testChan('telegram')" :disabled="testingTg">
+        <button class="btn btn-ghost btn-sm" @click="testChan('telegram')" :disabled="!canEdit() || busy || testingTg">
           <div x-show="testingTg" class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
           Send test
         </button>
-        <span x-show="resultTg" class="text-xs" :style="(resultTg && resultTg.ok) ? 'color:var(--green-2)' : 'color:var(--red)'" x-text="chanText(resultTg)"></span>
+        <span x-show="resultFor('telegram')" class="text-xs" :style="resultOk('telegram') ? 'color:var(--green-2)' : 'color:var(--red)'" x-text="chanText(resultFor('telegram'))"></span>
       </div>
-    </div>
+    </fieldset>
   </div>
 
   <!-- ── Webhook channel ── -->
@@ -83,14 +88,14 @@
           <div class="text-xs text-slate-500">POST a JSON payload to any HTTP(S) endpoint.</div>
         </div>
       </div>
-      <div class="toggle-wrap" aria-label="Webhook notifications" @click="cfg.webhook_enabled = !cfg.webhook_enabled">
+      <div class="toggle-wrap" aria-label="Webhook notifications" @click="toggle('webhook_enabled')" :aria-disabled="!canEdit()" :aria-checked="cfg.webhook_enabled">
         <div class="toggle toggle-lg" :class="cfg.webhook_enabled ? 'bg-blue-600' : 'bg-slate-700'">
           <div class="toggle-dot" :class="cfg.webhook_enabled ? 'translate-x-5' : 'translate-x-0.5'"></div>
         </div>
       </div>
     </div>
 
-    <div :style="cfg.webhook_enabled ? '' : 'opacity:.5;pointer-events:none'">
+    <fieldset :disabled="!cfg.webhook_enabled" style="min-width:0;border:0;padding:0;margin:0" :style="cfg.webhook_enabled ? '' : 'opacity:.5'">
       <div class="field">
         <label class="field-label">Webhook URL</label>
         <p class="field-desc">An HTTP(S) endpoint that receives a JSON POST: { event, detail, text, ts }. HTTPS recommended.</p>
@@ -105,7 +110,7 @@
               <div class="text-sm text-white" x-text="ev.label"></div>
               <div class="text-xs text-slate-500" x-text="ev.desc"></div>
             </div>
-            <div class="toggle-wrap" :aria-label="ev.label" @click="cfg.webhook_events[ev.key] = !cfg.webhook_events[ev.key]">
+            <div class="toggle-wrap" :aria-label="ev.label" @click="toggleEvent('webhook', ev.key)" :aria-disabled="!canEdit() || !cfg.webhook_enabled" :aria-checked="cfg.webhook_events[ev.key]">
               <div class="toggle toggle-lg" :class="cfg.webhook_events[ev.key] ? 'bg-blue-600' : 'bg-slate-700'">
                 <div class="toggle-dot" :class="cfg.webhook_events[ev.key] ? 'translate-x-5' : 'translate-x-0.5'"></div>
               </div>
@@ -115,19 +120,21 @@
       </div>
 
       <div class="flex items-center gap-3 mt-4">
-        <button class="btn btn-ghost btn-sm" @click="testChan('webhook')" :disabled="testingWh">
+        <button class="btn btn-ghost btn-sm" @click="testChan('webhook')" :disabled="!canEdit() || busy || testingWh">
           <div x-show="testingWh" class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
           Send test
         </button>
-        <span x-show="resultWh" class="text-xs" :style="(resultWh && resultWh.ok) ? 'color:var(--green-2)' : 'color:var(--red)'" x-text="chanText(resultWh)"></span>
+        <span x-show="resultFor('webhook')" class="text-xs" :style="resultOk('webhook') ? 'color:var(--green-2)' : 'color:var(--red)'" x-text="chanText(resultFor('webhook'))"></span>
       </div>
-    </div>
+    </fieldset>
   </div>
+
+  </fieldset>
 
   <!-- Save -->
   <div class="flex justify-end mb-8">
     <span x-show="loadFailed" class="text-xs mr-3 self-center" style="color:var(--red)">Reload this page before saving.</span>
-    <button class="btn btn-primary" @click="save()" :disabled="busy || loadFailed">
+    <button class="btn btn-primary" @click="save()" :disabled="!canEdit() || busy || testingTg || testingWh">
       <div x-show="busy" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
       Save changes
     </button>
@@ -145,9 +152,16 @@ function notificationsPage() {
       webhook_enabled: false, webhook_url: '',
       webhook_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_auth_lockout: true, on_restore: true, on_client_connect: false, on_client_disconnect: false },
     },
+    revision: '',
     tokenSet: false,
     tokenHint: '',
+    loaded: false,
+    loading: false,
     loadFailed: false,
+    loadError: '',
+    destroyed: false,
+    testInputTg: '',
+    testInputWh: '',
     busy: false,
     testingTg: false,
     testingWh: false,
@@ -163,80 +177,116 @@ function notificationsPage() {
       { key: 'on_client_disconnect', label: 'Client disconnected', desc: 'A client tunnel session ended (TCP clean close). Off by default.' },
     ],
 
+    destroy() { this.destroyed = true; },
+    canEdit() { return this.loaded && !this.loading && !this.loadFailed && !this.destroyed; },
+    toggle(field) { if (this.canEdit()) this.cfg[field] = !this.cfg[field]; },
+    toggleEvent(channel, key) {
+      if (this.canEdit() && this.cfg[channel + '_enabled']) this.cfg[channel + '_events'][key] = !this.cfg[channel + '_events'][key];
+    },
+    testInput(channel) {
+      const c = this.cfg;
+      return JSON.stringify(channel === 'telegram'
+        ? [c.server_name, c.telegram_token, c.telegram_chat_id]
+        : [c.server_name, c.webhook_url]);
+    },
+    resultFor(channel) {
+      const suffix = channel === 'telegram' ? 'Tg' : 'Wh';
+      return this['testInput' + suffix] === this.testInput(channel) ? this['result' + suffix] : null;
+    },
+    resultOk(channel) { return this.resultFor(channel)?.ok === true; },
+
     async init() {
+      if (this.destroyed || this.loading || this.busy || this.testingTg || this.testingWh) return;
+      this.loading = true;
+      const draft = JSON.stringify(this.cfg);
       try {
-        const d = await apiFetch('api/notify');
-        if (!d.ok) throw new Error(d.error || 'Load failed');
+        const d = await apiFetch('api/notify', { cache: 'no-store' });
+        if (this.destroyed) return;
+        if (!d || d.ok !== true) throw new Error(d?.error || 'Load failed');
         const c = d.config;
-        this.cfg.server_name = c.server_name || '';
-        this.cfg.telegram_enabled = c.telegram_enabled;
-        this.cfg.telegram_chat_id = c.telegram_chat_id || '';
-        this.cfg.telegram_events = Object.assign(this.cfg.telegram_events, c.telegram_events || {});
-        this.cfg.webhook_enabled = c.webhook_enabled;
-        this.cfg.webhook_url = c.webhook_url || '';
-        this.cfg.webhook_events = Object.assign(this.cfg.webhook_events, c.webhook_events || {});
-        this.tokenSet = c.telegram_token_set;
+        if (!c || typeof c !== 'object' || Array.isArray(c)) throw new Error('Invalid configuration response');
+        if (typeof d.revision !== 'string' || !d.revision.trim()) throw new Error('Settings revision unavailable. Reload before saving.');
+        if (JSON.stringify(this.cfg) !== draft) throw new Error('Settings changed while loading. Retry to reload.');
+        const next = Object.assign({}, this.cfg, {
+          server_name: c.server_name || '', telegram_enabled: c.telegram_enabled === true,
+          telegram_chat_id: c.telegram_chat_id || '', webhook_enabled: c.webhook_enabled === true,
+          webhook_url: c.webhook_url || '',
+          telegram_events: Object.assign({}, this.cfg.telegram_events, c.telegram_events || {}),
+          webhook_events: Object.assign({}, this.cfg.webhook_events, c.webhook_events || {}),
+        });
+        this.cfg = next; // Keep a newer, unsaved write-only token across retry.
+        this.revision = d.revision;
+        this.tokenSet = c.telegram_token_set === true;
         this.tokenHint = c.telegram_token_hint || '';
-        this.cfg.telegram_token = '';
-        this.loadFailed = false;
+        this.resultTg = null; this.resultWh = null;
+        this.loadFailed = false; this.loadError = ''; this.loaded = true;
       } catch (e) {
-        this.loadFailed = true;
-        this.$dispatch('notify', { msg: qeliT('Notification settings were not loaded: ') + e.message, type: 'error' });
-      }
+        if (!this.destroyed) {
+          this.loadFailed = true; this.loadError = e.message;
+          this.$dispatch('notify', { msg: qeliT('Notification settings were not loaded: ') + qeliT(e.message), type: 'error' });
+        }
+      } finally { this.loading = false; }
     },
 
     async save() {
-      if (this.busy || this.loadFailed) return;
+      if (!this.canEdit() || this.busy || this.testingTg || this.testingWh) return;
+      if (typeof this.revision !== 'string' || !this.revision.trim()) { this.loadFailed = true; this.loadError = 'Settings revision unavailable. Reload before saving.'; return; }
       this.busy = true;
+      const submitted = JSON.stringify(Object.assign({}, this.cfg, { expected_revision: this.revision }));
+      const submittedToken = this.cfg.telegram_token;
       try {
         const d = await apiFetch('api/notify', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.cfg),
+          body: submitted,
         });
-        if (d.ok) {
-          const saved = d.config || {};
+        if (this.destroyed) return;
+        if (d?.ok === true) {
+          if (!d.config || typeof d.config !== 'object' || Array.isArray(d.config) || typeof d.revision !== 'string' || !d.revision.trim()) {
+            this.loadFailed = true; this.loadError = 'Settings revision unavailable. Reload before saving.';
+            throw new Error(this.loadError);
+          }
+          const saved = d.config;
+          this.revision = d.revision || this.revision;
           this.$dispatch('notify', { msg: 'Notification settings saved', type: 'success' });
           this.tokenSet = !!saved.telegram_token_set;
           this.tokenHint = saved.telegram_token_hint || '';
-          this.cfg.telegram_token = '';
+          if (this.cfg.telegram_token === submittedToken) this.cfg.telegram_token = '';
         } else {
-          this.$dispatch('notify', { msg: d.error || 'Save failed', type: 'error' });
+          if (d?.kind === 'config_conflict') { this.loadFailed = true; this.loadError = d.error || 'Save failed'; }
+          this.$dispatch('notify', { msg: d?.error || 'Save failed', type: 'error' });
         }
       } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Save failed: ') + e.message, type: 'error' });
+        if (!this.destroyed) this.$dispatch('notify', { msg: qeliT('Save failed: ') + qeliT(e.message), type: 'error' });
       } finally {
         this.busy = false;
       }
     },
 
     async testChan(channel) {
-      const flag = channel === 'telegram' ? 'testingTg' : 'testingWh';
+      if (!this.canEdit() || this.busy || !['telegram', 'webhook'].includes(channel)) return;
+      const suffix = channel === 'telegram' ? 'Tg' : 'Wh', flag = 'testing' + suffix;
       if (this[flag]) return;
-      this[flag] = true;
-      if (channel === 'telegram') this.resultTg = null; else this.resultWh = null;
+      this[flag] = true; this['result' + suffix] = null;
+      const input = this.testInput(channel);
+      const body = JSON.stringify(Object.assign({ channel }, this.cfg));
       try {
         const d = await apiFetch('api/notify/test', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(Object.assign({ channel }, this.cfg)),
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
         });
-        if (d.ok) {
-          if (channel === 'telegram') this.resultTg = d.result; else this.resultWh = d.result;
-          // The outer `ok` only says the request was handled — the SEND result is
-          // nested. Keying the toast off the outer flag made a failed delivery show a
-          // green "Test sent", contradicting the red result rendered next to it.
-          const sent = !!(d.result && d.result.ok);
-          this.$dispatch('notify', {
-            msg: sent ? 'Test sent successfully' : ('Test FAILED — ' + this.chanText(d.result)),
-            type: sent ? 'success' : 'error',
-          });
-        } else {
-          this.$dispatch('notify', { msg: d.error || 'Test failed', type: 'error' });
-        }
+        if (this.destroyed) return;
+        const result = d?.ok === true && d.result && typeof d.result.ok === 'boolean'
+          ? d.result : { ok: false, error: d?.error || 'Test failed' };
+        this['result' + suffix] = result; this['testInput' + suffix] = input;
+        if (input === this.testInput(channel)) this.$dispatch('notify', {
+          msg: result.ok ? 'Test sent successfully' : ('Test FAILED — ' + this.chanText(result)),
+          type: result.ok ? 'success' : 'error',
+        });
       } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Test failed: ') + e.message, type: 'error' });
-      } finally {
-        this[flag] = false;
-      }
+        if (!this.destroyed) {
+          this['result' + suffix] = { ok: false, error: e.message }; this['testInput' + suffix] = input;
+          if (input === this.testInput(channel)) this.$dispatch('notify', { msg: qeliT('Test failed: ') + e.message, type: 'error' });
+        }
+      } finally { this[flag] = false; }
     },
 
     chanText(r) {

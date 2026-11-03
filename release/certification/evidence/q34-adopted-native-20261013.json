@@ -1,0 +1,177 @@
+{
+  "status": "CURRENT_8_NATIVE_COPIES_A_B_ABI_JNI_APK_PROVENANCE_PASS_LOCAL_ONLY",
+  "actual_build_source_commit": "da776fb892bd6c02b34194a8e772770744832a77",
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "artifacts": {
+    "native-libs/windows-x64/qeli.dll": "7041a5cff53279ca760de5e823feb10549c3695914634b8664f0b476430c0610",
+    "native-libs/macos-universal/libqeli.dylib": "05fb2b7a7431e2be3f374004a9492d3a61fc60dbf70fc13db6fadba494d278b8",
+    "native-libs/android/arm64-v8a/libqeli.so": "adcf031c1accb53c7b6082dee0fc67ad2ac58b2a66098ad7e0d319b59f6b8170",
+    "native-libs/android/x86_64/libqeli.so": "0bc3f2faddeb4bca60bfb379690d46e452842d094ee6f0fb52aee8c4365a5e35"
+  },
+  "before": {
+    "native-libs/windows-x64/qeli.dll": "7de0870000b7116cde2d04ca85ec7f9b91e70def6fa44e6d7ce88511a03c4b65",
+    "qeli-win/QeliWin/native/qeli.dll": "7de0870000b7116cde2d04ca85ec7f9b91e70def6fa44e6d7ce88511a03c4b65",
+    "native-libs/macos-universal/libqeli.dylib": "7d968356bf9b16c0678748e7583697265c87c7eafed880cb50d684c74c13b349",
+    "qeli-mac/QeliMac/native/libqeli.dylib": "7d968356bf9b16c0678748e7583697265c87c7eafed880cb50d684c74c13b349",
+    "native-libs/android/arm64-v8a/libqeli.so": "fe83ff47fe4fa6259179398ffbb481eda0f07a1210e876855f8aa67ba19b63ed",
+    "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "fe83ff47fe4fa6259179398ffbb481eda0f07a1210e876855f8aa67ba19b63ed",
+    "native-libs/android/x86_64/libqeli.so": "01da54a3d1b24fdbfc4d305697df582a6b8bec2e04985b0c7ce64a6277d0ea82",
+    "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "01da54a3d1b24fdbfc4d305697df582a6b8bec2e04985b0c7ce64a6277d0ea82"
+  },
+  "installed": {
+    "native-libs/windows-x64/qeli.dll": "7041a5cff53279ca760de5e823feb10549c3695914634b8664f0b476430c0610",
+    "qeli-win/QeliWin/native/qeli.dll": "7041a5cff53279ca760de5e823feb10549c3695914634b8664f0b476430c0610",
+    "native-libs/macos-universal/libqeli.dylib": "05fb2b7a7431e2be3f374004a9492d3a61fc60dbf70fc13db6fadba494d278b8",
+    "qeli-mac/QeliMac/native/libqeli.dylib": "05fb2b7a7431e2be3f374004a9492d3a61fc60dbf70fc13db6fadba494d278b8",
+    "native-libs/android/arm64-v8a/libqeli.so": "adcf031c1accb53c7b6082dee0fc67ad2ac58b2a66098ad7e0d319b59f6b8170",
+    "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "adcf031c1accb53c7b6082dee0fc67ad2ac58b2a66098ad7e0d319b59f6b8170",
+    "native-libs/android/x86_64/libqeli.so": "0bc3f2faddeb4bca60bfb379690d46e452842d094ee6f0fb52aee8c4365a5e35",
+    "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "0bc3f2faddeb4bca60bfb379690d46e452842d094ee6f0fb52aee8c4365a5e35",
+    "native-libs/reproducibility/desktop.json": "0d159d9ce7d3c459b6d2c5f7f96a3792702a9a00d292ebe34734f024a7727e1e",
+    "native-libs/reproducibility/android.json": "d2fd0e22d16668daa865c9a527d7e456caba61c59624ff92a4269be5842c5833"
+  },
+  "retained_packet_sha256": {
+    "q34-native-desktop-adopted-eaaed673df714f4ca8d30f2cfd608a64/qualification.json": "05ea8e5aa1fe2b838d8c79e54de12f415c615a384153a3ec7539d1c5eebf16fe",
+    "q34-native-desktop-adopted-eaaed673df714f4ca8d30f2cfd608a64/collection.json": "c8f0e26b1fe7b9022791a7e77fab9ef9804b6639009f9d1510e95e801d9ba85a",
+    "q34-native-desktop-adopted-eaaed673df714f4ca8d30f2cfd608a64/cleanup.json": "663894cfeeb6218c1813f95b2a9fb9ed1ade9dd1449d22d077bc3d4b04781728",
+    "q34-native-desktop-adopted-eaaed673df714f4ca8d30f2cfd608a64/runtime.tar.gz": "a7fb6cd1d68beecfa4a595e45ff3b9249e98baaa5ced085be4e0597e23e53881",
+    "q34-native-android-adopted-b75b87328f01417b82f4dde6e38da1a9/qualification.json": "0fefbd4c05546f1052fa931268d56554205773a24e3768867c172334ab1fb558",
+    "q34-native-android-adopted-b75b87328f01417b82f4dde6e38da1a9/collection.json": "db1bb2a0554870336a74109e7f842c030460f43510755b0dac02dc6d1dbb9aa5",
+    "q34-native-android-adopted-b75b87328f01417b82f4dde6e38da1a9/cleanup.json": "3452d9a32bbfe7e094496ed702ac7bee713472f683c2704dc3b37d6e61b22db9",
+    "q34-native-android-adopted-b75b87328f01417b82f4dde6e38da1a9/runtime.tar.gz": "1e003e2bb1d994afa73c9579234b623e7bf57fcd60168171d086335a128fb69d",
+    "q34-adopted-android-package-20261013/qualification.json": "68ad49b61d88033e16b9e6416ed4c8d67c3856922cd521ed3be4063b5742dbc5",
+    "q34-adopted-android-runtime-20261013/qualified-admission-1791889178039363200.json": "22095b4178f09dbc4aa531d9faca5a488953c55b9dd91ee51bb11c50256f7ce2",
+    "q34-adopted-android-package-20261013/source-cleanup.json": "d913f902d5606046e9b02d84a3358941989a4f34c6e663db23a8b04e95d40d60",
+    "q34-adopted-android-package-20261013/source-cache-inventory.json": "f7a05e9d064b75d8adb031148fc1c8b95ba963f2ea467ef97967ace7f5201bef",
+    "q34-adopted-android-package-20261013/source-recovery.tar.gz": "c3c3ba3814f51e13a0bab32595f6fbf3d7834dcfb72c18b1b3608773ab3945e9",
+    "q34-adopted-android-package-20261013/cleanup-initial-refusal.json": "789742a47786b0b8f297d9f8cc1fab8bb753bc88558c9d6af80be5750d312336"
+  },
+  "windows_ABI_checks": 22,
+  "android_JNI_checks": 23,
+  "packaged_INI_tests": 2,
+  "apks": {
+    "app.apk": {
+      "bytes": 12207583,
+      "sha256": "3a7271620734d01c6d0fa691b911d28a8eb03b462ca7b63b31d8fea80ec68109",
+      "native_libraries": {
+        "arm64-v8a": "adcf031c1accb53c7b6082dee0fc67ad2ac58b2a66098ad7e0d319b59f6b8170",
+        "x86_64": "0bc3f2faddeb4bca60bfb379690d46e452842d094ee6f0fb52aee8c4365a5e35"
+      }
+    },
+    "test.apk": {
+      "bytes": 772485,
+      "sha256": "4d6f5107a37da728ec74a0a3b1719b9c6daee7a02331d09dc2ee2c6cd3935396",
+      "native_libraries": {}
+    },
+    "production-unsigned.apk": {
+      "bytes": 12100093,
+      "sha256": "1044d224bab45d79fdc7b3f3228997c19ceebd11713e4020b2439c54875c984b",
+      "native_libraries": {
+        "arm64-v8a": "adcf031c1accb53c7b6082dee0fc67ad2ac58b2a66098ad7e0d319b59f6b8170",
+        "x86_64": "0bc3f2faddeb4bca60bfb379690d46e452842d094ee6f0fb52aee8c4365a5e35"
+      }
+    }
+  },
+  "actual_runtime_evidence": {
+    "status": "CURRENT_JNI_AND_PACKAGED_INI_RUNTIME_QUALIFIED",
+    "receipt_file": "admission-1791889178039363200.json",
+    "source_identity": "da776fb892bd6c02b34194a8e772770744832a77\n283a1dc0435599a294f8e81abc770e7e6c8acc1a\n",
+    "jni_checks": 23,
+    "packaged_config_tests": 2,
+    "payload": {
+      "classes.dex": {
+        "bytes": 8400,
+        "sha256": "bbe71adf4088ce649acb57066d1f21a069352ded3ad5279a0c4f3394fc2f6689"
+      },
+      "libqeli.so": {
+        "bytes": 4139024,
+        "sha256": "0bc3f2faddeb4bca60bfb379690d46e452842d094ee6f0fb52aee8c4365a5e35"
+      },
+      "app.apk": {
+        "bytes": 12207583,
+        "sha256": "3a7271620734d01c6d0fa691b911d28a8eb03b462ca7b63b31d8fea80ec68109"
+      },
+      "test.apk": {
+        "bytes": 772485,
+        "sha256": "4d6f5107a37da728ec74a0a3b1719b9c6daee7a02331d09dc2ee2c6cd3935396"
+      },
+      "admission_remote.py": {
+        "bytes": 3480,
+        "sha256": "870ff854d13e2095d285442d935902cf235a3337a608d4589dbdf1b969465344"
+      },
+      "runtime_remote.py": {
+        "bytes": 10109,
+        "sha256": "669df1a6bef86572421ffdb799c8c53fc8ec069eccc8f58cc4f943397465e073"
+      }
+    },
+    "archive": {
+      "path": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-adopted-android-runtime-20261013\\collected-1791889163960310100.tar.gz",
+      "bytes": 14496,
+      "sha256": "04599d19e0bfd707c4ccb7eee51373933d0a18467637c0fd619bb1da710e4c70",
+      "files": {
+        "immediate-admission.json": "bf4b3ea8afe757369b20394439b666ee06f1c200c0f55666a00e1327f2a932cc",
+        "manifest.json": "a9bfcf6758327c88fb431b32864eb1541c29dadd2ecfadee9b6d1a70587474e4",
+        "artifacts/app.apk.install.log": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7",
+        "artifacts/com.qeli.test.uninstall.log": "7fc0023a6402c7bd7abd98bb3e580968de4833eed07d88d1cc8d70819d69c7a0",
+        "artifacts/com.qeli.uninstall.log": "7fc0023a6402c7bd7abd98bb3e580968de4833eed07d88d1cc8d70819d69c7a0",
+        "artifacts/config-core-instrumentation.log": "96eb5d40caab1e525eb36c9e5bd02376daa65b3e9a269214a174d50f7a642153",
+        "artifacts/emulator.log": "e696d2e30027924665d0961bd53798727ecacfe5de62835f55903541edefe991",
+        "artifacts/jni.log": "f67b8bf4831a860ca6127fc6d02ea052b0ecdf2568e8a2a64b7bd5ec20c0bb24",
+        "artifacts/result.json": "86a504eae9b1a449ba61d50808f13e4155c1b3cf94a00dbaf60693730b079358",
+        "artifacts/test.apk.install.log": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7",
+        "tmp/adb.0.log": "22189fad40903dbc3f9dd16a0c83bf9afd2114b011c66a7296fffb083c9009b5",
+        "tmp/android-root/netsimd/netsim_session_stats.json": "b8e5aa107fed31274526ee37ded9d68bd973b9923f9a3811bc6a212bc1ef7ea6",
+        "tmp/android-root/netsimd/netsim_stderr.log": "06d6474b4e63726815f5aec3d62b9f6a58efb8c2d9aa1c728450f8728060e5a6",
+        "tmp/android-root/netsimd/netsim_stdout.log": "9ee3e5236b0ac36660127d41880b9aa02b2e3ef01c03cd59feb850611c2e30c6"
+      }
+    },
+    "android_vpn_data_plane_qualified": false,
+    "ordinary_unsigned_production_apk_runtime_qualified": false
+  },
+  "checks": [
+    {
+      "name": "checksum-update",
+      "exit": 0,
+      "log_sha256": "207b0d61e3e64d8bd13197b34b1e72c88c0f8b88411c2d31b3398933dc383ca9"
+    },
+    {
+      "name": "provenance-update",
+      "exit": 0,
+      "log_sha256": "c7c2002ccd30041926416639480b7810508ffcf98c85c9a0610dd4557bd7d8f5"
+    },
+    {
+      "name": "checksum-verify",
+      "exit": 0,
+      "log_sha256": "c7a044471f33a4c0ae6ab493caa3ecce6d5148b53d8460290bc78f3340362690"
+    },
+    {
+      "name": "provenance-verify",
+      "exit": 0,
+      "log_sha256": "b165a29977e1cecb8e8f970e280c7bf69e8a928730eea599b5b2ff31c15251b6"
+    }
+  ],
+  "physical_platform_runtime_qualified": false,
+  "android_VPN_data_plane_qualified": false,
+  "release_certification_rebound": false,
+  "hosted_CI_qualified": false,
+  "push_done": false,
+  "no_push_deploy_release": true,
+  "driver_sha256": "b4fc6595181db51df08bb7d760f05a48b339ee517a9d3a383476e75988516bbb",
+  "package_projection_cleanup": {
+    "status": "EXACT_PACKAGE_SOURCE_ARCHIVED_ONLY_OWNED_BUILD_PROJECTION_REMOVED",
+    "source_root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-adopted-android-package-20261013\\source",
+    "cookie": [
+      14586289549902149593,
+      7036874419656933
+    ],
+    "removed_bytes": 126124279,
+    "archive_bytes": 4503716,
+    "archive_sha256": "c3c3ba3814f51e13a0bab32595f6fbf3d7834dcfb72c18b1b3608773ab3945e9",
+    "inventory_sha256": "f7a05e9d064b75d8adb031148fc1c8b95ba963f2ea467ef97967ace7f5201bef",
+    "source_files": 679,
+    "original_access_denied_failure_retained": true,
+    "no_file_attributes_modified": true,
+    "gradle_and_sdk_caches_preserved": true,
+    "driver_sha256": "4f8959737aa1d7345073f40f7501977354cb7e9d35e6339a12d579a07817ca1a"
+  }
+}

@@ -1,0 +1,413 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_SCOPED_Q32_REMAINS_IN_PROGRESS",
+  "source_commit": "85ea8fa9adab146d52b6f8908e5f29c89f2d8c20",
+  "native_source_digest": "bd410b7bdb925bc4c5549ef1b3d5f6483d61b056e325ac6a78fe29db9becbc05",
+  "findings": [
+    {
+      "id": "F385",
+      "case": "Q32-F006",
+      "severity": "P2",
+      "problem": "log path race",
+      "fix": "Component NOFOLLOW fd walk, NONBLOCK and regular final fd; pinned tail",
+      "status": "FIXED_AND_VERIFIED"
+    },
+    {
+      "id": "F386",
+      "case": "Q32-F007",
+      "severity": "P2",
+      "problem": "unlimited log reader queue",
+      "fix": "Four blocking slots held after caller cancellation; filter1024byte cap",
+      "status": "FIXED_AND_VERIFIED"
+    },
+    {
+      "id": "F387",
+      "case": "Q32-F008",
+      "severity": "P3",
+      "problem": "tail boundary line loss/partial-prefix retention",
+      "fix": "Lookbehind one byte; preserve complete boundary line; drop incomplete prefix",
+      "status": "FIXED_AND_VERIFIED"
+    },
+    {
+      "id": "F388",
+      "case": "Q32-F009",
+      "severity": "P2",
+      "problem": "trace truncation/symlink/FIFO/concurrent dump and runtime I/O",
+      "fix": "Atomic private writer; one admitted dump held through cancellation; blocking worker",
+      "status": "FIXED_AND_VERIFIED"
+    }
+  ],
+  "baseline": {
+    "expected_failed": 3,
+    "old_policy_reproduction": "Original tail/open and trace write only, adapted File seam; no old async/admission reproduction; FIFO baseline excluded",
+    "host_exact_preserved": false,
+    "other_fields_services_guarded": true,
+    "observed_diff": "Three previously observed exact legacy IPv4 rules; no policy-mutation commands; no whole-host firewall invariance claim"
+  },
+  "harness": {
+    "passed": 11,
+    "uid65534_repeat": "PASS",
+    "trace_source_eol_normalized_identity_to_git": true,
+    "log_source": "Actual helpers and four filesystem/admission tests; Axum handler tested in full Linux",
+    "atomic_writer": "Production writer subset plus exact atomic_file.rs; unused-import warnings retained"
+  },
+  "signal": {
+    "dump_1": {
+      "rows": 65536,
+      "first_seq": 2,
+      "last_seq": 65537,
+      "sha256": "748e9a743c555f1610a24c9144ae3786d6dfbab19fd5693e36f49c4bbc4b4315",
+      "mode": "0600"
+    },
+    "dump_2": {
+      "rows": 65536,
+      "first_seq": 2,
+      "last_seq": 65537,
+      "sha256": "748e9a743c555f1610a24c9144ae3786d6dfbab19fd5693e36f49c4bbc4b4315",
+      "mode": "0600"
+    },
+    "status": "PASS",
+    "real_signals": [
+      "SIGUSR1",
+      "SIGUSR1",
+      "SIGINT"
+    ],
+    "shutdown_did_not_rewrite": true,
+    "binary_sha256": "3f4555189765b9b2f0ef00738b365da11fca25def58716562181f26b3aa31c91"
+  },
+  "linux": {
+    "status": "PASS",
+    "library_passed": 2434,
+    "preexisting_ignored": 60,
+    "strict_clippy_all_targets": true,
+    "daemon_debug_build": true,
+    "host_preserved": true,
+    "library_tests_reused_from_same_commit": true,
+    "source_inputs_before_after": 317,
+    "test_binary": {
+      "sha256": "f4137c2dd05fdb5128e7341e896ed99f6ca71513126e0b3804f180a396f80f64",
+      "size": 141267512,
+      "source_commit": "85ea8fa9adab146d52b6f8908e5f29c89f2d8c20"
+    }
+  },
+  "panel": {
+    "node_vm_groups_passed": 118,
+    "static_gate": "11templates/1160RUstrings PASS",
+    "browser_runtime": false
+  },
+  "raw_packet": "audit-debt-20260924/q32-logs-trace-20261008",
+  "plan": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "q32": "IN_PROGRESS",
+    "debt_done": 14,
+    "debt_accepted": [
+      "D06"
+    ]
+  },
+  "push": false,
+  "deployment": false,
+  "configs": "INI only; internal JSON retained",
+  "native": {
+    "desktop": {
+      "artifacts": {
+        "native-libs/macos-universal/libqeli.dylib": {
+          "consumed": {
+            "qeli-mac/QeliMac/native/libqeli.dylib": "a3c1bbb9371c8f86c6950d051518fa319e75958ba65aba638d14a9979ad9681c"
+          },
+          "final_sha256": "a3c1bbb9371c8f86c6950d051518fa319e75958ba65aba638d14a9979ad9681c",
+          "pass_a_sha256": "a3c1bbb9371c8f86c6950d051518fa319e75958ba65aba638d14a9979ad9681c",
+          "pass_b_sha256": "a3c1bbb9371c8f86c6950d051518fa319e75958ba65aba638d14a9979ad9681c",
+          "reproducible": true
+        },
+        "native-libs/windows-x64/qeli.dll": {
+          "consumed": {
+            "qeli-win/QeliWin/native/qeli.dll": "f820722f0ed00d957954d848183d31e848155ff552bd0bf8e15112e1336150c7"
+          },
+          "final_sha256": "f820722f0ed00d957954d848183d31e848155ff552bd0bf8e15112e1336150c7",
+          "pass_a_sha256": "f820722f0ed00d957954d848183d31e848155ff552bd0bf8e15112e1336150c7",
+          "pass_b_sha256": "f820722f0ed00d957954d848183d31e848155ff552bd0bf8e15112e1336150c7",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "85ea8fa9adab146d52b6f8908e5f29c89f2d8c20",
+      "source_date_epoch": 1791413294,
+      "source_digest": "bd410b7bdb925bc4c5549ef1b3d5f6483d61b056e325ac6a78fe29db9becbc05",
+      "source_dirty": false,
+      "toolchain": {
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+        "cargo_zigbuild_version": "0.23.0",
+        "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+        "rcodesign": "apple-codesign 0.29.0",
+        "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+        "zig": "0.13.0"
+      },
+      "host_exact_preserved": true,
+      "host_guard_other_fields_and_services": true
+    },
+    "android": {
+      "artifacts": {
+        "native-libs/android/arm64-v8a/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "c27b8e9663a2caf4bfe76350596839a8da38db61b6cdab7521abb5c10f7d54b3"
+          },
+          "final_sha256": "c27b8e9663a2caf4bfe76350596839a8da38db61b6cdab7521abb5c10f7d54b3",
+          "pass_a_sha256": "c27b8e9663a2caf4bfe76350596839a8da38db61b6cdab7521abb5c10f7d54b3",
+          "pass_b_sha256": "c27b8e9663a2caf4bfe76350596839a8da38db61b6cdab7521abb5c10f7d54b3",
+          "reproducible": true
+        },
+        "native-libs/android/x86_64/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "7f0937d163075bcdb8627c3d0ebf6551da2fe41e24bf4f912b504dd413fa0f7a"
+          },
+          "final_sha256": "7f0937d163075bcdb8627c3d0ebf6551da2fe41e24bf4f912b504dd413fa0f7a",
+          "pass_a_sha256": "7f0937d163075bcdb8627c3d0ebf6551da2fe41e24bf4f912b504dd413fa0f7a",
+          "pass_b_sha256": "7f0937d163075bcdb8627c3d0ebf6551da2fe41e24bf4f912b504dd413fa0f7a",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "85ea8fa9adab146d52b6f8908e5f29c89f2d8c20",
+      "source_date_epoch": 1791413294,
+      "source_digest": "bd410b7bdb925bc4c5549ef1b3d5f6483d61b056e325ac6a78fe29db9becbc05",
+      "source_dirty": false,
+      "toolchain": {
+        "android_ndk": "26.3.11579264",
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_ndk": "cargo-ndk v4.1.2:",
+        "cargo_ndk_version": "4.1.2",
+        "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+      },
+      "host_exact_preserved": true,
+      "host_guard_other_fields_and_services": true
+    }
+  },
+  "windows_abi": {
+    "status": "PASS",
+    "library_sha256": "f820722f0ed00d957954d848183d31e848155ff552bd0bf8e15112e1336150c7",
+    "checks": [
+      {
+        "check": "ABI 1.16 and declared capabilities",
+        "passed": true
+      },
+      {
+        "check": "null configuration rejected before allocation",
+        "passed": true
+      },
+      {
+        "check": "invalid UTF8 returns no handle",
+        "passed": true
+      },
+      {
+        "check": "Created state",
+        "passed": true
+      },
+      {
+        "check": "device identity requires sixteen nonzero bytes",
+        "passed": true
+      },
+      {
+        "check": "start transitions once",
+        "passed": true
+      },
+      {
+        "check": "publish copies plan and enters AwaitingNetwork",
+        "passed": true
+      },
+      {
+        "check": "buffer size probe preserves plan and future event tail",
+        "passed": true
+      },
+      {
+        "check": "stale generation cannot accept network",
+        "passed": true
+      },
+      {
+        "check": "positive ACK enters Running",
+        "passed": true
+      },
+      {
+        "check": "old stats prefix and caller tail preserved",
+        "passed": true
+      },
+      {
+        "check": "malformed batch has no partial acceptance",
+        "passed": true
+      },
+      {
+        "check": "fixed packet pool applies backpressure",
+        "passed": true
+      },
+      {
+        "check": "empty downlink reports zero bytes",
+        "passed": true
+      },
+      {
+        "check": "stop terminates generation",
+        "passed": true
+      },
+      {
+        "check": "stopped bridge is unavailable",
+        "passed": true
+      },
+      {
+        "check": "free and stale handle refuse reuse",
+        "passed": true
+      },
+      {
+        "check": "100 registry reuse cycles preserve stale-handle isolation",
+        "passed": true
+      },
+      {
+        "check": "eight concurrent frees destroy one generation exactly once",
+        "passed": true
+      },
+      {
+        "check": "second native runner cannot enter an active generation",
+        "passed": true
+      },
+      {
+        "check": "free invalidates public handle while runner is leased",
+        "passed": true
+      },
+      {
+        "check": "free cancels and joins pending native handshake",
+        "passed": true
+      }
+    ],
+    "scope": "Windows packaged C ABI and real localhost handshake cancellation; no Wintun or OS network mutation."
+  },
+  "android_jni": {
+    "status": "PASS",
+    "checks": 23,
+    "library_sha256": "7f0937d163075bcdb8627c3d0ebf6551da2fe41e24bf4f912b504dd413fa0f7a",
+    "host_preserved": true,
+    "links_preserved": true,
+    "packages_preserved": true,
+    "original_userdata_preserved": true,
+    "first_run": "23 runtime checks passed, but guest eth0 startup drift failed environment guard; retained, not qualified",
+    "repeat": "Both wlan0/eth0 LOWER_UP and five stable link snapshots before same-byte checks",
+    "runtime_scope": "API34 emulator ART JNI, no VPN/E2E, ARM runtime or managed app rebuild"
+  },
+  "cleanup": {
+    "status": "PASS",
+    "owned_roots_removed": 8,
+    "evidence_files": [
+      "interrupted-cleanup.json",
+      "linux-cleanup.json",
+      "desktop-cleanup.json",
+      "android-cleanup.json",
+      "harness-cleanup.json",
+      "jni-cleanup.json"
+    ],
+    "original_service_processes": {
+      "10.66.116.10": [
+        745,
+        901
+      ],
+      "10.66.116.11": [
+        777,
+        845
+      ]
+    }
+  },
+  "limits": [
+    "Q32 remains open: roaming metrics, notification trust, broad secret redaction and full integration",
+    "Regular-file syscalls are not force-cancelled; job admission does not bound all HTTP buffers",
+    "Trace has no automatic shutdown dump; server UDP/core-owned/standalone-client capture unqualified",
+    "Trace parent-directory races not addressed; final directory fsync errors retain published outcome",
+    "Node VM panel checks, not browser DOM/runtime",
+    "macOS build/load commands/ADHOC structure only; no cryptographic signature verifier or Mac runtime",
+    "No ARM runtime, physical-platform VPN/E2E, managed app rebuild or cross-path hermeticity",
+    "Q29 SIGKILL/auto-null ENONET, Q30 callback drain/Apple, Q31 remaining release pipeline scopes unchanged",
+    "D06 accepted limitation; Mac/iOS/router/Windows network VM user exclusions preserved",
+    "Three exact legacy IPv4 lines drifted in first baseline; all other fields/services guarded, no policy-mutation commands or whole-host firewall invariance claim"
+  ],
+  "retained_failures": [
+    "Initial small harness omitted thiserror dependency",
+    "Incomplete Linux archive omitted conformance fixtures",
+    "New Axum fixture omitted mandatory profile, corrected in 85ea8fa9",
+    "Clippy archive lacked release samples; complete same-commit archive verified",
+    "Early desktop intentionally interrupted after invalid API fixture failure",
+    "First JNI runtime23 PASS but eth0 startup link invariance FAIL"
+  ],
+  "final_checks": [
+    {
+      "name": "native-verify",
+      "command": [
+        "C:/Program Files/Git/bin/bash.exe",
+        "native-libs/verify.sh"
+      ],
+      "exit_code": 0,
+      "output": "native-libs/android/arm64-v8a/libqeli.so: OK\nqeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so: OK\nnative-libs/android/x86_64/libqeli.so: OK\nqeli-android/app/src/main/jniLibs/x86_64/libqeli.so: OK\nnative-libs/windows-x64/qeli.dll: OK\nqeli-win/QeliWin/native/qeli.dll: OK\nnative-libs/macos-universal/libqeli.dylib: OK\nqeli-mac/QeliMac/native/libqeli.dylib: OK\nnative-libs/third-party/windows-x64/wintun.dll: OK\nqeli-win/QeliWin/wintun/wintun.dll: OK\nnative-libs/third-party/windows-x64/windivert/WinDivert.dll: OK\nqeli-win/QeliWin/windivert/WinDivert.dll: OK\nnative-libs/third-party/windows-x64/windivert/WinDivert64.sys: OK\nqeli-win/QeliWin/windivert/WinDivert64.sys: OK\n\nOK: every committed native library matches the manifest, and each canonical copy\n    matches the copy the build stack consumes.\n"
+    },
+    {
+      "name": "provenance",
+      "command": [
+        "python",
+        "native-libs/provenance.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "OK: native cores match this source and independent A/B builds.\r\n"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "output": "checking 660 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+    },
+    {
+      "name": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "name": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "name": "staged-diff",
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": ""
+    }
+  ],
+  "source_digest": "011b902a773f80ccf42c333e9624de79a03035d91418f43d70f77b451050dc17",
+  "qualification_source_commit": "5b199db116f48f767d51f50bb3d31ff783742fa2",
+  "raw_seal": {
+    "file_count": 173,
+    "sha256": "555fe825261e4489ac6d77b9ba6b877e83b7c33cf3251bc64a607566ff6607a8",
+    "manifest": "RAW-MANIFEST.json",
+    "bytes": 442518780
+  }
+}

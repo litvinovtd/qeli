@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Android-client e2e for the fake-tls (default TCP) profile: emulator (com.qeli)
 on .11 -> fake-tls server on .10 (TCP :8443). Installs the freshly-built APK,
-injects a fake-tls JSON profile, drives Connect, verifies Auth OK + assigned IP +
+injects a fake-tls INI profile, drives Connect, verifies Auth OK + assigned IP +
 a server->client ping through the tunnel. Leaves the canonical :443 service alone.
 
 Pass ``--kill-switch`` to prove the Android policy binding as well: the first connect must
@@ -11,16 +11,15 @@ restored during cleanup.
 """
 import os, sys, io, time, re, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-import paramiko
 import ssh_hostkey
 from xml.sax.saxutils import escape
+from android_apk_input import read_cli, install_verified_apk
 
 PW = os.environ.get("QELI_LAB_PASS", "")
 SRV = ("10.66.116.10", "root", PW)
 CLI = ("10.66.116.11", "root", PW)
 ADB = "/root/android-sdk/platform-tools/adb"
 QELI = "/opt/qeli-src/target/release/qeli"
-APK = "/root/android-project/app/build/outputs/apk/debug/app-debug.apk"
 DIR = "/root/ftls-test"
 CONF = f"{DIR}/server-ftls.conf"
 LOG = f"{DIR}/srv-ftls.log"
@@ -29,9 +28,9 @@ TUNIF = "ftls0"
 NET = "10.62.0"
 HASH = "$argon2id$v=19$m=16384,t=2,p=1$cWVsaVNhbHRWYWw$CCYuTv8pvqQrvhrBQW3KjPpEN0MZaFfTKv3HOcGqB8w"
 USER, PASS = "admin", "testpass123"
-if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] != "--kill-switch"):
-    raise SystemExit("usage: e2e_android_faketls.py [--kill-switch]")
-KILL_SWITCH = len(sys.argv) == 2
+APK_ARGS = read_cli(kill_switch=True)
+import paramiko
+KILL_SWITCH = APK_ARGS.kill_switch
 
 
 def conn(h):
@@ -180,7 +179,7 @@ def set_system_lockdown(enabled):
 
 # ── 0. install the freshly-built APK ─────────────────────────────────────────
 print("=== 0. install rebuilt APK ===")
-print("  ", a(f"install -r -d {APK}", t=180).strip()[-60:])
+print("  ", install_verified_apk(cc, APK_ARGS.apk, ADB))
 print("  installed:", a("shell dumpsys package com.qeli | grep -E 'versionName|versionCode' | head -2"))
 
 # ── A. fake-tls server on .10 ────────────────────────────────────────────────

@@ -1,27 +1,18 @@
 //! Hybrid X25519MLKEM768 (TLS named group 0x11ec) key exchange.
 //!
-//! This is the post-quantum key exchange that current Chrome (≥124, on by
-//! default) offers in every ClientHello. qeli performs it as a REAL hybrid KEX in
-//! two independent layers — do not conflate them:
+//! qeli uses the hybrid group in two distinct layers:
 //!
-//!  1. **Inner qeli tunnel** ([`mlkem768_keypair`] / [`mlkem768_encapsulate`] /
-//!     [`mlkem768_decapsulate`]) — for every wire mode except `plain`
-//!     (`fake-tls`/`obfs`/`reality-tls`/UDP) the client carries a real ML-KEM-768
-//!     encapsulation key in its X25519MLKEM768 key_share and keeps `dk`; the
-//!     (fake-TLS) server encapsulates ([`crate::server::handler`] /
-//!     `udp_handler`) and returns the ciphertext in its ServerHello; both sides
-//!     fold the ML-KEM secret with the X25519 secret into the data-plane keys
-//!     ([`crate::crypto::derive::derive_keys_hybrid`]). So the VPN PAYLOAD itself
-//!     is post-quantum. The server REQUIRES the share for non-`plain` modes (no
-//!     silent downgrade); `plain` stays classic X25519 ([`crate::crypto::derive`]).
+//! 1. **Inner legacy camouflage tunnel** (`fake-tls`, `obfs`, `reality`, UDP):
+//!    clients retain a real ML-KEM-768 decapsulation key; servers require the PQ
+//!    share and both sides combine X25519 and ML-KEM in `derive_keys_hybrid`.
+//! 2. **Outer real TLS 1.3** (`reality-tls`): the TLS handshake can negotiate
+//!    X25519MLKEM768, or classic X25519 according to the selected target/server.
+//!    The private inner H2-carried qeli exchange uses classic X25519 with static
+//!    identity binding. It is not a second mandatory PQ exchange. `plain` also
+//!    uses classic X25519, without an outer TLS layer.
 //!
-//!  2. **Outer real TLS 1.3** (`reality-tls`) — the hand-rolled REALITY stack also
-//!     negotiates 0x11ec in the genuine TLS 1.3 session it terminates, so the
-//!     transport layer is independently post-quantum on PQ-capable targets.
-//!
-//! [`x25519_mlkem768_client_share`] remains for the fingerprint-only legacy hello
-//! (throwaway `dk`); the live paths use [`x25519_mlkem768_share_from_ek`] so the
-//! ML-KEM secret is actually used.
+//! Live paths use [`x25519_mlkem768_share_from_ek`] and retain the matching
+//! decapsulation key so the ML-KEM secret is actually used.
 
 use ml_kem::{Decapsulate, Encapsulate, EncapsulationKey, Kem, Key, KeyExport, MlKem768};
 
@@ -39,29 +30,10 @@ pub const MLKEM768_CT_LEN: usize = 1088;
 /// key exchange.
 pub type DecapKey = ml_kem::DecapsulationKey<MlKem768>;
 
-/// Full client `key_exchange` for X25519MLKEM768: `ML-KEM-768 ek (1184) ‖ X25519
-/// pub (32)` = 1216 bytes. The ML-KEM key comes first per draft-ietf-tls-ecdhe-mlkem
-/// for the 0x11ec code point (the order is reversed from the older
-/// X25519Kyber768Draft00 0x6399, where X25519 came first).
-///
-/// A fresh ML-KEM-768 keypair is generated each call and its secret (decapsulation)
-/// half is dropped — the server selects X25519, so the PQ secret is never used.
-pub fn x25519_mlkem768_client_share(x25519_pub: &[u8]) -> Vec<u8> {
-    // `generate_keypair` uses the OS RNG (getrandom) — secure and free of any
-    // rand_core version coupling. The decapsulation key is dropped immediately.
-    let (_dk, ek) = MlKem768::generate_keypair();
-    let ek_bytes = ek.to_bytes(); // KeyExport: 1184-byte encapsulation key
-    let mut out = Vec::with_capacity(MLKEM768_EK_LEN + x25519_pub.len());
-    out.extend_from_slice(ek_bytes.as_slice());
-    out.extend_from_slice(x25519_pub);
-    out
-}
-
 /// Build the X25519MLKEM768 client `key_exchange` from a CALLER-PROVIDED ML-KEM
 /// encapsulation key, so the caller keeps the matching decapsulation key for a real
 /// hybrid handshake: `ek (1184) ‖ x25519_pub (32)` = 1216 bytes. Same wire layout as
-/// [`x25519_mlkem768_client_share`] (which discards the secret for fingerprint-only
-/// parity); use this when the ML-KEM secret must actually be used.
+/// the negotiated hybrid group. The caller must retain the corresponding secret key.
 pub fn x25519_mlkem768_share_from_ek(ek: &[u8], x25519_pub: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(ek.len() + x25519_pub.len());
     out.extend_from_slice(ek);
@@ -71,8 +43,7 @@ pub fn x25519_mlkem768_share_from_ek(ek: &[u8], x25519_pub: &[u8]) -> Vec<u8> {
 
 /// Client: a fresh ML-KEM-768 keypair for a real hybrid handshake. Returns the
 /// decapsulation key to keep and the 1184-byte encapsulation key for the
-/// ClientHello key_share. (Unlike [`x25519_mlkem768_client_share`], which throws
-/// the secret away for fingerprint-only parity, here the caller retains `dk`.)
+/// ClientHello key_share. The caller retains `dk` through decapsulation.
 pub fn mlkem768_keypair() -> (DecapKey, Vec<u8>) {
     let (dk, ek) = MlKem768::generate_keypair();
     (dk, ek.to_bytes().as_slice().to_vec())
@@ -85,15 +56,20 @@ pub fn mlkem768_encapsulate(client_ek: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     let key = Key::<EncapsulationKey<MlKem768>>::try_from(client_ek).ok()?;
     let ek = EncapsulationKey::<MlKem768>::new(&key).ok()?;
     let (ct, ss) = ek.encapsulate();
+    let ss = zeroize::Zeroizing::new(ss);
     Some((ct.as_slice().to_vec(), ss.as_slice().to_vec()))
 }
 
 /// Client: decapsulate the server's ciphertext with the retained decapsulation
-/// key. Returns the 32-byte shared secret, or `None` on a malformed ciphertext.
+/// key. Returns the 32-byte shared secret, or `None` for a wrong-length ciphertext.
+/// A full-length invalid ciphertext produces an implicit-rejection secret (FIPS 203);
+/// the subsequent authenticated handshake must reject it, rather than revealing
+/// whether decapsulation accepted the ciphertext.
 pub fn mlkem768_decapsulate(dk: &DecapKey, ct: &[u8]) -> Option<Vec<u8>> {
-    dk.decapsulate_slice(ct)
-        .ok()
-        .map(|ss| ss.as_slice().to_vec())
+    dk.decapsulate_slice(ct).ok().map(|ss| {
+        let ss = zeroize::Zeroizing::new(ss);
+        ss.as_slice().to_vec()
+    })
 }
 
 #[cfg(test)]
@@ -121,7 +97,8 @@ mod tests {
     #[test]
     fn share_layout_and_size() {
         let x = [7u8; 32];
-        let s = x25519_mlkem768_client_share(&x);
+        let (_dk, ek) = mlkem768_keypair();
+        let s = x25519_mlkem768_share_from_ek(&ek, &x);
         assert_eq!(
             s.len(),
             MLKEM768_EK_LEN + 32,
@@ -137,8 +114,114 @@ mod tests {
     #[test]
     fn fresh_ek_each_call() {
         let x = [0u8; 32];
-        let a = x25519_mlkem768_client_share(&x);
-        let b = x25519_mlkem768_client_share(&x);
+        let (_a, a_ek) = mlkem768_keypair();
+        let (_b, b_ek) = mlkem768_keypair();
+        let a = x25519_mlkem768_share_from_ek(&a_ek, &x);
+        let b = x25519_mlkem768_share_from_ek(&b_ek, &x);
         assert_ne!(a, b, "each call must generate a fresh ML-KEM key");
+    }
+}
+
+#[cfg(test)]
+mod nist_tests {
+    use super::*;
+    #[allow(deprecated)]
+    use ml_kem::ExpandedKeyEncoding;
+
+    fn vectors() -> serde_json::Value {
+        serde_json::from_str(include_str!("../../../conformance/mlkem768-nist.json")).unwrap()
+    }
+    fn bytes(case: &serde_json::Value, field: &str) -> Vec<u8> {
+        case[field]
+            .as_str()
+            .unwrap()
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn decapsulation_key_has_zeroize_on_drop() {
+        fn requires_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        requires_zeroize_on_drop::<DecapKey>();
+    }
+
+    #[test]
+    #[allow(deprecated)] // Only NIST's published expanded-key vectors use this format.
+    fn nist_mlkem768_keygen_known_answers() {
+        let data = vectors();
+        assert_eq!(data["keygen"].as_array().unwrap().len(), 25);
+        for case in data["keygen"].as_array().unwrap() {
+            let mut seed = bytes(case, "d");
+            seed.extend(bytes(case, "z"));
+            let dk = DecapKey::from_seed(ml_kem::Seed::try_from(seed.as_slice()).unwrap());
+            assert_eq!(
+                dk.encapsulation_key().to_bytes().as_slice(),
+                bytes(case, "ek"),
+                "ek tcId {}",
+                case["tcId"]
+            );
+            assert_eq!(
+                dk.to_expanded_bytes().as_slice(),
+                bytes(case, "dk"),
+                "dk tcId {}",
+                case["tcId"]
+            );
+        }
+    }
+
+    #[test]
+    fn nist_mlkem768_encapsulation_known_answers() {
+        let data = vectors();
+        assert_eq!(data["encapsulation"].as_array().unwrap().len(), 25);
+        for case in data["encapsulation"].as_array().unwrap() {
+            let key =
+                Key::<EncapsulationKey<MlKem768>>::try_from(bytes(case, "ek").as_slice()).unwrap();
+            let ek = EncapsulationKey::<MlKem768>::new(&key).unwrap();
+            let m = ml_kem::B32::try_from(bytes(case, "m").as_slice()).unwrap();
+            let (ct, ss) = ek.encapsulate_deterministic(&m);
+            assert_eq!(
+                ct.as_slice(),
+                bytes(case, "c"),
+                "ciphertext tcId {}",
+                case["tcId"]
+            );
+            assert_eq!(
+                ss.as_slice(),
+                bytes(case, "k"),
+                "secret tcId {}",
+                case["tcId"]
+            );
+        }
+    }
+
+    #[test]
+    #[allow(deprecated)] // Production uses seeds; this imports independent NIST dk vectors.
+    fn nist_mlkem768_decapsulation_and_implicit_rejection_known_answers() {
+        let data = vectors();
+        assert_eq!(data["decapsulation"].as_array().unwrap().len(), 10);
+        let mut rejected = 0;
+        for case in data["decapsulation"].as_array().unwrap() {
+            let expanded = ml_kem::ExpandedDecapsulationKey::<MlKem768>::try_from(
+                bytes(case, "dk").as_slice(),
+            )
+            .unwrap();
+            let dk = DecapKey::from_expanded(&expanded).unwrap();
+            let ct = bytes(case, "c");
+            assert_eq!(
+                mlkem768_decapsulate(&dk, &ct).unwrap(),
+                bytes(case, "k"),
+                "tcId {}",
+                case["tcId"]
+            );
+            assert!(mlkem768_decapsulate(&dk, &ct[..ct.len() - 1]).is_none());
+            if case["reason"] == "modify ciphertext" {
+                rejected += 1;
+            }
+        }
+        assert_eq!(rejected, 5, "pin independent invalid-ciphertext coverage");
+        // 12-bit polynomial coefficients must be canonical (< q = 3329).
+        assert!(mlkem768_encapsulate(&[255; MLKEM768_EK_LEN]).is_none());
     }
 }

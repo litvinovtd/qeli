@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-06",
+  "source_digest": "1a2c093db7b467e3f8a016f4621fdf8a9d657f5a8f323de35382d2f92fb73af5",
+  "base_worktree_commit": "c470aac2e7cdcf7e762dd621c80f9f44b0547915",
+  "base_dev_commit": "1baf581b1f4682d0979a6e424ecdbc56696cf189",
+  "status": "SCOPED_PASS",
+  "findings": [
+    "F352"
+  ],
+  "raw_packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-openwrt-procd-20261006",
+  "raw_seal_sha256": "fa6679ae7f4e6927c0794d1a9ff31ca744376d7abc29f3032e1774c359e774f7",
+  "upstream": {
+    "host": "10.66.116.11",
+    "root": "/var/tmp/qeli-q31-openwrt-procd-20261006",
+    "rootfs": "https://downloads.openwrt.org/releases/24.10.4/targets/x86/64/openwrt-24.10.4-x86-64-rootfs.tar.gz",
+    "rootfs_sha256": "e7f8ab84eef55c7eb23492de7b0517dbc23fbedaa4abbb680fe64720c309dc03",
+    "procd_revision": "42d3937654508b04da64969f9d764ac2ec411904",
+    "execution": "Linux6.12.105 GNU host; official x86_64 musl userspace chroot; procd non-PID1"
+  },
+  "artifacts": [
+    {
+      "path": "sbin/procd",
+      "sha256": "d267ca1676920c6d353d6542a962712d4668b691940f4eac84a722cbed22a704",
+      "size": 101803
+    },
+    {
+      "path": "sbin/ubusd",
+      "sha256": "f299e17d8ca8aaeadc4556274c9d3643572efc8f74ffb796b203d2181a04aa02",
+      "size": 32970
+    },
+    {
+      "path": "bin/ubus",
+      "sha256": "d8ab6c9309607953312b53ca0f604b99abd32745a665751db74fa436f7d3c100",
+      "size": 20493
+    },
+    {
+      "path": "bin/busybox",
+      "sha256": "2f05c4e66e4edab3914b24e00a8c016db2b65f4165b56b7842b359c5c1f55e8c",
+      "size": 401426
+    },
+    {
+      "path": "sbin/uci",
+      "sha256": "7bd93610c609fd355f1ed19f22d8542ed94c259102156b78920022ce3ba8e755",
+      "size": 16395
+    },
+    {
+      "path": "etc/rc.common",
+      "sha256": "dd8ae95c78d10cccf78cb487874f163ace4c1ee14dace05fe28393b19ba639e4",
+      "size": 3522
+    },
+    {
+      "path": "lib/functions/procd.sh",
+      "sha256": "41da6baa59cf7043163b9ecf4a89596df4a08e038df53c3485bc3d771bf9f5a9",
+      "size": 15056
+    },
+    {
+      "path": "lib/functions.sh",
+      "sha256": "0a834605bca24da7d31e15f6f37767290d12f95b1cdb5804f797684b329f66dc",
+      "size": 12126
+    },
+    {
+      "path": "lib/config/uci.sh",
+      "sha256": "08b91a09a010137cf2a5fea5b75cf6898bdc7358405769b6c7432a98aeb2c7a4",
+      "size": 4282
+    },
+    {
+      "path": "usr/share/libubox/jshn.sh",
+      "sha256": "d392055502cf3bf74d4a733b454ca0beff9374e167732a0b831df96413beafb8",
+      "size": 6018
+    },
+    {
+      "path": "usr/bin/jshn",
+      "sha256": "09ab566cb4d4b12b6fe37344b0231de71d014ea5e575e45e49e6e41679f52df9",
+      "size": 16395
+    },
+    {
+      "path": "lib/ld-musl-x86_64.so.1",
+      "sha256": "475c3500d121156de375b0ba4fde419e6188588bdb2326e61ead35dc85307e7a",
+      "size": 513028
+    },
+    {
+      "path": "usr/lib/opkg/status",
+      "sha256": "ee2210232f6ca9a670d9dca6ae373155edec5846e8f3b093890b09e1b2471465",
+      "size": 28856
+    }
+  ],
+  "checks": {
+    "actual_procd": [
+      {
+        "id": "procd-final",
+        "command": "cd /var/tmp/qeli-q31-openwrt-procd-20261006/source && QELI_OPENWRT_ROOTFS_TEMPLATE=/var/tmp/qeli-q31-openwrt-procd-20261006/rootfs python3 -m unittest discover -s scripts -p test_openwrt_procd.py -v",
+        "rc": 0
+      }
+    ],
+    "full_openwrt": [
+      {
+        "id": "full-dash",
+        "command": "cd /var/tmp/qeli-q31-openwrt-procd-20261006/source && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 QELI_OPENWRT_TEST_SHELL=\"/bin/dash\" QELI_OPENWRT_INI_INSPECTOR=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/ini-inspector QELI_OPENWRT_RC_COMMON_FIXTURE=/var/tmp/qeli-q31-secrets-upgrade-20261006/upstream-rc.common QELI_OPENWRT_RPCD_TEMPLATE=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/runtime-template QELI_OPENWRT_ROOTFS_TEMPLATE=/var/tmp/qeli-q31-openwrt-procd-20261006/rootfs python3 -m unittest discover -s scripts -p \"test_openwrt_*.py\" -v",
+        "rc": 0
+      },
+      {
+        "id": "full-busybox",
+        "command": "cd /var/tmp/qeli-q31-openwrt-procd-20261006/source && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 QELI_OPENWRT_TEST_SHELL=\"/usr/bin/busybox ash\" QELI_OPENWRT_INI_INSPECTOR=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/ini-inspector QELI_OPENWRT_RC_COMMON_FIXTURE=/var/tmp/qeli-q31-secrets-upgrade-20261006/upstream-rc.common QELI_OPENWRT_RPCD_TEMPLATE=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/runtime-template QELI_OPENWRT_ROOTFS_TEMPLATE=/var/tmp/qeli-q31-openwrt-procd-20261006/rootfs python3 -m unittest discover -s scripts -p \"test_openwrt_*.py\" -v",
+        "rc": 0
+      }
+    ],
+    "baseline": {
+      "command": "cd /var/tmp/qeli-q31-openwrt-procd-20261006/baseline && QELI_OPENWRT_ROOTFS_TEMPLATE=/var/tmp/qeli-q31-openwrt-procd-20261006/rootfs python3 -m unittest discover -s scripts -p test_openwrt_procd.py -v",
+      "rc": 1
+    },
+    "local": [
+      {
+        "id": "luci",
+        "command": [
+          "node",
+          "scripts/test_openwrt_luci.js"
+        ],
+        "rc": 0,
+        "log": "luci.log"
+      },
+      {
+        "id": "recipes",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_native_recipes.py",
+          "-v"
+        ],
+        "rc": 0,
+        "log": "recipes.log"
+      },
+      {
+        "id": "bindings",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/gen_config_bindings.py",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "bindings.log"
+      },
+      {
+        "id": "docs",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/check_docs.py"
+        ],
+        "rc": 0,
+        "log": "docs.log"
+      },
+      {
+        "id": "diff",
+        "command": [
+          "git",
+          "diff",
+          "--cached",
+          "--check"
+        ],
+        "rc": 0
+      }
+    ],
+    "cleanup": "own-process-cleanup.log"
+  },
+  "input_proof": {
+    "base_worktree": "c470aac2e7cdcf7e762dd621c80f9f44b0547915",
+    "base_dev": "1baf581b1f4682d0979a6e424ecdbc56696cf189",
+    "source_stage_tree_before_certification": "188464a54b44e593b3b6d33570e8c42cad06f8f0",
+    "source_digest": "1a2c093db7b467e3f8a016f4621fdf8a9d657f5a8f323de35382d2f92fb73af5",
+    "staged_inputs": [
+      {
+        "path": "qeli-openwrt/files/qeli.init",
+        "sha256": "9d0c5c496d147d18aefd4129696ad10469016ddf806b940af8368d417db6e0d5",
+        "size": 19185
+      },
+      {
+        "path": "scripts/test_openwrt_procd.py",
+        "sha256": "7d381d2e9e104a1172109845b2ece0bd683715ef50636a82865463b27a2abd0b",
+        "size": 9617
+      },
+      {
+        "path": "qeli-openwrt/README.md",
+        "sha256": "f0d4481d17178206e17f72847dcdbf500f03b1bc13c0345b935fa6464f27a4a0",
+        "size": 15112
+      },
+      {
+        "path": "qeli-openwrt/INSTALL.md",
+        "sha256": "c8eedb73fbcfc23ca9f8273d031df7e00f8f277cc3435276618a4240fd7ab260",
+        "size": 15469
+      },
+      {
+        "path": "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "e272be1aa404f204d42da8379b8a5d83322a655689ca123ff0ae0e9ef40a1af2",
+        "size": 121828
+      },
+      {
+        "path": "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "6d168f74379eb99810478625503fae8c8f64691e6d80a805319091721db3e6d9",
+        "size": 86286
+      },
+      {
+        "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "359d5acaa142dee207d5bf4284d5fc7137ef2b217705f35c6ac2c6ba691db68f",
+        "size": 276412
+      },
+      {
+        "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "e9e7c36f7ac2baa027bef5b7fdb28bdbb974740df6d8d8e827b395d93d47e359",
+        "size": 199460
+      }
+    ],
+    "git_lab_inputs_verified": 20,
+    "human_content_sha256": {
+      "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+      "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+    }
+  },
+  "reused_rpcd_template": {
+    "proof": "reused-rpcd-template-proof.json",
+    "regular_files_verified": 28,
+    "links_verified": 19
+  },
+  "scope": "Q31 F352: preserve actual ubus service set/add/delete exit status through rc.common result hooks and retain failed-stop restart/reload gate. Official SHA-verified OpenWrt24.10.4 x86 rootfs/procd2024.12.22~42d39376-r1, actual musl ubusd/ubus/UCI/jshn/BusyBox/rc.common/procd.sh in owned chroot; procd ordinary non-PID1 daemon.7new procd methods PASS without skips: start argv/env/private INI, stop, restart/reload PID/config replacement, real child SIGKILL respawn, disabled/autostart symlinks, missing credentials/binary, missing supervisor/socket failures. Old exact Git init on same7 methods reproduces8 false-success assertions; initial6-method4-failure baseline retained. Full69 OpenWrt tests PASS in each ash/dash without skips with real ucode/rpcd/procd runtime environments; procd methods always rootfs BusyBox.14Node/37recipes/docs/bindings/diff PASS;20 exact transferred Git files,28reused rpcd regular files/19links and prior runtime/inspector/dispatcher identities verified. Inert client receipt/exec sleep and TUN existence file only; no Qeli data plane, NetworkPlan cleanup, firewall reload, OpenWrt PID1 boot/reboot, HTTP or firmware networking qualification. Private0700 own directories/processes/socket only; cleanup confirmed no residual runtime roots/processes. Host services/network/firewall and .10 unchanged. Qeli Rust/core/native/router sources/recipes/artifacts unchanged; no new Rust/FFI/cross release build. SDK NOT_RUN (1.7GB available .11), package resolver/install/build, preflight/core generation/ABA, administrator replacement races and clean A/B remain OPEN; firmware USER_EXCLUDED.41 historic cases/dates/artifacts/acceptance preserved except source digest;Q29SIGKILLFAIL/ENONET,Q30drainOPEN/Appleexclusions,D06ACCEPTED;Q31IN_PROGRESS28/37(75.7%),9remain.",
+  "remaining": [
+    "SDK package resolution/install/build NOT_RUN",
+    "real VPN cleanup/connectivity NOT_RUN",
+    "OpenWrt PID1 boot/reboot and firmware USER_EXCLUDED",
+    "HTTP authentication bridge NOT_RUN",
+    "preflight-to-launch config/core generation/ABA OPEN",
+    "root-admin path replacement races OPEN",
+    "full installer SIGKILL/powerloss transaction OPEN",
+    "clean A/B/hermetic shared caches/config/PATH OPEN",
+    "new Rust/FFI/native release artifact refresh NOT_RUN"
+  ]
+}

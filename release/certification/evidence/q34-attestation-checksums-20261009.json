@@ -1,0 +1,303 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_ATTESTATION_SUBJECT_AND_ATOMIC_CHECKSUM_SCOPED",
+  "source_digest": "8a322cfaf7a7db13cf4bb6e4ae27ef88af16ecb1e58752a423e9a6d9b5c66471",
+  "qualification_source_commit": "0e3ce0f65c7d0004369600d0b178930a80513f85",
+  "product_source_commit": "0e3ce0f65c7d0004369600d0b178930a80513f85",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F478/Q34-F032",
+    "F479/Q34-F033"
+  ],
+  "verification": {
+    "upstream_action": {
+      "status": "PASS",
+      "url": "https://raw.githubusercontent.com/actions/attest-build-provenance/96278af6caaf10aea03fd8d33a09a777ca52d62f/action.yml",
+      "sha256": "cd486dbf1c1f8ace30e109adb16f04aaa07f4cc73af2a3400801ef1fef5e98b9",
+      "scope": "Exact pinned composite always generates a build-provenance predicate; step name does not change its type"
+    },
+    "baseline_checksum": {
+      "status": "PASS_DEFECT_REPRODUCED",
+      "rc": 0,
+      "manifest": "bc4a71180870f7945155fbb02f4b0a2e3faa2a62d6d31b7039013055ed19869a  bad asset.deb\n",
+      "consumer_token": "bad",
+      "scope": "Actual baseline CLI returned success and replaced old manifest with a whitespace basename unrepresentable by installer whitespace lookup"
+    },
+    "windows_tests": {
+      "status": "PASS",
+      "rows": [
+        {
+          "suite": "test_gen_checksums.py",
+          "rc": 0,
+          "output": "test_actual_asset_symlink_refused (test_gen_checksums.ChecksumTests.test_actual_asset_symlink_refused) ... skipped 'POSIX symlinks qualified on Linux'\r\ntest_actual_linux_newline_name_preserves_manifest (test_gen_checksums.ChecksumTests.test_actual_linux_newline_name_preserves_manifest) ... skipped 'POSIX file names and symlinks qualified on Linux'\r\ntest_actual_output_symlink_keeps_external_target (test_gen_checksums.ChecksumTests.test_actual_output_symlink_keeps_external_target) ... skipped 'POSIX symlinks qualified on Linux'\r\ntest_atomic_replace_failure_preserves_manifest_and_removes_temp (test_gen_checksums.ChecksumTests.test_atomic_replace_failure_preserves_manifest_and_removes_temp) ... ok\r\ntest_checksum_delimiters_and_control_names_are_not_admitted (test_gen_checksums.ChecksumTests.test_checksum_delimiters_and_control_names_are_not_admitted) ... ok\r\ntest_empty_inputs_preserve_manifest (test_gen_checksums.ChecksumTests.test_empty_inputs_preserve_manifest) ... ok\r\ntest_fifo_refused_without_blocking (test_gen_checksums.ChecksumTests.test_fifo_refused_without_blocking) ... skipped 'POSIX special file qualified on Linux'\r\ntest_hash_io_failure_preserves_previous_manifest (test_gen_checksums.ChecksumTests.test_hash_io_failure_preserves_previous_manifest) ... ok\r\ntest_missing_directory_returns_two (test_gen_checksums.ChecksumTests.test_missing_directory_returns_two) ... ok\r\ntest_real_cli_invalid_space_name_preserves_previous_manifest (test_gen_checksums.ChecksumTests.test_real_cli_invalid_space_name_preserves_previous_manifest) ... ok\r\ntest_real_cli_sorted_lf_exact_hashes_and_nested_directory (test_gen_checksums.ChecksumTests.test_real_cli_sorted_lf_exact_hashes_and_nested_directory) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 11 tests in 0.207s\r\n\r\nOK (skipped=4)\r\n"
+        },
+        {
+          "suite": "test_release_tag.py",
+          "rc": 0,
+          "output": "test_annotated_tag_peeled_to_source_commit (test_release_tag.TagTests.test_annotated_tag_peeled_to_source_commit) ... ok\r\ntest_branch_only_is_not_a_release_tag (test_release_tag.TagTests.test_branch_only_is_not_a_release_tag) ... ok\r\ntest_ci_failure_creates_no_output (test_release_tag.TagTests.test_ci_failure_creates_no_output) ... ok\r\ntest_dirty_tracked_source_refused (test_release_tag.TagTests.test_dirty_tracked_source_refused) ... ok\r\ntest_exact_commit_ci_selector_and_outputs (test_release_tag.TagTests.test_exact_commit_ci_selector_and_outputs) ... ok\r\ntest_git_trust_flags_cannot_hide_modified_source (test_release_tag.TagTests.test_git_trust_flags_cannot_hide_modified_source) ... ok\r\ntest_lightweight_tag_matches_exact_source_and_pin (test_release_tag.TagTests.test_lightweight_tag_matches_exact_source_and_pin) ... ok\r\ntest_missing_git_or_timeout_returns_refusal (test_release_tag.TagTests.test_missing_git_or_timeout_returns_refusal) ... ok\r\ntest_missing_tag (test_release_tag.TagTests.test_missing_tag) ... ok\r\ntest_same_name_branch_cannot_replace_other_tag_commit (test_release_tag.TagTests.test_same_name_branch_cannot_replace_other_tag_commit) ... ok\r\ntest_skip_worktree_source_refused (test_release_tag.TagTests.test_skip_worktree_source_refused) ... ok\r\ntest_source_change_during_ci_admission_refused (test_release_tag.TagTests.test_source_change_during_ci_admission_refused) ... ok\r\ntest_unsafe_tag_refused_before_git (test_release_tag.TagTests.test_unsafe_tag_refused_before_git) ... ok\r\ntest_untracked_input_refused (test_release_tag.TagTests.test_untracked_input_refused) ... ok\r\ntest_version_mismatch (test_release_tag.TagTests.test_version_mismatch) ... ok\r\ntest_build_attestation_covers_only_the_locally_built_package (test_release_tag.WorkflowTests.test_build_attestation_covers_only_the_locally_built_package) ... ok\r\ntest_ci_covers_every_workflow_change (test_release_tag.WorkflowTests.test_ci_covers_every_workflow_change) ... ok\r\ntest_release_and_docker_bind_pin_and_legal_gates (test_release_tag.WorkflowTests.test_release_and_docker_bind_pin_and_legal_gates) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 18 tests in 2.531s\r\n\r\nOK\r\n"
+        },
+        {
+          "suite": "test_native_recipes.py",
+          "rc": 0,
+          "output": "=== pass a: Windows x86_64-pc-windows-gnu ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[win/a] rc=0 in 0s\r\n=== pass a: macOS universal2-apple-darwin ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[mac/a] rc=0 in 0s\r\n=== pass a: Android arm64-v8a + x86_64 ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[android/a] rc=0\r\ntest_active_release_scenarios_are_checkout_and_tool_path_neutral (test_native_recipes.NativeRecipeTests.test_active_release_scenarios_are_checkout_and_tool_path_neutral) ... ok\r\ntest_android_e2e_uses_current_abi_strict_ssh_and_exact_restore (test_native_recipes.NativeRecipeTests.test_android_e2e_uses_current_abi_strict_ssh_and_exact_restore) ... ok\r\ntest_apk_rebuild_uses_strict_shared_lab_connection (test_native_recipes.NativeRecipeTests.test_apk_rebuild_uses_strict_shared_lab_connection) ... ok\r\ntest_authoritative_session_teardown_joins_admission_transaction (test_native_recipes.NativeRecipeTests.test_authoritative_session_teardown_joins_admission_transaction) ... ok\r\ntest_client_subnet_admission_is_non_destructive_and_fail_closed (test_native_recipes.NativeRecipeTests.test_client_subnet_admission_is_non_destructive_and_fail_closed) ... ok\r\ntest_config_matrix_uses_strict_server_client_and_users_validation (test_native_recipes.NativeRecipeTests.test_config_matrix_uses_strict_server_client_and_users_validation) ... ok\r\ntest_desktop_ipv6_merge_keeps_persist_tun_plan_guard (test_native_recipes.NativeRecipeTests.test_desktop_ipv6_merge_keeps_persist_tun_plan_guard) ... ok\r\ntest_failed_tcp_and_udp_admission_release_restored_device_lease (test_native_recipes.NativeRecipeTests.test_failed_tcp_and_udp_admission_release_restored_device_lease) ... ok\r\ntest_fuzz_harnesses_use_the_renamed_library_crate (test_native_recipes.NativeRecipeTests.test_fuzz_harnesses_use_the_renamed_library_crate) ... ok\r\ntest_gui_connection_logs_include_sanitized_username (test_native_recipes.NativeRecipeTests.test_gui_connection_logs_include_sanitized_username) ... ok\r\ntest_independent_artifacts_still_have_distinct_storage (test_native_recipes.NativeRecipeTests.test_independent_artifacts_still_have_distinct_storage) ... ok\r\ntest_installer_e2e_fails_closed_on_any_red_case (test_native_recipes.NativeRecipeTests.test_installer_e2e_fails_closed_on_any_red_case) ... ok\r\ntest_installer_formats_ipv6_authorities_and_public_panel_bind (test_native_recipes.NativeRecipeTests.test_installer_formats_ipv6_authorities_and_public_panel_bind) ... ok\r\ntest_installer_selects_and_verifies_the_host_deb_architecture (test_native_recipes.NativeRecipeTests.test_installer_selects_and_verifies_the_host_deb_architecture) ... ok\r\ntest_installer_strictly_validates_the_final_mutated_config_before_restart (test_native_recipes.NativeRecipeTests.test_installer_strictly_validates_the_final_mutated_config_before_restart) ... ok\r\ntest_ios_retained_wire_primitives_are_test_only (test_native_recipes.NativeRecipeTests.test_ios_retained_wire_primitives_are_test_only) ... ok\r\ntest_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop (test_native_recipes.NativeRecipeTests.test_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop) ... ok\r\ntest_keenetic_recipes_resolve_the_current_checkout (test_native_recipes.NativeRecipeTests.test_keenetic_recipes_resolve_the_current_checkout) ... ok\r\ntest_lab_gate_syncs_integration_tests_and_their_release_fixture (test_native_recipes.NativeRecipeTests.test_lab_gate_syncs_integration_tests_and_their_release_fixture) ... ok\r\ntest_linux_matrix_uses_the_configured_management_route_end_to_end (test_native_recipes.NativeRecipeTests.test_linux_matrix_uses_the_configured_management_route_end_to_end) ... ok\r\ntest_macos_install_name_does_not_contain_build_pass_path (test_native_recipes.NativeRecipeTests.test_macos_install_name_does_not_contain_build_pass_path) ... ok\r\ntest_macos_packaging_batches_signing_and_accepts_adhoc_runtime_flag (test_native_recipes.NativeRecipeTests.test_macos_packaging_batches_signing_and_accepts_adhoc_runtime_flag) ... ok\r\ntest_macos_packaging_uses_checked_shared_lab_connection (test_native_recipes.NativeRecipeTests.test_macos_packaging_uses_checked_shared_lab_connection) ... ok\r\ntest_mobile_connection_properties_use_the_live_generation_snapshot (test_native_recipes.NativeRecipeTests.test_mobile_connection_properties_use_the_live_generation_snapshot) ... ok\r\ntest_mobile_update_requests_cannot_migrate_to_the_physical_network (test_native_recipes.NativeRecipeTests.test_mobile_update_requests_cannot_migrate_to_the_physical_network) ... ok\r\ntest_native_builds_use_private_sources_and_one_job (test_native_recipes.NativeRecipeTests.test_native_builds_use_private_sources_and_one_job) ... ok\r\ntest_native_client_recipes_do_not_enable_the_server_stack (test_native_recipes.NativeRecipeTests.test_native_client_recipes_do_not_enable_the_server_stack) ... ok\r\ntest_native_library_target_avoids_qeli_executable_pdb_collision (test_native_recipes.NativeRecipeTests.test_native_library_target_avoids_qeli_executable_pdb_collision) ... ok\r\ntest_native_recipes_require_the_abi_1_12_roaming_exports (test_native_recipes.NativeRecipeTests.test_native_recipes_require_the_abi_1_12_roaming_exports) ... ok\r\ntest_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys (test_native_recipes.NativeRecipeTests.test_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys) ... ok\r\ntest_rcodesign_textual_error_is_not_accepted_with_zero_exit (test_native_recipes.NativeRecipeTests.test_rcodesign_textual_error_is_not_accepted_with_zero_exit) ... ok\r\ntest_release_checksum_is_lf_only_and_installer_handles_crlf_defensively (test_native_recipes.NativeRecipeTests.test_release_checksum_is_lf_only_and_installer_handles_crlf_defensively) ... ok\r\ntest_release_server_requires_jemalloc_but_client_builds_stay_isolated (test_native_recipes.NativeRecipeTests.test_release_server_requires_jemalloc_but_client_builds_stay_isolated) ... ok\r\ntest_release_stripping_is_cross_target_safe (test_native_recipes.NativeRecipeTests.test_release_stripping_is_cross_target_safe) ... ok\r\ntest_retired_root_ssh_scenarios_exit_before_network_or_mutation (test_native_recipes.NativeRecipeTests.test_retired_root_ssh_scenarios_exit_before_network_or_mutation) ... ok\r\ntest_router_recipes_skip_unused_ffi_crate_types_and_fail_closed (test_native_recipes.NativeRecipeTests.test_router_recipes_skip_unused_ffi_crate_types_and_fail_closed) ... ok\r\ntest_tracked_python_scenarios_never_silently_trust_a_new_ssh_host (test_native_recipes.NativeRecipeTests.test_tracked_python_scenarios_never_silently_trust_a_new_ssh_host) ... ok\r\ntest_udp_idle_reaper_joins_admission_before_releasing_device_lease (test_native_recipes.NativeRecipeTests.test_udp_idle_reaper_joins_admission_before_releasing_device_lease) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 38 tests in 0.173s\r\n\r\nOK\r\n"
+        }
+      ],
+      "scope": "Windows checksum11 including4POSIXskips;release18;nativeRecipes38. Linux file semantics require separate run"
+    },
+    "linux_tests": {
+      "status": "PASS",
+      "tests": 11,
+      "skips": 0,
+      "baseline_newline": {
+        "rc": 0,
+        "verify_rc": 1,
+        "manifest": "bc4a71180870f7945155fbb02f4b0a2e3faa2a62d6d31b7039013055ed19869a  bad\nasset.deb\n",
+        "stdout": "Wrote 1 entries to /var/tmp/qeli-q34-checksums-20261008212157521993/baseline-assets/SHA256SUMS\nbc4a71180870f7945155fbb02f4b0a2e3faa2a62d6d31b7039013055ed19869a  bad\nasset.deb\n",
+        "verify_output": "bad: \u041e\u0428\u0418\u0411\u041a\u0410 \u043f\u0440\u0438 \u043e\u0442\u043a\u0440\u044b\u0442\u0438\u0438 \u0438\u043b\u0438 \u0447\u0442\u0435\u043d\u0438\u0438\nsha256sum: bad: \u041d\u0435\u0442 \u0442\u0430\u043a\u043e\u0433\u043e \u0444\u0430\u0439\u043b\u0430 \u0438\u043b\u0438 \u043a\u0430\u0442\u0430\u043b\u043e\u0433\u0430\nsha256sum: WARNING: 1 line is improperly formatted\nsha256sum: WARNING: 1 listed file could not be read\n",
+        "scope": "Actual POSIX newline basename: baseline returns success, GNU verifier rejects its malformed manifest"
+      },
+      "gnu_verifier_output": "QeliWin.zip: \u0426\u0415\u041b\nqeli_0.8.2_amd64.deb: \u0426\u0415\u041b\n",
+      "inputs": [
+        {
+          "path": "gen_checksums.py",
+          "sha256": "a443b1eefa36931bab5053a81958b521cc0497092bd1ae6b32e812346e96c547"
+        },
+        {
+          "path": "test_gen_checksums.py",
+          "sha256": "4943fd90d787d20ac4959f510cb3175efc99ad8eb238cae2ec9576256d2e1b63"
+        },
+        {
+          "path": "baseline.py",
+          "sha256": "3f57ad401566304cbdc6b16fefd575e77253f491d2dcd84e3263fb6e2bdd54b7"
+        }
+      ],
+      "scope": "Actual checksum CLI, POSIX newline, symlink targets and FIFO; no release/native/container build or VPN runtime"
+    },
+    "linux_cleanup": {
+      "status": "PASS",
+      "root": "/var/tmp/qeli-q34-checksums-20261008212157521993",
+      "backup_sha256": "c6350463bff4b6f8b3df1d04a5c72852427b4615c694dc6eccd08f08cb2c40c5",
+      "backup_bytes": 5302,
+      "guards": "PASS owned-root /proc and mount guards",
+      "host_restored": true,
+      "original_service": "MainPID=777\nActiveState=active\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n777\n845",
+      "scope": "Only own /var/tmp Python fixture changed; SHA-verified recoverable backup downloaded before guarded cleanup, service/network/kernel untouched"
+    },
+    "yaml_parse": {
+      "status": "PASS",
+      "parser": "SHA-qualified PyYAML6.0.3 BaseLoader",
+      "parser_archive_sha256": "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f",
+      "parser_source_files_checked": 17,
+      "rows": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "status": "PASS",
+          "jobs": 15
+        },
+        {
+          "file": ".github/workflows/docker-publish.yml",
+          "status": "PASS",
+          "jobs": 1
+        },
+        {
+          "file": ".github/workflows/release-attest.yml",
+          "status": "PASS",
+          "jobs": 1
+        }
+      ],
+      "baseline_build_attestations": 2,
+      "final_build_attestations": 1,
+      "attestation_subject": "${{ steps.assets.outputs.subject }}",
+      "scope": "Actual YAML parsing, exact local DEB subject and baseline foreign wildcard; not GitHub expressions, hosted signing or deletion of old published attestations"
+    },
+    "qualified_inputs": {
+      "status": "PASS",
+      "paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "normalization": "lf",
+          "sha256": "5a806166d71ae9bdb95318d61856e85bd218c8e86087e79c7c5d3348bce9aa7d"
+        },
+        {
+          "path": ".github/workflows/docker-publish.yml",
+          "normalization": "lf",
+          "sha256": "0765bab04e946407fc37edff6fac72bd3f7ca2345bc09e4568eb09df6d464c28"
+        },
+        {
+          "path": ".github/workflows/release-attest.yml",
+          "normalization": "lf",
+          "sha256": "f50b15856ccd8c360472683966ed475320b79fa93d13d8e1774b7746bfa666c3"
+        },
+        {
+          "path": "LICENSING.md",
+          "normalization": "lf",
+          "sha256": "588b2f0956220cf5ef70ad9d83dc8eba6d8414bdf5fb4db1396873bd71802cd7"
+        },
+        {
+          "path": "docs/eng/index.md",
+          "normalization": "lf",
+          "sha256": "2a44c2c79386723ea1055a3772d91653db6ee205d48d09682e622d07ce6f4cac"
+        },
+        {
+          "path": "docs/eng/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "f8e3eb89f580f98ab6fa84c4887f43687b45e93aab30f77faf9bbb6bfc603bc7"
+        },
+        {
+          "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "6e93fa5f8fcd8fe538c22f620adedbac79e4da39d0c5976154ceebedcc6000d2"
+        },
+        {
+          "path": "docs/ru/index.md",
+          "normalization": "lf",
+          "sha256": "a47332c33830c8fada98ae5ed07100b9cb53f936460267d26de6ab505fd795d5"
+        },
+        {
+          "path": "docs/ru/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "6795a45340b8f0b8a88ae26f800bfe35fe289c8c513c7afe632336117b1c5b59"
+        },
+        {
+          "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "80f44362bb9210e9b005dedbdd5a0fba60ad5225338852476bffca19285fa95b"
+        },
+        {
+          "path": "install-qeli-server.sh",
+          "normalization": "lf",
+          "sha256": "0beedf00b96b92fa0a2cc3ed138f79d6f2f67711e16a72ab3e5c8d5ad17d8f03"
+        },
+        {
+          "path": "qeli/src/server/update.rs",
+          "normalization": "lf",
+          "sha256": "3ca9f509bbdd54db0195aed38522b3665205d90330861a4c1247eeac689584ca"
+        },
+        {
+          "path": "scripts/check_docs.py",
+          "normalization": "lf",
+          "sha256": "e260cb024b56fc6257108801d5dae01607dfadfb6cb5458669b3b2e25e808a10"
+        },
+        {
+          "path": "scripts/gen_checksums.py",
+          "normalization": "lf",
+          "sha256": "a443b1eefa36931bab5053a81958b521cc0497092bd1ae6b32e812346e96c547"
+        },
+        {
+          "path": "scripts/managed_licenses.py",
+          "normalization": "lf",
+          "sha256": "89357c4986a4c1263aa640e6aa071c4fa63df04b34739ebaed4a25ad5dd50e65"
+        },
+        {
+          "path": "scripts/native_licenses.py",
+          "normalization": "lf",
+          "sha256": "711bb8040b940f194248b1dee52e02b8b298e5b59dab49bf89d88b1de00f684b"
+        },
+        {
+          "path": "scripts/native_repro.py",
+          "normalization": "lf",
+          "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+        },
+        {
+          "path": "scripts/release_certification.py",
+          "normalization": "lf",
+          "sha256": "d3dd7fe497da0df4519835decfadb4cb64abfa9c38f29e301ff4630b7e5885b5"
+        },
+        {
+          "path": "scripts/test_gen_checksums.py",
+          "normalization": "lf",
+          "sha256": "4943fd90d787d20ac4959f510cb3175efc99ad8eb238cae2ec9576256d2e1b63"
+        },
+        {
+          "path": "scripts/test_native_recipes.py",
+          "normalization": "lf",
+          "sha256": "b82cf0ef4909d27a81f401c5061a65dbf8a080d3f43d53e23e98fb027faf9bd1"
+        },
+        {
+          "path": "scripts/test_release_tag.py",
+          "normalization": "lf",
+          "sha256": "8262da9a61036ffa291437083d89a87c95200d762f4d3ec31c0c26665b1eb1b1"
+        },
+        {
+          "path": "scripts/toolchain_licenses.py",
+          "normalization": "lf",
+          "sha256": "a69294906378b7d6e5ebf137c53dbfdc8dc4be092e928e8ebb4d7b90794c11de"
+        }
+      ],
+      "scope": "Exact local inputs; common bundle payload qualification unchanged/inherited from48sealed anchors, not regenerated"
+    },
+    "local_checks": {
+      "status": "PASS",
+      "checks": [
+        {
+          "label": "docs",
+          "rc": 0,
+          "output": "checking 708 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "label": "diff",
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "native-notices",
+          "rc": 0,
+          "output": "{\r\n  \"status\": \"PASS\",\r\n  \"locked_packages\": 235,\r\n  \"resources\": 458,\r\n  \"indexed_files\": 532,\r\n  \"bytes\": 6557892,\r\n  \"supplements\": 6,\r\n  \"toolchains\": {\r\n    \"status\": \"PASS\",\r\n    \"components\": 7,\r\n    \"resources\": 65,\r\n    \"files\": 69,\r\n    \"bytes\": 3999768\r\n  },\r\n  \"scope\": \"Full Cargo.lock superset; not per-binary linkage or complete release licensing\"\r\n}\r\n"
+        },
+        {
+          "label": "toolchain-notices",
+          "rc": 0,
+          "output": "{\"bytes\": 3999768, \"components\": 7, \"files\": 69, \"resources\": 65, \"status\": \"PASS\"}\r\n"
+        },
+        {
+          "label": "managed-notices",
+          "rc": 0,
+          "output": "{\"bytes\": 4659411, \"files\": 187, \"fonts\": 6, \"packages\": 67, \"status\": \"PASS\", \"supplements\": 48}\r\n"
+        }
+      ],
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/release-attest.yml",
+        "LICENSING.md",
+        "docs/eng/index.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-ATTESTATION-CHECKSUMS.md",
+        "docs/ru/index.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-ATTESTATION-CHECKSUMS.md",
+        "scripts/gen_checksums.py",
+        "scripts/test_gen_checksums.py",
+        "scripts/test_release_tag.py"
+      ],
+      "native_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifact_hashes": 14,
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+        "qeli/src/web/assets/app.css": "c925399cb860bea80fcbc5d66dec7cf3ebb0740fbd8bb7489d211730bdc1d8bd"
+      },
+      "distinct_methods": 67,
+      "windows_checksum_pass": 7,
+      "windows_checksum_posix_skips": 4,
+      "linux_checksum_pass": 11,
+      "linux_skips": 0,
+      "release_methods": 18,
+      "native_recipe_methods": 38,
+      "scope": "Scoped checksum and workflow fixes only; no Docker/native rebuild or hosted signing. Repeated platform runs are not added to distinct methods."
+    }
+  },
+  "raw_packet": {
+    "name": "q34-attestation-checksums-20261009",
+    "files": 54,
+    "bytes": 1417911,
+    "manifest_sha256": "eac43f5804f6d55b789e2e3afbf87db459cdf18325fee1056a920febd94f77a9",
+    "runtime_status": "PASS_SCOPED_CHECKSUM_LINUX_AND_WORKFLOW_SOURCE_NO_HOSTED_SIGNING",
+    "path": "audit-debt-20260924/q34-attestation-checksums-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F478-F479/Q34-F032-F033 scoped release provenance/checksum fixes. Exact upstream pinned build-provenance action always generates build predicate; baseline workflow applies it to downloaded foreign assets with dist wildcard. Removed foreign attestation and dead presence detector; actual CI-built/extracted-checked DEB remains exact sole build-attestation subject, foreign checksums retained. Old published attestations not removed and no hosted signing/verification claim. Atomic generator validates regular assets and consumer-compatible ASCII basenames, rejects controls/whitespace/backslash/symlinks/output-symlink/FIFO before publication, hashes all then same-directory temp/replace with cleanup and prior manifest retained on read/replace failure. Actual Windows whitespace baseline and Linux newline baseline returned0 with bad manifests; GNU rejects old Linux manifest, verifies final two-file output. 67distinct methods qualified:Linux11 checksum no skips,Windows7 plus4POSIXskips coveredLinux,release18,nativeRecipes38. Actual PyYAML6.0.3 BaseLoader source matched prior official SHA-qualified archive,parsed3workflows,confirmed exact DEB subject/baseline foreign wildcard/new CI suite;notGitHub expressions/Actions. Current source/checkers/docs708Markdown9checks/22qualifiedinputs/nativee3fb14artifactSHA/protected PASS;unchanged common bundle payload/source qualifications inherited from prior48sealed anchors,notfresh packaging. Owned .11 Python fixture SHA-backed-up/proc-mountguard-cleaned,servicePID777845/CLI75bc/network exact unchanged. No native/Docker/SDK/APK/daemon rebuild, no VPN runtime or matching source publication qualification. Matching third-party source/OpenWrtimmutableSDKcut/wholeDocker/currentActions/signatures/fullrelease remainOPEN.41cases81prior supplements preserved modulo source_digest bookkeeping,append82scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;Q29SIGKILLFAIL-ENONET/Q30/Q31/F459braces/D06accepted/USER_EXCLUDED retained.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

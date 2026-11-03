@@ -6,6 +6,7 @@ final class VPNConfigTests: XCTestCase {
         let source = """
         # Moscow
         [qeli]
+        name = Moscow
         server = vpn.example.com:8443
         proto = udp
         user = alice
@@ -43,7 +44,7 @@ final class VPNConfigTests: XCTestCase {
         config.realityShortID = "0123456789abcdef"
         config.mtu = 1320
 
-        let link = config.toQeliURI(label: "Телефон")
+        let link = try config.toQeliURI(label: "Телефон")
         let decoded = try VPNConfig(parsing: link)
 
         XCTAssertEqual(decoded.serverAddress, config.serverAddress)
@@ -54,6 +55,12 @@ final class VPNConfigTests: XCTestCase {
         XCTAssertEqual(decoded.realityShortID, config.realityShortID)
         XCTAssertEqual(decoded.mtu, 1320)
         XCTAssertEqual(VPNConfig.label(fromQeliURI: link), "Телефон")
+    }
+
+    func testPasswordlessLinkImportsAsDraftButCannotBeShared() throws {
+        let draft = try VPNConfig.fromQeliURI("qeli://u:@host:443")
+        XCTAssertEqual(draft.password, "")
+        XCTAssertThrowsError(try draft.toQeliURI())
     }
 
     func testRejectsInvalidPortAndMode() {
@@ -134,9 +141,9 @@ final class VPNConfigTests: XCTestCase {
         for key in ["kill_switch", "local", "lport", "name"] {
             XCTAssertEqual(back.carriedKeys[key], config.carriedKeys[key])
         }
-        XCTAssertTrue(portable.contains("gateway = true"))
+        XCTAssertFalse(portable.contains("gateway ="), "draft export preserves absence")
         XCTAssertTrue(portable.contains("dns_servers = 9.9.9.9"))
-        XCTAssertTrue(portable.contains("padding = true"))
+        XCTAssertFalse(portable.contains("padding ="), "defaults materialize only at runtime")
         XCTAssertTrue(portable.contains("allow_unpinned_tofu = true"))
 
         let native = try config.toTransportCoreINI()

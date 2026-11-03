@@ -1,5 +1,4 @@
 using System.IO;
-using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
@@ -12,219 +11,309 @@ using Qeli.Shared.Vpn;
 namespace QeliWin.Service;
 
 /// <summary>Status snapshot the service writes and the GUI polls.</summary>
-public sealed class ServiceStatus
-{
-    public string Status { get; set; } = "Disconnected";
-    public string? Extra { get; set; }
-    public DateTime Time { get; set; }
-    public long BytesUp { get; set; }
-    public long BytesDown { get; set; }
-    public DateTime? Since { get; set; }
-}
+public sealed class ServiceStatus : DesktopServiceStatus { }
 
 /// <summary>
 /// Shared state between the Windows Service (writer) and the GUI (reader), stored under
-/// %ProgramData%\QeliWin so LocalSystem can write and any user can read.
+/// %ProgramData%\QeliWin\service for LocalSystem and elevated administrators only.
 /// </summary>
 public static class ServiceState
 {
-    public static readonly string Dir =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "QeliWin");
+    public static readonly string Dir = StorageLayout.ServiceDirectory;
     public static string ProfileFile => Path.Combine(Dir, "service-profile.json");
     public static string StatusFile => Path.Combine(Dir, "service-status.json");
     public static string LogFile => Path.Combine(Dir, "service.log");
     public static string DesiredConnectionFile => Path.Combine(Dir, "service-connect.enabled");
 
     private static readonly object _logLock = new();
-    private const long MaxLogBytes = 256 * 1024;
+    internal const int MaxLogBytes = 256 * 1024;
+    internal const int MaxLogLineChars = 4096;
+    internal const int MaximumProfileBytes = 4 * 1024 * 1024;
+    internal const int MaximumStatusBytes = 64 * 1024;
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     public static void EnsureDir()
     {
-        bool created = !Directory.Exists(Dir);
-        Directory.CreateDirectory(Dir);
-        if (created) RestrictDirAcl();
+        StorageLayout.EnsureRoot();
+        StorageLayout.EnsureDirectory(Dir, privateData: true);
     }
 
-    /// <summary>Persist the user's connection intent separately from SCM auto-start.
-    /// The service itself may start at boot so it can be controlled before logon, but a
-    /// missing/corrupt flag is safely interpreted as "stay disconnected".</summary>
+    internal static void RequireTrusted(string path, bool ancestor = false, bool privateFile = false)
+    {
+        string? unsafeAccess = ServiceManager.NonAdminWriterOn(path, ancestor, privateFile);
+        if (unsafeAccess != null)
+            throw new UnauthorizedAccessException(
+                $"Refusing untrusted service storage '{path}': {unsafeAccess}. " +
+                "Stop VPN and complete network recovery; archive the unsafe storage, " +
+                "then recreate it and re-save a trusted profile from the elevated GUI.");
+    }
+
+    internal static void CheckExistingFile(string path)
+    {
+        // GetAttributes distinguishes missing files from ACL/I/O errors and broken links.
+        try { _ = File.GetAttributes(path); }
+        catch (FileNotFoundException) { return; }
+        RequireTrusted(path, privateFile: true);
+    }
+
+    /// <summary>Persist intent atomically; a missing/invalid flag means disconnected.</summary>
     public static void SetDesiredConnected(bool connected)
     {
         EnsureDir();
-        RestrictDirAcl();
-        string temporary = DesiredConnectionFile + $".{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllText(temporary, connected ? "1" : "0");
-            File.Move(temporary, DesiredConnectionFile, overwrite: true);
-        }
-        finally
-        {
-            try { File.Delete(temporary); } catch { }
-        }
+        AtomicWrite(DesiredConnectionFile, Encoding.UTF8.GetBytes(connected ? "1" : "0"));
     }
 
     public static bool DesiredConnected()
     {
-        try { return File.ReadAllText(DesiredConnectionFile).Trim() == "1"; }
+        try
+        {
+            EnsureDir();
+            CheckExistingFile(DesiredConnectionFile);
+            using var file = OpenSnapshot(DesiredConnectionFile);
+            return StrictUtf8.GetString(ReadBounded(file, 16)).Trim() == "1";
+        }
         catch { return false; }
     }
 
-    /// <summary>
-    /// Tighten the DACL of the %ProgramData%\QeliWin directory so only SYSTEM, the
-    /// Administrators group and the creating user may write into it. %ProgramData%
-    /// inherits a DACL that lets ordinary "Users"/"Authenticated Users" create files;
-    /// without this a non-admin could PLANT a <c>service-profile.json</c> that the
-    /// LocalSystem service then loads — pointing the machine-wide tunnel at an attacker
-    /// server with attacker-chosen routing/DNS (local EoP + boot-time MITM). Dropping the
-    /// inherited "Users" write on the directory closes the planting vector at the source.
-    /// Best-effort: an ACL failure never breaks operation.
-    /// </summary>
-    private static void RestrictDirAcl()
+    // The containing directory is private and verified before calling this helper.
+    // Publication is a same-directory rename; readers see the complete old or new file.
+    internal static void AtomicWrite(string destination, byte[] bytes)
     {
-        if (!OperatingSystem.IsWindows()) return;
+        CheckExistingFile(destination);
+        PublishAtomic(destination, temporary =>
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                RequireTrusted(temporary, privateFile: true);
+                stream.Write(bytes);
+                stream.Flush(flushToDisk: true);
+            }
+        });
+    }
+
+    // Factored to fault-inject an interrupted writer without touching service storage.
+    internal static void PublishAtomic(string destination, Action<string> writeTemporary)
+    {
+        string temporary = destination + $".{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+        string previous = temporary + ".previous";
+        bool published = false;
         try
         {
-            var di = new DirectoryInfo(Dir);
-            var sec = new DirectorySecurity();
-            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-            var inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
-            void Allow(IdentityReference id) => sec.AddAccessRule(new FileSystemAccessRule(
-                id, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
-            Allow(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null));        // service
-            Allow(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
-            var me = WindowsIdentity.GetCurrent().User;                                   // GUI user (writer)
-            if (me != null) Allow(me);
-            di.SetAccessControl(sec);
+            writeTemporary(temporary);
+            // ReplaceFile preserves an existing reader's handle; MoveFileEx with
+            // REPLACE_EXISTING can fail while that handle is open on Windows.
+            // Keep a private rollback name: ReplaceFile has rare partial-failure
+            // outcomes where the old file has moved but publication did not finish.
+            if (File.Exists(destination)) File.Replace(temporary, destination, previous);
+            else File.Move(temporary, destination);
+            published = true;
         }
-        catch
+        catch (Exception failure)
         {
-            // Hardening only — leave the dir usable even if the ACL can't be set.
+            if (File.Exists(previous) && !File.Exists(destination))
+            {
+                try { File.Move(previous, destination); }
+                catch (Exception recovery)
+                {
+                    throw new IOException($"Profile publication failed; previous data retained at '{previous}': {recovery.Message}", failure);
+                }
+            }
+            throw;
+        }
+        finally
+        {
+            try { File.Delete(temporary); } catch { }
+            if (published) { try { File.Delete(previous); } catch { } }
         }
     }
 
-    public static void SaveProfile(VpnConfig cfg)
+    // Read a single generation while allowing its atomic replacement, never a writer.
+    private static FileStream OpenSnapshot(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+
+    // Enforce the budget during streaming too, not just against an initial Length.
+    internal static byte[] ReadBounded(Stream input, int maximumBytes)
     {
+        using var output = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        try
+        {
+            while (true)
+            {
+                int read = input.Read(buffer, 0,
+                    (int)Math.Min(buffer.Length, maximumBytes - output.Length + 1));
+                if (read == 0) return output.ToArray();
+                if (output.Length + read > maximumBytes)
+                    throw new InvalidDataException("Service storage exceeds its byte limit");
+                output.Write(buffer, 0, read);
+            }
+        }
+        finally { CryptographicOperations.ZeroMemory(buffer); }
+    }
+
+    internal static byte[] EncodeProfile(VpnConfig cfg)
+    {
+        ProfileStorePayload.Validate(cfg);
+        var plaintext = StrictUtf8.GetBytes(JsonSerializer.Serialize(cfg));
+        try
+        {
+            if (plaintext.Length > MaximumProfileBytes)
+                throw new InvalidDataException("Service profile is too large");
+            var encrypted = ProtectedData.Protect(plaintext, null, DataProtectionScope.LocalMachine);
+            // The reader limits the stored blob, including DPAPI envelope overhead.
+            if (encrypted.Length > MaximumProfileBytes)
+                throw new InvalidDataException("Service profile is too large");
+            return encrypted;
+        }
+        finally { CryptographicOperations.ZeroMemory(plaintext); }
+    }
+
+    internal static VpnConfig DecodeProfile(byte[] bytes, bool allowLegacy, out bool legacy)
+    {
+        legacy = false;
+        byte[]? plaintext = null;
+        try
+        {
+            try { plaintext = ProtectedData.Unprotect(bytes, null, DataProtectionScope.LocalMachine); }
+            catch (CryptographicException)
+            {
+                if (!allowLegacy)
+                    throw new InvalidDataException("Service profile is corrupt or not DPAPI-encrypted; re-save it from the GUI");
+                plaintext = bytes; // trusted, elevated GUI legacy migration only
+                legacy = true;
+            }
+            var cfg = JsonSerializer.Deserialize<VpnConfig>(StrictUtf8.GetString(plaintext))
+                ?? throw new InvalidDataException("Service profile is empty");
+            ProfileStorePayload.Validate(cfg);
+            return cfg;
+        }
+        finally
+        {
+            if (plaintext != null && !ReferenceEquals(plaintext, bytes))
+                CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
+
+    public static void SaveProfile(VpnConfig cfg) => PublishProfile(EncodeProfile(cfg));
+
+    internal static void PublishProfile(byte[] encrypted)
+    {
+        if (encrypted.Length > MaximumProfileBytes)
+            throw new InvalidDataException("Service profile is too large");
         EnsureDir();
-        // Re-assert the directory DACL on every save (idempotent): retroactively fixes a
-        // dir created by an older build with the weak inherited %ProgramData% ACL. Runs in
-        // the GUI/admin context, infrequently, so the cost is irrelevant.
-        RestrictDirAcl();
-        // Encrypt at rest with DPAPI LocalMachine scope: the GUI (current user) writes
-        // it and the service (LocalSystem) reads it, so a cross-user scope is required.
-        // This removes the trivial plaintext exposure of the password/obfs_key (a
-        // copied file / backup / forensic image / casual `type` no longer reveals
-        // them). See docs/*/archive/plans/RELEASE-FIXES.md E1.
-        var json = JsonSerializer.Serialize(cfg);
-        var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.LocalMachine);
-        File.WriteAllBytes(ProfileFile, enc);
-        RestrictProfileAcl();
-    }
-
-    /// <summary>
-    /// Tighten the DACL of the encrypted profile so only the writing user, the
-    /// service (LocalSystem) and Administrators can read it (C1). The profile is
-    /// DPAPI <c>LocalMachine</c>-scoped (so the service can decrypt it), which means
-    /// any local process can decrypt the bytes — and %ProgramData% grants the broad
-    /// "Users" group read by default. Without this, a non-admin local user could
-    /// read the file and recover the VPN password / obfs_key. Best-effort: an ACL
-    /// failure never breaks save (the DPAPI encryption still applies regardless).
-    /// </summary>
-    private static void RestrictProfileAcl()
-    {
-        if (!OperatingSystem.IsWindows()) return;
-        try
-        {
-            var fi = new FileInfo(ProfileFile);
-            var sec = new FileSecurity();
-            // Drop inheritance (and the inherited Users ACE) — replace the DACL
-            // with exactly the three principals below.
-            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-            void Allow(IdentityReference id) => sec.AddAccessRule(
-                new FileSystemAccessRule(id, FileSystemRights.FullControl, AccessControlType.Allow));
-            Allow(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null));        // service (reader)
-            Allow(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
-            var me = WindowsIdentity.GetCurrent().User;                                   // GUI user (writer)
-            if (me != null) Allow(me);
-            fi.SetAccessControl(sec);
-        }
-        catch
-        {
-            // Hardening only — leave the file usable even if the ACL can't be set.
-        }
+        AtomicWrite(ProfileFile, encrypted);
     }
 
     public static VpnConfig? LoadProfile()
     {
+        EnsureDir();
+        CheckExistingFile(ProfileFile);
+        byte[] bytes;
         try
         {
-            if (!File.Exists(ProfileFile)) return null;
-            var bytes = File.ReadAllBytes(ProfileFile);
-            string json;
-            bool wasLegacyPlaintext = false;
-            try
-            {
-                var plain = ProtectedData.Unprotect(bytes, null, DataProtectionScope.LocalMachine);
-                json = Encoding.UTF8.GetString(plain);
-            }
-            catch
-            {
-                // Legacy plaintext profile (pre-E1) — read, then migrate to encrypted.
-                // But NEVER when running as the service (LocalSystem): a non-DPAPI file in
-                // the shared %ProgramData% dir may have been PLANTED by a non-admin to
-                // redirect the LocalSystem tunnel (attacker server + machine-wide routing/DNS
-                // = local EoP / boot-time MITM). Fail closed there — only DPAPI-encrypted
-                // profiles the GUI wrote are trusted. The interactive GUI still migrates its
-                // own legacy plaintext (IsSystem == false).
-                if (OperatingSystem.IsWindows() && WindowsIdentity.GetCurrent().IsSystem)
-                {
-                    AppendLog("SECURITY: refusing to load a non-DPAPI (plaintext) service profile — " +
-                              "possible planted file; delete it and reconfigure from the GUI.");
-                    return null;
-                }
-                json = Encoding.UTF8.GetString(bytes);
-                wasLegacyPlaintext = true;
-            }
-            var cfg = JsonSerializer.Deserialize<VpnConfig>(json);
-            if (wasLegacyPlaintext && cfg != null) SaveProfile(cfg);
+            using var file = OpenSnapshot(ProfileFile);
+            bytes = ReadBounded(file, MaximumProfileBytes);
+        }
+        catch (FileNotFoundException) { return null; } // only absence is "no profile"
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var cfg = DecodeProfile(bytes, allowLegacy: !identity.IsSystem, out bool legacy);
+            if (legacy) SaveProfile(cfg);
             return cfg;
         }
-        catch { return null; }
+        finally { CryptographicOperations.ZeroMemory(bytes); }
     }
 
     public static void WriteStatus(VpnStatus status, string? extra,
-        long bytesUp = 0, long bytesDown = 0, DateTime? since = null)
+        long bytesUp = 0, long bytesDown = 0, DateTime? since = null,
+        DesktopTunnelAddresses? addresses = null)
     {
         try
         {
+            // Timestamp the supplied counters before filesystem work can delay publication.
+            long monotonicTimeMs = ServiceMonotonicClock.NowMilliseconds;
+            DateTime sampledAt = DateTime.Now;
             EnsureDir();
-            File.WriteAllText(StatusFile, JsonSerializer.Serialize(new ServiceStatus
+            AtomicWrite(StatusFile, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new ServiceStatus
             {
                 Status = status.ToString(),
-                Extra = extra,
-                Time = DateTime.Now,
+                // Bound status even when an upstream error includes a large file/response.
+                Extra = extra is { Length: > 2048 } ? extra[..2048] : extra,
+                Time = sampledAt,
+                MonotonicTimeMs = monotonicTimeMs,
                 BytesUp = bytesUp,
                 BytesDown = bytesDown,
                 Since = since,
-            }));
+                Addresses = status == VpnStatus.Connected ? addresses ?? DesktopTunnelAddresses.Empty : DesktopTunnelAddresses.Empty,
+            })));
         }
         catch { /* ignore */ }
     }
 
     public static ServiceStatus? ReadStatus()
     {
+        EnsureDir();
+        CheckExistingFile(StatusFile);
         try
         {
-            return File.Exists(StatusFile)
-                ? JsonSerializer.Deserialize<ServiceStatus>(File.ReadAllText(StatusFile))
-                : null;
+            using var file = OpenSnapshot(StatusFile);
+            return DecodeStatus(ReadBounded(file, MaximumStatusBytes));
         }
-        catch { return null; }
+        catch (FileNotFoundException) { return null; }
     }
+
+    internal static ServiceStatus DecodeStatus(byte[] bytes) => DesktopServiceStatus.Decode<ServiceStatus>(bytes);
+
+    public static string ReadLog()
+    {
+        EnsureDir();
+        CheckExistingFile(LogFile);
+        try
+        {
+            using var file = new FileStream(LogFile, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            return ReadLogSnapshot(file);
+        }
+        catch (FileNotFoundException) { return ""; }
+    }
+
+    // A bounded complete view also handles truncate+regrow and atomic rotation without
+    // trusting a stale byte cursor. An incomplete UTF-8 write is retried next poll.
+    internal static string ReadLogSnapshot(Stream stream) =>
+        StrictUtf8.GetString(ReadBounded(stream, MaxLogBytes));
 
     public static void ResetLog()
     {
-        try { EnsureDir(); File.WriteAllText(LogFile, ""); } catch { }
+        lock (_logLock)
+        {
+            try { EnsureDir(); AtomicWrite(LogFile, []); } catch { }
+        }
+    }
+
+    internal static byte[] EncodeLogLine(string line, DateTime now)
+    {
+        if (line.Length > MaxLogLineChars)
+        {
+            int end = MaxLogLineChars;
+            if (char.IsHighSurrogate(line[end - 1])) end--;
+            line = line[..end] + " [truncated]";
+        }
+        return Encoding.UTF8.GetBytes($"{now:yyyy-MM-ddTHH:mm:ss'Z'}  {line}{Environment.NewLine}");
+    }
+
+    internal static void AppendLogFile(string path, byte[] entry)
+    {
+        if (entry.Length > MaxLogBytes) throw new InvalidDataException("Log entry exceeds byte limit");
+        // Rotate BEFORE writing, including a previously oversized legacy log.
+        if (File.Exists(path) && new FileInfo(path).Length > MaxLogBytes - entry.Length)
+            PublishAtomic(path, temporary => File.WriteAllBytes(temporary, entry));
+        else
+        {
+            using var file = new FileStream(path, FileMode.Append, FileAccess.Write,
+                FileShare.Read | FileShare.Delete);
+            file.Write(entry);
+        }
     }
 
     public static void AppendLog(string line)
@@ -234,9 +323,8 @@ public static class ServiceState
             try
             {
                 EnsureDir();
-                if (File.Exists(LogFile) && new FileInfo(LogFile).Length > MaxLogBytes)
-                    File.WriteAllText(LogFile, "");
-                File.AppendAllText(LogFile, $"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss'Z'}  {line}{Environment.NewLine}");
+                CheckExistingFile(LogFile);
+                AppendLogFile(LogFile, EncodeLogLine(line, DateTime.UtcNow));
             }
             catch { /* ignore */ }
         }

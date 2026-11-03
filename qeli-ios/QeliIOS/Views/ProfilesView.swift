@@ -58,7 +58,7 @@ struct ProfilesView: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                if let deletingProfile { model.delete(deletingProfile.id) }
+                if let deletingProfile { model.delete(deletingProfile) }
                 deletingProfile = nil
             }
             Button("Cancel", role: .cancel) { deletingProfile = nil }

@@ -31,6 +31,10 @@
 - Share link, QR generation and system share sheet.
 - Encrypted-at-rest profile store and Android-compatible backup encryption.
 - Theme, launch auto-connect, VPN On Demand, full-tunnel-only LAN bypass and log timestamp settings.
+- Clear-log-on-disconnect setting, enabled by default as on Android; iOS saves it immediately
+  and the packet extension applies it at terminal stop/start failure without requiring the UI.
+  Reconnects and resumable network/On Demand pauses retain history; late old-session callbacks
+  cannot recreate a cleared journal. New storage/settings XCTest cases require an Xcode run.
 - Opt-in, privacy-gated release check matching Android's public release metadata flow.
 - Network Extension manager/provider lifecycle and shared status/log channel.
 - The production Packet Tunnel uses the current ABI 1.15 core with the compatible ABI 1.11
@@ -111,3 +115,51 @@
   Apple does not expose that enforcement mode to Qeli's custom Packet Tunnel Provider.
   VPN On Demand is the closest Qeli/consumer equivalent to Android boot auto-connect.
 - There is no battery-optimization exemption flow or Android-style foreground service.
+
+## Q30 source audit, 6 October 2026
+
+[Scoped MDM/provider callback fixes](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-POLICY-SNAPSHOT.md)
+reject truncated numeric policies and invalidate stale provider replies across tunnel
+transitions. Six new XCTest cases are retained but NOT_RUN on Windows; six Python
+IPA-verifier fixture regressions PASS. These are not a simulator/device qualification.
+Q30 remains IN_PROGRESS; the user excluded Apple runtime for this audit.
+
+[Q30 Keychain source fixes](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-KEYCHAIN.md) extend
+first-writer ownership from the master key to device ID/TOFU and explicitly validate
+stored key sizes. Seven Keychain XCTest are NOT_RUN; no cross-process/runtime claim.
+The provider/engine completion review remains open.
+
+Explicit malformed/stale provider profile requests now fail rather than falling back
+to the persisted profile (Q30-F294); four new selector XCTest NOT_RUN.
+
+[Q30 lifecycle source fixes](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-LIFECYCLE.md) make monitor
+Stop terminal, fence provider effects by current engine and serialize OS operations
+across engines with callback-owned leases and a shared15s settings budget.13 new
+helper XCTest NOT_RUN; real OS callback drain, memory, native joins and Apple build
+remain unqualified. Never treat cancellation as an OS operation's completion.
+
+[Q30 application preference fixes](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-APP-PREFERENCES.md)
+remove five status/epoch bypasses and serialize full managed reconciliation. Profile
+settings are read at admission; connection generations and Task cancellation fence
+obsolete preference steps. Three gate XCTest NOT_RUN; Apple runtime excluded.
+Q30 remains IN_PROGRESS; provider-message/backup UI and final source review remain.
+
+[Q30 messages/backup fixes](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-MESSAGES-BACKUP.md)
+bound the settings-message caller wait to20s, fence response ownership and admit
+one unfinished snapshot poll per status epoch. Backup passwords are captured per
+request; filenames derive from actual bytes.11 new XCTest NOT_RUN. Timeout does
+not cancel/rollback an OS apply; final source memory/dead-code review remains open.
+
+F302 moves remaining Swift wire-crypto helpers out of the app target into XCTest,
+alongside Protocol, and removes unreferenced X25519/auth helper code. Backup storage
+still uses CryptoKit directly; Rust/native transport crypto is unchanged. Actual
+Xcode compilation and binary-size effects remain NOT_RUN.
+
+[Q30 source/memory reconciliation](../docs/eng/reports/audit-0.8.2/AUDIT-Q30-IOS-SOURCE-MEMORY.md)
+closes the source Review/dead-code criterion:92 Swift inputs,12 retained framework
+entry points. F303-F306 unify cancellable probe ownership, prune obsolete pings,
+bound log bytes (4KiB/message,1MiB encoded archive) and stream update data (1MiB).
+11 new XCTest NOT_RUN; actual Apple callbacks/RSS/leaks/worker joins unqualified.
+Q30 IN_PROGRESS; this source closure supersedes earlier open-review notes only.
+
+**12 October agreed-scope reconciliation:** Q30 SOURCE REVIEW and portable checks are complete; Swift/Xcode/Apple execution is USER_SKIPPED by direct user decision. XCTest, real callbacks/RSS/leaks, signing and physical network scenarios remain NOT_RUN. Current92 Swift inputs match the reviewed inventory (91 byte-identical, one corrected test profile); project.yml only gained LICENSE/notices resources. Fresh IPA-verifier6,plist10,bindings and read-only-overlay docs9 PASS. This supersedes the historical whole-section IN_PROGRESS scope above; no Apple runtime PASS is claimed.

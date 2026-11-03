@@ -1,0 +1,535 @@
+{
+  "schema_version": 1,
+  "kind": "qeli-q14-current-lifecycle",
+  "status": "PASS_LIFECYCLE_BATCH",
+  "overall_q14": "IN_PROGRESS",
+  "artifact_sha256": "5605f4b7867cefb0886f14c943c499693fb41a0d0f767f8675292115d5f27c55",
+  "source_commit": "711782d6d1cb6e41889c7c359f964e7242e314fc",
+  "runtime": {
+    "started_at": "2026-10-04T02:23:32.212973+00:00",
+    "artifact_sha256": "5605f4b7867cefb0886f14c943c499693fb41a0d0f767f8675292115d5f27c55",
+    "source_commit": "711782d6d1cb6e41889c7c359f964e7242e314fc",
+    "checks": [
+      {
+        "kind": "lifecycle",
+        "exit_code": 0,
+        "command": "timeout --signal=TERM --kill-after=10 220 python3 /var/tmp/qeli-q14-lifecycle-current-20261004/audit_worker_lifecycle.py --qeli /var/tmp/qeli-q13-close-release-20261004/qeli --artifacts /var/tmp/qeli-q14-lifecycle-current-20261004/lifecycle --resource-reloads 10",
+        "log_sha256": "537c9edec8f9e3b96699e23edeaa012adf682fa9499f67f1cf560924cc275715"
+      },
+      {
+        "kind": "recovery",
+        "exit_code": 0,
+        "command": "timeout --signal=TERM --kill-after=10 220 python3 /var/tmp/qeli-q14-lifecycle-current-20261004/audit_worker_recovery.py --qeli /var/tmp/qeli-q13-close-release-20261004/qeli --artifacts /var/tmp/qeli-q14-lifecycle-current-20261004/recovery",
+        "log_sha256": "ff6bcb2753a17f207eae0b991fe69f64f74107758380c667af62c574cabbd511"
+      },
+      {
+        "kind": "multiprofile",
+        "exit_code": 0,
+        "command": "timeout --signal=TERM --kill-after=10 220 python3 /var/tmp/qeli-q14-lifecycle-current-20261004/audit_worker_multiprofile_resource.py --qeli /var/tmp/qeli-q13-close-release-20261004/qeli --artifacts /var/tmp/qeli-q14-lifecycle-current-20261004/multiprofile",
+        "log_sha256": "6c52d4997b0fecdefc5b86d3fe1f1dd3d12665259d254b6ea1e932093d607617"
+      }
+    ],
+    "fixtures": {
+      "audit_worker_lifecycle.py": "818fd83eee25fc6769fe38785bb8da99c687cdae0b9e0d194581cda5570e7604",
+      "audit_worker_recovery.py": "74e59f8eaa496a09402471adca001f4eb9696de25230ae0ad8faea8e76fe95b4",
+      "audit_worker_multiprofile_resource.py": "bf7b1d695dd7e6e1aacab74c225650e84118b696d557e16bae300b266a73d88f"
+    },
+    "before": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "service_before": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+    "status": "PASS",
+    "after": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "service_after": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+    "host_restored": true,
+    "finished_at": "2026-10-04T02:24:53.426932+00:00"
+  },
+  "worker_cases": [
+    {
+      "transport": "tcp",
+      "mode": "off",
+      "status": "PASS",
+      "resource_reloads": 10,
+      "resource_baseline": {
+        "fd": 18,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 49060
+      },
+      "resource_final": {
+        "fd": 18,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 49116
+      },
+      "resource_peak_rss_kib": 49124
+    },
+    {
+      "transport": "tcp",
+      "mode": "manual",
+      "status": "PASS",
+      "resource_reloads": 10,
+      "resource_baseline": {
+        "fd": 19,
+        "socket_fd": 7,
+        "tasks": 6,
+        "rss_kib": 44732
+      },
+      "resource_final": {
+        "fd": 19,
+        "socket_fd": 7,
+        "tasks": 6,
+        "rss_kib": 44812
+      },
+      "resource_peak_rss_kib": 44860
+    },
+    {
+      "transport": "tcp",
+      "mode": "route",
+      "status": "PASS",
+      "resource_reloads": 10,
+      "resource_baseline": {
+        "fd": 22,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 44832
+      },
+      "resource_final": {
+        "fd": 22,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 44940
+      },
+      "resource_peak_rss_kib": 44968
+    },
+    {
+      "transport": "tcp",
+      "mode": "nat66",
+      "status": "PASS",
+      "resource_reloads": 10,
+      "resource_baseline": {
+        "fd": 22,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 47016
+      },
+      "resource_final": {
+        "fd": 22,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 47124
+      },
+      "resource_peak_rss_kib": 47152
+    },
+    {
+      "transport": "udp",
+      "mode": "off",
+      "status": "PASS",
+      "resource_reloads": 10,
+      "resource_baseline": {
+        "fd": 18,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 45212
+      },
+      "resource_final": {
+        "fd": 18,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 45264
+      },
+      "resource_peak_rss_kib": 45276
+    },
+    {
+      "transport": "udp",
+      "mode": "manual",
+      "status": "PASS",
+      "resource_reloads": 10,
+      "resource_baseline": {
+        "fd": 19,
+        "socket_fd": 7,
+        "tasks": 6,
+        "rss_kib": 42992
+      },
+      "resource_final": {
+        "fd": 19,
+        "socket_fd": 7,
+        "tasks": 6,
+        "rss_kib": 43028
+      },
+      "resource_peak_rss_kib": 43056
+    },
+    {
+      "transport": "udp",
+      "mode": "route",
+      "status": "PASS",
+      "resource_reloads": 10,
+      "resource_baseline": {
+        "fd": 22,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 47068
+      },
+      "resource_final": {
+        "fd": 22,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 47136
+      },
+      "resource_peak_rss_kib": 47144
+    },
+    {
+      "transport": "udp",
+      "mode": "nat66",
+      "status": "PASS",
+      "resource_reloads": 10,
+      "resource_baseline": {
+        "fd": 22,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 43188
+      },
+      "resource_final": {
+        "fd": 22,
+        "socket_fd": 6,
+        "tasks": 6,
+        "rss_kib": 43252
+      },
+      "resource_peak_rss_kib": 43260
+    }
+  ],
+  "recovery": {
+    "artifact": "/var/tmp/qeli-q13-close-release-20261004/qeli",
+    "artifact_sha256": "5605f4b7867cefb0886f14c943c499693fb41a0d0f767f8675292115d5f27c55",
+    "network": "4:4026532261",
+    "results": [
+      {
+        "name": "first worker starts",
+        "passed": true,
+        "detail": "2026-10-04 05:24:19.286 INFO  qeli: Starting data-plane worker with config: /var/tmp/qeli-q14-lifecycle-current-20261004/recovery/etc-qeli/first.conf\n2026-10-04 05:24:19.288 WARN  qeli_core::server: profile 'first': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n2026-10-04 05:24:19.296 INFO  qeli_core::server: Loaded 0 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\n2026-10-04 05:24:19.321 INFO  qeli_core::server::control: Control socket listening on /var/tmp/qeli-q14-lifecycle-current-20261004/recovery/first/run/control.sock\n2026-10-04 05:24:19.336 INFO  qeli_core::server: Starting profile 'first' (tcp://127.0.0.1:24443)\n2026-10-04 05:24:19.346 INFO  qeli_core::server: Profile 'first': TUN qrec0 is up with 1 queue(s) (10.74.0.1/24)\n2026-10-04 05:24:19.362 INFO  qeli_core::server::nat: NAT: net.ipv4.ip_forward is owned for the server worker lifetime\n2026-10-04 05:24:19.403 INFO  qeli_core::server: Profile 'first': NAT masquerade active via iptables (10.74.0.0/24 -> wan0)\n2026-10-04 05:24:19.403 INFO  qeli_core::hooks: hook[post_up:first]: running\n2026-10-04 05:24:19.404 INFO  qeli_core::hooks: hook[post_up:first]: ok\n2026-10-04 05:24:19.404 INFO  qeli_core::server: Profile 'first': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\n2026-10-04 05:24:19.405 INFO  qeli_core::server: Profile 'first': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\n2026-10-04 05:24:19.406 INFO  qeli_core::server: Profile 'first': generated new identity key at /etc/qeli/first.key\n2026-10-04 05:24:19.406 INFO  qeli_core::server: Profile 'first': server identity public key (pin on client): d670ea88a9b2932a21aba6656a5c24ff2f7e53ac6eee468b5b1f872ee360ac0d\n2026-10-04 05:24:19.407 INFO  qeli_core::server: TUN reader q0 for profile 'first' started\n2026-10-04 05:24:19.407 INFO  qeli_core::server: TUN writer q0 for profile 'first' started\n2026-10-04 05:24:19.419 INFO  qeli_core::server::nat: Profile 'first': DNS INPUT permit 10.74.0.0/24 via qrec0 -> 10.74.0.1:1053, udp+tcp\n2026-10-04 05:24:19.430 INFO  qeli_core::server::nat: Profile 'first': DNS redirect 10.74.0.1:53 -> :1053 on qrec0, udp+tcp (clients are told 53; the proxy listens on 1053)\n2026-10-04 05:24:19.431 INFO  qeli_core::server::dns: DNS proxy listening on 10.74.0.1:1053\n2026-10-04 05:24:19.431 INFO  qeli_core::server: Profile 'first' listening on 127.0.0.1:24443 (TCP)\n"
+      },
+      {
+        "name": "first owns NAT and both DNS INPUT/REDIRECT transports",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "different control/state paths and PID/mount namespaces cannot bypass admission",
+        "passed": true,
+        "detail": "2026-10-04 05:24:19.442 INFO  qeli: Starting data-plane worker with config: /var/tmp/qeli-q14-lifecycle-current-20261004/recovery/etc-qeli/second.conf\n2026-10-04 05:24:19.443 WARN  qeli_core::server: profile 'second': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: server worker network namespace already owned or reservation unavailable: Address already in use (os error 98); stop the other worker or use a separate network namespace (a different control socket path is not isolation)\n"
+      },
+      {
+        "name": "rejected worker preserves first firewall",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "rejected worker never reaches hook or control bind",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "rejected worker preserves accounting",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "first worker remains responsive",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "SIGKILL releases original TUN",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "SIGKILL leaves rules for recovery",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "SIGKILL leaves sysctl journal",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "new worker starts after SIGKILL",
+        "passed": true,
+        "detail": "2026-10-04 05:24:19.529 INFO  qeli: Starting data-plane worker with config: /var/tmp/qeli-q14-lifecycle-current-20261004/recovery/etc-qeli/recovered.conf\n2026-10-04 05:24:19.529 WARN  qeli_core::server: profile 'recovered': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n2026-10-04 05:24:19.536 INFO  qeli_core::server: Loaded 0 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\n2026-10-04 05:24:19.555 INFO  qeli_core::server::control: Control socket listening on /var/tmp/qeli-q14-lifecycle-current-20261004/recovery/recovered/run/control.sock\n2026-10-04 05:24:19.800 INFO  qeli_core::server: Starting profile 'recovered' (tcp://127.0.0.1:24445)\n2026-10-04 05:24:19.810 INFO  qeli_core::server: Profile 'recovered': TUN qrec2 is up with 1 queue(s) (10.76.0.1/24)\n2026-10-04 05:24:19.826 INFO  qeli_core::server::nat: NAT: net.ipv4.ip_forward is owned for the server worker lifetime\n2026-10-04 05:24:19.870 INFO  qeli_core::server: Profile 'recovered': NAT masquerade active via iptables (10.76.0.0/24 -> wan0)\n2026-10-04 05:24:19.870 INFO  qeli_core::hooks: hook[post_up:recovered]: running\n2026-10-04 05:24:19.871 INFO  qeli_core::hooks: hook[post_up:recovered]: ok\n2026-10-04 05:24:19.871 INFO  qeli_core::server: Profile 'recovered': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\n2026-10-04 05:24:19.872 INFO  qeli_core::server: Profile 'recovered': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\n2026-10-04 05:24:19.873 INFO  qeli_core::server: Profile 'recovered': generated new identity key at /etc/qeli/recovered.key\n2026-10-04 05:24:19.874 INFO  qeli_core::server: Profile 'recovered': server identity public key (pin on client): a7a655da436be9804e63da51cdae3b65e82df0d448797a98c8112fda550f130c\n2026-10-04 05:24:19.874 INFO  qeli_core::server: TUN reader q0 for profile 'recovered' started\n2026-10-04 05:24:19.874 INFO  qeli_core::server: TUN writer q0 for profile 'recovered' started\n2026-10-04 05:24:19.886 INFO  qeli_core::server::nat: Profile 'recovered': DNS INPUT permit 10.76.0.0/24 via qrec2 -> 10.76.0.1:1053, udp+tcp\n2026-10-04 05:24:19.897 INFO  qeli_core::server::nat: Profile 'recovered': DNS redirect 10.76.0.1:53 -> :1053 on qrec2, udp+tcp (clients are told 53; the proxy listens on 1053)\n2026-10-04 05:24:19.898 INFO  qeli_core::server: Profile 'recovered' listening on 127.0.0.1:24445 (TCP)\n2026-10-04 05:24:19.898 INFO  qeli_core::server::dns: DNS proxy listening on 10.76.0.1:1053\n"
+      },
+      {
+        "name": "deleted profile rules are removed",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "recovery preserves foreign rules",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "shutdown reaches post_down before releasing worker",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "post_down retains namespace reservation",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "recovered worker stops cleanly",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "clean stop removes all owned rules",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "clean stop restores forwarding and journal",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "post-admission startup error exits",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "startup error releases namespace reservation",
+        "passed": true,
+        "detail": "2026-10-04 05:24:23.321 INFO  qeli: Starting data-plane worker with config: /var/tmp/qeli-q14-lifecycle-current-20261004/recovery/etc-qeli/error.conf\n2026-10-04 05:24:23.321 WARN  qeli_core::server: profile 'error': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n2026-10-04 05:24:23.328 INFO  qeli_core::server: Loaded 0 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\n2026-10-04 05:24:23.348 INFO  qeli_core::server::control: Control socket listening on /var/tmp/qeli-q14-lifecycle-current-20261004/recovery/error/run/control.sock\n2026-10-04 05:24:23.363 INFO  qeli_core::server: Starting profile 'error' (tcp://127.0.0.1:24446)\n2026-10-04 05:24:23.374 INFO  qeli_core::server: Profile 'error': TUN qrec3 is up with 1 queue(s) (10.77.0.1/24)\n2026-10-04 05:24:23.389 INFO  qeli_core::server::nat: NAT: net.ipv4.ip_forward is owned for the server worker lifetime\n2026-10-04 05:24:23.433 INFO  qeli_core::server: Profile 'error': NAT masquerade active via iptables (10.77.0.0/24 -> wan0)\n2026-10-04 05:24:23.433 INFO  qeli_core::hooks: hook[post_up:error]: running\n2026-10-04 05:24:23.434 INFO  qeli_core::hooks: hook[post_up:error]: ok\n2026-10-04 05:24:23.434 INFO  qeli_core::server: Profile 'error': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\n2026-10-04 05:24:23.435 INFO  qeli_core::server: Profile 'error': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\n2026-10-04 05:24:23.436 INFO  qeli_core::server: Profile 'error': generated new identity key at /etc/qeli/error.key\n2026-10-04 05:24:23.436 INFO  qeli_core::server: Profile 'error': server identity public key (pin on client): 686cc554e63a8ac6feeda28990b7cb6216010035fb26c9e32da11c4f52c4e41e\n2026-10-04 05:24:23.437 INFO  qeli_core::server: TUN reader q0 for profile 'error' started\n2026-10-04 05:24:23.437 INFO  qeli_core::server: TUN writer q0 for profile 'error' started\n2026-10-04 05:24:23.449 INFO  qeli_core::server::nat: Profile 'error': DNS INPUT permit 10.77.0.0/24 via qrec3 -> 10.77.0.1:1053, udp+tcp\n2026-10-04 05:24:23.461 INFO  qeli_core::server::nat: Profile 'error': DNS redirect 10.77.0.1:53 -> :1053 on qrec3, udp+tcp (clients are told 53; the proxy listens on 1053)\n2026-10-04 05:24:23.461 INFO  qeli_core::server::dns: DNS proxy listening on 10.77.0.1:1053\n2026-10-04 05:24:23.461 INFO  qeli_core::server: Profile 'error' listening on 127.0.0.1:24446 (TCP)\n"
+      },
+      {
+        "name": "retry worker stops cleanly",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "foreign rules survive all recovery stages",
+        "passed": true,
+        "detail": ""
+      }
+    ]
+  },
+  "multiprofile": {
+    "artifact_sha256": "5605f4b7867cefb0886f14c943c499693fb41a0d0f767f8675292115d5f27c55",
+    "network": "4:4026532261",
+    "results": [
+      {
+        "name": "two TCP/UDP profiles ready",
+        "passed": true,
+        "detail": "004/multiprofile/run/control.sock\n2026-10-04 05:24:24.879 INFO  qeli_core::server: Starting profile 'alpha' (tcp://127.0.0.1:24443)\n2026-10-04 05:24:24.879 INFO  qeli_core::server: Starting profile 'beta' (udp://127.0.0.1:24444)\n2026-10-04 05:24:24.893 INFO  qeli_core::server: Profile 'alpha': TUN qmulti0 is up with 1 queue(s) (10.74.0.1/24)\n2026-10-04 05:24:24.894 INFO  qeli_core::server: Profile 'beta': TUN qmulti1 is up with 1 queue(s) (10.75.0.1/24)\n2026-10-04 05:24:24.911 INFO  qeli_core::server::nat: NAT: net.ipv4.ip_forward is owned for the server worker lifetime\n2026-10-04 05:24:24.973 INFO  qeli_core::server: Profile 'alpha': NAT masquerade active via iptables (10.74.0.0/24 -> wan0)\n2026-10-04 05:24:24.974 INFO  qeli_core::hooks: hook[post_up:alpha]: running\n2026-10-04 05:24:24.975 INFO  qeli_core::hooks: hook[post_up:alpha]: ok\n2026-10-04 05:24:24.976 INFO  qeli_core::server: Profile 'alpha': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\n2026-10-04 05:24:24.977 INFO  qeli_core::server: Profile 'alpha': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\n2026-10-04 05:24:24.979 INFO  qeli_core::server: Profile 'alpha': generated new identity key at /etc/qeli/alpha.key\n2026-10-04 05:24:24.979 INFO  qeli_core::server: Profile 'alpha': server identity public key (pin on client): c22ef44258d6ca38fdbfc7a607daa511e1ff9659f2760dff02261e7cc59ef370\n2026-10-04 05:24:24.979 INFO  qeli_core::server: TUN reader q0 for profile 'alpha' started\n2026-10-04 05:24:24.979 INFO  qeli_core::server: TUN writer q0 for profile 'alpha' started\n2026-10-04 05:24:24.993 INFO  qeli_core::server::nat: NAT: net.ipv4.ip_forward is owned for the server worker lifetime\n2026-10-04 05:24:25.055 INFO  qeli_core::server: Profile 'beta': NAT masquerade active via iptables (10.75.0.0/24 -> wan0)\n2026-10-04 05:24:25.056 INFO  qeli_core::hooks: hook[post_up:beta]: running\n2026-10-04 05:24:25.057 INFO  qeli_core::hooks: hook[post_up:beta]: ok\n2026-10-04 05:24:25.057 INFO  qeli_core::server: Profile 'beta': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\n2026-10-04 05:24:25.059 INFO  qeli_core::server: Profile 'beta': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\n2026-10-04 05:24:25.060 INFO  qeli_core::server: Profile 'beta': generated new identity key at /etc/qeli/beta.key\n2026-10-04 05:24:25.060 INFO  qeli_core::server: Profile 'beta': server identity public key (pin on client): bc3b2ec130b351c3b391947d6fe65d3bb97b7aa178340ebabe96aa62cb97e240\n2026-10-04 05:24:25.060 INFO  qeli_core::server: TUN reader q0 for profile 'beta' started\n2026-10-04 05:24:25.061 INFO  qeli_core::server: TUN writer q0 for profile 'beta' started\n2026-10-04 05:24:25.076 INFO  qeli_core::server::nat: Profile 'alpha': DNS INPUT permit 10.74.0.0/24 via qmulti0 -> 10.74.0.1:1053, udp+tcp\n2026-10-04 05:24:25.090 INFO  qeli_core::server::nat: Profile 'alpha': DNS redirect 10.74.0.1:53 -> :1053 on qmulti0, udp+tcp (clients are told 53; the proxy listens on 1053)\n2026-10-04 05:24:25.090 INFO  qeli_core::server::dns: DNS proxy listening on 10.74.0.1:1053\n2026-10-04 05:24:25.090 INFO  qeli_core::server: Profile 'alpha' listening on 127.0.0.1:24443 (TCP)\n2026-10-04 05:24:25.103 INFO  qeli_core::server::nat: Profile 'beta': DNS INPUT permit 10.75.0.0/24 via qmulti1 -> 10.75.0.1:1053, udp+tcp\n2026-10-04 05:24:25.115 INFO  qeli_core::server::nat: Profile 'beta': DNS redirect 10.75.0.1:53 -> :1053 on qmulti1, udp+tcp (clients are told 53; the proxy listens on 1053)\n2026-10-04 05:24:25.116 INFO  qeli_core::transport_core::udp_buffer: server UDP 127.0.0.1:24444: UDP receive buffer mode=auto, requested=4096 KiB, granted=4096 KiB, auto cap=16384 KiB\n2026-10-04 05:24:25.116 INFO  qeli_core::server::dns: DNS proxy listening on 10.75.0.1:1053\n2026-10-04 05:24:25.116 INFO  qeli_core::server: Profile 'beta' listening on 127.0.0.1:24444 (UDP, 1 worker(s))\n2026-10-04 05:24:25.116 INFO  qeli_core::server::udp_handler: UDP worker 0 for profile 'beta' started\n"
+      },
+      {
+        "name": "two profiles own rules and shared forwarding",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "two listeners and control socket active",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "invalid reload preserves both profiles",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "ten reloads retain fd/socket/tasks/RSS budget",
+        "passed": true,
+        "detail": "first={'fd': 26, 'socket_fd': 11, 'tasks': 8, 'rss_kib': 56940}, last={'fd': 26, 'socket_fd': 11, 'tasks': 8, 'rss_kib': 56748}, peak_rss_kib=57004"
+      },
+      {
+        "name": "two-profile graceful stop exits cleanly",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "both post-down hooks ran once",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "shared network state restored after stop",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "both profiles restart for crash test",
+        "passed": true,
+        "detail": "rent-20261004/multiprofile/run/control.sock\n2026-10-04 05:24:30.446 INFO  qeli_core::server: Starting profile 'alpha' (tcp://127.0.0.1:24443)\n2026-10-04 05:24:30.446 INFO  qeli_core::server: Starting profile 'beta' (udp://127.0.0.1:24444)\n2026-10-04 05:24:30.460 INFO  qeli_core::server: Profile 'alpha': TUN qmulti0 is up with 1 queue(s) (10.74.0.1/24)\n2026-10-04 05:24:30.462 INFO  qeli_core::server: Profile 'beta': TUN qmulti1 is up with 1 queue(s) (10.75.0.1/24)\n2026-10-04 05:24:30.479 INFO  qeli_core::server::nat: NAT: net.ipv4.ip_forward is owned for the server worker lifetime\n2026-10-04 05:24:30.546 INFO  qeli_core::server: Profile 'alpha': NAT masquerade active via iptables (10.74.0.0/24 -> wan0)\n2026-10-04 05:24:30.547 INFO  qeli_core::hooks: hook[post_up:alpha]: running\n2026-10-04 05:24:30.548 INFO  qeli_core::hooks: hook[post_up:alpha]: ok\n2026-10-04 05:24:30.548 INFO  qeli_core::server: Profile 'alpha': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\n2026-10-04 05:24:30.549 INFO  qeli_core::server: Profile 'alpha': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\n2026-10-04 05:24:30.549 INFO  qeli_core::server: Profile 'alpha': loaded identity key from /etc/qeli/alpha.key\n2026-10-04 05:24:30.549 INFO  qeli_core::server: Profile 'alpha': server identity public key (pin on client): c22ef44258d6ca38fdbfc7a607daa511e1ff9659f2760dff02261e7cc59ef370\n2026-10-04 05:24:30.550 INFO  qeli_core::server: TUN writer q0 for profile 'alpha' started\n2026-10-04 05:24:30.550 INFO  qeli_core::server: TUN reader q0 for profile 'alpha' started\n2026-10-04 05:24:30.563 INFO  qeli_core::server::nat: Profile 'alpha': DNS INPUT permit 10.74.0.0/24 via qmulti0 -> 10.74.0.1:1053, udp+tcp\n2026-10-04 05:24:30.575 INFO  qeli_core::server::nat: Profile 'alpha': DNS redirect 10.74.0.1:53 -> :1053 on qmulti0, udp+tcp (clients are told 53; the proxy listens on 1053)\n2026-10-04 05:24:30.576 INFO  qeli_core::server: Profile 'alpha' listening on 127.0.0.1:24443 (TCP)\n2026-10-04 05:24:30.576 INFO  qeli_core::server::dns: DNS proxy listening on 10.74.0.1:1053\n2026-10-04 05:24:30.603 INFO  qeli_core::server::nat: NAT: net.ipv4.ip_forward is owned for the server worker lifetime\n2026-10-04 05:24:30.666 INFO  qeli_core::server: Profile 'beta': NAT masquerade active via iptables (10.75.0.0/24 -> wan0)\n2026-10-04 05:24:30.666 INFO  qeli_core::hooks: hook[post_up:beta]: running\n2026-10-04 05:24:30.667 INFO  qeli_core::hooks: hook[post_up:beta]: ok\n2026-10-04 05:24:30.667 INFO  qeli_core::server: Profile 'beta': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\n2026-10-04 05:24:30.668 INFO  qeli_core::server: Profile 'beta': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\n2026-10-04 05:24:30.668 INFO  qeli_core::server: Profile 'beta': loaded identity key from /etc/qeli/beta.key\n2026-10-04 05:24:30.668 INFO  qeli_core::server: Profile 'beta': server identity public key (pin on client): bc3b2ec130b351c3b391947d6fe65d3bb97b7aa178340ebabe96aa62cb97e240\n2026-10-04 05:24:30.668 INFO  qeli_core::server: TUN writer q0 for profile 'beta' started\n2026-10-04 05:24:30.668 INFO  qeli_core::server: TUN reader q0 for profile 'beta' started\n2026-10-04 05:24:30.681 INFO  qeli_core::server::nat: Profile 'beta': DNS INPUT permit 10.75.0.0/24 via qmulti1 -> 10.75.0.1:1053, udp+tcp\n2026-10-04 05:24:30.694 INFO  qeli_core::server::nat: Profile 'beta': DNS redirect 10.75.0.1:53 -> :1053 on qmulti1, udp+tcp (clients are told 53; the proxy listens on 1053)\n2026-10-04 05:24:30.694 INFO  qeli_core::server::dns: DNS proxy listening on 10.75.0.1:1053\n2026-10-04 05:24:30.694 INFO  qeli_core::transport_core::udp_buffer: server UDP 127.0.0.1:24444: UDP receive buffer mode=auto, requested=4096 KiB, granted=4096 KiB, auto cap=16384 KiB\n2026-10-04 05:24:30.694 INFO  qeli_core::server: Profile 'beta' listening on 127.0.0.1:24444 (UDP, 1 worker(s))\n2026-10-04 05:24:30.694 INFO  qeli_core::server::udp_handler: UDP worker 0 for profile 'beta' started\n"
+      },
+      {
+        "name": "crash leaves recoverable journal and both orphan rules",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "remaining profile recovers after sibling removal",
+        "passed": true,
+        "detail": "2026-10-04 05:24:30.798 INFO  qeli: Starting data-plane worker with config: /var/tmp/qeli-q14-lifecycle-current-20261004/multiprofile/etc-qeli/server.conf\n2026-10-04 05:24:30.798 WARN  qeli_core::server: profile 'alpha': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n2026-10-04 05:24:30.808 INFO  qeli_core::server: Loaded 0 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\n2026-10-04 05:24:30.833 INFO  qeli_core::server::control: Control socket listening on /var/tmp/qeli-q14-lifecycle-current-20261004/multiprofile/run/control.sock\n2026-10-04 05:24:31.476 INFO  qeli_core::server: Starting profile 'alpha' (tcp://127.0.0.1:24443)\n2026-10-04 05:24:31.488 INFO  qeli_core::server: Profile 'alpha': TUN qmulti0 is up with 1 queue(s) (10.74.0.1/24)\n2026-10-04 05:24:31.504 INFO  qeli_core::server::nat: NAT: net.ipv4.ip_forward is owned for the server worker lifetime\n2026-10-04 05:24:31.551 INFO  qeli_core::server: Profile 'alpha': NAT masquerade active via iptables (10.74.0.0/24 -> wan0)\n2026-10-04 05:24:31.551 INFO  qeli_core::hooks: hook[post_up:alpha]: running\n2026-10-04 05:24:31.552 INFO  qeli_core::hooks: hook[post_up:alpha]: ok\n2026-10-04 05:24:31.553 INFO  qeli_core::server: Profile 'alpha': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\n2026-10-04 05:24:31.554 INFO  qeli_core::server: Profile 'alpha': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\n2026-10-04 05:24:31.554 INFO  qeli_core::server: Profile 'alpha': loaded identity key from /etc/qeli/alpha.key\n2026-10-04 05:24:31.554 INFO  qeli_core::server: Profile 'alpha': server identity public key (pin on client): c22ef44258d6ca38fdbfc7a607daa511e1ff9659f2760dff02261e7cc59ef370\n2026-10-04 05:24:31.554 INFO  qeli_core::server: TUN writer q0 for profile 'alpha' started\n2026-10-04 05:24:31.554 INFO  qeli_core::server: TUN reader q0 for profile 'alpha' started\n2026-10-04 05:24:31.567 INFO  qeli_core::server::nat: Profile 'alpha': DNS INPUT permit 10.74.0.0/24 via qmulti0 -> 10.74.0.1:1053, udp+tcp\n2026-10-04 05:24:31.579 INFO  qeli_core::server::nat: Profile 'alpha': DNS redirect 10.74.0.1:53 -> :1053 on qmulti0, udp+tcp (clients are told 53; the proxy listens on 1053)\n2026-10-04 05:24:31.579 INFO  qeli_core::server::dns: DNS proxy listening on 10.74.0.1:1053\n2026-10-04 05:24:31.580 INFO  qeli_core::server: Profile 'alpha' listening on 127.0.0.1:24443 (TCP)\n"
+      },
+      {
+        "name": "recovery removes deleted sibling resources",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "recovered profile stops cleanly",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "final network/control/journal restored",
+        "passed": true,
+        "detail": ""
+      }
+    ]
+  },
+  "review": {
+    "reviewed_at": "2026-10-04T02:39:43.069497+00:00",
+    "source_inputs": {
+      "qeli/src/server/mod.rs": "c9a8e36f7b89d7d96d06eebf90d8af67c5c8b7c8e316dac1617640e9b639a334",
+      "qeli/src/server/tasks.rs": "089bbfea138b1d6e1d9f764f5105902271194343878152d0fa8d4e676e465407",
+      "qeli/src/server/supervisor.rs": "7ef5c22f395787984bc146a37c7ee5b497a9270bb242635cbb7874eb00efc7c5",
+      "qeli/src/server/control.rs": "c57cd01171dad48e1915f08a1285660307555e882e2d21bbb32c4fe23050daf7",
+      "qeli/src/server/control_io.rs": "9dbfe0c21f90e21d01ef3372ba59f7d643c846d073640e09e665177c13066c05",
+      "qeli/src/server/control_socket.rs": "ee975797c48773014a972f1215a4aa92d655d40d368c6b0cdc5657e177f59c8b",
+      "qeli/src/main.rs": "8b992522133ea1026970bd9db2d5549263706f8508a6f96973c3dbb09c15ca20",
+      "qeli/src/hooks.rs": "4b4e1fb65f5d443591c223f50b8bd0200ce39710cb7658ba620c6806a25b7717",
+      "qeli/src/hooks/process.rs": "2eb8803153b000c4314e85a02baee9cd864459d553c2ec137c6dff40744dc502",
+      "qeli/src/hooks/worker.rs": "287b6922ac338680373ed721525b5f7e2f9c9cf50e58b87a18c86c1830b6babe",
+      "qeli/src/server/shutdown.rs": "d63550b27f49c0d5f8a2bbda683f52190cf99810281d846613b8049b75b642c1",
+      "qeli/src/server/shutdown_budget.rs": "e8b0f2c6abc3f9d4c9c552c65d42a7bbc5c20b1c61c78c113dafd667d50198e4",
+      "qeli/src/server/teardown.rs": "5d22dd35797cf9c060e11a64a19460bae7a857d7bef08ea9fb92e9df7f18be00"
+    },
+    "findings": [],
+    "overall_q14": "IN_PROGRESS",
+    "review_scope": [
+      "owned Child/PID and retry/Restart/Reload queue",
+      "cancel-safe child/service join and deferred resource ownership",
+      "control socket authority, bounded API IO and handler drain",
+      "loaded-config trust and once-only post_down environment",
+      "hook process-group/tails,joined worker and forced cancellation",
+      "worker45-secondbudget,60-secondsupervisorgrace and sticky cleanup errors"
+    ],
+    "remaining": [
+      "verify supervisor panel/metrics/autostart task ownership and stop/outer-cancellation lifetime",
+      "full-process supervisor respawn/backoff/restart/stop and per-profile occupied bind/TUN isolation",
+      "runtime control-client pressure and hook failure/cancellation at profile boundaries"
+    ],
+    "unit_module_passed_counts": {
+      "server_supervisor::tests::": 20,
+      "profile_tasks::tests::": 19,
+      "control_io::tests::": 7,
+      "server::control_socket::tests::": 8,
+      "hook_process::tests::": 15,
+      "server_shutdown::tests::": 13,
+      "server_shutdown_budget::tests::": 6
+    },
+    "tech_debt_source_reconciliation": {
+      "reference": "release/certification/evidence/final-candidate-20261003.json",
+      "files": {
+        "qeli/src/server/mod.rs": {
+          "actual_sha256": "c9a8e36f7b89d7d96d06eebf90d8af67c5c8b7c8e316dac1617640e9b639a334",
+          "prior_sha256": "2b3ec7d915c7c4f0bd46e086c7391aa41985151ccabfe7f3818aec786546fe3a",
+          "unchanged": false
+        },
+        "qeli/src/server/tasks.rs": {
+          "actual_sha256": "089bbfea138b1d6e1d9f764f5105902271194343878152d0fa8d4e676e465407",
+          "prior_sha256": "089bbfea138b1d6e1d9f764f5105902271194343878152d0fa8d4e676e465407",
+          "unchanged": true
+        },
+        "qeli/src/server/supervisor.rs": {
+          "actual_sha256": "7ef5c22f395787984bc146a37c7ee5b497a9270bb242635cbb7874eb00efc7c5",
+          "prior_sha256": "7ef5c22f395787984bc146a37c7ee5b497a9270bb242635cbb7874eb00efc7c5",
+          "unchanged": true
+        },
+        "qeli/src/server/control.rs": {
+          "actual_sha256": "c57cd01171dad48e1915f08a1285660307555e882e2d21bbb32c4fe23050daf7",
+          "prior_sha256": "d479fa619062e277f563803f6e7b2868fbd26c1f45b4e31fd46bca7599ced447",
+          "unchanged": false
+        },
+        "qeli/src/server/control_io.rs": {
+          "actual_sha256": "9dbfe0c21f90e21d01ef3372ba59f7d643c846d073640e09e665177c13066c05",
+          "prior_sha256": "9dbfe0c21f90e21d01ef3372ba59f7d643c846d073640e09e665177c13066c05",
+          "unchanged": true
+        },
+        "qeli/src/server/control_socket.rs": {
+          "actual_sha256": "ee975797c48773014a972f1215a4aa92d655d40d368c6b0cdc5657e177f59c8b",
+          "prior_sha256": "ee975797c48773014a972f1215a4aa92d655d40d368c6b0cdc5657e177f59c8b",
+          "unchanged": true
+        },
+        "qeli/src/main.rs": {
+          "actual_sha256": "8b992522133ea1026970bd9db2d5549263706f8508a6f96973c3dbb09c15ca20",
+          "prior_sha256": "8b992522133ea1026970bd9db2d5549263706f8508a6f96973c3dbb09c15ca20",
+          "unchanged": true
+        },
+        "qeli/src/hooks.rs": {
+          "actual_sha256": "4b4e1fb65f5d443591c223f50b8bd0200ce39710cb7658ba620c6806a25b7717",
+          "prior_sha256": "4b4e1fb65f5d443591c223f50b8bd0200ce39710cb7658ba620c6806a25b7717",
+          "unchanged": true
+        },
+        "qeli/src/hooks/process.rs": {
+          "actual_sha256": "2eb8803153b000c4314e85a02baee9cd864459d553c2ec137c6dff40744dc502",
+          "prior_sha256": "2eb8803153b000c4314e85a02baee9cd864459d553c2ec137c6dff40744dc502",
+          "unchanged": true
+        },
+        "qeli/src/hooks/worker.rs": {
+          "actual_sha256": "287b6922ac338680373ed721525b5f7e2f9c9cf50e58b87a18c86c1830b6babe",
+          "prior_sha256": "287b6922ac338680373ed721525b5f7e2f9c9cf50e58b87a18c86c1830b6babe",
+          "unchanged": true
+        },
+        "qeli/src/server/shutdown.rs": {
+          "actual_sha256": "d63550b27f49c0d5f8a2bbda683f52190cf99810281d846613b8049b75b642c1",
+          "prior_sha256": "d63550b27f49c0d5f8a2bbda683f52190cf99810281d846613b8049b75b642c1",
+          "unchanged": true
+        },
+        "qeli/src/server/shutdown_budget.rs": {
+          "actual_sha256": "e8b0f2c6abc3f9d4c9c552c65d42a7bbc5c20b1c61c78c113dafd667d50198e4",
+          "prior_sha256": "e8b0f2c6abc3f9d4c9c552c65d42a7bbc5c20b1c61c78c113dafd667d50198e4",
+          "unchanged": true
+        },
+        "qeli/src/server/teardown.rs": {
+          "actual_sha256": "5d22dd35797cf9c060e11a64a19460bae7a857d7bef08ea9fb92e9df7f18be00",
+          "prior_sha256": "5d22dd35797cf9c060e11a64a19460bae7a857d7bef08ea9fb92e9df7f18be00",
+          "unchanged": true
+        }
+      }
+    },
+    "limits": [
+      "No new confirmed bug or code change in this review batch. Selected lifecycle paths reviewed;full Q14 is not marked complete.",
+      "Fresh ordinary Linux units include the module groups listed;60 ignored tests are not represented as executed.",
+      "Earlier D09/D13 and shutdown-budget evidence keeps original source hashes and runtime boundaries."
+    ]
+  }
+}

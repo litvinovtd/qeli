@@ -115,9 +115,30 @@ pub fn is_valid_ident(s: &str) -> bool {
     !s.is_empty() && s.len() <= 128 && !s.chars().any(|c| c.is_control()) && s.trim() == s
 }
 
+/// Profile names appear in comma-separated access-control lists and, unless an
+/// explicit identity_key is set, in the filename of a private server key.
+pub fn is_valid_profile_name(s: &str) -> bool {
+    is_valid_ident(s) && !s.chars().any(|c| matches!(c, ',' | '/' | '\\'))
+}
+
 #[cfg(test)]
 mod route_validate_tests {
     use super::{is_valid_cidr, is_valid_gateway};
+
+    #[test]
+    fn profile_names_cannot_escape_identity_directory() {
+        assert!(super::is_valid_profile_name("edge-west"));
+        assert!(super::is_valid_profile_name("edge@example.com"));
+        for name in [
+            "../escape",
+            "edge/backup",
+            "..\\escape",
+            "edge\\backup",
+            "edge,backup",
+        ] {
+            assert!(!super::is_valid_profile_name(name), "accepted {name:?}");
+        }
+    }
 
     #[test]
     fn cidr_accepts_real_networks() {
@@ -378,6 +399,35 @@ pub struct FileLock(#[allow(dead_code)] std::fs::File);
 impl FileLock {
     #[cfg(unix)]
     pub fn acquire(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        Self::acquire_inner(path, None, None)
+    }
+
+    /// Bound advisory-lock contention without changing ordinary file opens/writes.
+    #[cfg(unix)]
+    pub fn acquire_timeout(
+        path: impl AsRef<Path>,
+        timeout: std::time::Duration,
+    ) -> anyhow::Result<Self> {
+        Self::acquire_inner(path, Some(timeout), None)
+    }
+
+    /// Additional admission policy for shared privileged state. Check the opened
+    /// inode before flock/chown, not a separate lookup of a replaceable pathname.
+    #[cfg(all(target_os = "linux", any(test, feature = "client", feature = "server")))]
+    pub(crate) fn acquire_timeout_owned(
+        path: impl AsRef<Path>,
+        timeout: std::time::Duration,
+        owner: u32,
+    ) -> anyhow::Result<Self> {
+        Self::acquire_inner(path, Some(timeout), Some(owner))
+    }
+
+    #[cfg(unix)]
+    fn acquire_inner(
+        path: impl AsRef<Path>,
+        timeout: Option<std::time::Duration>,
+        owner: Option<u32>,
+    ) -> anyhow::Result<Self> {
         use std::os::unix::fs::OpenOptionsExt;
         use std::os::unix::io::AsRawFd;
         let lock_path = format!("{}.lock", path.as_ref().display());
@@ -401,7 +451,7 @@ impl FileLock {
             .truncate(false)
             .write(true)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
             .open(&lock_path)
             .map_err(|e| anyhow::anyhow!("cannot open the lock {}: {}", lock_path, e))?;
         // A lock file is always a plain file with exactly one link. Anything else — a FIFO
@@ -419,13 +469,58 @@ impl FileLock {
                     meta.nlink()
                 ));
             }
+            if let Some(owner) = owner {
+                anyhow::ensure!(
+                    (meta.uid() == 0 || meta.uid() == owner) && meta.mode() & 0o022 == 0,
+                    "refusing untrusted lock owner or permissions for {}",
+                    lock_path
+                );
+            }
         }
-        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            return Err(anyhow::anyhow!(
-                "cannot lock {}: {}",
-                lock_path,
-                std::io::Error::last_os_error()
-            ));
+        let started = std::time::Instant::now();
+        let flags = libc::LOCK_EX | if timeout.is_some() { libc::LOCK_NB } else { 0 };
+        loop {
+            if unsafe { libc::flock(f.as_raw_fd(), flags) } == 0 {
+                break;
+            }
+            let error = std::io::Error::last_os_error();
+            if let Some(timeout) = timeout {
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.kind() == std::io::ErrorKind::Interrupted
+                {
+                    let remaining = timeout.saturating_sub(started.elapsed());
+                    if remaining.is_zero() {
+                        anyhow::bail!(
+                            "timed out waiting for lock {} after {:?}",
+                            lock_path,
+                            timeout
+                        );
+                    }
+                    std::thread::sleep(remaining.min(std::time::Duration::from_millis(25)));
+                    continue;
+                }
+            }
+            return Err(anyhow::anyhow!("cannot lock {}: {}", lock_path, error));
+        }
+        {
+            use std::os::unix::fs::MetadataExt;
+            let meta = f.metadata()?;
+            let named = std::fs::symlink_metadata(&lock_path)?;
+            anyhow::ensure!(
+                meta.is_file()
+                    && meta.nlink() == 1
+                    && !named.file_type().is_symlink()
+                    && (meta.dev(), meta.ino()) == (named.dev(), named.ino()),
+                "lock changed while waiting: {}",
+                lock_path
+            );
+            if let Some(owner) = owner {
+                anyhow::ensure!(
+                    (meta.uid() == 0 || meta.uid() == owner) && meta.mode() & 0o022 == 0,
+                    "trusted lock owner or permissions changed while waiting: {}",
+                    lock_path
+                );
+            }
         }
         // Hand the lock to whoever owns the file it guards. The CLI (`qeli add-client`)
         // is normally run with sudo while the daemon runs as an unprivileged account, so
@@ -433,17 +528,18 @@ impl FileLock {
         // later users-file change from the panel or the control socket would fail with
         // EACCES. Best effort: only root can chown, and a mismatch is not fatal on a
         // single-user setup.
-        let ownership = std::fs::metadata(path.as_ref()).or_else(|_| {
-            // A first writer has no target to inherit from. The directory owns the future
-            // state file, so use its uid/gid; otherwise a root CLI can create a root-only
-            // sidecar that the packaged User=qeli service can never reopen.
-            let parent = path
-                .as_ref()
-                .parent()
-                .filter(|value| !value.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."));
+        let parent = path
+            .as_ref()
+            .parent()
+            .filter(|value| !value.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        // A state lock inherits its admitted directory, never an as-yet unvalidated
+        // journal's uid. Ordinary callers keep their existing target-owner behavior.
+        let ownership = if owner.is_some() {
             std::fs::metadata(parent)
-        });
+        } else {
+            std::fs::metadata(path.as_ref()).or_else(|_| std::fs::metadata(parent))
+        };
         if let Ok(target) = ownership {
             use std::os::unix::fs::MetadataExt;
             if let Ok(lock_meta) = f.metadata() {
@@ -457,14 +553,57 @@ impl FileLock {
         Ok(FileLock(f))
     }
 
+    #[cfg(all(not(target_os = "linux"), test))]
+    pub(crate) fn acquire_timeout_owned(
+        path: impl AsRef<Path>,
+        timeout: std::time::Duration,
+        _owner: u32,
+    ) -> anyhow::Result<Self> {
+        Self::acquire_timeout(path, timeout)
+    }
+
+    #[cfg(not(unix))]
+    pub fn acquire_timeout(
+        path: impl AsRef<Path>,
+        _timeout: std::time::Duration,
+    ) -> anyhow::Result<Self> {
+        Self::acquire(path)
+    }
+
     #[cfg(not(unix))]
     pub fn acquire(_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         Err(anyhow::anyhow!("file locking is Unix-only"))
     }
 }
 
+/// Rename succeeded, but directory fsync could not confirm durable publication.
+/// Callers must not report an unchanged file or fabricate a rollback.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "published {path} but cannot sync directory {directory}: {source}; persistence is uncertain"
+)]
+struct PublishedWriteError {
+    path: String,
+    directory: String,
+    source: std::io::Error,
+}
+
+pub fn atomic_write_was_published(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.downcast_ref::<PublishedWriteError>().is_some())
+}
+
 pub fn write_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> anyhow::Result<()> {
     write_atomic_inner(path, bytes, false)
+}
+
+/// Exercise the real publication path, failing only its final directory-sync step.
+#[cfg(test)]
+pub(crate) fn write_atomic_test_sync_failure(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    write_atomic_with_sync(path, bytes, false, |_| {
+        Err(std::io::Error::other("injected directory I/O failure"))
+    })
 }
 
 /// Like [`write_atomic`], but the result is always `0600` — for files that must never be
@@ -480,13 +619,29 @@ pub fn write_atomic_private(path: impl AsRef<Path>, bytes: &[u8]) -> anyhow::Res
     write_atomic_inner(path, bytes, true)
 }
 
+#[path = "util/atomic_file.rs"]
+mod atomic_file;
+#[cfg(any(
+    test,
+    all(target_os = "linux", any(feature = "client", feature = "server"))
+))]
+pub(crate) use atomic_file::remove_if_exists as remove_file_synced;
+
 fn write_atomic_inner(path: impl AsRef<Path>, bytes: &[u8], private: bool) -> anyhow::Result<()> {
+    write_atomic_with_sync(path.as_ref(), bytes, private, atomic_file::Parent::sync)
+}
+
+fn write_atomic_with_sync(
+    path: &Path,
+    bytes: &[u8],
+    private: bool,
+    sync: impl FnOnce(&atomic_file::Parent) -> std::io::Result<()>,
+) -> anyhow::Result<()> {
     use std::io::Write;
     // Windows has no Unix mode bits, so the flag affects only the cfg(unix) block below.
     // Consume it explicitly on other targets to keep every native-core cross-build clean.
     #[cfg(not(unix))]
     let _ = private;
-    let path = path.as_ref();
     let dir = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -495,6 +650,8 @@ fn write_atomic_inner(path: impl AsRef<Path>, bytes: &[u8], private: bool) -> an
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("qeli-file");
+    // Open before publication: a directory-open failure must leave the old target intact.
+    let parent = atomic_file::Parent::open(dir)?;
 
     // Retry on the (rare) random-name clash.
     let mut last_err: Option<std::io::Error> = None;
@@ -516,7 +673,11 @@ fn write_atomic_inner(path: impl AsRef<Path>, bytes: &[u8], private: bool) -> an
             opts.mode(0o600);
         }
         match opts.open(&tmp) {
-            Ok(mut f) => {
+            Ok(f) => {
+                // Declare the descriptor after its cleanup guard so even unwinding closes
+                // it before unlinking on platforms that disallow deleting an open file.
+                let mut pending = atomic_file::Pending::new(tmp.clone());
+                let mut f = f;
                 // Settle the final mode. A private file stays 0600; otherwise inherit the
                 // target's existing mode (so `/etc/resolv.conf` keeps being readable), and
                 // fall back to 0644 when there is no target yet.
@@ -562,9 +723,19 @@ fn write_atomic_inner(path: impl AsRef<Path>, bytes: &[u8], private: bool) -> an
                     .and_then(|()| f.sync_all())
                     .map_err(|e| anyhow::anyhow!("write {}: {}", tmp.display(), e))?;
                 drop(f);
-                return std::fs::rename(&tmp, path).map_err(|e| {
-                    let _ = std::fs::remove_file(&tmp);
+                std::fs::rename(&tmp, path).map_err(|e| {
                     anyhow::anyhow!("rename {} -> {}: {}", tmp.display(), path.display(), e)
+                })?;
+                pending.published();
+                // The data inode is synced above; the directory entry needs its own
+                // sync. A failure here is an uncertain durable outcome, not a rollback.
+                return sync(&parent).map_err(|e| {
+                    PublishedWriteError {
+                        path: path.display().to_string(),
+                        directory: dir.display().to_string(),
+                        source: e,
+                    }
+                    .into()
                 });
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -798,3 +969,82 @@ pub fn lock_or_recover<'a, T>(
         }
     }
 }
+
+#[cfg(all(test, unix))]
+mod file_lock_tests {
+    use super::*;
+    use std::{
+        os::unix::fs::OpenOptionsExt,
+        time::{Duration, Instant},
+    };
+    struct Fixture(std::path::PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "qeli-file-lock-{}-{}",
+                std::process::id(),
+                rand::random::<u64>()
+            ));
+            std::fs::create_dir(&dir).unwrap();
+            Self(dir)
+        }
+        fn path(&self) -> std::path::PathBuf {
+            self.0.join("state")
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn contention_deadline_preserves_owner_and_release_allows_retry() {
+        let f = Fixture::new();
+        let owner = FileLock::acquire(f.path()).unwrap();
+        let started = Instant::now();
+        assert!(FileLock::acquire_timeout(f.path(), Duration::from_millis(30)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(FileLock::acquire_timeout(f.path(), Duration::ZERO).is_err());
+        drop(owner);
+        // A parallel subprocess may briefly inherit the fd between fork and exec
+        // despite CLOEXEC. Wait for that inherited reference instead of assuming
+        // release is immediately observable by a zero-duration probe.
+        FileLock::acquire_timeout(f.path(), Duration::from_secs(1)).unwrap();
+    }
+    #[test]
+    fn fifo_lock_is_rejected_before_waiting_for_a_peer() {
+        let f = Fixture::new();
+        let fifo = f.path().with_extension("lock");
+        let c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let path = f.path();
+        let (send, receive) = std::sync::mpsc::channel();
+        let child = std::thread::spawn(move || {
+            send.send(FileLock::acquire(path).is_err()).unwrap();
+        });
+        let immediate = receive.recv_timeout(Duration::from_millis(300));
+        // Unblock the old O_WRONLY FIFO implementation so a failing regression cannot hang.
+        let _reader = if immediate.is_err() {
+            Some(
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(&fifo)
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
+        child.join().unwrap();
+        assert_eq!(
+            immediate,
+            Ok(true),
+            "FIFO open waited before metadata rejection"
+        );
+        assert_eq!(std::fs::symlink_metadata(&fifo).unwrap().len(), 0);
+    }
+}
+
+#[cfg(test)]
+#[path = "util/atomic_file_tests.rs"]
+mod atomic_file_tests;

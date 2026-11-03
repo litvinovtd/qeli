@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-06",
+  "source_digest": "58c5e01666fab229a304b56ac739b5dbfc942db35dfab9050509a0f6a50cf2f5",
+  "base_worktree_commit": "4967cd339e991fe0aaceddfd3cbfcb554b0bb07e",
+  "base_dev_commit": "8b43f1760119b532b9a444cdefb0c4a005868eff",
+  "status": "SCOPED_PASS",
+  "findings": [
+    "F350",
+    "F351"
+  ],
+  "raw_packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-openwrt-rpcd-package-20261006",
+  "raw_seal_sha256": "b83060ce3cb01066b8012d9b9c9f8a9bd1802ec488757ac1f372d3b09cec1895",
+  "upstream": {
+    "host": "10.66.116.11",
+    "root": "/var/tmp/qeli-q31-openwrt-rpcd-package-20261006",
+    "openwrt_snapshot": "58584c6f2829a7e5d77376ab68aae3dcc4a392d8",
+    "pins": {
+      "ucode": "3f64c8089bf3ea4847c96b91df09fbfcaec19e1d",
+      "libubox": "49056d178f42da98048a5d4c23f83a6f6bc6dd80",
+      "ubus": "60e04048a0e2f3e33651c19e62861b41be4c290f",
+      "uci": "16ff0badbde7e17ec3bd1f827ffe45922956cf86",
+      "rpcd": "bba95191ff2f22c9118a1ba1355b83afaa277ae3"
+    }
+  },
+  "builds": [
+    {
+      "name": "reused-ucode-install-initial",
+      "rc": 1,
+      "log": "ucode-install-private.log",
+      "qualification": "SETUP_FAILURE unbuilt default zlib install target; build independent pinned ucode with zlib off, previous build unchanged"
+    },
+    {
+      "name": "ucode",
+      "command": "env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake -S /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/ucode -B /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-ucode -DCMAKE_INSTALL_PREFIX=/usr '-DCMAKE_PREFIX_PATH=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot/usr;/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr' -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_INSTALL_LIBDIR=lib -DFS_SUPPORT=ON -DDEBUG_SUPPORT=OFF -DLOG_SUPPORT=OFF -DDIGEST_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DMATH_SUPPORT=OFF -DRESOLV_SUPPORT=OFF -DSTRUCT_SUPPORT=OFF -DSOCKET_SUPPORT=OFF -DZLIB_SUPPORT=OFF && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --build /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-ucode --parallel 1 && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig DESTDIR=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --install /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-ucode",
+      "rc": 0
+    },
+    {
+      "name": "libubox",
+      "command": "env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake -S /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/libubox -B /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-libubox -DCMAKE_INSTALL_PREFIX=/usr '-DCMAKE_PREFIX_PATH=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot/usr;/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr' -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_INSTALL_LIBDIR=lib && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --build /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-libubox --parallel 1 && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig DESTDIR=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --install /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-libubox",
+      "rc": 0
+    },
+    {
+      "name": "ubus",
+      "command": "env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake -S /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/ubus -B /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-ubus -DCMAKE_INSTALL_PREFIX=/usr '-DCMAKE_PREFIX_PATH=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot/usr;/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr' -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_INSTALL_LIBDIR=lib && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --build /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-ubus --parallel 1 && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig DESTDIR=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --install /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-ubus",
+      "rc": 0
+    },
+    {
+      "name": "uci",
+      "command": "env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake -S /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/uci -B /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-uci -DCMAKE_INSTALL_PREFIX=/usr '-DCMAKE_PREFIX_PATH=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot/usr;/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr' -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_INSTALL_LIBDIR=lib && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --build /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-uci --parallel 1 && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig DESTDIR=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --install /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-uci",
+      "rc": 0
+    },
+    {
+      "name": "rpcd",
+      "command": "env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake -S /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/rpcd -B /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-rpcd -DCMAKE_INSTALL_PREFIX=/usr '-DCMAKE_PREFIX_PATH=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot/usr;/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr' -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_INSTALL_LIBDIR=lib -DFILE_SUPPORT=OFF -DRPCSYS_SUPPORT=OFF -DIWINFO_SUPPORT=OFF -DUCODE_SUPPORT=ON -DCMAKE_C_FLAGS=-I/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot/usr/include && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --build /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-rpcd --parallel 1 && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig DESTDIR=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --install /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-rpcd",
+      "rc": 2,
+      "log": "rpcd-build-initial.log"
+    },
+    {
+      "name": "rpcd-final",
+      "command": "env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake -S /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/rpcd -B /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-rpcd -DCMAKE_INSTALL_PREFIX=/usr '-DCMAKE_PREFIX_PATH=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot/usr;/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr' -DFILE_SUPPORT=OFF -DRPCSYS_SUPPORT=OFF -DIWINFO_SUPPORT=OFF -DUCODE_SUPPORT=ON '-DCMAKE_C_FLAGS=-I/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot/usr/include -I/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/include' && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --build /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-rpcd --parallel 1 && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu DESTDIR=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/sysroot /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --install /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/build-rpcd",
+      "rc": 0
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "ucode",
+      "archive": "ucode-source.tar",
+      "sha256": "f0ce842fe7bb16ec29b5c67d83feb351f79b285863a136044d351366bacb05b1",
+      "size": 2467840
+    },
+    {
+      "name": "libubox",
+      "archive": "libubox-source.tar",
+      "sha256": "71718221fe4dcd73d865fea5e2e56bfa737d9064cd2ca87dd546c1189e547b4b",
+      "size": 583680
+    },
+    {
+      "name": "ubus",
+      "archive": "ubus-source.tar",
+      "sha256": "bc9e0aaee5f9cf85f79d64baa544f93967597c7958f6cb71b1d480d16693e83b",
+      "size": 286720
+    },
+    {
+      "name": "uci",
+      "archive": "uci-source.tar",
+      "sha256": "703102749f51613f012b4fea98cbdaf207eb24f546d7b703fb795445a361fa1c",
+      "size": 327680
+    },
+    {
+      "name": "rpcd",
+      "archive": "rpcd-source.tar",
+      "sha256": "915d4f97141384e72c46c348335d5384f10334a10d2a67b671a27cbaf403676b",
+      "size": 225280
+    },
+    {
+      "artifact": "artifacts/usr/sbin/rpcd",
+      "sha256": "7772c11a03856d161e63698c9f12270574333c42695151dd8243f3390976d174",
+      "size": 401536
+    },
+    {
+      "artifact": "artifacts/usr/sbin/ubusd",
+      "sha256": "de64257e8766db175e68bc685aedffaf276c0126d1c0a5f89c34bed5570a225b",
+      "size": 298608
+    },
+    {
+      "artifact": "artifacts/usr/bin/ubus",
+      "sha256": "829e05da2eda9ec26efdea3c09f54de4d0554d74e1cfa016acdd4419c5c220dc",
+      "size": 145680
+    },
+    {
+      "artifact": "artifacts/usr/bin/uci",
+      "sha256": "74ab475a9b13186a300377f59e74903c9de73aa5e03c5edae3be211393691575",
+      "size": 107368
+    },
+    {
+      "artifact": "artifacts/usr/bin/ucode",
+      "sha256": "ef4495486fcd444858a82822dc0d78295968ef8e1b2e03410aebf2fd7bff4bc0",
+      "size": 27728
+    },
+    {
+      "artifact": "artifacts/usr/lib/rpcd/ucode.so",
+      "sha256": "633a5581a1a7c5ade0439ff7112e00b546451f157ea478f6e6540c7f8949f461",
+      "size": 190288
+    },
+    {
+      "artifact": "artifacts/usr/lib/ucode/fs.so",
+      "sha256": "3c80fe9a4249667aedec1334316e3fe0dc6c8e2a7e62a1779d8e4adb809b654f",
+      "size": 47752
+    },
+    {
+      "artifact": "artifacts/usr/lib/libucode.so.0",
+      "sha256": "674f0999710c0a9dc39757e86bdb624bc0eef7c896832c3e900a9f5966fe3110",
+      "size": 197928
+    },
+    {
+      "artifact": "artifacts/usr/lib/libuci.so",
+      "sha256": "8f894c5e46a48c380002f35d5adf01c26011eb6cf9c2787c0cd7dddddbd12045",
+      "size": 250976
+    },
+    {
+      "artifact": "artifacts/usr/lib/libubox.so",
+      "sha256": "4ed47fd6f5e2638da75b7461e94b52c1e3933cb7d010d4810ff8742137a78dcb",
+      "size": 429448
+    },
+    {
+      "artifact": "artifacts/usr/lib/libubus.so",
+      "sha256": "bcd9e623651fb5e573ff3ba2b24e36da66b8544cee90fdda948a6c540b7c1adb",
+      "size": 256944
+    },
+    {
+      "artifact": "artifacts/usr/lib/libblobmsg_json.so",
+      "sha256": "6d4f7fabf20a9721474cb29478bf0fb30fc1bb67235d4aa6d84d6af419bab22c",
+      "size": 112664
+    }
+  ],
+  "runtime_template_manifest": "template-manifest.json",
+  "checks": {
+    "actual_rpcd": [
+      {
+        "id": "nul-boundary",
+        "command": "cd /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/source && QELI_OPENWRT_RPCD_TEMPLATE=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/runtime-template python3 probe-nul-boundary.py",
+        "rc": 0,
+        "log": "nul-boundary.log"
+      },
+      {
+        "id": "rpcd-final",
+        "command": "cd /var/tmp/qeli-q31-openwrt-rpcd-package-20261006/source && QELI_OPENWRT_RPCD_TEMPLATE=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/runtime-template QELI_OPENWRT_INI_INSPECTOR=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/ini-inspector python3 -m unittest discover -s scripts -p test_openwrt_rpcd.py -v",
+        "rc": 0,
+        "log": "rpcd-final.log"
+      }
+    ],
+    "local": [
+      {
+        "id": "luci",
+        "command": [
+          "node",
+          "scripts/test_openwrt_luci.js"
+        ],
+        "rc": 0,
+        "log": "luci.log"
+      },
+      {
+        "id": "recipes",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_native_recipes.py",
+          "-v"
+        ],
+        "rc": 0,
+        "log": "recipes.log"
+      },
+      {
+        "id": "bindings",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/gen_config_bindings.py",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "bindings.log"
+      },
+      {
+        "id": "docs",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/check_docs.py"
+        ],
+        "rc": 0,
+        "log": "docs.log"
+      },
+      {
+        "id": "diff",
+        "command": [
+          "git",
+          "diff",
+          "--cached",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "diff.log"
+      }
+    ],
+    "qualified_baseline": "luci-baseline.log",
+    "missing_fs_negative": "rpcd-final.log"
+  },
+  "input_proof": {
+    "base_worktree": "4967cd339e991fe0aaceddfd3cbfcb554b0bb07e",
+    "base_dev": "8b43f1760119b532b9a444cdefb0c4a005868eff",
+    "source_stage_tree_before_certification": "d99cc6c4ec4ae39cf92e7bfa704bf19569618a89",
+    "source_digest": "58c5e01666fab229a304b56ac739b5dbfc942db35dfab9050509a0f6a50cf2f5",
+    "staged_inputs": [
+      {
+        "path": "qeli-openwrt/luci-app-qeli/Makefile",
+        "sha256": "955c00623628d19c9c365ef0ba0026da704e62949b9a5190fadaa87199b7f5f7",
+        "size": 438
+      },
+      {
+        "path": "qeli-openwrt/luci-app-qeli/htdocs/luci-static/resources/view/qeli/config.js",
+        "sha256": "6fcd2c1091366687dda899ad83bf6b16b6fdab3c68ce07bea33ace45aad5ba88",
+        "size": 14807
+      },
+      {
+        "path": "scripts/test_openwrt_luci.js",
+        "sha256": "223363982e3d878e92c7cae14b282dc84b4c538e4dcd0abc89a8adee7c1fc117",
+        "size": 10489
+      },
+      {
+        "path": "scripts/test_openwrt_rpcd.py",
+        "sha256": "41e7414cae7b4ed9992499afce5183d836aa0d91b472b8671ff9ef8b46923eb5",
+        "size": 13861
+      },
+      {
+        "path": "qeli-openwrt/README.md",
+        "sha256": "262adb480d4843705d52e52747c23dd842c17e3edf441f8bedbbfd57e9ac5b99",
+        "size": 14683
+      },
+      {
+        "path": "qeli-openwrt/INSTALL.md",
+        "sha256": "fb31ad78e5da1d5f87bfa38121b05e11eeb9c802cac660c16d79efde04f5a32b",
+        "size": 15040
+      },
+      {
+        "path": "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "1365ef5baf7f71279fbabdf1c1eb1eacfdd6258f5201bd880ea17836b78df462",
+        "size": 115992
+      },
+      {
+        "path": "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "236755a50a2d39679451f3f012eee6e71f905a2961dce6564162a45d71537267",
+        "size": 81949
+      },
+      {
+        "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "7234f58c368e842b7c96f91fd7e355094a1bef1802ad03728a1c12e7c984d7bf",
+        "size": 275630
+      },
+      {
+        "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "8f708d944ff615bdf0ed129574af857aa0efece7a484fae89397498979ab794a",
+        "size": 198678
+      }
+    ],
+    "git_lab_inputs_verified": 8,
+    "human_content_sha256": {
+      "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+      "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+    },
+    "reused_format_source_sha256": "d1a87b5d064eb51083110dcf73de626fa52b91d1cb157a2456d18ae979924f34",
+    "reused_inspector_sha256": "afc80db31117d9db9b23ade768338e9e759172bfbaac2468be9c9127097d665f"
+  },
+  "scope": "Q31 F350-F351: explicit luci-base/ucode-mod-fs runtime dependencies and LuCI secret validation before JSON/ubus (C0/DEL, valid Unicode, 4096 UTF-8 bytes, blank no-op). Actual pinned OpenWrt24.10 GNU rpcd/ubusd/UCI/ucode/fs private-chroot integration:7 methods PASS without skips, including session staging/commit, real session ACL decisions and11 UCI->production-init->exact shared INI inspector values. Actual missing fs prevents luci.qeli registration; original LuCI setter fails first new NUL rejection. Native ubus JSON-to-blob discards NUL suffix before Qeli; external producers must reject NUL, no server rejection guarantee for discarded bytes.14Node/37native-recipes/docs/bindings/diff PASS;8 exact Git lab inputs verified.5 pristine source archives and12 executable/library snapshots, runtime template47files, immutable upstream recipes/functions/UCI shell and identities retained. Private0700 builds/chroot only; service start/stop/restart/enable/disable are adapters, no procd/VPN/network/firewall/system installs or .10 mutation. No SDK package resolver/install/build, firmware/target ABI, HTTP auth enforcement, browser DOM,25.12 rpcd, clean A/B or new Qeli/core/native/FFI qualification. Rust/native/router Qeli sources/recipes/artifacts unchanged; upstream RPC artifacts freshly built. Initial nodev/dependency/harness/staging assumptions excluded with raw records. Previous ucode ZLIB default enabled but not built/used clarified; old evidence unchanged.41 historic cases/dates/artifacts/acceptance preserved except source digest;Q29SIGKILLFAIL/ENONET,Q30drainOPEN/Appleexclusions,D06ACCEPTED;Q31IN_PROGRESS28/37(75.7%),9remain.",
+  "remaining": [
+    "procd and SDK package resolution/install/build",
+    "firmware/target ABI USER_EXCLUDED",
+    "HTTP auth enforcement and browser DOM NOT_RUN",
+    "25.12 rpcd NOT_RUN",
+    "config preflight generation/core ABA",
+    "root-admin path replacement races",
+    "SIGKILL/powerloss manual recovery",
+    "clean A/B/hermetic caches/config/PATH",
+    "new Qeli/FFI/native release artifact refresh NOT_RUN"
+  ]
+}

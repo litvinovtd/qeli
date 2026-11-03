@@ -1,0 +1,276 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F314_F315_FIXTURES_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T13:42:50.788256+00:00",
+  "base_commit": "a8062ecb1b8c98144162879e9fba2fc471967f39",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-install-source-sync-20261006",
+  "raw_seal_sha256": "67cfd1c193cdd297d31a5a6544ebd18494a2ce0bbe906ca11ec168e5287a9915",
+  "checks": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_router_build.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "id": "router-helper",
+      "status": "PASS",
+      "log": "router-helper.log"
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "id": "native-recipes",
+      "status": "PASS",
+      "log": "native-recipes.log"
+    },
+    {
+      "command": [
+        "node",
+        "scripts/test_openwrt_luci.js"
+      ],
+      "exit_code": 0,
+      "id": "luci",
+      "status": "PASS",
+      "log": "luci.log"
+    },
+    {
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "id": "docs",
+      "status": "PASS",
+      "log": "docs.log"
+    },
+    {
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "id": "bindings",
+      "status": "PASS",
+      "log": "bindings.log"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "id": "diff",
+      "status": "PASS",
+      "log": "diff.log"
+    },
+    {
+      "id": "busybox-shell",
+      "status": "PASS",
+      "command": "cd /var/tmp/qeli-q31-install-source-sync-20261006 && QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p \"test_openwrt_*.py\" -v",
+      "exit_code": 0,
+      "log": "busybox-installation-tests-final.log",
+      "tests": 21
+    },
+    {
+      "id": "dash-shell",
+      "status": "PASS",
+      "command": "cd /var/tmp/qeli-q31-install-source-sync-20261006 && QELI_OPENWRT_TEST_SHELL='/bin/dash' python3 -m unittest discover -s scripts -p \"test_openwrt_*.py\" -v",
+      "exit_code": 0,
+      "log": "dash-installation-tests-final.log",
+      "tests": 21
+    },
+    {
+      "id": "source-sync",
+      "status": "PASS",
+      "command": "cd /var/tmp/qeli-q31-install-source-sync-20261006 && python3 -m unittest discover -s scripts -p test_router_source.py -v",
+      "exit_code": 0,
+      "log": "source-sync.log",
+      "tests": 7
+    },
+    {
+      "id": "native-lab",
+      "status": "PASS",
+      "command": "cd /var/tmp/qeli-q31-install-source-sync-20261006 && python3 -m unittest discover -s scripts -p test_native_lab.py -v",
+      "exit_code": 0,
+      "log": "native-lab.log",
+      "tests": 12
+    }
+  ],
+  "source_review": {
+    "findings": [
+      "F314 checked retryable owned installation defaults/start guard",
+      "F315 shared managed-source replacement/incomplete-sync build guard"
+    ],
+    "python_router_fault_tests": 14,
+    "native_recipe_checks": 37,
+    "node_fixture_tests": 10,
+    "node_status_adapter": "compatible source parsed with mocked system/fs; not ucode execution",
+    "shell_tests_per_interpreter": 21,
+    "interpreters": [
+      "BusyBox ash",
+      "dash"
+    ],
+    "filesystem_source_sync_tests": 7,
+    "shared_native_lab_tests": 12,
+    "baseline_reproduction": [
+      {
+        "source": "baseline",
+        "failure": "commit",
+        "first_exit": 0,
+        "retry_exit": 0,
+        "persisted_zone": false,
+        "staged_input": "REJECT",
+        "reload_calls": 1
+      },
+      {
+        "source": "baseline",
+        "failure": "reload",
+        "first_exit": 0,
+        "retry_exit": 0,
+        "persisted_zone": true,
+        "staged_input": "REJECT",
+        "reload_calls": 1
+      },
+      {
+        "source": "baseline",
+        "failure": "firewall.cfg0.input",
+        "first_exit": 0,
+        "retry_exit": 0,
+        "persisted_zone": true,
+        "staged_input": null,
+        "reload_calls": 1
+      },
+      {
+        "source": "current",
+        "failure": "commit",
+        "first_exit": 1,
+        "retry_exit": 0,
+        "persisted_zone": true,
+        "staged_input": "REJECT",
+        "reload_calls": 1
+      },
+      {
+        "source": "current",
+        "failure": "reload",
+        "first_exit": 1,
+        "retry_exit": 0,
+        "persisted_zone": true,
+        "staged_input": "REJECT",
+        "reload_calls": 2
+      },
+      {
+        "source": "current",
+        "failure": "firewall.qeli_package_zone.input",
+        "first_exit": 1,
+        "retry_exit": 0,
+        "persisted_zone": true,
+        "staged_input": "REJECT",
+        "reload_calls": 1
+      },
+      {
+        "source": "baseline",
+        "helper": "keenetic",
+        "stale_module_remains": true,
+        "cargo_config": "stale config",
+        "target_cache_preserved": true
+      },
+      {
+        "source": "current",
+        "helper": "keenetic",
+        "stale_module_remains": false,
+        "cargo_config": "current config",
+        "target_cache_preserved": true
+      },
+      {
+        "source": "baseline",
+        "helper": "openwrt",
+        "stale_module_remains": true,
+        "cargo_config": "stale config",
+        "target_cache_preserved": true
+      },
+      {
+        "source": "current",
+        "helper": "openwrt",
+        "stale_module_remains": false,
+        "cargo_config": "current config",
+        "target_cache_preserved": true
+      }
+    ],
+    "initial_harness_failure": "Baseline source import required absent Paramiko; retained attempt1 FAIL. Final imports use connection-forbidden lab stub, no dependency installation.",
+    "source_proof": {
+      "base_commit": "a8062ecb1b8c98144162879e9fba2fc471967f39",
+      "changed_paths": [
+        "docs/eng/manuals/KEENETIC-DEPLOY.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "docs/ru/manuals/KEENETIC-DEPLOY.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "qeli-openwrt/INSTALL.md",
+        "qeli-openwrt/README.md",
+        "qeli-openwrt/build/build_openwrt.py",
+        "qeli-openwrt/files/qeli.firewall.uci-defaults",
+        "qeli-openwrt/files/qeli.init",
+        "scripts/build_keenetic.py",
+        "scripts/router_source.py",
+        "scripts/test_openwrt_defaults.py",
+        "scripts/test_openwrt_init.py",
+        "scripts/test_router_build.py",
+        "scripts/test_router_source.py"
+      ],
+      "unchanged_implementation_git_inputs": 844,
+      "unchanged_shared_sync_artifact_helpers": [
+        {
+          "path": "scripts/native_lab.py",
+          "sha256": "e6da33cbfe6a2c958e8eb132cb591b50bc13748e96cf22102e67ac9713db88f6"
+        },
+        {
+          "path": "scripts/native_repro.py",
+          "sha256": "e32ad480e15b61b2edbcce942a7c88f8b32a11203d7427676aed106f04d8c660"
+        }
+      ],
+      "scope": "Git base/index identity plus exact working allowlist; OpenWrt defaults/init and router source wrappers only; no Rust/native/Android/Apple/Windows binaries changed."
+    }
+  },
+  "real_qualification": {
+    "libuci_fw4_procd_ucode_rpcd_package_install": "NOT_RUN",
+    "cross_build": "NOT_RUN",
+    "real_router_runtime": "USER_EXCLUDED"
+  },
+  "remaining": [
+    "full package upgrade/rollback",
+    "cross-process lifecycle/secret/source races",
+    "broader source review/cross-build ABI/provenance"
+  ],
+  "retained_observations": [
+    "Q29 SIGKILL FAIL",
+    "Q29 auto/null DnsResolver ENONET",
+    "Q30 OS callback drain OPEN; Apple runtime excluded",
+    "D06 ACCEPTED_LIMITATION"
+  ],
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "q31": "IN_PROGRESS"
+  }
+}

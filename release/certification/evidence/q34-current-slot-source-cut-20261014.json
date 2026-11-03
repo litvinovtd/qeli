@@ -1,0 +1,64 @@
+{
+  "status": "CURRENT_SLOT_CORE_LOCAL_SDK_SOURCE_CUT_GATE_CLEANUP_PASS",
+  "qualification": {
+    "status": "PASS_EXACT_CURRENT_COMMIT_TWO_SDK_DOWNLOADS_PREPARE",
+    "source_commit": "ee2b74aafb2a57a2613541223c5522908cb71f71",
+    "source_tree": "4d07ac4cb2349e9fd7bdafdf80a67da4157d3431",
+    "qeli_tree": "8c50631e7c253ab6cacd0056098ecad83f393487",
+    "archive": {
+      "sha256": "6c82f2162ba9b4939c8d40393a157d5483ccdc6796e41706f0ec2672ee95fb16",
+      "bytes": 28375941
+    },
+    "prepared_count": 3348,
+    "all_prepared_blobs_verified_against_canonical_git": true,
+    "unaltered_sdk_git_export": true,
+    "private_recipe_only_url_pin_hash_changes": true,
+    "SDK": "24.10.4",
+    "two_empty_download_caches_identical": true,
+    "host_preserved": true,
+    "production_recipe_not_yet_updated": true,
+    "no_compiler_bootstrap_or_full_build": true,
+    "no_publication_or_hosted_ci": true
+  },
+  "production_gate": {
+    "status": "PASS_FOUR_ACTUAL_SOURCE_GATE_ADMISSIONS",
+    "committed_recipe": "78fd1ee941755bbf6974ee8695b3b634dcdb169c",
+    "source_archive_commit": "ee2b74aafb2a57a2613541223c5522908cb71f71",
+    "positive": [
+      "  OpenWrt source PASS: version=0.8.2, pin=ee2b74aafb2a57a2613541223c5522908cb71f71, mirror=6c82f2162ba9b4939c8d40393a157d5483ccdc6796e41706f0ec2672ee95fb16"
+    ],
+    "modified_archive_refusal": [
+      "OpenWrt source gate: SDK source archive SHA256 differs from PKG_MIRROR_HASH"
+    ],
+    "missing_argument_refusal": [
+      "OpenWrt source gate: QELI_OPENWRT_SOURCE_ARCHIVE must name the SDK-generated Source archive"
+    ],
+    "absent_file_refusal": [
+      "OpenWrt source gate: [Errno 2] No such file or directory: 'C:\\\\Users\\\\litvi\\\\OneDrive\\\\Documents\\\\qeli\\\\audit-debt-20260924\\\\q34-current-source-cut-20261014\\\\absent-archive.tar.zst'"
+    ],
+    "archive": {
+      "sha256": "6c82f2162ba9b4939c8d40393a157d5483ccdc6796e41706f0ec2672ee95fb16",
+      "bytes": 28375941
+    },
+    "unchanged_unit_suites_not_repeated": true,
+    "whole_release_preflight_pass": false
+  },
+  "files": {
+    "input-proof.json": "850cbd72f2fb4b310546ab8cc5cf66849fde14f8ed233ef5b1cabd32dbed7408",
+    "launch.json": "05c0e43081cff5fcc6c50362dc599494c6ed73964457cd1118d255b0a13e4b53",
+    "qualification.json": "def953127d9a59d18867df9863f6876594c80272d02f17e7f3601efde09bbe88",
+    "source-cut-proof.json": "4b441d19fed85f9e5dffadb0030e19113f5152548f521e1f1586ae75d8be3ea9",
+    "repeat-proof.json": "7cb34102ef4a8ff25434b37a24d76de8834df4f9ee6c43383797f902f9116106",
+    "collected.json": "88808dedba4b467ab5a341fbafcc7e949542318d8e069a8e89052f171bb65157",
+    "cleanup.json": "68ada169fc09bd4764f55f4d37f427fd8c53e8957322f6501303905f3e8533c3",
+    "recovery.tar.gz": "f28df16b6a509d7e98c0c8d6b3dfe10d54d039a7aa69b7c27442739509a53d81",
+    "qeli-0.8.2.tar.zst": "6c82f2162ba9b4939c8d40393a157d5483ccdc6796e41706f0ec2672ee95fb16",
+    "production-gate.json": "a7155ab6db161f7851eb2f0061695f9d48a704903f4995999f6394ae4d7d2360",
+    "recipe-change.json": "bc26ba1d1ec24f931a2cd71c8785b01dbe4782ce976f48229015efd1ec8e27f4"
+  },
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-current-source-cut-20261014",
+  "scope": "Exact two OpenWrt pin/hash literals and qualification date plus five Markdown files only; Compile/Install/public URL and all qeli/native inputs unchanged. Fresh SDK cut separately qualified. Current-core 20 Linux execution source/time/CLI/raw preserved without rerun. Prior 32-bit package results not rebound across the core delta.",
+  "host_preserved": true,
+  "unit_absent": true,
+  "no_push_deploy_release": true
+}

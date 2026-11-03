@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000f)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010010)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -401,6 +401,10 @@ int32_t qeli_client_state(uint64_t handle, uint32_t *out_state);
 /* Initialise *out_stats with QELI_CLIENT_STATS_INIT before its first use. */
 int32_t qeli_client_stats(uint64_t handle, qeli_client_stats_t *out_stats);
 int32_t qeli_client_free(uint64_t handle);
+
+/* ABI 1.16: bounded editor/policy DTO request; size query returns -6. */
+int32_t qeli_config_request(const uint8_t *input, size_t input_len,
+                            uint8_t *output, size_t capacity, size_t *out_len);
 
 #ifdef __cplusplus
 }

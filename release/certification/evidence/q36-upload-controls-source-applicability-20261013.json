@@ -1,0 +1,34 @@
+{
+  "status": "EXACT_DOCUMENTATION_DELTA_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_commit": "5d4e3f5897713faa362ec8d7990f9bca4af33243",
+  "source_digest": "7c33e3321c39112d09ef1b6d911f8ba8fa49dc7cd1c19ba74d3e8367bb48ce8d",
+  "previous_source_commit": "c4322677e8c71e9bd0fd71c97a467ca761416651",
+  "document_files": {
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "ab991a2327a85085dbcaa9acd24987d06f571135633e798d405354869c937387",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md": "cb52d8e4b68e92215a183508ff8779cb62c738abf12906c02e9596514bc40530",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "56de6af8e15e2aa475fb0dcf9468e4bcfa62a4560ef884abac1f025068867438",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md": "8de966ea6a4f91b1416352152e741ac98b25a0179f4723c1c85b514e9e00367a"
+  },
+  "exact_non_certification_delta": [
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md"
+  ],
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "runtime_qualification_sha256": {
+    "q36-upload-duration-20261013": "25ea704814014e63cac0a03777c4ad1741168ba3f6d36a9fe5aed31ed8b35ad2",
+    "q36-tcp-producer-pacing-20261013": "c1b4b66f194a25161d580b508fcf0ada9501c8183973b9d5870edcee78911d15"
+  },
+  "current_Q36_sessions": 6,
+  "current_Q36_windows": 12,
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "new_certification_matrix_execution": false,
+  "scope": "Exact four-Markdown-only delta plus three excluded evidence files. All native/helper/INI/Cargo/product inputs and native digest unchanged. Fresh6sessions12windows TCPraw P1 duration8/32 and softwareproducer unlimited/300Mbps, original Qeli/qdisc/queues; allsource/receiver/interval/process/TUN/host/archivecleanup gates PASS. Upstreamversion6.12.105driver review is staticonly, fullring counter is nonunique; upstreambackpressure reverted, no kernelchange. Producer paced300 works3/3 withoutdrops/retransmits; not a Qeli automaticfix/finalruntime reason/capacity/saturation claim. Original20Linux certification execution facts and21physical statuses preserved; no new certification executions/publicrelease/hostedCI/Q29orQ36closure claim.",
+  "no_push_deploy_release": true,
+  "driver_sha256": "d5c1435fb1c01f907f695b4b61ef5a6e037a0b5dccf2de2c1bce331de9cbc521"
+}

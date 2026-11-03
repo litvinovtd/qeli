@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>MicroCom.Runtime</id>
+    <version>0.11.2</version>
+    <authors>MicroCom.Runtime</authors>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <description>IDL-based COM interop codegen. Consumes MIDL-like IDL file, generates efficient cross-platform C# interop and C++ header files.</description>
+    <copyright>Copyright 2021 © Nikita Tsukanov</copyright>
+    <repository type="git" url="https://github.com/kekekeks/MicroCom" commit="a83e5a26aa68adaa6001338e2cee2411dd380d1f" />
+    <dependencies>
+      <group targetFramework="net5.0" />
+      <group targetFramework=".NETStandard2.0" />
+    </dependencies>
+  </metadata>
+</package>

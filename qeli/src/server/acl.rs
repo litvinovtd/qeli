@@ -21,7 +21,7 @@ pub fn packet_source(pkt: &[u8]) -> Option<std::net::IpAddr> {
         .map(|meta| meta.source)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Network {
     V4 { network: u32, mask: u32 },
     V6 { network: u128, mask: u128 },
@@ -94,7 +94,7 @@ impl Network {
 /// An EMPTY list means UNRESTRICTED — that is the documented semantic of an empty
 /// `allowed_networks`, and it also keeps the hot path free for the common case
 /// (see [`DstAcl::is_unrestricted`], which callers use to skip the check entirely).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DstAcl {
     nets: Vec<Network>,
     restricted: bool,
@@ -129,6 +129,9 @@ impl DstAcl {
             };
             nets.push(network);
         }
+        // Reload comparisons must ignore rule order and duplicate entries.
+        nets.sort_unstable();
+        nets.dedup();
         DstAcl { nets, restricted }
     }
 
@@ -197,7 +200,7 @@ pub fn effective_allowed_networks(
 /// Legitimate sources are the client's own tunnel IP plus any subnets routed
 /// behind it (`client_subnets` / iroute), which is why this is per-session state
 /// rather than a global check.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SrcGuard {
     assigned: Vec<std::net::IpAddr>,
     nets: Vec<Network>,
@@ -223,8 +226,11 @@ impl SrcGuard {
         compiled
             .nets
             .retain(|network| network.family_is_active(has_ipv4, has_ipv6));
+        let mut assigned = assigned.to_vec();
+        assigned.sort_unstable();
+        assigned.dedup();
         Self {
-            assigned: assigned.to_vec(),
+            assigned,
             nets: compiled.nets,
         }
     }
@@ -266,6 +272,30 @@ mod tests {
 
     fn acl(v: &[&str]) -> DstAcl {
         DstAcl::compile(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>(), "test")
+    }
+
+    #[test]
+    fn reload_policy_comparison_ignores_order_duplicates_and_address_spelling() {
+        assert_eq!(
+            acl(&["192.0.2.0/24", "10.0.0.1"]),
+            acl(&["10.0.0.1/32", "192.0.2.0/24", "10.0.0.1"])
+        );
+        assert_ne!(acl(&[]), acl(&["invalid"]), "malformed rules stay deny-all");
+        assert_ne!(acl(&["10.0.0.0/8"]), acl(&["10.0.0.0/24"]));
+        let assigned = ["10.0.0.1".parse().unwrap(), "fd00::1".parse().unwrap()];
+        let nets = ["172.16.0.0/16".into(), "fd42::/64".into()];
+        assert_eq!(
+            SrcGuard::new_dual(&assigned, &nets, "test"),
+            SrcGuard::new_dual(
+                &[assigned[1], assigned[0], assigned[0]],
+                &[nets[1].clone(), nets[0].clone(), nets[0].clone()],
+                "test"
+            )
+        );
+        assert_ne!(
+            SrcGuard::new_dual(&assigned, &nets, "test"),
+            SrcGuard::new_dual(&assigned, &[], "test")
+        );
     }
 
     /// An IPv4 packet with the given destination (20-byte minimal header).

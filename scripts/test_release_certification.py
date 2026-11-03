@@ -1,5 +1,9 @@
 import copy
 import unittest
+import subprocess
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 import release_certification as certification
 
@@ -126,6 +130,124 @@ class ReleaseCertificationTest(unittest.TestCase):
         document = complete_manifest()
         document["cases"][0]["executed_at"] = "2026-08-31T12:00:00"
         self.assertTrue(any("RFC 3339" in error for error in self.validate(document)))
+
+
+class RepositorySourceTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="qeli-cert-source-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        (self.root / "source").write_text("original")
+        (self.root / ".gitignore").write_text("cache/\n")
+        (self.root / "release/certification").mkdir(parents=True)
+        (self.root / "release/certification/receipt").write_text("receipt")
+        self.git("init", "--quiet")
+        self.git("add", ".")
+        self.commit("first")
+        self.first = self.git("rev-parse", "HEAD")
+        self.commit("second", "--allow-empty")
+        self.second = self.git("rev-parse", "HEAD")
+        self.git("checkout", "--quiet", "--detach", self.first)
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-c", "core.autocrlf=false", *args],
+                                       cwd=self.root, text=True).strip()
+
+    def commit(self, message, *args):
+        self.git("-c", "user.name=Audit Fixture", "-c", "user.email=audit@localhost",
+                 "commit", "--quiet", "-m", message, *args)
+
+    def digest(self):
+        return certification.repository_source_digest(self.root)
+
+    def test_clean_digest_ignores_only_certification_tree_and_caches(self):
+        expected = self.digest()
+        (self.root / "cache").mkdir()
+        (self.root / "cache/object").write_text("ignored cache")
+        (self.root / "release/certification/new-evidence.json").write_text("{}")
+        self.assertEqual(self.digest(), expected)
+        self.git("add", "release/certification")
+        self.commit("evidence")
+        self.assertEqual(self.digest(), expected)
+
+    def test_hidden_flags_refuse_even_without_worktree_edit(self):
+        for flag in ("assume-unchanged", "skip-worktree"):
+            with self.subTest(flag=flag):
+                self.git("update-index", "--" + flag, "--", "source")
+                try:
+                    with self.assertRaisesRegex(certification.CertificationError, "assume-unchanged/skip-worktree"):
+                        self.digest()
+                finally:
+                    self.git("update-index", "--no-" + flag, "--", "source")
+
+    def test_hidden_edits_cannot_reuse_committed_digest(self):
+        for path in ("source", "release/certification/receipt"):
+            original = (self.root / path).read_text()
+            for flag in ("assume-unchanged", "skip-worktree"):
+                with self.subTest(path=path, flag=flag):
+                    self.git("update-index", "--" + flag, "--", path)
+                    try:
+                        (self.root / path).write_text("hidden edit")
+                        self.assertEqual(self.git("status", "--porcelain"), "")
+                        with self.assertRaises(certification.CertificationError):
+                            self.digest()
+                    finally:
+                        self.git("update-index", "--no-" + flag, "--", path)
+                        (self.root / path).write_text(original)
+
+    def test_untracked_source_and_tracked_evidence_edits_refuse(self):
+        for path in ("new-helper.py", "release/certification/receipt"):
+            target = self.root / path
+            original = target.read_text() if target.exists() else None
+            try:
+                target.write_text("changed")
+                with self.assertRaises(certification.CertificationError):
+                    self.digest()
+            finally:
+                if original is None:target.unlink()
+                else:target.write_text(original)
+
+    def test_head_change_during_tree_query_refuses(self):
+        real_run = subprocess.run
+        def command(args, **kwargs):
+            result = real_run(args, **kwargs)
+            if args[1] == "ls-tree":
+                self.assertEqual(args[-1], self.first)
+                self.git("checkout", "--quiet", self.second)
+            return result
+        with patch.object(subprocess, "run", side_effect=command):
+            with self.assertRaisesRegex(certification.CertificationError, "changed during certification"):
+                self.digest()
+
+    def test_flags_added_during_tree_query_refuse(self):
+        real_run = subprocess.run
+        for flag in ("assume-unchanged", "skip-worktree"):
+            def command(args, **kwargs):
+                result = real_run(args, **kwargs)
+                if args[1] == "ls-tree":
+                    self.git("update-index", "--" + flag, "--", "source")
+                return result
+            try:
+                with patch.object(subprocess, "run", side_effect=command):
+                    with self.assertRaises(certification.CertificationError):
+                        self.digest()
+            finally:
+                self.git("update-index", "--no-" + flag, "--", "source")
+
+    def test_git_failures_are_certification_refusals(self):
+        real_run = subprocess.run
+        for query in ("rev-parse", "ls-files", "status", "ls-tree"):
+            for failure in ("missing", "timeout", "nonzero"):
+                with self.subTest(query=query, failure=failure):
+                    def command(args, **kwargs):
+                        if args[1] == query:
+                            if failure == "missing":raise FileNotFoundError("git")
+                            if failure == "timeout":raise subprocess.TimeoutExpired(args, 30)
+                            return subprocess.CompletedProcess(args, 7, b"", b"query refused") if not kwargs.get("text") else subprocess.CompletedProcess(args, 7, "", "query refused")
+                        return real_run(args, **kwargs)
+                    with patch.object(subprocess, "run", side_effect=command):
+                        with self.assertRaises(certification.CertificationError):
+                            self.digest()
 
 
 if __name__ == "__main__":

@@ -10,15 +10,8 @@ multipath, автоматический fallback и обработку конф�
 
 Легенда статуса: ⬜ не начато · 🟦 в работе · ✅ сделано · 🧪 ждёт сборки/e2e.
 
-**Статус инициативы: ✅ рефакторинг исходников завершён.** Все production-клиенты используют
-общее транспортное Rust-ядро; текущее исходное API — additive ABI 1.15. ABI 1.15 добавляет
-типизированные серверные события `NOTICE`/`KICK` и capability `MANAGEMENT_EVENTS`, не меняя
-фиксированный event header и число экспортов. Закоммиченные Android `.so`, Windows `.dll` и macOS
-`.dylib` теперь являются независимо пересобранным и побайтно совпавшим набором ABI 1.15 для 0.8.1.
-Их SHA, экспорты и provenance прошли native-core gates; финальные приложения также прошли доступные
-build, signing и platform-проверки. Из физических acceptance gates остаются
-administrator Wintun full-tunnel, живой macOS utun и physical-device iOS/Xcode.
-Составлено 2026-07-30; статус native cores актуализирован 2026-09-10.
+**Текущее состояние, 16 октября 2026: ABI 1.16.** Транспорт, `qeli_config_request`, Android `ConfigCore` JNI и переносимые политики используют общее Rust-ядро. Минимальная версия новых адаптеров — 1.16. Закоммиченные Windows/macOS/Android библиотеки пересобраны с независимыми A/B, ABI/JNI, хешами и provenance; [актуальный пакет проверки](../../../release/certification/evidence/dependabot-integration-20261016.json). Физические платформы, исключённые из согласованного аудита, не сертифицированы. История ABI и датированные этапы ниже сохраняют прежние промежуточные статусы.
+
 **Правило доставки Reality/H2.** Актуальный H2 carrier режима `reality-tls` принадлежит этому
 общему Rust-ядру, а не платформенному UI-коду. Платформа получает его только после пересборки
 native `.so`/`.dll`/`.dylib` либо XCFramework из обновлённых исходников, упаковки в приложение
@@ -50,7 +43,56 @@ Native-адаптер также обязан объявить platform capabili
 совместимое новое ядро, загруженное старым GUI до 1.15, не включает wire-capability и сервер не
 может прислать неизвестные этому GUI виды событий.
 
+
+TCP lifetime (23 сентября 2026): общий TaskGroup владеет stream-задачами и producers;
+штатный finish закрывает spawn и ждёт задачи до очистки сети. Linux path monitor регистрирует
+blocking-работы у того же владельца; UDP также использует группу всего соединения. ABI остаётся 1.16.
+Принудительная отмена и вложенные transport workers ещё требуют проверки; [TCP-отчёт](../reports/audit-0.8.2/AUDIT-Q25-TCP-TASKS.md).
+
+
+UDP lifetime (23 сентября 2026): тот же владелец объединяет active/candidate/draining receive,
+candidate-connect и Linux-монитор. Перемещаемый TaskHandle отменяет отдельную задачу,
+а группа сохраняет join; освобождение ресурсов ожидается до отката пути. Ранняя ошибка
+управляющего события проходит штатный teardown. ABI не меняется; [UDP-отчёт](../reports/audit-0.8.2/AUDIT-Q25-UDP-TASKS.md).
+
+TUN lifetime (23 сентября 2026): общий TunWorkers сохраняет reader/writer handles Unix
+TUN и Wintun при отмене shutdown. Drop ждёт уже выполняемый join либо делает его сам,
+если blocking-помощник ещё в очереди. Это гарантия уничтожения pump, не подтверждение
+всего платформенного rollback. ABI 1.16 сохранён; [отчёт](../reports/audit-0.8.2/AUDIT-Q25-TUN-WORKERS.md).
+
+H2 lifetime (23 сентября 2026): группа TCP-поколения создаётся до connect и сохраняет join
+для driver/bridge основного и дополнительных carriers. TaskScope закрывает spawn/abort до
+уничтожения отменённой попытки; внешний native runner ждёт группу до finish_generation.
+ABI 1.16; [клиентский отчёт](../reports/audit-0.8.2/AUDIT-Q25-H2-TASKS.md).
+Серверный accept_owned использует слабый ProfileSpawner: driver/bridge и bounded flush
+отказа входят в join профиля. Flush сохраняет pre-auth permit до освобождения I/O, а
+успешный accept возвращает его внутренней AUTH. Public standalone accept/connect сохраняют
+прежний контракт отмены; [серверный отчёт](../reports/audit-0.8.2/AUDIT-Q14-H2-TASKS.md).
+
+
+Linux system commands (23 сентября 2026): общий адаптер TUN и клиентский resolvectl
+используют один runner с 15-секундным deadline, полным выводом до 16 МиБ на поток и
+владением Child до завершения. DNS marker сохраняется при timeout/ошибке. Это Linux
+setup/rollback слой, без изменения ABI и GUI native-библиотек; маршруты/firewall ещё
+требуют переноса. [Отчёт](../reports/audit-0.8.2/AUDIT-Q25-SYSTEM-COMMANDS.md).
+
 ---
+
+<!-- normative-sync: core-terminal-policy-v1 -->
+
+Authenticated `KICK` сохраняет `reconnect_allowed` при одновременном TCP EOF,
+остановке TUN и отказе доставки события платформе. Pipeline обрабатывает конечную
+очередь уже прочитанных records до уведомления о потере stream. Это не гарантирует
+доставку непрочитанных/потерянных bytes или показ события неисправным UI. Обычный EOF
+без KICK сохраняет штатную reconnect policy. [Проверки](../reports/audit-0.8.2/AUDIT-Q09-FINAL.md).
+
+<!-- normative-sync: core-management-receipts-v1 -->
+
+ACK management-сообщения требует полного корректного payload. Повтор фрагмента до завершения сборки, неверный KICK и конфликт содержимого под прежним ID не подтверждаются. Точный повтор принятого сообщения подтверждается снова; повтор отправляется в новом authenticated PacketCodec record, поскольку повтор ciphertext отсекает replay window. [Проверки Q10](../reports/audit-0.8.2/AUDIT-Q10-CODEC-CONTROL.md).
+
+<!-- normative-sync: core-realtls-policy-v1 -->
+
+REALITY-TLS использует общий строгий ServerHello decoder и post-handshake policy в async/sans-IO. Уже проверенные application bytes выдаются перед фатальной ошибкой следующей записи; после ошибки сеанс не принимает/не отправляет новые записи. Fragmented NewSessionTicket ограниченно собирается и пропускается; KeyUpdate не поддерживается и требует переподключения. В старом `qeli_realtls_open` предшествующий plaintext выдаётся с `0`, затем следующий вызов получает terminal `-1`; close_notify использует тот же terminal код, поскольку отдельного EOF-кода в ABI нет. [Q11](../reports/audit-0.8.2/AUDIT-Q11-REALITY-TLS-H2.md).
 
 ## 1. Вердикт: чем это оправдано, а чем — нет
 
@@ -230,7 +272,7 @@ kill-switch-бага в 0.7.14 — ровно из этой области).
 обязательный для FFI контракт `panic = "unwind"`.
 
 ```text
-qeli_client_abi_version()                                      -> 0x0001000F
+qeli_client_abi_version()                                      -> 0x00010010
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_udp_probe(config, len, timeout_ms, *latency_ms)     -> rc  // ABI 1.8
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
@@ -489,7 +531,7 @@ qeli_client_tun_pull(handle, generation, buf, cap, lens, lens_cap, *n, *bytes) -
 |---|---|---|
 | TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | ✅ ABI 1.0 freeze-review: version/capability negotiation, расширяемые output structs, ownership/concurrency, panic и event/JSON contracts закреплены header и тестами |
 | TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | ✅ Все active paths используют bounded reusable pools/caller buffers. macOS payload проходит по fd, Windows uplink удерживает Wintun ring packet до RAII-release, а downlink копируется из bounded Rust pool прямо в send ring. Managed per-packet allocation/copy на desktop нет |
-| TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | ✅ все production transports проходят strict Rust parser; платформенные модели остаются UI/editor validation |
+| TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | ✅ все production transports проходят strict Rust parser; платформенные модели — генерируемые проекции; editor validation использует ABI 1.16 |
 | TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ Linux/Android/Windows/macOS/iOS используют канонический plan и обязательный generation ACK |
 
 **Критерий приёмки:** Rust-клиент на Linux работает **через новый API** (а не мимо него),
@@ -608,7 +650,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 
 | ID | Пункт |
 |---|---|
-| TC-4.1 | Матрица whole-client кросс-сборок проходит для Android arm64/x86_64, Windows x64 и macOS universal2. Source ABI 1.12 расширил gate до 22 client exports и 21 Android JNI export; ABI 1.13–1.15 добавляют capability/event/path-result semantics без изменения этих чисел. Артефакты ABI 1.15 для 0.8.1 прошли независимые побайтно идентичные A/B-сборки. Базовый compatibility floor iOS остаётся ABI 1.11, а fail-closed path transactions вместе с `PATH_REFRESH` требуют 1.14; `build_native.sh` по умолчанию включает `transport-core-ffi experimental-roaming`. Feature Clippy для `aarch64-apple-ios` зелёный, но реальный device+simulator XCFramework/Xcode build требует macOS |
+| TC-4.1 | Матрица whole-client кросс-сборок проходит для Android arm64/x86_64, Windows x64 и macOS universal2. Source ABI 1.12 расширил gate до 22 client exports и 21 Android JNI export; ABI 1.13–1.15 добавляют capability/event/path-result semantics без изменения этих чисел. Артефакты ABI 1.15 для 0.8.1 прошли независимые побайтно идентичные A/B-сборки. Текущий iOS adapter требует ABI 1.16 для документного сервиса, а fail-closed path transactions вместе с `PATH_REFRESH` требуют 1.14; `build_native.sh` по умолчанию включает `transport-core-ffi experimental-roaming`. Feature Clippy для `aarch64-apple-ios` зелёный, но реальный device+simulator XCFramework/Xcode build требует macOS |
 | TC-4.2 | ✅ Все четыре библиотеки прошли живые побайтно идентичные A/B-сборки на лабах `.10`/`.11`; общий mock-tested harness выполняет ограниченный source sync, preflight точных targets и проверенный atomic pull. Закреплены Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 и cargo-ndk 4.1.2. macOS до детерминированной ad-hoc подписи нормализует install name, content-derived UUID и недопустимый нестабильный GOT-index Zig; SHA256, экспорты и provenance работают как fail-closed gates |
 | TC-4.3 | ✅ Свежесть conformance-векторов + release-mode Rust/C# бенчи TC-0.3 входят в Linux/Windows/macOS CI |
 
@@ -667,3 +709,15 @@ CLI/cross-language KAT. UI reachability теперь вызывает Rust ABI 1
    ядро и кто владеет его жизненным циклом.
 3. **Обновление ядра отдельно от приложения** — заманчиво для быстрых фиксов протокола,
    но на iOS и в Play это ограничено правилами магазинов.
+
+<!-- normative-sync: core-ws-write-v1 -->
+
+Общий WS writer принимает максимум 16384 байта данных за poll,учитывает owned bytes один раз и допускает отмену Pending с заменой входного буфера. Flush/shutdown отправляют owned frames и bounded control replies; outbound write/flush fault остаётся terminal. Handshake,ACK и data/cover record границы daemon/native core используют один write-all-and-flush helper перед ожиданием ответа или фиксацией доставки. [Q12](../reports/audit-0.8.2/AUDIT-Q12-TRANSPORTS.md).
+
+<!-- normative-sync: core-ws-read-v1 -->
+
+HTTP Upgrade использует общий bounded parser: head до 4096 байт включая CRLFCRLF,GET/HTTP/1.1,Host,версия13,однозначные ключ/accept;body запрещён кроме Content-Length0. Клиент не принимает незапрошенные extensions/subprotocol. Inbound WS lengths минимальны при payload cap16384;незавершённая фрагментация при EOF — UnexpectedEof. Уже готовые данные выдаются до сохранённой ошибки следующего кадра;дальнейший разбор не возобновляется. Inner AEAD обязателен. [Проверки Q12](../reports/audit-0.8.2/AUDIT-Q12-TRANSPORTS.md).
+
+<!-- normative-sync: core-ws-control-v1 -->
+
+Общий core отвечает на Ping/Close при простое, включая pre-auth nonce/junk. Valid Close проверяет status/UTF-8, имеет приоритет над bounded/coalesced Pong, запрещает следующие данные; EOF выдаётся после echo/flush/shutdown. Отменённый Pending flush сохраняется до завершения. Одни reader/writer состояния используются daemon и native clients. Матрица INI wire-режимов и границы QUIC/AWG приведены в [Q12](../reports/audit-0.8.2/AUDIT-Q12-TRANSPORTS.md).

@@ -4,6 +4,11 @@ This guide explains how the masking layers fit together, how to tune the transpo
 recordizer, and which combinations are safe. It complements the complete key reference in
 [CONFIG.md](CONFIG.md) and the measured limitations in [DPI-AUDIT.md](../reports/DPI-AUDIT.md).
 
+Algorithm overview: [Recordizer and record organization](../reference/RECORDIZER.md).
+[Required/off measurements on 12 profiles on 20 October 2026](../reports/benchmarks/recordizer_required_off_2026-10-20.md)
+provide engineering results for one build, CPU, loss and interpretation limits,
+not a public release benchmark. [Other technologies and measurements](../reference/TECHNOLOGIES.md).
+
 ## 1. What the recordizer changes
 
 The legacy data plane usually turned one inner IPv4/IPv6 packet into one encrypted qeli record.
@@ -186,3 +191,53 @@ client configuration or connection link has to be rolled back.
 There is no defensible setting that makes a protocol “completely invisible”. Recordizer removes
 one transport-independent boundary correlation; the chosen carrier, endpoint reputation,
 active-probe behaviour, long-term timing and traffic volume remain observable.
+
+## Shared shaping budget and pacing deadlines
+
+<!-- normative-sync: shaping-budget-v1 -->
+
+`obf.traffic_shaping.enabled = true` enables idle cover. With `stealth = true`,
+real data is paced **only over TCP**. UDP deliberately retains idle cover only,
+even when a saved setting requests stealth. `stealth_rate_mbps` must be positive only while both
+shaping and stealth are enabled. A value of `0` for inactive stealth survives
+client INI parsing and serialization.
+
+All bonded client TCP writers reserve the data rate from one shared budget.
+The server also uses an aggregate session-direction budget. Upload and download
+remain independent; this is not a cap on their sum. Cover has a separate shared
+`budget_bytes_per_sec`, which does not multiply with the stream count.
+
+Pacing waits for the entire calculated pause, including its final 6 ms. That
+short remainder emits no extra cover but still delays the data until its deadline.
+Slow cover writes count towards the pause. Up to one second of accumulated credit
+may allow an initial burst; a short measurement need not equal the configured rate.
+
+Active cover sizes must fit `MAX_TUNNEL_MTU`, and the budget must be at least
+`max_size`. UDP further clamps the size to its carrier/path budget. Local INI and
+authenticated AuthOK settings share these active checks. The local client still
+checks positive, ordered saved ranges when shaping is disabled.
+
+`budget_bytes_per_sec` meters requested cover-padding bytes. AEAD and outer
+carrier headers increase actual interface traffic; this is not a total wire-rate
+limit. Shaping and recordization do not guarantee DPI evasion.
+
+
+## Combined padding targets and malformed mux-record handling
+
+<!-- normative-sync: morphology-contract-v1 -->
+
+`obf.traffic_normalization.round_sizes` targets **data + all padding** before encryption.
+Random padding is generated first;the nearest fitting target includes those bytes:
+payload70 + padding3 with target128 gets55 additional bytes,not58. AEAD and the outer
+carrier add their own overhead. With no target below the carrier budget,normalization
+adds nothing;existing padding remains.
+
+`obf.padding.probability = 0` means exactly no random padding;normalization can add its
+own bytes independently. NaN/Inf are rejected even with padding disabled or
+`obf.recordizer.policy = off` because service API/AuthOK cannot preserve them. Other
+finite dormant tuning is retained;active features validate their ranges.
+
+If any mux-envelope frame errors,no completed packet from that record reaches the
+callback. Internal reassembly state remains incremental:accepted partial fragments may
+remain until timeout;conflicting state is removed. This promises neither full receiver
+state rollback nor a wire-format change.

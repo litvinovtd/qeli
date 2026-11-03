@@ -1,0 +1,1012 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-12",
+  "qualification": {
+    "status": "CURRENT_DNS_SELECTION_CONTROL_QUALIFIED",
+    "runtime_status": "FAIL",
+    "scoped_DNS_observations_status": "PASS",
+    "whole_runtime_failure_retained": {
+      "process": "com.android.systemui",
+      "exception": "subscriptionId 1 is not in the list of valid subscriptions",
+      "log_sha256": "78a2779867a1ec39826aa3876e9070fbdb4224bc3f26d5a844acc05b726707f3",
+      "original_final_health_gate": "FAIL",
+      "no_Qeli_or_fixture_FatalException_observed": true
+    },
+    "source_identity": "361327f7000aa73ef380f757515103818d9cff57\ncc3f15dcef1290b58aafb90f638ddde84cf1b356\n",
+    "source_dirty": false,
+    "scope": "Three remaining independent UID minimal TUN controls; qualified Qeli/baseline DNS observations from r2 retained without repeating them; original r2 overall runtime FAIL retained",
+    "platform": "Android14 API34 x86_64 lowram readonly AVD",
+    "elapsed_seconds": 189.99,
+    "cells": {
+      "physical-baseline": {
+        "uid": 10150,
+        "vpn_owner_uid": null,
+        "active": "100",
+        "selected": 100,
+        "selected_family_checks": {
+          "8.8.8.8": true,
+          "2000::": true
+        },
+        "outcomes": {
+          "auto": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ],
+          "a": [
+            "198.19.0.1"
+          ],
+          "aaaa": [
+            "2001:db8:29::1"
+          ],
+          "auto-active": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ],
+          "auto-selected": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ]
+        }
+      },
+      "qeli-secure-open": {
+        "uid": 10150,
+        "vpn_owner_uid": 10148,
+        "active": "101",
+        "selected": 100,
+        "selected_family_checks": {
+          "8.8.8.8": false,
+          "2000::": false
+        },
+        "outcomes": {
+          "auto": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+          "a": [
+            "198.19.0.1"
+          ],
+          "aaaa": [
+            "2001:db8:29::1"
+          ],
+          "auto-active": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ],
+          "auto-selected": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)"
+        }
+      },
+      "qeli-secure-lockdown": {
+        "uid": 10150,
+        "vpn_owner_uid": 10148,
+        "active": "102",
+        "selected": 100,
+        "selected_family_checks": {
+          "8.8.8.8": false,
+          "2000::": false
+        },
+        "outcomes": {
+          "auto": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+          "a": [
+            "198.19.0.1"
+          ],
+          "aaaa": [
+            "2001:db8:29::1"
+          ],
+          "auto-active": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ],
+          "auto-selected": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)"
+        }
+      },
+      "control-secure-open": {
+        "uid": 10150,
+        "vpn_owner_uid": 10151,
+        "active": "101",
+        "selected": 100,
+        "selected_family_checks": {
+          "8.8.8.8": false,
+          "2000::": false
+        },
+        "outcomes": {
+          "auto": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+          "a": [
+            "198.19.0.1"
+          ],
+          "aaaa": [
+            "2001:db8:29::1"
+          ],
+          "auto-active": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ],
+          "auto-selected": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)"
+        }
+      },
+      "control-secure-lockdown": {
+        "uid": 10150,
+        "vpn_owner_uid": 10151,
+        "active": "102",
+        "selected": 100,
+        "selected_family_checks": {
+          "8.8.8.8": false,
+          "2000::": false
+        },
+        "outcomes": {
+          "auto": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+          "a": [
+            "198.19.0.1"
+          ],
+          "aaaa": [
+            "2001:db8:29::1"
+          ],
+          "auto-active": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ],
+          "auto-selected": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)"
+        }
+      },
+      "control-bypass-open": {
+        "uid": 10150,
+        "vpn_owner_uid": 10151,
+        "active": "104",
+        "selected": 104,
+        "selected_family_checks": {
+          "8.8.8.8": true,
+          "2000::": true
+        },
+        "outcomes": {
+          "auto": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ],
+          "a": [
+            "198.19.0.1"
+          ],
+          "aaaa": [
+            "2001:db8:29::1"
+          ],
+          "auto-active": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ],
+          "auto-selected": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ]
+        }
+      }
+    },
+    "raw_cells": [
+      {
+        "stage": "physical-baseline",
+        "uid": 10150,
+        "pid": 2437,
+        "started_ms": 1791784812650,
+        "active": "100",
+        "bound": "null",
+        "capabilities": "[ Transports: CELLULAR Capabilities: MMS&SUPL&DUN&FOTA&IMS&CBS&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps Specifier: <TelephonyNetworkSpecifier [mSubId = 1]> UnderlyingNetworks: Null]",
+        "links": "{InterfaceName: eth0 LinkAddresses: [ 10.0.2.15/24 ] DnsAddresses: [ /10.0.2.3 ] Domains: null MTU: 1500 TcpBufferSizes: 2097152,6291456,16777216,512000,2097152,8388608 Routes: [ 0.0.0.0/0 -> 10.0.2.2 eth0 mtu 1500,10.0.2.0/24 -> 0.0.0.0 eth0 mtu 0 ]}",
+        "proxy_code": "222\\0",
+        "selected_netid": 100,
+        "selected": "100",
+        "selected_capabilities": "[ Transports: CELLULAR Capabilities: MMS&SUPL&DUN&FOTA&IMS&CBS&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps Specifier: <TelephonyNetworkSpecifier [mSubId = 1]> UnderlyingNetworks: Null]",
+        "selected_links": "{InterfaceName: eth0 LinkAddresses: [ 10.0.2.15/24 ] DnsAddresses: [ /10.0.2.3 ] Domains: null MTU: 1500 TcpBufferSizes: 2097152,6291456,16777216,512000,2097152,8388608 Routes: [ 0.0.0.0/0 -> 10.0.2.2 eth0 mtu 1500,10.0.2.0/24 -> 0.0.0.0 eth0 mtu 0 ]}",
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.0.2.15:43235"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fec0::5054:ff:fe12:3456]:42915"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.0.2.15:48243"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fec0::5054:ff:fe12:3456]:42716"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.0.2.15:39260"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fec0::5054:ff:fe12:3456]:35712"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-135290079006.test",
+            "started_ms": 1791784812679,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784812703
+          },
+          {
+            "mode": "a",
+            "name": "q29-135313943054.test",
+            "started_ms": 1791784812703,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791784812726
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-135337095111.test",
+            "started_ms": 1791784812726,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784812734
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-135345235156.test",
+            "started_ms": 1791784812734,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784812755
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-135366074751.test",
+            "started_ms": 1791784812755,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784812775
+          }
+        ],
+        "done_ms": 1791784812775,
+        "vpn_owner_uid": null,
+        "policy": {
+          "always_on_vpn_app": "null",
+          "always_on_vpn_lockdown": "null"
+        }
+      },
+      {
+        "stage": "qeli-secure-open",
+        "uid": 10150,
+        "pid": 2437,
+        "started_ms": 1791784839059,
+        "active": "101",
+        "bound": "null",
+        "capabilities": "[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null]",
+        "links": "{InterfaceName: tun0 LinkAddresses: [ 10.86.0.2/32,fd86:29:1::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 10.86.0.0/24 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::/120 -> :: tun0 mtu 0,0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,198.19.0.53/32 -> 0.0.0.0 tun0 mtu 0,10.86.0.2/32 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::2/128 -> :: tun0 mtu 0 ]}",
+        "proxy_code": "222\\0",
+        "selected_netid": 100,
+        "selected": "100",
+        "selected_capabilities": "[ Transports: CELLULAR Capabilities: MMS&SUPL&DUN&FOTA&IMS&CBS&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps Specifier: <TelephonyNetworkSpecifier [mSubId = 1]> UnderlyingNetworks: Null]",
+        "selected_links": "{InterfaceName: eth0 LinkAddresses: [ 10.0.2.15/24 ] DnsAddresses: [ /10.0.2.3 ] Domains: null MTU: 1500 TcpBufferSizes: 2097152,6291456,16777216,512000,2097152,8388608 Routes: [ 0.0.0.0/0 -> 10.0.2.2 eth0 mtu 1500,10.0.2.0/24 -> 0.0.0.0 eth0 mtu 0 ]}",
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.86.0.2:42068"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd86:29:1::2]:54541"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.86.0.2:43322"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd86:29:1::2]:51489"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-161761444302.test",
+            "started_ms": 1791784839151,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791784839167
+          },
+          {
+            "mode": "a",
+            "name": "q29-161777302262.test",
+            "started_ms": 1791784839167,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791784839204
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-161815166301.test",
+            "started_ms": 1791784839204,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784839240
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-161850278160.test",
+            "started_ms": 1791784839240,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784839294
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-161905061477.test",
+            "started_ms": 1791784839294,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791784839306
+          }
+        ],
+        "done_ms": 1791784839306,
+        "vpn_owner_uid": 10148,
+        "policy": {
+          "always_on_vpn_app": "com.qeli",
+          "always_on_vpn_lockdown": "0"
+        }
+      },
+      {
+        "stage": "qeli-secure-lockdown",
+        "uid": 10150,
+        "pid": 2437,
+        "started_ms": 1791784850318,
+        "active": "102",
+        "bound": "null",
+        "capabilities": "[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null]",
+        "links": "{InterfaceName: tun0 LinkAddresses: [ 10.86.0.2/32,fd86:29:1::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 10.86.0.0/24 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::/120 -> :: tun0 mtu 0,0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,198.19.0.53/32 -> 0.0.0.0 tun0 mtu 0,10.86.0.2/32 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::2/128 -> :: tun0 mtu 0 ]}",
+        "proxy_code": "222\\0",
+        "selected_netid": 100,
+        "selected": "100",
+        "selected_capabilities": "[ Transports: CELLULAR Capabilities: MMS&SUPL&DUN&FOTA&IMS&CBS&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps Specifier: <TelephonyNetworkSpecifier [mSubId = 1]> UnderlyingNetworks: Null]",
+        "selected_links": "{InterfaceName: eth0 LinkAddresses: [ 10.0.2.15/24 ] DnsAddresses: [ /10.0.2.3 ] Domains: null MTU: 1500 TcpBufferSizes: 2097152,6291456,16777216,512000,2097152,8388608 Routes: [ 0.0.0.0/0 -> 10.0.2.2 eth0 mtu 1500,10.0.2.0/24 -> 0.0.0.0 eth0 mtu 0 ]}",
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.86.0.2:49696"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd86:29:1::2]:57218"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.86.0.2:60957"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd86:29:1::2]:35986"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-172934616862.test",
+            "started_ms": 1791784850324,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791784850324
+          },
+          {
+            "mode": "a",
+            "name": "q29-172935176330.test",
+            "started_ms": 1791784850324,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791784850335
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-172946223796.test",
+            "started_ms": 1791784850335,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784850341
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-172952062293.test",
+            "started_ms": 1791784850341,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784850349
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-172959677897.test",
+            "started_ms": 1791784850349,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791784850349
+          }
+        ],
+        "done_ms": 1791784850349,
+        "vpn_owner_uid": 10148,
+        "policy": {
+          "always_on_vpn_app": "com.qeli",
+          "always_on_vpn_lockdown": "1"
+        }
+      },
+      {
+        "stage": "control-secure-open",
+        "uid": 10150,
+        "pid": 2534,
+        "started_ms": 1791785319938,
+        "active": "101",
+        "bound": "null",
+        "capabilities": "[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null]",
+        "links": "{InterfaceName: tun0 LinkAddresses: [ 10.88.29.2/32,fd88:29::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,10.88.29.2/32 -> 0.0.0.0 tun0 mtu 0,fd88:29::2/128 -> :: tun0 mtu 0 ]}",
+        "proxy_code": "222\\0",
+        "selected_netid": 100,
+        "selected": "100",
+        "selected_capabilities": "[ Transports: CELLULAR Capabilities: MMS&SUPL&DUN&FOTA&IMS&CBS&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps Specifier: <TelephonyNetworkSpecifier [mSubId = 1]> UnderlyingNetworks: Null]",
+        "selected_links": "{InterfaceName: eth0 LinkAddresses: [ 10.0.2.15/24 ] DnsAddresses: [ /10.0.2.3 ] Domains: null MTU: 1500 TcpBufferSizes: 2097152,6291456,16777216,512000,2097152,8388608 Routes: [ 0.0.0.0/0 -> 10.0.2.2 eth0 mtu 1500,10.0.2.0/24 -> 0.0.0.0 eth0 mtu 0 ]}",
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:53402"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:42859"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:58294"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:49950"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-112143144299.test",
+            "started_ms": 1791785319957,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791785319961
+          },
+          {
+            "mode": "a",
+            "name": "q29-112147106043.test",
+            "started_ms": 1791785319961,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791785319978
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-112164279839.test",
+            "started_ms": 1791785319979,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785319994
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-112179340800.test",
+            "started_ms": 1791785319994,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785320017
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-112202787254.test",
+            "started_ms": 1791785320017,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791785320017
+          }
+        ],
+        "done_ms": 1791785320017,
+        "vpn_owner_uid": 10151,
+        "policy": {
+          "always_on_vpn_app": "com.qeli.audit.dnstun",
+          "always_on_vpn_lockdown": "0"
+        }
+      },
+      {
+        "stage": "control-secure-lockdown",
+        "uid": 10150,
+        "pid": 2534,
+        "started_ms": 1791785340861,
+        "active": "102",
+        "bound": "null",
+        "capabilities": "[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null]",
+        "links": "{InterfaceName: tun0 LinkAddresses: [ 10.88.29.2/32,fd88:29::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,10.88.29.2/32 -> 0.0.0.0 tun0 mtu 0,fd88:29::2/128 -> :: tun0 mtu 0 ]}",
+        "proxy_code": "222\\0",
+        "selected_netid": 100,
+        "selected": "100",
+        "selected_capabilities": "[ Transports: CELLULAR Capabilities: MMS&SUPL&DUN&FOTA&IMS&CBS&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps Specifier: <TelephonyNetworkSpecifier [mSubId = 1]> UnderlyingNetworks: Null]",
+        "selected_links": "{InterfaceName: eth0 LinkAddresses: [ 10.0.2.15/24 ] DnsAddresses: [ /10.0.2.3 ] Domains: null MTU: 1500 TcpBufferSizes: 2097152,6291456,16777216,512000,2097152,8388608 Routes: [ 0.0.0.0/0 -> 10.0.2.2 eth0 mtu 1500,10.0.2.0/24 -> 0.0.0.0 eth0 mtu 0 ]}",
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:33392"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:49967"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:56841"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:47607"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-133071859849.test",
+            "started_ms": 1791785340886,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791785340887
+          },
+          {
+            "mode": "a",
+            "name": "q29-133072527997.test",
+            "started_ms": 1791785340887,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791785340898
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-133083888978.test",
+            "started_ms": 1791785340898,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785340909
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-133095066808.test",
+            "started_ms": 1791785340909,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785340926
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-133111919172.test",
+            "started_ms": 1791785340926,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791785340928
+          }
+        ],
+        "done_ms": 1791785340928,
+        "vpn_owner_uid": 10151,
+        "policy": {
+          "always_on_vpn_app": "com.qeli.audit.dnstun",
+          "always_on_vpn_lockdown": "1"
+        }
+      },
+      {
+        "stage": "control-bypass-open",
+        "uid": 10150,
+        "pid": 2534,
+        "started_ms": 1791785367037,
+        "active": "104",
+        "bound": "null",
+        "capabilities": "[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=true longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null]",
+        "links": "{InterfaceName: tun0 LinkAddresses: [ 10.88.29.2/32,fd88:29::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,10.88.29.2/32 -> 0.0.0.0 tun0 mtu 0,fd88:29::2/128 -> :: tun0 mtu 0 ]}",
+        "proxy_code": "222\\0",
+        "selected_netid": 104,
+        "selected": "104",
+        "selected_capabilities": "[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=true longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null]",
+        "selected_links": "{InterfaceName: tun0 LinkAddresses: [ 10.88.29.2/32,fd88:29::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,10.88.29.2/32 -> 0.0.0.0 tun0 mtu 0,fd88:29::2/128 -> :: tun0 mtu 0 ]}",
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:50186"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:34259"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:56202"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:41206"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:38193"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:50292"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-159230495124.test",
+            "started_ms": 1791785367045,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785367052
+          },
+          {
+            "mode": "a",
+            "name": "q29-159238140290.test",
+            "started_ms": 1791785367052,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791785367054
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-159240186880.test",
+            "started_ms": 1791785367054,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785367056
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-159241415602.test",
+            "started_ms": 1791785367056,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785367061
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-159246695198.test",
+            "started_ms": 1791785367061,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785367067
+          }
+        ],
+        "done_ms": 1791785367067,
+        "vpn_owner_uid": 10151,
+        "policy": {
+          "always_on_vpn_app": "com.qeli.audit.dnstun",
+          "always_on_vpn_lockdown": "0"
+        }
+      }
+    ],
+    "probe_uids": {
+      "com.qeli.audit.dnstun": "10151",
+      "com.qeli.test": "10149",
+      "com.qeli": "10148",
+      "com.qeli.audit.dnscontrol": "10150"
+    },
+    "host_DNS_receipts": 155,
+    "local_control_answers": 28,
+    "all_delivered_DNS_names_correlated": true,
+    "separate_UID_control": true,
+    "selected_network_observed_from_authenticated_dnsproxyd_socket": true,
+    "unbound_process_observed": true,
+    "Qeli_native_and_production_APK_unchanged": true,
+    "JNI_and_full_JVM_Gradle_builds_not_repeated": true,
+    "minimal_control_without_Qeli_or_native": true,
+    "inherited_full_startup_gate_not_executed": true,
+    "private_profile_kill_switch": false,
+    "production_default_kill_switch_unchanged": true,
+    "lab_APK_inputs": {
+      "fixed/app.apk": {
+        "bytes": 12192812,
+        "sha256": "3d8496b42251fd90109a4b87532acf8a1c8b16a1a07d85267ce6c08b2db7f2a7"
+      },
+      "fixed/test.apk": {
+        "bytes": 772485,
+        "sha256": "4d6f5107a37da728ec74a0a3b1719b9c6daee7a02331d09dc2ee2c6cd3935396"
+      },
+      "qeli": {
+        "bytes": 14454184,
+        "sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069"
+      },
+      "audit_android_data_plane_lab.py": {
+        "bytes": 51162,
+        "sha256": "7a7e37d47898d0fc5db4614b8201c4bda5d378cbd729172f798c1a9a0822b6f4"
+      },
+      "android_lab_ui.py": {
+        "bytes": 7817,
+        "sha256": "c5d2bd815240ab3c7003a638416fd1bc4a30951a3f7fa79cb02a38889f41eb37"
+      },
+      "audit_udp_handshake_contracts.py": {
+        "bytes": 19012,
+        "sha256": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      "audit_android_network_handover.py": {
+        "bytes": 9275,
+        "sha256": "4397909b4f528165a869c9a69bfb7d092d4fa4a29b35771988bde13f32550bfc"
+      },
+      "audit_android_release_ui.py": {
+        "bytes": 7572,
+        "sha256": "44b9bb9007afd86021ca3cad4d6b33058ac42eee75f0e76a3429edd393e16cfd"
+      },
+      "audit_android_nat64.py": {
+        "bytes": 11650,
+        "sha256": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78"
+      },
+      "audit_android_leak_bursts.py": {
+        "bytes": 7317,
+        "sha256": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3"
+      },
+      "audit_android_startup_dns.py": {
+        "bytes": 9424,
+        "sha256": "53d7a6d9852c3d9ad8fa7388462f9c3f3ab84ad9266bb6491b1a4c729d069765"
+      },
+      "audit_android_dns_fixture.py": {
+        "bytes": 1421,
+        "sha256": "02fa34c1ee922d32756455411c6f24acee39b51b0126412b3a453c33a3a5b2ce"
+      },
+      "dns_selection_case.py": {
+        "bytes": 4633,
+        "sha256": "481155fce063147a30ed99a3e5f71f214f88942a4c1ffbd3032530f38f353a95"
+      },
+      "dns-control.apk": {
+        "bytes": 16787,
+        "sha256": "c305ac2c5aef03771b77e345a1ebe2f3b2336fdb878013eea2e7c1667b78ed41"
+      },
+      "dns-control-manifest.json": {
+        "bytes": 3828,
+        "sha256": "fc1966eca42332f44ccd1c6aa8cbbc809026eb79cabda2daef288439f9fe7d92"
+      },
+      "dns-tun.apk": {
+        "bytes": 12691,
+        "sha256": "b07b2389fa7d01e7ef9b547dae4913add75de911b462253eaf96a4dd5c28bd5a"
+      },
+      "dns-tun-manifest.json": {
+        "bytes": 3592,
+        "sha256": "d109b383bcf5ebe1677444fdbb4f636901f9cd33314872a6e63d5cd11e9023b7"
+      }
+    },
+    "canonical_Android_inputs": 126,
+    "qualified_Qeli_server_receipts": 0,
+    "additional_Qeli_transport_NOT_EXECUTED": true,
+    "prior_Qeli_DNS_observations_valid_but_whole_fixture_FAIL_retained": {
+      "status": "FIXTURE_SOCKET_TAG_FAIL_RETAINED_WITH_VALID_DNS_OBSERVATIONS",
+      "runtime_status": "FAIL",
+      "causes": [
+        "Optional Q29SELECT socket tag is outside existing test receiver whitelist; receiver intentionally did not execute it"
+      ],
+      "qualified_DNS_observations": [
+        "physical-baseline",
+        "qeli-secure-open",
+        "qeli-secure-lockdown"
+      ],
+      "whole_runtime_qualified": false,
+      "no_product_regression_claimed": true
+    },
+    "prior_Qeli_DNS_runtime_seconds": 195.93,
+    "raw_execution_packets": {
+      "Qeli_and_baseline": "q29-dns-selection-control-r2-20261012",
+      "independent_TUN_controls": "q29-dns-selection-control-r3-20261012"
+    },
+    "failed_initial_fixture": {
+      "status": "FIXTURE_FAIL_RETAINED",
+      "runtime_status": "FAIL",
+      "causes": [
+        "LocalSocket timeout before socket creation",
+        "DNS name outside fixture whitelist",
+        "Correct product rejection: kill_switch=true without lockdown"
+      ],
+      "no_product_regression_claimed": true,
+      "source_input_files_preserved": true
+    },
+    "failed_initial_runtime_seconds": 211.94,
+    "host_service_userdata_preserved": true,
+    "whole_audit_complete": false,
+    "official_done": 32,
+    "total": 37,
+    "physical_platforms_qualified": false,
+    "automatic_SIGKILL_gate_qualified": false,
+    "generic_null_API_compatibility_qualified": false,
+    "first_post_APPLIED_gate_qualified": false,
+    "no_push_deploy_release": true,
+    "production_source_facts": {
+      "main_java_kotlin_files": 31,
+      "generic_DnsResolver_invocations": 0,
+      "allowBypass_invocations": 0,
+      "server_hostname_resolution_uses_explicit_selected_network": true,
+      "service_sha256": "8ace16b37f03f2933191356a5b251c059dd69d2985853c5db93552c18dc8bb2b"
+    }
+  },
+  "cleanup": {
+    "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+    "root": "/var/tmp/qeli-q29-data-current-fc66e1842d544ed2bdb219b7f5df7889",
+    "owned_file_bytes": 28290164,
+    "free_before": 7618940928,
+    "free_after": 7647576064
+  },
+  "first_attempt_cleanup": {
+    "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+    "root": "/var/tmp/qeli-q29-data-current-cb394b89f9754cf9874efaf90f0264f4",
+    "owned_file_bytes": 28043017,
+    "free_before": 7619284992,
+    "free_after": 7647612928
+  },
+  "raw_packets": [
+    "audit-debt-20260924/q29-dns-selection-control-r2-20261012",
+    "audit-debt-20260924/q29-dns-selection-control-r3-20261012"
+  ],
+  "second_attempt_cleanup": {
+    "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+    "root": "/var/tmp/qeli-q29-data-current-61e291205ce641a7802f79492c0620ed",
+    "owned_file_bytes": 28203030,
+    "free_before": 7619031040,
+    "free_after": 7647571968
+  },
+  "full_release_preflight_qualified": false,
+  "whole_audit_complete": false
+}

@@ -1,0 +1,20 @@
+{
+  "status": "MACOS_LEGAL_RESOURCE_LAYOUT_AND_ASSET_DISPATCH_FIXED_HOSTED_QUALIFICATION_PENDING",
+  "previous_commit": "ad24bb1f78741a52074bc4f0ee33b1629b0a6172",
+  "original_CI_run": 38771812213,
+  "original_failed_job": 116549267294,
+  "failure_log_sha256": "2f10c12f3c004c1aa6d4fb23c855dc68545f5f01c962aaf47ea7d2bd579d7ff0",
+  "scope": "Move complete macOS Legal tree from nested-code location MacOS into Resources; dispatch asset render verbs before privileged recovery; add real CI render gate and verify legal contents in controlled tar fixtures. Linux/Android/Windows runtime sources and native build recipes unchanged.",
+  "Apple_reference": "https://developer.apple.com/documentation/bundleresources/placing-content-in-a-bundle",
+  "fixture_methods_passed": 8,
+  "fixture_coverage": "Both architectures; codesign and rcodesign command paths; actual TAR and exact license bytes. Controlled signer is not actual signing qualification.",
+  "baseline_new_archive_assertions_failed": 4,
+  "original_failure_preserved": true,
+  "local_documentation_checks_passed": 9,
+  "local_actionlint_workflows_passed": 4,
+  "actual_Mac_signature_pending": true,
+  "actual_asset_rendering_pending": true,
+  "new_Linux_runtime_runs": 0,
+  "physical_rows_unchanged": 21,
+  "Android_signed_output_unchanged": true
+}

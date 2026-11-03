@@ -18,8 +18,9 @@ OUT = None  # resolved at runtime by out_path()
 
 
 def out_path(ver):
-    rel = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "release")
+    rel = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "data", "benchmarks")
     v = (ver or "unknown").replace("qeli ", "v").strip()
+    os.makedirs(rel, exist_ok=True)
     base = os.path.join(rel, f"reality_tls_{N}x_{v}_{time.strftime('%Y-%m-%d')}")
     path, n = base + ".json", 1
     while os.path.exists(path):

@@ -5,19 +5,19 @@
 //! which holds password hashes and is rewritten on every CRUD), so accounting
 //! never risks that file.
 //!
-//! Accounting is driven by the worker's usage sweep (see `server::usage_sweep`):
-//! once every few seconds it reads each live session's byte counters — which the
-//! data plane already increments per packet — and folds the *delta since last
-//! seen* into the per-user total. Folding is keyed by `session_id` and idempotent
-//! (`committed` marker), so nothing is double-counted and the hot path is never
-//! touched: zero added per-packet work.
+//! Sessions register their existing atomic counters once. The store keeps those counters
+//! until their last writer has gone, so short sessions and shutdown tails survive removal
+//! from the live session registry. Sweeps, flushes and resets fold monotonic deltas; the
+//! packet path has no additional work.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Sidecar file (qeli-owned, lives beside the config). Re-read by the panel.
+#[cfg(all(target_os = "linux", feature = "server"))]
 pub const USAGE_PATH: &str = "/etc/qeli/usage.json";
 
 pub fn now_unix() -> i64 {
@@ -64,6 +64,13 @@ struct Inner {
     usage: HashMap<String, UserUsage>,
     /// In-memory: `(down, up)` already folded for a live `session_id` (idempotency).
     committed: HashMap<u64, (u64, u64)>,
+    tracked: HashMap<u64, SessionCounters>,
+}
+
+struct SessionCounters {
+    user: String,
+    down: Arc<AtomicU64>,
+    up: Arc<AtomicU64>,
 }
 
 pub struct UsageStore {
@@ -97,7 +104,7 @@ impl UsageStore {
             path: path.to_string(),
             inner: Mutex::new(Inner {
                 usage,
-                committed: HashMap::new(),
+                ..Inner::default()
             }),
             read_only: false,
         })
@@ -122,7 +129,7 @@ impl UsageStore {
             path: path.to_string(),
             inner: Mutex::new(Inner {
                 usage,
-                committed: HashMap::new(),
+                ..Inner::default()
             }),
             read_only: true,
         }
@@ -144,19 +151,25 @@ impl UsageStore {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// Accrue a live session's running byte total. Idempotent per `session_id`:
-    /// only the increase since the last fold is added, so calling it repeatedly
-    /// (the sweep) never double-counts.
-    pub fn fold(&self, session_id: u64, user: &str, cur_down: u64, cur_up: u64) {
-        let mut g = self.lock();
+    /// Retain counters, not the session or its resources. Writers may outlive the registry
+    /// entry; keeping the atomic pair lets the next sweep account for their final bytes.
+    pub fn track(&self, session_id: u64, user: &str, down: Arc<AtomicU64>, up: Arc<AtomicU64>) {
+        self.lock()
+            .tracked
+            .entry(session_id)
+            .or_insert_with(|| SessionCounters {
+                user: user.to_string(),
+                down,
+                up,
+            });
+    }
+
+    fn fold_inner(g: &mut Inner, session_id: u64, user: &str, cur_down: u64, cur_up: u64) {
         let (prev_down, prev_up) = g.committed.get(&session_id).copied().unwrap_or((0, 0));
-        // Per-session counters are monotonic (fetch_add), so cur ≥ prev; saturating_sub
-        // guards a wrap/reset anyway. Only fold when there is new traffic.
         if cur_down > prev_down || cur_up > prev_up {
-            // A session_id absent from `committed` is new → count one connection. Markers
-            // are pruned only for dead sessions, so a live session is counted exactly once.
             let first = !g.committed.contains_key(&session_id);
-            g.committed.insert(session_id, (cur_down, cur_up));
+            g.committed
+                .insert(session_id, (cur_down.max(prev_down), cur_up.max(prev_up)));
             let e = g.usage.entry(user.to_string()).or_default();
             e.used_down = e
                 .used_down
@@ -168,6 +181,38 @@ impl UsageStore {
                 e.sessions = e.sessions.saturating_add(1);
             }
         }
+    }
+
+    #[cfg(test)]
+    fn fold(&self, session_id: u64, user: &str, down: u64, up: u64) {
+        Self::fold_inner(&mut self.lock(), session_id, user, down, up);
+    }
+
+    fn collect_inner(inner: &mut Inner) {
+        let mut tracked = std::mem::take(&mut inner.tracked);
+        tracked.retain(|id, counters| {
+            // get_mut establishes exclusive ownership (including absence of weak refs).
+            // Unlike a relaxed strong_count snapshot, it synchronizes with the last
+            // writer's drop before we sample and retire its counters.
+            let finished = Arc::get_mut(&mut counters.down).is_some()
+                && Arc::get_mut(&mut counters.up).is_some();
+            Self::fold_inner(
+                inner,
+                *id,
+                &counters.user,
+                counters.down.load(Ordering::Relaxed),
+                counters.up.load(Ordering::Relaxed),
+            );
+            if finished {
+                inner.committed.remove(id);
+            }
+            !finished
+        });
+        inner.tracked = tracked;
+    }
+
+    pub fn collect(&self) {
+        Self::collect_inner(&mut self.lock());
     }
 
     /// Combined lifetime total (download + upload).
@@ -189,22 +234,27 @@ impl UsageStore {
             .unwrap_or(0)
     }
 
-    /// Forget committed markers for sessions that are no longer live, so the map
-    /// can't grow without bound.
-    pub fn prune(&self, live: &HashSet<u64>) {
-        self.lock().committed.retain(|id, _| live.contains(id));
-    }
-
     /// Zero a user's counters and persist the change as one transaction.
     ///
     /// Keep the mutex across serialization and atomic replacement so the usage sweep cannot
-    /// fold a delta between the mutation and a failed write. On any persistence error the
-    /// previous counters are restored; an API error must not be committed by the next sweep.
+    /// fold a delta between mutation and publication. Failures before rename restore the
+    /// previous counters. If rename succeeded but directory sync failed, retain the published
+    /// reset and report uncertain durability; restoring memory would disagree with the file.
     pub fn reset_and_flush(&self, user: &str) -> anyhow::Result<()> {
+        self.reset_with_writer(user, |path, bytes| crate::util::write_atomic(path, bytes))
+    }
+
+    fn reset_with_writer(
+        &self,
+        user: &str,
+        write: impl FnOnce(&str, &[u8]) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
         if self.read_only {
             anyhow::bail!("cannot reset usage through a read-only store");
         }
         let mut inner = self.lock();
+        // Advance live baselines before resetting, including traffic not swept yet.
+        Self::collect_inner(&mut inner);
         let previous = inner.usage.get(user).cloned();
         if let Some(usage) = inner.usage.get_mut(user) {
             usage.used_down = 0;
@@ -214,10 +264,15 @@ impl UsageStore {
         let result = serde_json::to_vec_pretty(&inner.usage)
             .map_err(|error| anyhow::anyhow!("failed to encode {}: {error}", self.path))
             .and_then(|json| {
-                crate::util::write_atomic(&self.path, &json)
-                    .map_err(|error| anyhow::anyhow!("failed to persist {}: {error}", self.path))
+                write(&self.path, &json)
+                    .map_err(|error| error.context(format!("failed to persist {}", self.path)))
             });
         if let Err(error) = result {
+            // Publication is irreversible here. Preserve the typed cause through context,
+            // so the control API can distinguish uncertainty from an unchanged store.
+            if crate::util::atomic_write_was_published(&error) {
+                return Err(error);
+            }
             match previous {
                 Some(usage) => {
                     inner.usage.insert(user.to_string(), usage);
@@ -257,7 +312,8 @@ impl UsageStore {
         // Serialize and replace while holding the same lock used by reset_and_flush. If a
         // periodic flush took a snapshot and released the lock before writing, it could write
         // that stale snapshot *after* a successful admin reset and silently undo the reset.
-        let inner = self.lock();
+        let mut inner = self.lock();
+        Self::collect_inner(&mut inner);
         let json = serde_json::to_vec_pretty(&inner.usage)
             .map_err(|error| anyhow::anyhow!("failed to encode {}: {error}", self.path))?;
         crate::util::write_atomic(&self.path, &json)
@@ -266,10 +322,10 @@ impl UsageStore {
 }
 
 impl Drop for UsageStore {
-    /// Best-effort final flush on a graceful teardown, so the deltas folded since
-    /// the last sweep aren't lost when the store is dropped between sweeps. A hard
-    /// `SIGKILL` still skips this (Drop can't run) — the periodic sweep bounds that
-    /// loss to one interval.
+    /// Best-effort collection and final flush on graceful teardown, including
+    /// counters whose sessions have already left the live registry. A hard
+    /// `SIGKILL` still skips this (Drop can't run). Changes since the last successful
+    /// periodic persistence can be lost.
     fn drop(&mut self) {
         if let Err(error) = self.flush() {
             log::error!("usage: final flush failed: {error}");
@@ -288,10 +344,13 @@ mod tests {
     /// on a host where `/nonexistent` happens to exist (ours does), `Drop::flush`
     /// succeeds, the next `load()` reads the previous run's totals back, and the
     /// counts grow by one run every time (`sessions: 2` became 6 after three runs).
-    /// Use a private temp path and clear it up front so the test states what it means.
+    /// Use a unique private temp path so parallel runs cannot inherit or erase each other.
     fn empty_store_path(tag: &str) -> String {
-        let p = std::env::temp_dir().join(format!("qeli-usage-test-{tag}.json"));
-        let _ = std::fs::remove_file(&p);
+        let p = std::env::temp_dir().join(format!(
+            "qeli-usage-test-{tag}-{}-{}.json",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
         p.to_string_lossy().into_owned()
     }
     /// A read-only handle must not write the file — not via `flush`, and not via `Drop`.
@@ -458,22 +517,195 @@ mod tests {
 
     #[test]
     fn failed_reset_persistence_restores_in_memory_counters() {
-        let unwritable_path =
-            std::env::temp_dir().join(format!("qeli-usage-reset-directory-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&unwritable_path);
-        std::fs::create_dir_all(&unwritable_path).unwrap();
+        let unwritable_path = std::env::temp_dir().join(format!(
+            "qeli-usage-reset-directory-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&unwritable_path).unwrap();
         let store = UsageStore {
             path: unwritable_path.to_string_lossy().into_owned(),
             inner: Mutex::new(Inner::default()),
             read_only: false,
         };
-        store.fold(1, "erin", 700, 30);
+        let down = Arc::new(AtomicU64::new(700));
+        let up = Arc::new(AtomicU64::new(30));
+        store.track(1, "erin", down.clone(), up.clone());
 
         assert!(store.reset_and_flush("erin").is_err());
         assert_eq!(store.used_down("erin"), 700);
         assert_eq!(store.snapshot()["erin"].used_up, 30);
+        down.fetch_add(20, Ordering::Relaxed);
+        drop((down, up));
+        store.collect();
+        assert_eq!(store.used_down("erin"), 720);
 
         drop(store);
-        let _ = std::fs::remove_dir_all(&unwritable_path);
+        std::fs::remove_dir(&unwritable_path).unwrap();
+    }
+
+    fn counters(store: &UsageStore, id: u64) -> (Arc<AtomicU64>, Arc<AtomicU64>) {
+        let down = Arc::new(AtomicU64::new(0));
+        let up = Arc::new(AtomicU64::new(0));
+        store.track(id, "alice", down.clone(), up.clone());
+        (down, up)
+    }
+
+    #[test]
+    fn completed_session_between_sweeps_is_persisted_and_retired() {
+        let path = empty_store_path("short-session");
+        let store = UsageStore::load(&path).unwrap();
+        let (down, up) = counters(&store, 1);
+        down.store(900, Ordering::Relaxed);
+        up.store(70, Ordering::Relaxed);
+        drop((down, up)); // No live session remains when the first sweep runs.
+        store.flush().unwrap();
+        store.flush().unwrap();
+        let persisted = UsageStore::load_read_only(&path).snapshot();
+        assert_eq!(persisted["alice"].used_down, 900);
+        assert_eq!(persisted["alice"].used_up, 70);
+        assert_eq!(persisted["alice"].sessions, 1);
+        assert!(store.lock().tracked.is_empty());
+        assert!(store.lock().committed.is_empty());
+    }
+
+    #[test]
+    fn writer_outliving_session_keeps_baseline_until_final_bytes() {
+        let store = UsageStore::load(&empty_store_path("writer-tail")).unwrap();
+        let (down, up) = counters(&store, 2);
+        down.store(100, Ordering::Relaxed);
+        up.store(10, Ordering::Relaxed);
+        store.collect();
+        let writer = down.clone();
+        drop((down, up)); // registry/session drops, but its writer is still finishing.
+        store.collect();
+        assert_eq!(store.lock().tracked.len(), 1);
+        writer.fetch_add(40, Ordering::Relaxed);
+        store.collect();
+        writer.fetch_add(60, Ordering::Relaxed);
+        drop(writer);
+        store.collect();
+        store.collect();
+        assert_eq!(store.used_down("alice"), 200);
+        assert_eq!(store.used_bytes("alice"), 210);
+        assert_eq!(store.snapshot()["alice"].sessions, 1);
+        assert!(store.lock().tracked.is_empty());
+        assert!(store.lock().committed.is_empty());
+    }
+
+    #[test]
+    fn reset_collects_unswept_traffic_and_preserves_live_baseline() {
+        let store = UsageStore::load(&empty_store_path("reset-live")).unwrap();
+        let (down, up) = counters(&store, 3);
+        down.store(100, Ordering::Relaxed);
+        up.store(25, Ordering::Relaxed);
+        store.reset_and_flush("alice").unwrap();
+        assert_eq!(store.used_bytes("alice"), 0);
+        down.fetch_add(30, Ordering::Relaxed);
+        up.fetch_add(5, Ordering::Relaxed);
+        drop((down, up));
+        store.flush().unwrap();
+        assert_eq!(store.used_down("alice"), 30);
+        assert_eq!(store.snapshot()["alice"].used_up, 5);
+        assert_eq!(store.snapshot()["alice"].sessions, 1);
+    }
+
+    #[test]
+    fn final_drop_collects_tail_after_last_periodic_sweep() {
+        let path = empty_store_path("drop-tail");
+        let store = UsageStore::load(&path).unwrap();
+        let (down, up) = counters(&store, 4);
+        down.store(50, Ordering::Relaxed);
+        store.collect();
+        down.fetch_add(250, Ordering::Relaxed);
+        up.store(25, Ordering::Relaxed);
+        drop((down, up));
+        drop(store);
+        let persisted = UsageStore::load_read_only(&path);
+        assert_eq!(persisted.used_down("alice"), 300);
+        assert_eq!(persisted.used_bytes("alice"), 325);
+    }
+
+    #[test]
+    fn concurrent_writers_and_collection_account_exact_total() {
+        let store = UsageStore::load(&empty_store_path("concurrent-writers")).unwrap();
+        let (down, up) = counters(&store, 5);
+        let writer = std::thread::spawn(move || {
+            for _ in 0..20_000 {
+                down.fetch_add(3, Ordering::Relaxed);
+                up.fetch_add(2, Ordering::Relaxed);
+            }
+        });
+        for _ in 0..100 {
+            store.collect();
+        }
+        writer.join().unwrap();
+        store.collect();
+        assert_eq!(store.used_down("alice"), 60_000);
+        assert_eq!(store.used_bytes("alice"), 100_000);
+        assert_eq!(store.snapshot()["alice"].sessions, 1);
+        assert!(store.lock().tracked.is_empty());
+    }
+
+    #[test]
+    fn repeated_registration_and_empty_flush_do_not_reset_baseline() {
+        let store = UsageStore::load(&empty_store_path("registration")).unwrap();
+        let (down, up) = counters(&store, 6);
+        store.flush().unwrap();
+        assert_eq!(store.lock().tracked.len(), 1);
+        down.store(80, Ordering::Relaxed);
+        store.collect();
+        store.track(6, "alice", down.clone(), up.clone());
+        down.fetch_add(20, Ordering::Relaxed);
+        drop((down, up));
+        store.flush().unwrap();
+        assert_eq!(store.used_down("alice"), 100);
+        assert_eq!(store.snapshot()["alice"].sessions, 1);
+    }
+
+    #[test]
+    fn published_reset_sync_error_keeps_memory_and_file_consistent() {
+        let path = empty_store_path("reset-published");
+        let store = UsageStore::load(&path).unwrap();
+        let (down, up) = counters(&store, 7);
+        down.store(700, Ordering::Relaxed);
+        up.store(30, Ordering::Relaxed);
+        store.fold(8, "bob", 90, 10);
+        store.flush().unwrap();
+
+        let error = store
+            .reset_with_writer("alice", |path, bytes| {
+                crate::util::write_atomic_test_sync_failure(std::path::Path::new(path), bytes)
+            })
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("persistence is uncertain"));
+        let published = UsageStore::load_read_only(&path);
+        assert_eq!(
+            published.used_down("alice"),
+            0,
+            "rename really published reset"
+        );
+        assert_eq!(
+            store.used_down("alice"),
+            0,
+            "cannot fabricate rollback after rename"
+        );
+        assert!(crate::util::atomic_write_was_published(&error));
+        assert_eq!(store.used_bytes("bob"), 100);
+        assert_eq!(published.used_bytes("bob"), 100);
+
+        // A subsequent sweep must count only new traffic and never undo the reset.
+        down.fetch_add(20, Ordering::Relaxed);
+        up.fetch_add(5, Ordering::Relaxed);
+        drop((down, up));
+        store.flush().unwrap();
+        store.flush().unwrap();
+        let persisted = UsageStore::load_read_only(&path);
+        assert_eq!(store.used_down("alice"), 20);
+        assert_eq!(persisted.used_bytes("alice"), 25);
+        assert_eq!(persisted.snapshot()["alice"].sessions, 1);
+        assert!(store.lock().tracked.is_empty());
+        drop(store);
+        std::fs::remove_file(&path).unwrap();
     }
 }

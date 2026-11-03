@@ -14,8 +14,8 @@ configFiles:
 settings:
   base:
     SWIFT_VERSION: 5.0
-    MARKETING_VERSION: 0.8.1
-    CURRENT_PROJECT_VERSION: 721
+    MARKETING_VERSION: 0.8.3
+    CURRENT_PROJECT_VERSION: 723
     IPHONEOS_DEPLOYMENT_TARGET: 17.0
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
@@ -39,7 +39,15 @@ targets:
           # UI has no runtime caller and must not ship a second protocol implementation beside
           # the Rust core used by QeliPacketTunnel.
           - Protocol
+          # Swift wire crypto serves conformance tests only. Storage/BackupCrypto uses
+          # CryptoKit directly; production transport crypto belongs to the Rust core.
+          - Crypto
       - path: Config/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: ../qeli/third-party-notices/rust
+        type: folder
+        buildPhase: resources
+      - path: LICENSE
         buildPhase: resources
     settings:
       base:
@@ -131,11 +139,13 @@ targets:
     sources:
       - path: QeliIOSTests
       - path: QeliCore/Protocol
+      - path: QeliCore/Crypto
     dependencies:
       - target: QeliIOS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(QELI_APP_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   QeliIOS:
     build:

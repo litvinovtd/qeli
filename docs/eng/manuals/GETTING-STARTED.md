@@ -1,8 +1,10 @@
 # Qeli — installation & getting started (step by step)
 
-> **Documentation status:** current development tree **0.8.1**; planned full-IPv6 release **0.8.2**;
-> latest published release **0.8.1**. There will be no public 0.7.17 release.
+> **Documentation status:** current development tree **0.8.3**; planned full-IPv6 release **0.8.3**;
+> package version covered by this guide **0.8.3**.
 > `qeli --version` reports the version of the binary actually installed.
+> See [GitHub Releases](https://github.com/litvinovtd/qeli/releases) for package availability and publication status.
+> Links to this version's files work after its publication.
 
 A complete from-scratch guide: from standing up the server to creating users with
 routes and connecting your first client — **both via the CLI and via the web panel**.
@@ -12,7 +14,7 @@ run as root (or via `sudo`).
 
 > References this guide builds on:
 > [CONFIG.md](CONFIG.md) — every config key · [PANEL.md](PANEL.md) — web panel ·
-> [IPV6.md](IPV6.md) — IPv4/IPv6/dual-stack, NAT66/route and troubleshooting ·
+> [IPV6.md](IPV6.md) — IPv4/IPv6/dual-stack, `off/manual/route/nat66`, NDP proxy and troubleshooting ·
 > example configs: [`server.conf`](../../../qeli/config/server.conf) ·
 > [`server-ipv6.conf`](../../../qeli/config/server-ipv6.conf) ·
 > [`users.conf`](../../../qeli/config/users.conf) · [`client.conf`](../../../qeli/config/client.conf).
@@ -100,18 +102,35 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 >   binary and **reproduce the .deb layout itself** (user, dirs, `*.conf.example` files,
 >   `qeli.service`, the `49-qeli.rules` polkit rule). Use it for a **build-from-source** or
 >   **air-gapped** install. Add `QELI_SRC=<repo checkout>` to copy the unit and examples
->   straight from source (fully offline); without it they are fetched from GitHub. Example:
+>   straight from source (Qeli payload only); missing OS dependencies are installed through apt.
+>   Without QELI_SRC, payload is fetched from GitHub. Example:
 >   ```bash
 >   sudo QELI_BIN=qeli/target/release/qeli QELI_SRC=. ./install-qeli-server.sh <IP>
 >   ```
 >
 > **What else it changes on the host** (not incidental details — know them up front):
-> - **System-wide network tuning**: writes `/etc/sysctl.d/99-qeli-perf.conf` and switches
+> - **System-wide network tuning**: writes requests to `/etc/sysctl.d/99-qeli-perf.conf` and tries to switch
 >   congestion control to **BBR** — this affects **all** TCP on the host, not just qeli.
->   The same file raises the default socket buffers (`net.core.rmem_default`/`wmem_default`
->   to 4 MB) — without it the UDP profiles drop packets, because UDP has no autotuning and
->   would stay at 208 KB. Those are system-wide values too.
-> - **Loads the `tcp_bbr` module on every boot** via `/etc/modules-load.d/qeli-bbr.conf`.
+>   Enables TCP receive autotuning (`tcp_moderate_rcvbuf=1`), sets `tcp_rmem`/`tcp_wmem`
+>   growth limits to 16 MiB, and leaves the global `tcp_mem` budget unchanged.
+>   New TCP profile examples explicitly set `perf.tcp.send_buffer_size = 0` and
+>   `perf.tcp.recv_buffer_size = 0` for OS management. Normal upgrades preserve
+>   existing explicit nonzero profile values.
+>   It also raises system-wide `rmem_max`/`wmem_max` to 16 MiB and
+>   `rmem_default`/`wmem_default` to 4 MiB. Current Qeli explicitly requests UDP
+>   buffers and may grow the receive buffer within its RAM budget; growth depends
+>   on `rmem_max`, not the system default buffer size.
+> - **Requests loading `tcp_bbr` at boot** via `/etc/modules-load.d/qeli-bbr.conf`.
+>   Kernel/module restrictions can prevent application. The installer reads each value
+>   back and reports verified success or `kernel tuning incomplete`, with effective
+>   value/write-failure counts and a diagnostic log. VPN installation can still succeed.
+>   Before changing tuning it saves readable runtime values and prior persistent files
+>   in a root-only `/etc/qeli/client-links/kernel-tuning-<stamp>-<suffix>/` receipt.
+>   `restore.txt` contains commands to restore prior files (or remove newly created ones),
+>   then apply `runtime.before`. Review the receipt before using it, especially after
+>   later administrator changes. A key without a readable baseline is not changed at
+>   runtime. Forced reconfiguration creates a separate receipt. Deleting a sysctl file
+>   and running `sysctl --system` alone does not restore previous runtime values.
 > - **Adds MSS rules** (TCP profiles only — udp-quic skips them) in `mangle/OUTPUT`:
 >   IPv4 always, and IPv6 when the installer enables its independent V6ONLY listener.
 >   The matching `mangle/PREROUTING` rules clamp the client's incoming SYN too, so both the
@@ -144,6 +163,17 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 >
 > All of it is reversible — see §13 "Full removal".
 
+For an existing server, do not force reinstall just to enable autotuning.
+Back up the config, sysctl file and previous runtime values. In the intended
+`[profile:...]`, set both `perf.tcp.*_buffer_size` keys to `0`; add
+`net.ipv4.tcp_moderate_rcvbuf=1` to the existing
+`/etc/sysctl.d/99-qeli-perf.conf`, preserving other settings. Run
+`sysctl -p /etc/sysctl.d/99-qeli-perf.conf` and check readback, then
+`qeli check-config --config /etc/qeli/server.conf` and `systemctl restart qeli.service`.
+Reconnect clients to create new TCP sockets; this interrupts current sessions.
+Normal `update-qeli-server.sh` upgrades do not migrate configs or sysctl.
+For memory limits and socket checks, see [CONFIG — network tuning](CONFIG.md).
+
 ### Option A — .deb package (recommended)
 
 #### A.1. Download the package **into `/tmp`**
@@ -153,14 +183,14 @@ home directory:
 
 ```bash
 cd /tmp
-curl -fLO https://github.com/litvinovtd/qeli/releases/download/v0.8.1/qeli_0.8.1_amd64.deb
-# or copy it from your workstation:  scp qeli_0.8.1_amd64.deb root@server:/tmp/
+curl -fLO https://github.com/litvinovtd/qeli/releases/download/v0.8.3/qeli_0.8.3_amd64.deb
+# or copy it from your workstation:  scp qeli_0.8.3_amd64.deb root@server:/tmp/
 ```
 
 > **Why `/tmp`.** `apt` downloads and unpacks as the unprivileged `_apt` user, which cannot
 > read `/root` or home directories. Installing from `/root` still works, but prints:
 > ```
-> N: Download is performed unsandboxed as root as file '/root/qeli_0.8.1_amd64.deb'
+> N: Download is performed unsandboxed as root as file '/root/qeli_0.8.3_amd64.deb'
 >    couldn't be accessed by user '_apt'. - pkgAcquire::Run (13: Permission denied)
 > ```
 > It is only a warning (apt falls back to running as root), but from `/tmp` it never appears.
@@ -168,14 +198,14 @@ curl -fLO https://github.com/litvinovtd/qeli/releases/download/v0.8.1/qeli_0.8.1
 #### A.2. Install
 
 ```bash
-sudo apt install /tmp/qeli_0.8.1_amd64.deb     # installs and pulls dependencies
+sudo apt install /tmp/qeli_0.8.3_amd64.deb     # installs and pulls dependencies
 ```
 
 Give a **full path** (or `./name.deb`) — without a slash apt looks for a repository package
 of that name instead. If apt is unavailable:
 
 ```bash
-sudo dpkg -i /tmp/qeli_0.8.1_amd64.deb
+sudo dpkg -i /tmp/qeli_0.8.3_amd64.deb
 sudo apt-get -f install -y          # pull the dependencies (iproute2, iptables, libcap2-bin)
 ```
 
@@ -185,7 +215,7 @@ What the package does:
   `CAP_NET_ADMIN`/`CAP_NET_RAW`/`CAP_NET_BIND_SERVICE` via `AmbientCapabilities`, and with
   `NoNewPrivileges=true` the kernel ignores file caps anyway);
 - creates the system user **`qeli`** plus `/etc/qeli`, `/var/log/qeli`, `/var/lib/qeli`, then
-  `chown -R qeli:qeli` on them;
+  ownership repair on daemon state, excluding installer receipts/backups;
 - creates an empty `/etc/qeli/users.conf` (the sample file with a KNOWN hash is never seeded);
 - ships **examples** `/etc/qeli/{server,server-multiprofile,server-ipv6,server-maxobf,users,client,client-reality,client-maxobf}.conf.example`
   (you create the real configs yourself — step 3);
@@ -196,7 +226,7 @@ What the package does:
   `qeli set-service-user`. Answer non-interactively (automation / preseed) with:
   ```bash
   echo "qeli qeli/run-as select root" | sudo debconf-set-selections
-  sudo apt install /tmp/qeli_0.8.1_amd64.deb
+  sudo apt install /tmp/qeli_0.8.3_amd64.deb
   ```
   Changeable at any time afterwards — `sudo qeli set-service-user root|qeli` (§10.4),
   where the trade-offs of `root` are spelled out.
@@ -229,7 +259,7 @@ After that the `qeli` service cannot write those files. So **once the config is 
 you have run any root CLI command**, fix the ownership:
 
 ```bash
-sudo chown -R qeli:qeli /etc/qeli
+sudo qeli set-service-user qeli
 sudo chmod 755 /etc/qeli
 sudo chmod 640 /etc/qeli/server.conf /etc/qeli/users.conf   # they hold password hashes and keys
 [ -d /etc/qeli/identity ] && sudo chmod 700 /etc/qeli/identity && sudo chmod 600 /etc/qeli/identity/*.key
@@ -263,17 +293,18 @@ journalctl -u qeli -n 30 --no-pager   # no permission errors
 
 ### Option B — build from source
 
-Requires Rust (stable). From the repo root:
+Use Rust 1.97.0 for the server build, matching the main CI jobs. From the repo root:
 
 ```bash
+rustup toolchain install 1.97.0 --profile minimal
 cd qeli
-cargo build --release --features jemalloc   # binary → qeli/target/release/qeli
+cargo +1.97.0 build --locked --release --features jemalloc   # binary → qeli/target/release/qeli
 # --features jemalloc is required for the SERVER binary: without it the worker's
 # RSS plateaus around ~180 MB under handshake churn (glibc keeps freed arenas)
 # instead of ~40–60 MB with jemalloc. A client build does not need it.
 
 # (optional) build your own .deb from the fresh binary (the Makefile enables jemalloc):
-make -C debian deb             # → qeli/debian/qeli_<version>_amd64.deb
+RUSTUP_TOOLCHAIN=1.97.0 make -C debian deb  # → qeli/debian/qeli_<version>_amd64.deb
 ```
 
 Without the package you can run the binary directly (see step 4), but then you create the
@@ -286,9 +317,21 @@ no download. From the repo root:
 sudo QELI_BIN=qeli/target/release/qeli QELI_SRC=. ./install-qeli-server.sh <public-ip>
 ```
 
+Installer validates explicit endpoint/panel options and nonempty boolean opt-ins (0/1) before dependency/payload changes. Auto-host is checked before config/identity, but dependencies/binary may already change. Complete INI is prepared privately beside server.conf; CLI/web/final check-config use that stage. After validation and the selected service-user helper, the old live config is backed up and replaced by rename, then restarted. Before-publication errors retain the old config; fresh failed installation publishes no partial config. Users/identity/links/tuning/dependencies/binary/drop-in can already change; use the password recovery journal if present. Restart/health failure after publication does not restore the old config automatically. The installer explicitly applies QELI_RUN_AS, including the default qeli choice, after validation; qeli removes a previous root override while preserving installer receipts/backups. [Audit and limits](../reports/audit-0.8.2/AUDIT-Q33-INSTALLER-CONFIG.md).
+
+Version-number discovery in installer/updater uses `qeli --version`, also supported by older installations. Current `qeli version --check` remains an opt-in update query. Actual CLI writers create a sibling lock for the temporary INI; installer removes that unique stage lock after writers finish, while keeping the live config/users locks. Three profile installation flows have passed with real CLI parsing/keys/Argon2/links; service startup/kernel/VPN remained outside that earlier qualification; the default-unit ownership/drop-in transition is covered by the [subsequent service-user audit](../reports/audit-0.8.2/AUDIT-Q33-SERVICE-USER.md). [Evidence and limits](../reports/audit-0.8.2/AUDIT-Q33-INSTALLER-CLI.md).
+
 `QELI_BIN` selects the from-binary branch; `QELI_SRC=.` copies the unit and examples
-straight from this checkout (fully offline). See §2's **"Two install branches"**. This also
+straight from this checkout; the OS dependency phase uses apt only for missing prerequisites. See §2's **"Two install branches"**. This also
 installs the polkit rule, so the panel's `Apply & Restart` works without the extra step below.
+
+Installer-generated links, summary and backups are private0600 and published through temporary files; existing kept links retain their bytes through a private copy. Linked/nonregular generated names refuse before dependency changes. Backups have a random suffix after the timestamp to avoid collisions. The web helper replaces its config atomically, preserving ownership and setting0600. This does not make the entire forced reconfiguration transactional.
+
+If user/link creation fails, the old CONNECTION-STRINGS.txt remains and a root0600 `/etc/qeli/client-links/INSTALL-PENDING-<timestamp>-<suffix>` journal retains generated passwords, recorded before add-client. Read it as root, compare its users with users.conf, and use the recovered passwords/links for the affected client configurations; a pending entry may not have created an account. Do not blindly repeat add-client for an existing user. Accounts/individual links may already change; there is no automatic rollback. After successful summary publication the current journal is removed; journals from earlier failures remain until you verify recovery and remove them. These are plaintext secrets; include them in protected backups and remove obsolete copies after recovery. Power-loss durability is not qualified. [Audit scope](../reports/audit-0.8.2/AUDIT-Q33-INSTALLER-SECRETS.md).
+
+Installer dependency setup invokes apt only for missing prerequisites, then verifies commands/CA availability. For QELI_BIN+complete QELI_SRC or a local QELI_DEB, provide PUBLIC_HOST and preinstall OS/package dependencies to avoid dependency downloads; this stage check does not qualify the entire disconnected install. QELI_DEB is an absolute local .deb path, not a URL. Package=qeli, host architecture/all and exact installed status/version/architecture are required before config generation. QELI_VERIFY_ATTESTATION=1 requires successful gh verification for the Debian install path, including a local package. Failed install/repair is fatal, with no automatic package rollback. [Executed admission scope](../reports/audit-0.8.2/AUDIT-Q33-INSTALLER-ADMISSION.md).
+
+With QELI_BIN, an explicit QELI_SRC must contain all eight examples, qeli.service and49-qeli.rules; missing files refuse rather than falling back to GitHub. These files are admitted in private staging before replacing the binary. Without QELI_SRC, the requested release payload is selected by host architecture and verified; QELI_VERIFY_ATTESTATION=1 also requires successful gh verification. Linked/nonregular state paths refuse; INT/TERM stop installation after cleanup. Subsequent publication is sequential, so final installation errors are not an automatic rollback. The dependency phase now skips apt when prerequisites are available; a local payload alone does not qualify the entire first installation as disconnected. [Executed scope](../reports/audit-0.8.2/AUDIT-Q33-BINARY-INSTALLER.md).
 
 > ⚠️ **Non-.deb install + web panel:** the panel's **`Apply & Restart`** button runs
 > `systemctl restart` on the service. A **non-root** `User=qeli` service is only allowed
@@ -313,6 +356,8 @@ capabilities — `NET_ADMIN` (TUN, routes, iptables), `NET_RAW` and `NET_BIND_SE
 included. Build/run instructions, compose example and caveats:
 
 > 🐳 **[release/docker/README.md](../../../release/docker/README.md)**
+
+For upgrades preserve both volumes: `/etc/qeli` (INI, users and identity) and `/var/lib/qeli` (client state). Before replacement record the running container image ID, retain the previous image and back up data. After recreation check logs, client connection and tunnel traffic; Running alone does not establish VPN readiness. On failure restore the saved image with the same volumes. Current compose provides no automatic rollback/HEALTHCHECK. Manual branch publication uses a SHA tag; `latest` is reserved for stable release tags.
 
 With Docker you can skip the rest of this guide's install/systemd steps; profile and
 user management below (CLI or web panel) still apply inside the container.
@@ -484,12 +529,13 @@ and resources behind the server) — skip this.
 
 Flip one toggle in the profile — the server itself, via `iptables`, enables IP
 forwarding and installs MASQUERADE + FORWARD + MSS-clamp, and removes the rules again
-when it stops:
+when it stops. IPv4 traffic outside RFC1918 is blocked on another interface,
+while access to RFC1918 LANs follows the administrator firewall policy:
 
 ```ini
 # in [profile:tcp]
 routing.nat.enabled  = true
-# WAN egress interface. Leave empty/default to auto-detect (ip route get 1.1.1.1),
+# WAN egress interface. Leave empty/default to detect one unambiguous default route,
 # or set it explicitly, e.g. ens3.
 routing.nat.interface =
 # IPv6 ULA egress: MASQUERADE through the public IPv6 default-route interface
@@ -676,16 +722,23 @@ What the server actually pushes (`server/handler.rs`):
 
 | `dns.push_servers` | `dns.enabled` | Client receives | Effect |
 |---|---|---|---|
-| set (e.g. `1.1.1.1`) | — | the first address in the list | client queries it **directly**, bypassing the proxy (no cache/blocklist) |
-| empty | `true` | `dns.listen` (the proxy address) | client → proxy on the server → upstream. **This is the default.** |
-| empty | `false` | nothing | client keeps its own resolvers |
+| set (e.g. `1.1.1.1`) | — | the list for negotiated families; the legacy field carries the first address | client queries it **directly**, bypassing the proxy (no cache/blocklist) |
+| negotiated-family list empty | `true` | `dns.listen` and/or `dns.listen_ipv6` for negotiated families | client → proxy on the server → upstream. The example explicitly enables the proxy; `dns.enabled` defaults to `false`. |
+| negotiated-family list empty | `false` | nothing | subsequent behavior follows client DNS policy, see below |
+Client `dns_servers` overrides the push in `dns = tunnel` mode. If filtering by negotiated
+families leaves no pushed resolvers, an enabled proxy supplies its active listeners.
+Without a push, configured/platform fallback resolvers are considered; a full tunnel
+with `dns = tunnel` and no available resolver is refused rather than silently retaining
+host DNS. `dns = off`/`system` leaves device resolvers unchanged. [DNS contract](CONFIG.md).
+
 
 ```ini
 # in [profile:tcp] — "clients go through my proxy" (recommended)
 dns.enabled  = true
 dns.upstream = 1.1.1.1, 8.8.8.8
 # dns.blocklist = ads.example.com, track.example.com   # answer with 0.0.0.0 (ad blocking)
-dns.push_servers = ""        # empty → clients get the proxy address (dns.listen)
+# empty → clients get the proxy address (dns.listen)
+dns.push_servers = ""
 
 # ...or "hand clients a ready resolver directly" (LAN / AdGuard / NextDNS):
 # dns.push_servers = 192.168.50.10        # the proxy need not even be enabled
@@ -722,6 +775,10 @@ only / Unix / none). If you plan to compare the app log against the server's, se
 > platform-imposed differences: per-app routing is MDM-only, and VPN On Demand stands in
 > for boot auto-connect — see [`qeli-ios/PARITY.md`](../../../qeli-ios/PARITY.md).
 
+> **macOS 0.8.3:** choose `Qeli-macos-arm64.tar.gz` for Apple Silicon or
+> `Qeli-macos-x86_64.tar.gz` for Intel. Each archive contains a self-contained
+> `Qeli.app`; do not combine their contents. macOS 15 or newer is required.
+>
 > ⚠️ **macOS — first launch.** The app is **ad-hoc** signed (not notarized by Apple), so
 > Gatekeeper blocks it and it **won't open** on a double-click. Clear the quarantine once
 > in Terminal:
@@ -731,6 +788,15 @@ only / Unix / none). If you plan to compare the app log against the server's, se
 > (see [qeli-mac/README.md](../../../qeli-mac/README.md)).
 
 ### 8.2. Linux CLI client
+
+Updated development 0.8.2 clients set their owned Linux TUN queue to `1000`
+packets without extra configuration. To select a value, add `tun.tx_queue_len = 1000`
+(or `500` for the previous lab size) to `[qeli]` in the client file itself.
+Stop/start that client after editing; a server reload does not apply it.
+Omit the key with `dev_attach=true`. Older binaries need an update first;
+there is no auto mode. [Contract and verification](CONFIG.md#client-tun-tx-queue).
+[Lab report](../reports/TUN-QUEUE-SIZE-2026-10-16.md)
+and [queue-size recommendations](../reports/TUN-QUEUE-SIZE-2026-10-16.md#choosing-a-size).
 
 ```bash
 sudo cp /etc/qeli/client.conf.example /etc/qeli/client.conf
@@ -761,6 +827,14 @@ kill_switch = false
 # tunnel = per-link DNS through systemd-resolved; off = platform-managed DNS
 dns         = tunnel
 ```
+
+On Linux, `dns = tunnel` requires `busctl`, active systemd-resolved and its stub in `/etc/resolv.conf`. Client and resolved must share a network namespace, and client and D-Bus broker a PID namespace. For platform-managed DNS, use `dns = off`/`system`. [Exact contract](CONFIG.md#linux-tun-and-dns-system-commands).
+
+Managed DNS on Linux also requires `SO_NETNS_COOKIE` and a trusted state directory without symlinks or group/world write: `$STATE_DIRECTORY`, otherwise `/var/lib/qeli`. Routes, DNS, sysctls and server firewall journals share this root. Stop the old client cleanly before upgrading; retained v1 markers require administrator recovery when they match the new link. [V2 format and recovery](TROUBLESHOOTING.md#650-linux-dns-lease-ownership-and-recovery-markers).
+
+Legacy global `dns-backup.json`/`dns-holders` are not restored automatically: startup preserves them and requires administrator recovery even with `dns = off`/`system`. Stop the old client cleanly before upgrading. [Procedure §6.20](TROUBLESHOOTING.md#620-linux-legacy-resolver-recovery-failed-backup-kept).
+
+The managed Linux client also requires `SO_NETNS_COOKIE` and trusted writable `/var/lib/qeli` for its durable route journal, even with `dns = off`/`system`. Preserve this directory across restarts; all clients sharing a network must see the same journal. [Route recovery](OPERATIONS.md#client-physical-route-recovery).
 
 ```bash
 sudo qeli client --config /etc/qeli/client.conf
@@ -814,7 +888,8 @@ enabled = true
 bind = 0.0.0.0
 port = 8080
 tls  = true
-allowed_ips = 203.0.113.4          # REQUIRED here — your own address(es)
+# REQUIRED here — your own address(es)
+allowed_ips = 203.0.113.4
 # public_host = vpn.example.com
 ```
 
@@ -985,6 +1060,8 @@ sudo systemctl reload qeli              # required: otherwise the server checks 
 
 ### 10.3. Live management (control socket, NO restart)
 
+Run one worker with multiple profiles per network namespace. Independent workers need separate network namespaces; changing `QELI_CONTROL_SOCKET` alone does not isolate the network. [Details](OPERATIONS.md#local-control-socket).
+
 Over `--socket` (default `/var/run/qeli/control.sock`) — applied immediately:
 
 ```bash
@@ -1019,26 +1096,27 @@ sudo qeli set-service-user root --unit qeli-server.service   # non-standard unit
 sudo systemctl restart qeli          # required for either to take effect
 ```
 
+`systemctl reload qeli` sends SIGHUP to the supervisor, which validates and reloads users/authentication and asks the worker to reload without replacing either process. Invalid INI/users are rejected without publishing new authentication state. Profile/listener/TUN and panel startup settings still need a full service restart. SIGHUP preserves the panel login lockout tracker. [Systemd audit](../reports/audit-0.8.2/AUDIT-Q33-SYSTEMD.md).
+
 **What `set-service-user` actually does.** It never edits the packaged unit file
 (`/lib/systemd/system/qeli.service`) — dpkg overwrites that on every upgrade and your
 change would silently vanish. Instead it manages a **systemd drop-in override**:
 
 | argument | effect |
 |---|---|
-| `root` | writes `/etc/systemd/system/qeli.service.d/run-as.conf` containing `[Service] User=root / Group=root`, which takes precedence over the packaged `User=qeli`. Lives in `/etc`, so it survives package upgrades. |
-| `qeli` | deletes that drop-in (the packaged unit already says `User=qeli`) **and** runs `chown -R qeli:qeli /etc/qeli`, because files written while the service ran as root are root-owned and the unprivileged service could not write them afterwards. |
+| `root` | writes `/etc/systemd/system/qeli.service.d/run-as.conf` containing `[Service] User=root / Group=root`, adding `CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER` to the bounded network capabilities and clearing root ambient capabilities; it takes precedence over the packaged `User=qeli`. Lives in `/etc`, so it survives package upgrades. |
+| `qeli` | repairs daemon-state ownership under `/etc/qeli` before removing that drop-in (the packaged unit already says `User=qeli`). It preserves `client-links` and `*.bak-*` administrator data, protecting the receipts directory as root0700. A repair failure keeps an existing root override; restart is a separate step. |
 
 Both then run `systemctl daemon-reload`; you restart the service to apply. The command is
 idempotent (safe to re-run), requires root, and rejects anything other than `qeli`/`root`.
 The unit's hardening — `ProtectSystem=full`, `NoNewPrivileges=true`, the bounded
-`CapabilityBoundingSet` — **stays in force either way**; `root` only changes *who* the
-process runs as.
+`CapabilityBoundingSet` — **stays in force either way**. Root adds three filesystem capabilities to read and update private state owned by qeli; the network capability set remains bounded. Switching back removes the drop-in and restores the packaged qeli capability settings.
 
 > ⚠️ **When to run as root — and why you normally should not.**
 > The default `qeli` user exists for privilege separation: if the daemon is ever
 > compromised, the attacker gets an account that owns nothing but `/etc/qeli` — **not the
-> machine**. Running as root throws that away: a compromise of the VPN daemon becomes
-> **full root on the host**. The daemon is reachable from the internet, so this is not a
+> machine**. Running as root removes that account boundary and permits access to other owners’ files.
+> The packaged filesystem sandbox and capability bounds still apply, but UID 0 is a much broader privilege. The daemon is reachable from the internet, so this is not a
 > theoretical distinction.
 >
 > Legitimate reasons to pick `root`:
@@ -1064,9 +1142,9 @@ ss -tulnp | grep qeli                           # is it listening on :443 / :808
 
 On the client, check that a `vpn0` interface and routes appeared (`ip a`, `ip route`).
 
-> **Deep obfuscation diagnostics.** If DPI is cutting the tunnel and you need to see what
-> actually goes on the wire, enable the packet-shape timeline: `QELI_TRACE=<file> qeli
-> client …` (opt-in; records sizes/timing only, never payload; dumps on SIGUSR1). Details
+> **Deep obfuscation diagnostics.** For a timeline of packet processing inside the application,
+> enable `QELI_TRACE=<file> qeli client …`. Tracing does not confirm network delivery
+> (opt-in; records sizes/timing only, never payload; dumps on SIGUSR1). Details
 > and a walkthrough in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ---
@@ -1104,7 +1182,7 @@ A detailed comparison, REALITY setup (short_ids, handrolled), multipath bonding 
   settings don't persist, the service restart-loops.** Almost always ownership: the service
   runs as `User=qeli` and writes into `/etc/qeli` (identity keys, users file, panel saves),
   while the config and any files you created as root **after** the install stayed root-owned.
-  Fix with `sudo chown -R qeli:qeli /etc/qeli` + restart — full symptom list and modes in
+  Fix with `sudo qeli set-service-user qeli` + restart — full symptom list and modes in
   §2, "A.3. Fix ownership of `/etc/qeli`".
 - **Client passes "identity verified" but drops immediately / `AUTH FAIL … not found`.**
   Check the merged inline `[user:*]` plus `auth.users_file` view (see §3.3): a
@@ -1154,7 +1232,8 @@ sudo apt purge qeli
 sudo rm -f /usr/bin/qeli /usr/local/bin/qeli
 sudo rm -f /etc/systemd/system/qeli.service /lib/systemd/system/qeli.service && sudo systemctl daemon-reload
 
-# 3. Configs, identity keys, users, issued links.
+# 3. First inspect/save kernel-tuning-*/restore.txt and restore the required tuning
+#    BEFORE deleting /etc/qeli. Then remove configs, identity keys, users, issued links.
 #    WARNING: the identity key is gone -> clients that pin it (reality-tls / H-1) will
 #    need REISSUED configs. To keep it: sudo cp -a /etc/qeli /root/qeli-backup
 sudo rm -rf /etc/qeli
@@ -1169,11 +1248,11 @@ sudo deluser --system qeli 2>/dev/null; sudo delgroup qeli 2>/dev/null; true
 Additionally — **if you installed via `install-qeli-server.sh`** (it touches the OS):
 
 ```bash
-# sysctl tuning (BBR / buffers / PMTU)
-sudo rm -f /etc/sysctl.d/99-qeli-perf.conf && sudo sysctl --system >/dev/null
-
-# BBR module: the installer wires it into boot — otherwise tcp_bbr loads forever
-sudo rm -f /etc/modules-load.d/qeli-bbr.conf
+# Before removing /etc/qeli, inspect/save the exact run receipt and follow its
+# restore.txt commands for prior persistent files and runtime.before values.
+# Deleting tuning files alone does not undo runtime changes. If an old installation
+# has no receipt, recover the previous values/files from your own backup or policy.
+# Do not unload a tcp_bbr module that may be used by other host connections.
 
 # iptables: qeli removes ITS OWN NAT/MASQUERADE rules on a clean stop (step 1). The
 # installer additionally adds MSS clamps in BOTH handshake directions. Inspect leftovers first:
@@ -1207,13 +1286,30 @@ sudo netfilter-persistent save 2>/dev/null; true
 
 ### 13.2. Client — Linux (Rust CLI)
 
-A clean stop (Ctrl+C) **itself** restores `/etc/resolv.conf`, removes the kill-switch / NAT
-and deletes the tun. Do it by hand only if the client **crashed**:
+On restart, the client does not automatically delete an occupied TUN: it waits for
+the name to be released. A non-persistent device disappears after its last fd closes.
+Before manual deletion, establish that it belongs to the configuration being retired;
+`dev_attach=true` leaves it to the external owner. See
+[TROUBLESHOOTING.md §6.47](TROUBLESHOOTING.md).
+
+`sysctls.state` may hold recovery entries for several network namespaces. Restore
+settings in their original network/PID/time context and preserve the shared state directory
+while any client or server still needs it. When upgrading with nonempty v1 state, keep
+the journal; see the migration procedure in
+[TROUBLESHOOTING.md §6.33](TROUBLESHOOTING.md).
+The state removal below applies only when uninstalling every component using it.
+
+A clean stop (Ctrl+C) reverts only its owned per-link DNS, cleans NAT/routes and closes
+its TUN descriptors. The kill-switch is released only after successful cleanup. New
+sessions leave `/etc/resolv.conf` intact; legacy file backups require manual recovery (§6.20).
+For DNS ownership and stale markers see [§6.50](TROUBLESHOOTING.md). After a crash:
+
+Reinstalling a Linux kill-switch over prior protection uses temporary DROP rules `qeli-ks-rebuild:<tun>`. Failure or SIGKILL retains them; successful retry retires them after both required families are ready. Guards may block DNS/loopback until replacement is ready; `allow_ipv*_leak` cannot bypass recovery failure. For manual removal after stopping the owner, inspect guards separately from `QELI_KS_<tun>`. [Procedure §6.79](TROUBLESHOOTING.md#679-linux-kill-switch-rebuild-guard-remains-after-failure).
 
 ```bash
 sudo pkill -f 'qeli client'                    # kill if it's stuck
-# DNS: the original lives in /var/lib/qeli/dns-backup.json — easiest is to start and
-#      cleanly stop the client (it restores resolv.conf itself), or restore from the backup.
+# DNS: inspect per-link state and ownership markers first (TROUBLESHOOTING §6.50).
+# /var/lib/qeli/dns-backup.json is a legacy resolver-file snapshot, not new-session DNS state.
 
 # Kill-switch (if kill_switch = true). The rules live in a DEDICATED
 # QELI_KS_<interface> chain — the name follows `dev = …` so several client instances
@@ -1237,13 +1333,15 @@ sudo ip6tables -X $CH            2>/dev/null; true
 # Exit node / gateway (if exit_node = true or gateway_nat = true was set). These rules are
 # also lifted only on a CLEAN stop, and a crash leaves them — the host then keeps
 # masquerading and forwarding long after the tunnel died. Every rule carries a comment:
-# qeli-exit-node (exit_node) or qeli-gw-nat (gateway_nat) — that is how you find them.
+# qeli-exit-node[:<tun>] (exit_node) or qeli-gw-nat (gateway_nat).
+# New exit MASQUERADE rules include the :<tun> suffix.
+# Do not remove another live profile's rules or old shared NAT without checking all owners.
 sudo iptables -t mangle -S | grep -e qeli-exit-node -e qeli-gw-nat
 sudo iptables -t nat    -S | grep -e qeli-exit-node -e qeli-gw-nat
 sudo iptables           -S | grep -e qeli-exit-node -e qeli-gw-nat
 # Delete them line by line: take a printed line, swap -A for -D and run it as-is, e.g.
 #   sudo iptables -t nat -D POSTROUTING -o eth0 -m mark --mark 0x51/0x51 -j MASQUERADE \
-#        -m comment --comment qeli-exit-node
+#        -m comment --comment qeli-exit-node:vpn0
 # ip_forward and rp_filter were changed on the fly — restore them if they had been off:
 #   sudo sysctl -w net.ipv4.ip_forward=0
 #   sudo sysctl -w net.ipv4.conf.eth0.rp_filter=1        # eth0 = your WAN
@@ -1252,8 +1350,17 @@ sudo ip link del vpn0 2>/dev/null; true        # tun — name from `dev = …`
 # Remove the binary, config, state:
 sudo rm -f /usr/local/bin/qeli
 rm -f ~/qeli-client.conf                        # your client config path
-sudo rm -rf /var/lib/qeli                       # device-id + dns-backup
+# Complete route recovery (§6.81) first and confirm no server shares this state.
+sudo rm -rf /var/lib/qeli                       # only after verified cleanup
 ```
+
+Before manual recovery, establish that the owning client has stopped. The TUN name
+is now reserved even without a kill-switch, including `dev_attach`; independent client
+sessions must use distinct `dev` names in one network namespace.
+The TUN lease rejects another startup with the same name until the owner exits;
+kill-switch additionally restricts conflicting sessions with other TUNs. Releasing
+a lease after a crash does not remove the remaining firewall.
+[Ownership and IPv6 troubleshooting](TROUBLESHOOTING.md).
 
 > **Never drop the kill-switch with `iptables -F`.** Without a chain name that command
 > flushes the **entire** `filter` table — your SSH rules, ufw/fail2ban, Docker, everything
@@ -1311,3 +1418,5 @@ rm -rf ./data                                                 # the mounted /etc
 
 > Found an inaccuracy or have a setup question — open an issue/discussion in the
 > repository. Full documentation map — in the [README](../README.md).
+
+Linux server workers require `SO_NETNS_COOKIE` and a trusted `STATE_DIRECTORY` (normally `/var/lib/qeli`). Preserve that directory across restarts: `server-firewall.state` supports exact cleanup after SIGKILL, including deleted INI profiles. Stop the previous worker before upgrading. [Firewall recovery](OPERATIONS.md#server-firewall-recovery).

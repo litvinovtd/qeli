@@ -1,0 +1,470 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q34_ANDROID_BUILD_DEPENDENCY_POLICY_SCOPED_NO_DEVICE_RUNTIME",
+  "source_digest": "c35b3645609ffe6170bb54f6dfd77beec6372fee799c4df76865d33b40f99d10",
+  "qualification_source_commit": "4d8bb44f2eddcee5c4f4de19140059d47782c734",
+  "product_source_commit": "4d8bb44f2eddcee5c4f4de19140059d47782c734",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F463/Q34-F017",
+    "F464/Q34-F018",
+    "F465/Q34-F019"
+  ],
+  "verification": {
+    "jvm": {
+      "status": "PASS",
+      "tests": 201,
+      "suites": [
+        {
+          "suite": "com.qeli.ProfileAppsEditorTest",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.RouteComplementsTest",
+          "tests": 13,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.ProfileStoreUtf8Test",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.ReconnectPolicyTest",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.AndroidVpnPublicationTest",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.ConfigHardeningTest",
+          "tests": 17,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.AndroidSessionContinuityTest",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.UpdatePrivacyTest",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.TransportCoreEventDispatcherTest",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.ProfileStoreActiveIndexTest",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.ConfigImportRangesTest",
+          "tests": 35,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.TrustedWifiPolicyTest",
+          "tests": 12,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.ProfileAutoProbePolicyTest",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.BoundedInputTest",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.AndroidKillSwitchPolicyTest",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.AndroidRoamingPolicyTest",
+          "tests": 10,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.DiagnosticLogStoreTest",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.QeliLinkConformanceTest",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.ConfigRoundTripCompletenessTest",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.crypto.BackupCryptoTest",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.TransportCoreEventTest",
+          "tests": 18,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.ProtectionSummaryTest",
+          "tests": 14,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.ProfileStoreBoundsTest",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.VpnConnectRequestTest",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "suite": "com.qeli.BackupExporterTest",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ],
+      "host_jni_sha256": "6b6d956f731f50ce4fadf2161e48862fe96d68823063f8dcb8532fdf5800bd6b",
+      "default_dependency_verification": true,
+      "fresh_test_execution": true,
+      "no_emulator_or_VPN_runtime": true
+    },
+    "negative": {
+      "status": "PASS",
+      "rows": [
+        {
+          "case": "missing-verification",
+          "rc": 1,
+          "expected": "refuse",
+          "marker": "Missing Gradle dependency verification metadata",
+          "status": "PASS",
+          "seconds": 5.381
+        },
+        {
+          "case": "missing-plugin-lock",
+          "rc": 1,
+          "expected": "refuse",
+          "marker": "Missing Gradle plugin dependency lock",
+          "status": "PASS",
+          "seconds": 5.641
+        },
+        {
+          "case": "missing-app-lock",
+          "rc": 1,
+          "expected": "refuse",
+          "marker": "does not have lock state",
+          "status": "PASS",
+          "seconds": 12.071
+        },
+        {
+          "case": "dependency-drift",
+          "rc": 1,
+          "expected": "refuse",
+          "marker": "strictly 4.13.2",
+          "status": "PASS",
+          "seconds": 59.522
+        },
+        {
+          "case": "plugin-checksum-drift",
+          "rc": 1,
+          "expected": "refuse",
+          "marker": "Dependency verification failed",
+          "status": "PASS",
+          "seconds": 6.585
+        },
+        {
+          "case": "negative-app-restored",
+          "rc": 0,
+          "expected": "pass",
+          "marker": null,
+          "status": "PASS",
+          "seconds": 11.829
+        }
+      ],
+      "all_modified_inputs_restored": true
+    },
+    "cross_host": {
+      "status": "PASS",
+      "rows": [
+        {
+          "host": "windows",
+          "url": "https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/9.2.1-15009934/aapt2-9.2.1-15009934-windows.jar",
+          "sha256": "ac25e699c4830b5179f138736fd6200567aa1d73acc4dff0b0ba2b73013a8cdb",
+          "bytes": 2132406,
+          "scope": "checksum admission only; no Windows/macOS Android build or execution"
+        },
+        {
+          "host": "osx",
+          "url": "https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/9.2.1-15009934/aapt2-9.2.1-15009934-osx.jar",
+          "sha256": "ece4bbeb8a9b89410943cd83a12446a93741d1a8a249873d830653bd84fb9d44",
+          "bytes": 4416438,
+          "scope": "checksum admission only; no Windows/macOS Android build or execution"
+        }
+      ],
+      "components": 434,
+      "artifacts": 747,
+      "metadata_sha256": "9d8f1add2983d30602cab9a0c5a4fd6af938aba808a478c3e613622c8acbc018"
+    },
+    "backup": {
+      "status": "PASS",
+      "backup": "/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl-backup.tar.gz",
+      "sha256": "c6669a6f93d98495c502cbfab1e6064e62fb8c464b7d21050fc08e024d570da0",
+      "bytes": 399367094,
+      "final": {
+        "status": "PASS",
+        "inputs_lf_sha256": {
+          "qeli-android/build.gradle.kts": "ab85f6ea086d4f672cf9822f8cec1fa851df851c60e145328c238d69beb4c519",
+          "qeli-android/settings.gradle.kts": "156895c969a618cfac5705f111512b8e755ff67b5f3f5cc2a345e2593f555097",
+          "qeli-android/buildscript-gradle.lockfile": "d3fa2378effb92dcdbab2b8219154dc47d97be4408d3d946889e5390bb929846",
+          "qeli-android/app/buildscript-gradle.lockfile": "8b30b614f19c3b6f43575c7fd28704ff2167606e52ea6940d88ea5fb9acd0110",
+          "qeli-android/app/gradle.lockfile": "3983800017eaf2e2b5cba914ba6b4d8f1e6d00b56302d7df49467b2d72fa5400",
+          "qeli-android/gradle/verification-metadata.xml": "9d8f1add2983d30602cab9a0c5a4fd6af938aba808a478c3e613622c8acbc018"
+        },
+        "native_inputs": {
+          "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0",
+          "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+        },
+        "lint": {
+          "Error": 0,
+          "Fatal": 0,
+          "Warning": 53,
+          "Information": 0
+        },
+        "sdk_input_hashes": {
+          "platform-tools/source.properties": "2dccd788c0234d8cf7f7457377e57f57527a86a629c6ed54feb8af0f549dac38",
+          "platform-tools/adb": "a902be8f45c6c62e76c9efaf6947a0fa747c9cabd89a2ac8e0d16ecb30b3ed01",
+          "platform-tools/package.xml": "55d46ccebf3bba4ad4349d3747643bb0ed38aac843ce6c87782b009328f73e1e",
+          "platforms/android-34/android.jar": "6cea1df3efb77103ac3e2beb9bf4718964b0e0869ab16d39d29d5cbae1c147ad",
+          "platforms/android-34/source.properties": "a2e2cf71d36c90fb1a2ab5af9d0cad186e4604147f3fb37416c214881bf58489",
+          "platforms/android-34/package.xml": "ca0589a9b89c09d678b48a9b041decd486106e309da98186a58b2e7e30fef3fd",
+          "platforms/android-37.0/android.jar": "bf1b4387cc7ca94fc6ef684f040d9d16fbf16248e181819f020736ea2053f177",
+          "platforms/android-37.0/source.properties": "fa89029fc0cee414cb5e44a37cd3033771217eeecb5086577bb6d9b1b03b5b5f",
+          "platforms/android-37.0/package.xml": "7f8001358f1b6432ea6186dd0fe6ba00bb67ea8daf24c708d05a02f5570091d7",
+          "build-tools/34.0.0/source.properties": "c727885baf3695c8fe4fbe566f092e8e114c6cee35ecb9fa95a7ff2ef058de04",
+          "build-tools/34.0.0/aapt2": "760aa057e89e3940c3e944e6bec61eda864ade42fd9c0a3113735e329657705f",
+          "build-tools/34.0.0/package.xml": "46a9284603e9af0250ab5b89187e7dd682dcc89308e23f1112c265349a1c1f6b",
+          "build-tools/36.1.0/source.properties": "cde98413251206c52e50cfcefc2e0627b2660c03814e9c9ab7e2c56fdf5a9472",
+          "build-tools/36.1.0/aapt2": "012764928a2e5ad747531f669fcda1cf2ccd2d0b6eb8bdb728807c17e3cf16d0",
+          "build-tools/36.1.0/package.xml": "517dea987f514627d12b321d2401318bad06970c2b05420d1086a89bcfc904f5",
+          "build-tools/36.0.0/source.properties": "7dee6632e9ad6cb111da2bb99d747211e27927061b1276d040bb1d71fded5ebb",
+          "build-tools/36.0.0/aapt2": "1a6a396b9cd071f7040071fdd108718cb98c3c9f4960044f373b288993d19eb7",
+          "build-tools/36.0.0/package.xml": "737904dbcee0845bc18385d3627cd6238bf5f1395f07c7300f88db717b7303b7"
+        },
+        "qeli_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n",
+        "installed_qeli_sha256": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n",
+        "service": "MainPID=777\nActiveState=active\n"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "own_root_removed": "/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl",
+      "backup_removed_after_local_sha": "/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl-backup.tar.gz",
+      "qeli_processes_preserved": [
+        777,
+        845
+      ],
+      "service": "MainPID=777\nActiveState=active\n"
+    },
+    "local": {
+      "status": "PASS",
+      "rows": [
+        {
+          "case": "docs",
+          "rc": 0
+        },
+        {
+          "case": "native-units",
+          "rc": 0
+        },
+        {
+          "case": "release-units",
+          "rc": 0
+        }
+      ],
+      "docs": 694,
+      "native_units": 12,
+      "release_units": 11,
+      "native_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_files": 14,
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "product_paths": [
+        "qeli-android/build.gradle.kts",
+        "qeli-android/settings.gradle.kts",
+        "qeli-android/README.md",
+        "qeli-android/buildscript-gradle.lockfile",
+        "qeli-android/app/buildscript-gradle.lockfile",
+        "qeli-android/app/gradle.lockfile",
+        "qeli-android/gradle/verification-metadata.xml",
+        "docs/ru/index.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/reports/AUDIT-Q34-ANDROID-DEPENDENCIES.md",
+        "docs/eng/index.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/reports/AUDIT-Q34-ANDROID-DEPENDENCIES.md"
+      ]
+    },
+    "qualified_inputs": {
+      "status": "PASS",
+      "paths": [
+        {
+          "path": "qeli-android/build.gradle.kts",
+          "sha256": "ab85f6ea086d4f672cf9822f8cec1fa851df851c60e145328c238d69beb4c519"
+        },
+        {
+          "path": "qeli-android/buildscript-gradle.lockfile",
+          "sha256": "d3fa2378effb92dcdbab2b8219154dc47d97be4408d3d946889e5390bb929846"
+        },
+        {
+          "path": "qeli-android/README.md",
+          "sha256": "92fd55960fc289c3b91e2898c0d09b95e5134eefd0ecf49fa8254fbe2fd9cec9"
+        },
+        {
+          "path": "qeli-android/settings.gradle.kts",
+          "sha256": "156895c969a618cfac5705f111512b8e755ff67b5f3f5cc2a345e2593f555097"
+        },
+        {
+          "path": "qeli-android/app/buildscript-gradle.lockfile",
+          "sha256": "8b30b614f19c3b6f43575c7fd28704ff2167606e52ea6940d88ea5fb9acd0110"
+        },
+        {
+          "path": "qeli-android/app/gradle.lockfile",
+          "sha256": "3983800017eaf2e2b5cba914ba6b4d8f1e6d00b56302d7df49467b2d72fa5400"
+        },
+        {
+          "path": "qeli-android/gradle/verification-metadata.xml",
+          "sha256": "9d8f1add2983d30602cab9a0c5a4fd6af938aba808a478c3e613622c8acbc018"
+        }
+      ]
+    },
+    "builds": [
+      {
+        "label": "seed-debug-retry",
+        "command": "export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --write-locks --write-verification-metadata sha256 assembleDebug assembleRelease assembleDebugAndroidTest testDebugUnitTest",
+        "rc": 0,
+        "seconds": 27.072
+      },
+      {
+        "label": "seed-lint",
+        "command": "export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --write-locks --write-verification-metadata sha256 lintRelease",
+        "rc": 0,
+        "seconds": 85.653
+      },
+      {
+        "label": "seed-release-tests",
+        "command": "export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" -PqeliTestBuildType=release --write-locks --write-verification-metadata sha256 assembleReleaseAndroidTest printInstrumentationAbiClasspaths",
+        "rc": 0,
+        "seconds": 146.21
+      },
+      {
+        "label": "locked-debug",
+        "command": "export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --offline --dependency-verification strict assembleDebug assembleRelease assembleDebugAndroidTest testDebugUnitTest",
+        "rc": 0,
+        "seconds": 365.19
+      },
+      {
+        "label": "locked-lint",
+        "command": "export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --offline --dependency-verification strict lintRelease",
+        "rc": 0,
+        "seconds": 77.851
+      },
+      {
+        "label": "locked-release-tests",
+        "command": "export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk ANDROID_SDK_ROOT=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/sdk GRADLE_USER_HOME=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/gradle-home QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/host-target/debug/libqeli_core.so; cd /var/tmp/qeli-q34-android-deps-20261008.85uoKrtl/source/qeli-android; ./gradlew --no-daemon --max-workers=1 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8\" --offline --dependency-verification strict -PqeliTestBuildType=release assembleReleaseAndroidTest printInstrumentationAbiClasspaths",
+        "rc": 0,
+        "seconds": 135.209
+      }
+    ],
+    "independent_artifacts": {
+      "status": "PASS",
+      "artifacts": 747,
+      "bytes": 377880180,
+      "metadata_sha256": "9d8f1add2983d30602cab9a0c5a4fd6af938aba808a478c3e613622c8acbc018",
+      "method": "Independent uncached HTTPS download from Google Maven, Maven Central or Gradle Plugin Portal; stream SHA256 compared with generated Gradle policy"
+    }
+  },
+  "metadata_binding": "committed Git LF build inputs match qualified-inputs SHA; actual private lab resource override retained separately",
+  "raw_packet": {
+    "name": "q34-android-dependencies-20261008",
+    "files": 87,
+    "bytes": 414985035,
+    "manifest_sha256": "8a94278f86b39bcfc43d02b89c68697ce3e30f88aa67ef8d9a8adba2b4be22f0",
+    "runtime_status": "PASS_ANDROID_BUILD_DEPENDENCY_POLICY_SCOPED_NO_DEVICE_RUNTIME",
+    "path": "audit-debt-20260924/q34-android-dependencies-20261008",
+    "status": "SEALED"
+  },
+  "scope": "Q34F463-F465/Q34-F017-F019 scoped Android dependency policy closure: strict project transitive locks and early buildscript plugin lock/three actual generated lockfiles, SHA256 verification of artifacts and POM/module metadata/no trusted-artifact bypass; settings refuse missing verification or plugin lock, strict engine refuses missing app lock.747 independent fresh HTTPS payloads match Google-Maven/MavenCentral/GradlePortal origins,including six descriptor-verified aliasAAR after initial404diagnostics; WindowsPE/macOSMachO AAPT2 records and actualGradle checksum admission only/noOSbuilds. Actualdebug/defaultunsignedR8/debug-and-releaseInstrumentationAPKassemblies/lockedoffline-strict/lint0errors and fresh201JVMfail-error-skipped0withcurrentofflineRust1.97productionhostJNI PASS. Five actualdefault-mode negatives/missingpolicy-version-checksum plus restoredpositive PASS. NativeRust-sourcee3fb/distributed14SHA-copies/protectedCSSCHANGELOGusers unchanged;fresh hostJNI debug is notnewreleaseABorVPNruntime. Initial partialrootlock/Metaspace384failure afterAPK-JVM/SDKalias/harness resourceguard diagnostics retained; privateoneworker768heap768metaspace/inprocessKotlin/separatelint retry qualifies;Java21target17,no currentJava17CIclaim. Private SDK bootstrap only;owned399367094byteSHAarchive preserves source/Mavenpayloads/APKs/hostJNI/logs,test-lint-mapping outputs/procmountguardcleanup/.11service777845CLI75bc preserved;.10readonly.694docs9/native12release11 PASS. Q34IN_PROGRESS/full30-37DONE81.1percent7remain;package-license-CVE/currentActions-sourcecut-release/bracesF459OPEN and Q29SIGKILLFAIL-ENONET,Q30Applecallbacks,Q31capacity-sourcecut-currentCI,D06accepted,USER_EXCLUDEDplatforms unchanged.41cases74prior supplements preserved modulo repository source_digest,append75scoped only. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

@@ -20,3 +20,8 @@
 # without this the release APK cannot be assembled at all (debug is unaffected: no R8).
 -dontwarn javax.annotation.Nullable
 -dontwarn javax.annotation.concurrent.GuardedBy
+
+# Pure configuration/policy JNI uses its own name-based entry point.
+-keep class com.qeli.ConfigCore {
+    native <methods>;
+}

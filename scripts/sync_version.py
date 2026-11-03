@@ -14,8 +14,9 @@ There are THREE versions in this repo and they are deliberately different:
     an older version number; for example the 0.7.17 development tree is released
     directly as 0.8.0, without a public 0.7.17 release.
   * the RELEASED version — the newest published package. Source of truth: the
-    newest `v*` git tag. It is shown as the latest published release in the
-    ten-document status banner and owns released download/attestation commands.
+    newest `v*` git tag. A guide's explicit package target may also be staged to
+    the planned release without claiming it has already been published. Package
+    commands must match that guide target, before and after the release tag.
 
 Bumping by hand means editing many files, which is how docs once ended up claiming
 0.7.11 while the crate was already 0.7.12. Markdown on GitHub has no variable
@@ -92,16 +93,24 @@ MAC_PER_APP_BUILD_TARGETS: list[tuple[str, str, str]] = [
 # release, and latest published package independently. Collapsing these values was
 # the reason unreleased IPv6 material looked as if it belonged to stable 0.7.16.
 BANNER_DOCS = ("CONFIG", "GETTING-STARTED", "PANEL", "TROUBLESHOOTING", "OPERATIONS")
+GUIDE_RELEASE_RE = {
+    "ru": r"версия пакетов в этом руководстве \*\*([^*]+)\*\*",
+    "eng": r"package version covered by this guide \*\*([^*]+)\*\*",
+}
+PUBLISHED_RELEASE_RE = {
+    "ru": r"последний опубликованный релиз \*\*([^*]+)\*\*",
+    "eng": r"latest published release \*\*([^*]+)\*\*",
+}
 BANNER_RE = {
     "ru": {
         "dev": r"текущая ветка разработки \*\*([^*]+)\*\*",
         "planned": r"планируемый full-IPv6 релиз \*\*([^*]+)\*\*",
-        "released": r"последний опубликованный релиз \*\*([^*]+)\*\*",
+        "released": r"(?:последний опубликованный релиз|версия пакетов в этом руководстве) \*\*([^*]+)\*\*",
     },
     "eng": {
         "dev": r"current development tree \*\*([^*]+)\*\*",
         "planned": r"planned full-IPv6 release \*\*([^*]+)\*\*",
-        "released": r"latest published release \*\*([^*]+)\*\*",
+        "released": r"(?:latest published release|package version covered by this guide) \*\*([^*]+)\*\*",
     },
 }
 
@@ -220,6 +229,35 @@ def apply(targets: list[tuple[str, str, str]], want: str, write: bool) -> None:
             print(f"  stamped {want:>8}  {rel}  ({label}, was {', '.join(sorted(set(stale)))})")
         else:
             problems.append(f"{rel}: {label} is {', '.join(sorted(set(stale)))}, expected {want}")
+
+
+def apply_documented_releases(released: str, planned: str, write: bool, releasing: bool) -> None:
+    """Allow an explicit guide target to be staged without claiming publication.
+
+    Legacy 'latest published' banners still require the actual latest tag. A guide
+    target may name that release or the planned release, never an arbitrary stale
+    or future version. --releasing selects the planned target deterministically.
+    """
+    for lang in ("ru", "eng"):
+        for doc in BANNER_DOCS:
+            rel = f"docs/{lang}/manuals/{doc}.md"
+            path = ROOT / rel
+            if not path.exists():
+                problems.append(f"{rel}: missing documentation status banner")
+                continue
+            text = path.read_text(encoding="utf-8")
+            guide = re.findall(GUIDE_RELEASE_RE[lang], text)
+            published = re.findall(PUBLISHED_RELEASE_RE[lang], text)
+            if len(guide) + len(published) != 1:
+                problems.append(f"{rel}: expected exactly one guide target or published-release banner")
+                continue
+            if guide:
+                want = planned if releasing else (guide[0] if guide[0] in {released, planned} else released)
+                pattern = GUIDE_RELEASE_RE[lang]
+            else:
+                want = planned if releasing else released
+                pattern = PUBLISHED_RELEASE_RE[lang]
+            apply([(rel, pattern, "docs package target" if guide else "docs published release")], want, write)
 
 
 def apply_release_artifacts(write: bool) -> None:
@@ -378,12 +416,12 @@ def main() -> int:
             for doc in BANNER_DOCS
         ]
 
-    # Immediately before tagging, the "latest published release" field and package
-    # commands are intentionally staged to the release being cut. At all other times
-    # they remain tied to the newest existing tag.
+    # An explicit guide target can be staged before tagging without falsely
+    # naming an unpublished package as the latest published release. Legacy
+    # published-release labels remain strictly tied to the actual tag by default.
     apply(banners("dev"), dev, args.write)
     apply(banners("planned"), planned, args.write)
-    apply(banners("released"), planned if args.releasing else rel, args.write)
+    apply_documented_releases(rel, planned, args.write, args.releasing)
     apply_release_artifacts(args.write)
 
     if problems:

@@ -8,22 +8,21 @@ BIN=${1:-}
 ITERATIONS=${2:-100}
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-if [ ! -x "$BIN" ]; then
+if [ "$#" -gt 2 ] || [ ! -x "$BIN" ]; then
   echo "usage: $0 <qeli-binary> [iterations>=100]" >&2
   exit 2
 fi
-case "$ITERATIONS" in
-  *[!0-9]*|'') echo "iterations must be an integer >= 100" >&2; exit 2 ;;
-esac
-if [ "$ITERATIONS" -lt 100 ]; then
-  echo "release certification requires at least 100 committed flips per transport" >&2
+if [ ! -r "$SCRIPT_DIR/roaming_soak_parameters.sh" ]; then
+  echo "required roaming soak parameter helper is missing" >&2
   exit 2
 fi
+source "$SCRIPT_DIR/roaming_soak_parameters.sh" || exit 2
+roaming_soak_count iterations "$ITERATIONS" 100 || exit 2
 BIN=$(readlink -f "$BIN")
 SAMPLE_EVERY=$((ITERATIONS / 10))
 if [ "$SAMPLE_EVERY" -lt 1 ]; then SAMPLE_EVERY=1; fi
 
-echo "binary_version=$($BIN --version)"
+echo "binary_version=$("$BIN" --version)"
 echo "binary_sha256=$(sha256sum "$BIN" | cut -d' ' -f1)"
 echo "iterations_per_transport=$ITERATIONS"
 

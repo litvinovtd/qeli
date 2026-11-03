@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     // import, delete, filter), so the OnProfileSelected auto-restart fires ONLY for a genuine
     // user pick — not for a selection that shifts because the collection/filter was mutated.
     private bool _suppressAutoSwitch;
+    private long _profileRevision;
     private VpnStatus _status = VpnStatus.Disconnected;
     // Status observed when the current Connect/Disconnect began, so the poll can tell a
     // state the daemon has actually REACHED from the one it started in.
@@ -62,7 +63,7 @@ public partial class MainWindow : Window
     // launchd-daemon mode: the VPN runs in the daemon; the GUI polls its status/log.
     private bool _serviceMode;
     private DispatcherTimer? _serviceTimer;
-    private long _serviceLogPos;
+    private string _serviceLogText = "";
 
     // Live stats (sampled once a second while connected): speed tiles + sparkline.
     private DispatcherTimer? _statsTimer;
@@ -276,7 +277,7 @@ public partial class MainWindow : Window
         if (nowService)
         {
             ConnectBtn.IsEnabled = true;
-            if (changed) { _serviceLogPos = 0; LogClear(); }
+            if (changed) { _serviceLogText = ""; LogClear(); }
         }
         // The timer runs in BOTH modes on purpose: it is the only thing that notices the
         // daemon appearing or going away. It used to be stopped outside daemon mode, which
@@ -311,18 +312,13 @@ public partial class MainWindow : Window
         // open, however healthy the daemon actually was.
         if (ServiceManager.IsInstalled() != _serviceMode) RefreshServiceMode();
         if (!_serviceMode) return;
-        var snapshot = ServiceState.ReadStatus();
-        _svc = snapshot;
-        VpnStatus status = VpnStatus.Disconnected;
-        string? extra = snapshot?.Extra;
-        if (snapshot != null && Enum.TryParse<VpnStatus>(snapshot.Status, out var parsed)) status = parsed;
-        // Trust the status file's freshness rather than `launchctl list` (which a non-root
-        // GUI can't use to see a system daemon). The daemon rewrites it every second, so a
-        // stale (or missing) snapshot means it isn't running.
-        bool fresh = snapshot != null && (DateTime.Now - snapshot.Time) < TimeSpan.FromSeconds(5);
-        if (!fresh) { status = VpnStatus.Disconnected; extra = null; }
-
-        if (status != _status) OnStatus(status, extra);
+        ServiceObservation observation;
+        try { observation = ServiceObservation.Resolve(ServiceState.ReadStatus(), DateTime.Now); }
+        catch (Exception error) { observation = new(VpnStatus.Error, error.Message, null); }
+        _svc = observation.Snapshot;
+        var status = observation.Status;
+        var extra = observation.Extra;
+        if (status != _status || extra != _lastExtra) OnStatus(status, extra);
 
         // Release the button as soon as the daemon has actually REACHED a new settled state,
         // without waiting for the privileged helper to return. Those are different moments:
@@ -343,51 +339,44 @@ public partial class MainWindow : Window
     {
         try
         {
-            var path = ServiceState.LogFile;
-            if (!File.Exists(path)) return;
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            if (fs.Length < _serviceLogPos) _serviceLogPos = 0; // log was rotated
-            if (fs.Length == _serviceLogPos) return;
-            fs.Seek(_serviceLogPos, SeekOrigin.Begin);
-            using var sr = new StreamReader(fs);
-            var text = sr.ReadToEnd();
-            _serviceLogPos = fs.Length;
-            if (text.Length > 0) LogAppend(text);
+            var text = ServiceState.ReadLog();
+            string added = ServiceObservation.LogDelta(_serviceLogText, text);
+            _serviceLogText = text;
+            if (added.Length > 0) LogAppend(added);
         }
         catch { /* ignore transient IO */ }
     }
 
-    private async Task ApplyServiceSettings()
+    private async Task<bool> ApplyServiceSettings(bool connectRequested = false, VpnConfig? selectedOverride = null)
     {
         var s = AppSettings.Current;
         try
         {
-            if (s.ServiceEnabled)
+            if (selectedOverride is not null || s.ServiceEnabled)
             {
-                var p = ResolveProfile(s.ServiceProfile) ?? _profiles.FirstOrDefault();
+                var p = selectedOverride ?? ResolveProfile(s.ServiceProfile);
                 if (p == null)
                 {
                     await Dialogs.InfoAsync(this, Loc.T("NoServiceProfile"), Loc.T("ServiceWord"));
-                    return;
+                    return false;
                 }
                 if (p.UsesAppFilter)
                     await Task.Run(PerAppController.PrepareInstallation);
                 // Avoid two tunnels fighting over the utun device.
-                if (_status is VpnStatus.Connected or VpnStatus.Connecting) _tunnel.Stop();
-                p.LoggingLevel = s.LogLevel;
+                if (!_serviceMode && _status is VpnStatus.Connected or VpnStatus.Connecting)
+                    await Task.Run(_tunnel.Stop);
+                p = ServiceProfileTransition.Snapshot(p, s.LogLevel);
 
                 if (ServiceManager.NeedsElevation)
                 {
                     // GUI runs as the ordinary user: hand the profile to a one-shot
                     // root helper (single native admin prompt) that encrypts it into
                     // the shared dir and installs the daemon.
-                    if (!await InstallDaemonElevated(p)) return;
+                    if (!await InstallDaemonElevated(p, connectRequested)) return false;
                 }
                 else
                 {
-                    ServiceState.SaveProfile(p);
-                    if (!ServiceManager.IsInstalled()) ServiceManager.Install();
-                    ServiceManager.Start();
+                    await Task.Run(() => ServiceProfileTransition.Current.Apply(p, connectRequested));
                 }
             }
             else if (ServiceManager.IsInstalled())
@@ -395,15 +384,20 @@ public partial class MainWindow : Window
                 if (ServiceManager.NeedsElevation)
                 {
                     var (ok, msg, canceled) = await Task.Run(() => ServiceManager.RunSelfElevated("daemon-uninstall"));
-                    if (!ok && !canceled)
-                        await Dialogs.InfoAsync(this, Loc.F("ServiceApplyError", msg), Loc.T("ServiceWord"));
+                    if (!ok)
+                    {
+                        if (!canceled) await Dialogs.InfoAsync(this, Loc.F("ServiceApplyError", msg), Loc.T("ServiceWord"));
+                        return false;
+                    }
                 }
-                else ServiceManager.Uninstall();
+                else await Task.Run(() => ServiceProfileTransition.Current.Apply(null, false));
             }
+            return true;
         }
         catch (Exception ex)
         {
             await Dialogs.InfoAsync(this, Loc.F("ServiceApplyError", ex.Message), Loc.T("ServiceWord"));
+            return false;
         }
         finally
         {
@@ -417,10 +411,10 @@ public partial class MainWindow : Window
 
     /// <summary>Write the chosen profile to a short-lived user-only temp file and run the root
     /// <c>daemon-install</c> helper through the native admin prompt. The helper encrypts
-    /// the profile into the shared dir and (re)installs the daemon, then deletes the temp
+    /// the profile into the shared dir and (re)installs the daemon, and the GUI deletes the temp
     /// file. Returns false (with an error dialog) on failure; silent on user-cancel.
     /// </summary>
-    private async Task<bool> InstallDaemonElevated(VpnConfig p)
+    private async Task<bool> InstallDaemonElevated(VpnConfig p, bool connectRequested)
     {
         var dir = Paths.UserDir;
         Directory.CreateDirectory(dir);
@@ -430,27 +424,19 @@ public partial class MainWindow : Window
         );
         try
         {
-            byte[] profileBytes = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(p));
-            string profileDigest = Convert.ToHexString(SHA256.HashData(profileBytes));
-            // The temp file carries the server password — create it 0600 BEFORE the bytes land,
-            // rather than writing at the default umask and narrowing afterwards: a crash/read in
-            // that window would otherwise expose the plaintext password. Mirrors
-            // SecureKey.FileStore. (client-audit LOW: pending-daemon-profile TOCTOU)
-            if (!OperatingSystem.IsWindows())
+            byte[] profileBytes = ServiceProfileCodec.Plaintext(p);
+            string profileDigest;
+            try
             {
-                using var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write);
-                try { File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
-                fs.Write(profileBytes, 0, profileBytes.Length);
+                profileDigest = Convert.ToHexString(SHA256.HashData(profileBytes));
+                var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+                if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                using var fs = new FileStream(tmp, options);
+                fs.Write(profileBytes); fs.Flush(flushToDisk: true);
             }
-            else
-            {
-                using var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write);
-                using var writer = new StreamWriter(fs);
-                writer.Write(System.Text.Encoding.UTF8.GetString(profileBytes));
-            }
-
+            finally { CryptographicOperations.ZeroMemory(profileBytes); }
             var (ok, msg, canceled) = await Task.Run(() =>
-                ServiceManager.RunSelfElevated("daemon-install", tmp, profileDigest));
+                ServiceManager.RunSelfElevated("daemon-install", tmp, profileDigest, connectRequested ? "1" : "0"));
             if (!ok)
             {
                 if (!canceled)
@@ -461,7 +447,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            // The helper deletes it on success; clean up if it never ran (cancel/error).
+            // The GUI owns the temporary file and removes it after success, cancel or error.
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
         }
     }
@@ -483,16 +469,13 @@ public partial class MainWindow : Window
             if (!running)
             {
                 var sel = Selected;
-                if (sel?.UsesAppFilter == true)
-                    await Task.Run(PerAppController.PrepareInstallation);
-                if (sel != null && sel.Id != AppSettings.Current.ServiceProfile)
+                if (sel is null) throw new InvalidOperationException(Loc.T("NoServiceProfile"));
+                if (await ApplyServiceSettings(connectRequested: true, selectedOverride: sel))
                 {
-                    AppSettings.Current.ServiceProfile = sel.Id;
-                    AppSettings.Current.ServiceEnabled = true;
-                    AppSettings.Current.Save();
-                    await ApplyServiceSettings(); // re-encrypts profile + (re)installs + starts the daemon
-                    return;
+                    var settings = AppSettings.Snapshot(AppSettings.Current);
+                    settings.ServiceProfile = sel.Id; settings.ServiceEnabled = true; settings.Save();
                 }
+                return;
             }
             if (ServiceManager.NeedsElevation)
             {
@@ -503,8 +486,8 @@ public partial class MainWindow : Window
             }
             else
             {
-                if (running) ServiceManager.Stop();
-                else ServiceManager.Start();
+                if (running) await Task.Run(ServiceManager.Stop);
+                else await Task.Run(ServiceManager.Start);
             }
         }
         catch (Exception ex)
@@ -891,7 +874,7 @@ public partial class MainWindow : Window
         {
             // Parse detects the format and names the retired one, so the brace case
             // reports "JSON is no longer read" instead of an INI syntax error.
-            var cfg = VpnConfig.Parse(text.Trim());
+            var cfg = VpnConfig.Parse(text);
             // IMPORT boundary: run the semantic checks that `FromIni` deliberately
             // skips (it stays lenient so the editor can open a broken profile). A
             // pasted profile is exactly as untrusted as a scanned link — without this,
@@ -899,8 +882,7 @@ public partial class MainWindow : Window
             // (Audit 2026-08-04, H-07.)
             cfg.Validate(platformCapabilities: false);
             cfg.Name ??= cfg.ServerAddress;
-            _profiles.Add(cfg);
-            PersistAndSelect(cfg);
+            await PersistAndSelect(cfg);
         }
         catch (Exception ex)
         {
@@ -912,8 +894,7 @@ public partial class MainWindow : Window
     {
         var cfg = await ConfigEditorWindow.ShowAsync(this, null);
         if (cfg == null) return;
-        _profiles.Add(cfg);
-        PersistAndSelect(cfg);
+        await PersistAndSelect(cfg);
     }
 
     // Per-card "⋯" menu: Edit / Duplicate / Share-QR / Delete (built in code).
@@ -928,19 +909,24 @@ public partial class MainWindow : Window
             flyout.Items.Add(mi);
         }
         Item("Edit", () => _ = EditProfile(p));
-        Item("Duplicate", () => DuplicateProfile(p));
-        Item("ShareQr", () => _ = QrShareWindow.ShowAsync(this, p));
+        Item("Duplicate", () => _ = DuplicateProfile(p));
+        Item("ShareQr", () => _ = ShareProfile(p));
         flyout.Items.Add(new Separator());
         Item("Delete", () => _ = DeleteProfile(p));
         flyout.ShowAt(b);
     }
 
-    private void DuplicateProfile(VpnConfig p)
+    private async Task ShareProfile(VpnConfig profile)
+    {
+        try { await QrShareWindow.ShowAsync(this, profile); }
+        catch (Exception error) { await Dialogs.InfoAsync(this, error.Message, "Qeli"); }
+    }
+
+    private async Task DuplicateProfile(VpnConfig p)
     {
         var copy = p.Clone();
         copy.Name = p.DisplayName + Loc.T("CopySuffix");
-        _profiles.Add(copy);
-        PersistAndSelect(copy);
+        await PersistAndSelect(copy);
     }
 
     /// <summary>True when <paramref name="p"/> is the profile the tunnel is currently
@@ -968,10 +954,15 @@ public partial class MainWindow : Window
 
     private async Task EditProfile(VpnConfig p)
     {
+        long openedAtRevision = _profileRevision;
         var edited = await ConfigEditorWindow.ShowAsync(this, p);
         if (edited == null) return;
+        if (_profileRevision != openedAtRevision)
+        {
+            await Dialogs.InfoAsync(this, Loc.T("ProfileListChanged"), "Qeli");
+            return;
+        }
         bool wasRunning = IsRunning(p);
-        int idx = _profiles.IndexOf(p);
         if (wasRunning && !_serviceMode)
         {
             try
@@ -990,10 +981,28 @@ public partial class MainWindow : Window
         // The replace + ApplyFilter + reselect all raise SelectionChanged; suppress so they
         // don't restart the tunnel — the wasRunning branch below owns the restart (and only
         // when the LIVE profile was the one edited).
+        if (_profileRevision != openedAtRevision)
+        {
+            await Dialogs.InfoAsync(this, Loc.T("ProfileListChanged"), "Qeli");
+            if (wasRunning && !_serviceMode && !_tunnel.IsRunning && _profiles.Contains(p))
+                await StartTunnel(p);
+            return;
+        }
+        int idx = _profiles.IndexOf(p);
+        if (idx < 0) return;
+        var updated = _profiles.ToList();
+        updated[idx] = edited;
+        try { ProfileStore.Save(updated); }
+        catch (Exception error)
+        {
+            await Dialogs.InfoAsync(this, error.Message, "Qeli");
+            if (wasRunning && !_serviceMode) await StartTunnel(p);
+            return;
+        }
+        _profileRevision++;
         Programmatic(() =>
         {
-            if (idx >= 0) _profiles[idx] = edited;
-            ProfileStore.Save(_profiles);
+            _profiles[idx] = edited;
             ApplyFilter();
             ProfilesList.SelectedItem = edited;
         });
@@ -1010,11 +1019,18 @@ public partial class MainWindow : Window
 
     private async Task DeleteProfile(VpnConfig p)
     {
+        long openedAtRevision = _profileRevision;
         if (!await Dialogs.ConfirmAsync(this, Loc.F("DeleteConfirm", p.DisplayName), Loc.T("DeleteTitle"))) return;
+        if (_profileRevision != openedAtRevision)
+        {
+            await Dialogs.InfoAsync(this, Loc.T("ProfileListChanged"), "Qeli");
+            return;
+        }
         // Tear down the tunnel FIRST if we're deleting the profile it's running on —
         // otherwise its reconnect loop (owned by the tunnel, not the list) keeps trying
         // the deleted server's IP long after the profile is gone.
-        if (IsRunning(p) && !_serviceMode)
+        bool wasRunning = IsRunning(p);
+        if (wasRunning && !_serviceMode)
         {
             try
             {
@@ -1032,10 +1048,25 @@ public partial class MainWindow : Window
         // Removing the selected item + ApplyFilter shift the selection → SelectionChanged;
         // suppress so a delete of a NON-running profile while connected doesn't restart onto
         // whatever becomes selected. The running-profile case is handled above.
+        if (_profileRevision != openedAtRevision)
+        {
+            await Dialogs.InfoAsync(this, Loc.T("ProfileListChanged"), "Qeli");
+            if (wasRunning && !_serviceMode && !_tunnel.IsRunning && _profiles.Contains(p))
+                await StartTunnel(p);
+            return;
+        }
+        if (!_profiles.Contains(p)) return;
+        try { ProfileStore.Save(_profiles.Where(item => !ReferenceEquals(item, p)).ToList()); }
+        catch (Exception error)
+        {
+            await Dialogs.InfoAsync(this, error.Message, "Qeli");
+            if (wasRunning && !_serviceMode) await StartTunnel(p);
+            return;
+        }
+        _profileRevision++;
         Programmatic(() =>
         {
             _profiles.Remove(p);
-            ProfileStore.Save(_profiles);
             ApplyFilter();
         });
         UpdateEmptyHint();
@@ -1230,12 +1261,20 @@ public partial class MainWindow : Window
         ? $"{(int)ts.TotalHours}:{ts.Minutes:00}:{ts.Seconds:00}"
         : $"{ts.Minutes:00}:{ts.Seconds:00}";
 
-    private void PersistAndSelect(VpnConfig cfg)
+    private async Task PersistAndSelect(VpnConfig cfg)
     {
+        // Persist the proposed list before changing the visible collection.
+        try { ProfileStore.Save(_profiles.Append(cfg)); }
+        catch (Exception error)
+        {
+            await Dialogs.InfoAsync(this, error.Message, "Qeli");
+            return;
+        }
+        _profileRevision++;
         // New/imported/duplicated profile: select it but don't hijack a live tunnel.
         Programmatic(() =>
         {
-            ProfileStore.Save(_profiles);
+            _profiles.Add(cfg);
             ApplyFilter();
             ProfilesList.SelectedItem = cfg;
         });

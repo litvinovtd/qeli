@@ -1,10 +1,11 @@
 import CryptoKit
+import CoreFoundation
 import Foundation
 
 final class ProfileStore: @unchecked Sendable {
     static let maximumArchiveBytes = 8 * 1024 * 1024
     static let maximumBackupFileBytes = 12 * 1024 * 1024
-    static let maximumConfigBytes = 1024 * 1024
+    static let maximumConfigBytes = 256 * 1024 // shared editor/native core limit
     static let maximumProfiles = 256
     static let maximumProfileNameCharacters = 256
 
@@ -21,11 +22,17 @@ final class ProfileStore: @unchecked Sendable {
         self.keychain = keychain
     }
 
-    func load() throws -> ProfileArchive {
-        guard let encoded = defaults.string(forKey: blobKey) else {
+    /// Only the app may initialize a missing archive. Provider reads must never publish
+    /// a template over the app's concurrent first save. Reading also never creates a key.
+    func load(initializeIfMissing: Bool = false) throws -> ProfileArchive {
+        guard let stored = defaults.object(forKey: blobKey) else {
+            guard initializeIfMissing else { throw ProfileStoreError.missingStore }
             let archive = ProfileArchive.initial
             try save(archive)
             return archive
+        }
+        guard let encoded = stored as? String else {
+            throw ProfileStoreError.corruptStore
         }
         let maximumStoredBase64Characters = ((Self.maximumArchiveBytes + 64 + 2) / 3) * 4
         guard encoded.utf8.count <= maximumStoredBase64Characters else {
@@ -37,13 +44,18 @@ final class ProfileStore: @unchecked Sendable {
         guard combined.count <= Self.maximumArchiveBytes + 64 else {
             throw ProfileStoreError.corruptStore
         }
-        let key = try keychain.loadOrCreateSymmetricKey(account: masterKeyAccount)
+        guard let keyData = try keychain.read(account: masterKeyAccount) else {
+            throw ProfileStoreError.missingMasterKey
+        }
+        guard keyData.count == 32 else { throw KeychainError.invalidKeyLength }
+        let key = SymmetricKey(data: keyData)
         let sealed = try AES.GCM.SealedBox(combined: combined)
         let plaintext = try AES.GCM.open(sealed, using: key)
         guard plaintext.count <= Self.maximumArchiveBytes else {
             throw ProfileStoreError.archiveTooLarge
         }
         var archive = try JSONDecoder.qeli.decode(ProfileArchive.self, from: plaintext)
+        guard !archive.profiles.isEmpty else { throw ProfileStoreError.tooManyProfiles }
         archive.normalize()
         try Self.validate(archive)
         return archive
@@ -51,6 +63,7 @@ final class ProfileStore: @unchecked Sendable {
 
     func save(_ input: ProfileArchive) throws {
         var archive = input
+        guard !archive.profiles.isEmpty else { throw ProfileStoreError.tooManyProfiles }
         archive.normalize()
         try Self.validate(archive)
         let plaintext = try JSONEncoder.qeli.encode(archive)
@@ -67,6 +80,7 @@ final class ProfileStore: @unchecked Sendable {
     /// Android, while retaining it lets two iOS restores preserve profile identity.
     func exportJSON(_ archive: ProfileArchive) throws -> Data {
         var archive = archive
+        guard !archive.profiles.isEmpty else { throw ProfileStoreError.tooManyProfiles }
         archive.normalize()
         try Self.validate(archive)
         let active = archive.profiles.firstIndex(where: { $0.id == archive.activeProfileID }) ?? 0
@@ -129,14 +143,34 @@ final class ProfileStore: @unchecked Sendable {
             )
         }
         guard !profiles.isEmpty else { throw ProfileStoreError.notQeliBackup }
-        let activeIndex = (root["active"] as? NSNumber)?.intValue ?? 0
-        guard profiles.indices.contains(activeIndex) else {
-            throw ProfileStoreError.invalidActiveProfile
-        }
+        let activeIndex = try Self.readActiveProfileIndex(root, count: profiles.count)
         var archive = ProfileArchive(activeProfileID: profiles[activeIndex].id, profiles: profiles)
         archive.normalize()
         try Self.validate(archive)
         return archive
+    }
+
+    /// Missing active is a legacy default; a malformed number must never select profile zero.
+    static func readActiveProfileIndex(_ root: [String: Any], count: Int) throws -> Int {
+        guard (1...maximumProfiles).contains(count) else {
+            throw ProfileStoreError.invalidActiveProfile
+        }
+        guard let raw = root["active"] else { return 0 }
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            throw ProfileStoreError.invalidActiveProfile
+        }
+        let decimal = NSDecimalNumber(
+            string: number.stringValue,
+            locale: Locale(identifier: "en_US_POSIX")
+        )
+        let index = decimal.intValue
+        guard decimal != .notANumber,
+              decimal == NSDecimalNumber(value: index),
+              (0..<count).contains(index) else {
+            throw ProfileStoreError.invalidActiveProfile
+        }
+        return index
     }
 
     /// Security-scoped providers are streams, not necessarily local files. Reading in
@@ -191,6 +225,10 @@ final class ProfileStore: @unchecked Sendable {
 
 enum ProfileStoreError: LocalizedError {
     case corruptStore
+    case missingStore
+    case missingMasterKey
+    case unavailableAfterLoadFailure
+    case staleProfile
     case encryptionFailed
     case notQeliBackup
     case archiveTooLarge
@@ -204,10 +242,14 @@ enum ProfileStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .corruptStore: return "The encrypted profile store is corrupt."
+        case .missingStore: return String(localized: "No saved profiles are available. Open Qeli to create a profile before connecting.")
+        case .missingMasterKey: return String(localized: "The profile encryption key is missing. Restore a backup to recover your profiles.")
+        case .unavailableAfterLoadFailure: return "Saved profiles could not be read. Restart the app or restore a backup before making changes."
+        case .staleProfile: return String(localized: "Profile changed while the editor was open. Reopen it before saving.")
         case .encryptionFailed: return "Could not encrypt the profile store."
         case .notQeliBackup: return "The file is not a Qeli profile backup."
         case .archiveTooLarge: return "The profile file exceeds the supported size limit."
-        case .tooManyProfiles: return "A profile archive may contain at most \(ProfileStore.maximumProfiles) profiles."
+        case .tooManyProfiles: return "A profile archive must contain 1 to \(ProfileStore.maximumProfiles) profiles."
         case .profileTooLarge(let index): return "Profile \(index) exceeds the config size limit."
         case .invalidProfileName(let index): return "Profile \(index) has an empty or overlong name."
         case .invalidProfile(let index, let message): return "Profile \(index) is invalid: \(message)"

@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F326_F327_FIXTURES_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T15:42:30.235966+00:00",
+  "base_commit": "4ea9d9c7bcda0fd3a3c9ef00d741e4961e0e455f",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-keenetic-opkgtun-receipt-20261006",
+  "raw_seal_sha256": "3d8adcad15b5b22fd2328168c2e65910b746e914a091ebd18dd28ae99dcd1db8",
+  "checks": [
+    {
+      "id": "native-recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "native-recipes.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "diff.log"
+    },
+    {
+      "id": "busybox-suite-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-opkgtun-receipt-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "busybox-suite-final.log"
+    },
+    {
+      "id": "busybox-comparison-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-opkgtun-receipt-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 reproduce.py",
+      "exit_code": 0,
+      "log": "busybox-comparison-final.log"
+    },
+    {
+      "id": "dash-suite-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-opkgtun-receipt-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "dash-suite-final.log"
+    },
+    {
+      "id": "dash-comparison-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-opkgtun-receipt-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 reproduce.py",
+      "exit_code": 0,
+      "log": "dash-comparison-final.log"
+    }
+  ],
+  "retained_initial_checks": [
+    {
+      "id": "busybox-suite",
+      "command": "cd /var/tmp/qeli-q31-keenetic-opkgtun-receipt-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "busybox-suite.log"
+    },
+    {
+      "id": "busybox-comparison",
+      "command": "cd /var/tmp/qeli-q31-keenetic-opkgtun-receipt-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 reproduce.py",
+      "exit_code": 0,
+      "log": "busybox-comparison.log"
+    },
+    {
+      "id": "dash-suite",
+      "command": "cd /var/tmp/qeli-q31-keenetic-opkgtun-receipt-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 1,
+      "log": "dash-suite-FAIL.log"
+    }
+  ],
+  "source_review": {
+    "findings": [
+      "F326 exact saved-plan receipt for no-op, changed MTU reapply, literal address matching, checked private receipt publication and joined stop removal",
+      "F327 same-start-ticks zombie recheck after failed exe lookup; unreadable live exe still rejects signals"
+    ],
+    "shell_tests_per_interpreter": 120,
+    "new_shell_cases": 12,
+    "breakdown": {
+      "native_helper_process": 47,
+      "state_models": 44,
+      "installer": 12,
+      "hook": 17
+    },
+    "baseline_comparisons": {
+      "busybox": [
+        {
+          "source": "baseline",
+          "tests": 7,
+          "failures": 8,
+          "errors": 0,
+          "failed_test_ids": [
+            "test_matching_addresses_without_complete_receipt_still_apply (test_keenetic_templates.KeeneticHookTests.test_matching_addresses_without_complete_receipt_still_apply)",
+            "test_mtu_only_plan_change_reapplies_and_next_event_is_noop (test_keenetic_templates.KeeneticHookTests.test_mtu_only_plan_change_reapplies_and_next_event_is_noop)",
+            "test_missing_plan_with_connected_interface_defers_and_logs_wait (test_keenetic_templates.KeeneticHookTests.test_missing_plan_with_connected_interface_defers_and_logs_wait)",
+            "test_ipv4_substring_or_regex_lookalike_cannot_qualify_noop (test_keenetic_templates.KeeneticHookTests.test_ipv4_substring_or_regex_lookalike_cannot_qualify_noop) (address='10.8.0.20')",
+            "test_ipv4_substring_or_regex_lookalike_cannot_qualify_noop (test_keenetic_templates.KeeneticHookTests.test_ipv4_substring_or_regex_lookalike_cannot_qualify_noop) (address='10x8x0x2')",
+            "test_ipv6_substring_cannot_qualify_noop (test_keenetic_templates.KeeneticHookTests.test_ipv6_substring_cannot_qualify_noop)",
+            "test_receipt_publication_failure_retains_pending_and_retries (test_keenetic_templates.KeeneticHookTests.test_receipt_publication_failure_retains_pending_and_retries)",
+            "test_receipt_directory_is_not_mistaken_for_successful_publication (test_keenetic_templates.KeeneticHookTests.test_receipt_directory_is_not_mistaken_for_successful_publication)"
+          ]
+        },
+        {
+          "source": "current",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "failed_test_ids": []
+        },
+        {
+          "kind": "proc_exit_race",
+          "source": "baseline",
+          "tests": 4,
+          "failures": 2,
+          "errors": 0
+        },
+        {
+          "kind": "proc_exit_race",
+          "source": "current",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0
+        }
+      ],
+      "dash": [
+        {
+          "source": "baseline",
+          "tests": 7,
+          "failures": 8,
+          "errors": 0,
+          "failed_test_ids": [
+            "test_matching_addresses_without_complete_receipt_still_apply (test_keenetic_templates.KeeneticHookTests.test_matching_addresses_without_complete_receipt_still_apply)",
+            "test_mtu_only_plan_change_reapplies_and_next_event_is_noop (test_keenetic_templates.KeeneticHookTests.test_mtu_only_plan_change_reapplies_and_next_event_is_noop)",
+            "test_missing_plan_with_connected_interface_defers_and_logs_wait (test_keenetic_templates.KeeneticHookTests.test_missing_plan_with_connected_interface_defers_and_logs_wait)",
+            "test_ipv4_substring_or_regex_lookalike_cannot_qualify_noop (test_keenetic_templates.KeeneticHookTests.test_ipv4_substring_or_regex_lookalike_cannot_qualify_noop) (address='10.8.0.20')",
+            "test_ipv4_substring_or_regex_lookalike_cannot_qualify_noop (test_keenetic_templates.KeeneticHookTests.test_ipv4_substring_or_regex_lookalike_cannot_qualify_noop) (address='10x8x0x2')",
+            "test_ipv6_substring_cannot_qualify_noop (test_keenetic_templates.KeeneticHookTests.test_ipv6_substring_cannot_qualify_noop)",
+            "test_receipt_publication_failure_retains_pending_and_retries (test_keenetic_templates.KeeneticHookTests.test_receipt_publication_failure_retains_pending_and_retries)",
+            "test_receipt_directory_is_not_mistaken_for_successful_publication (test_keenetic_templates.KeeneticHookTests.test_receipt_directory_is_not_mistaken_for_successful_publication)"
+          ]
+        },
+        {
+          "source": "current",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "failed_test_ids": []
+        },
+        {
+          "kind": "proc_exit_race",
+          "source": "baseline",
+          "tests": 4,
+          "failures": 2,
+          "errors": 0
+        },
+        {
+          "kind": "proc_exit_race",
+          "source": "current",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0
+        }
+      ]
+    },
+    "native_recipe_checks": 37,
+    "source_proof": {
+      "path": "source-proof.json",
+      "sha256": "076b37f617431a4c947945f3f6d47f03e9646e9e15dfb16b371f169afceff31f",
+      "unchanged_implementation_git_inputs": 853,
+      "scope": "Canonical staged blobs equal final executed remote inputs. Rust/native/mobile/OpenWrt inputs unchanged. Only Keenetic hook and best-effort zombie check/receipt cleanup plus tests/docs changed. No binary build or actual router/core networking execution."
+    }
+  },
+  "native_test_helper": {
+    "path": "/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture",
+    "sha256": "c10f96c6dcbad66138beb9fe403ff1ee2481b9821f6decd6e6783fda379488e7",
+    "build": "Unchanged owned C test helper from F324/F325; not Qeli artifact"
+  },
+  "fixture_scope": {
+    "commands_network_proc_sys": "MODELS_ONLY",
+    "processes": "Owned actual Linux helper processes only; held direct child in zombie race",
+    "shortened_polling": "3*50ms; startup50ms; plan2polls; not production deadline"
+  },
+  "retained_diagnostics": [
+    "Initial dash suite116 FAIL, two stop assertions; exact cause not instrumented",
+    "Initial orphan race NOT_REPRODUCED because PID1 reaped it; not claimed as old race reproduction",
+    "Deterministic held-child old race FAIL2; final fixture old/current comparisons both interpreters qualify matching zombie check"
+  ],
+  "real_qualification": {
+    "actual_Qeli_router_binary": "NOT_REBUILT",
+    "real_router_runtime": "USER_EXCLUDED",
+    "cross_build": "NOT_RUN",
+    "real_ndm_output_settings_events": "NOT_RUN",
+    "atomic_pidfd_generation_lock_powerloss": "NOT_RUN"
+  },
+  "remaining": [
+    "INI/core semantic parity",
+    "OpkgTun generations, concurrent wan.d/stop/plan updates",
+    "External ndm MTU/MSS/security readback and family removal",
+    "Broader package lifecycle/build/source ABI/provenance"
+  ],
+  "retained_observations": [
+    "Q29 SIGKILL recovery FAIL",
+    "Q29 auto/null DnsResolver ENONET",
+    "Q30 OS callback drain OPEN; Apple runtime excluded",
+    "D06 ACCEPTED_LIMITATION"
+  ],
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "q31": "IN_PROGRESS"
+  }
+}

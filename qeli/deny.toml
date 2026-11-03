@@ -1,3 +1,14 @@
+# Only the permissive licenses already needed by the dependency graph are allowed.
+# An unknown/new license fails the gate; the core's existing AGPL license is scoped
+# to qeli alone rather than allowed for arbitrary future third-party dependencies.
+[licenses]
+confidence-threshold = 0.95
+allow = ["Apache-2.0", "BSD-3-Clause", "CDLA-Permissive-2.0", "ISC", "MIT", "Unicode-3.0"]
+
+[[licenses.exceptions]]
+name = "qeli"
+allow = ["AGPL-3.0-only"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

@@ -241,9 +241,9 @@ pub enum PathCommandAction {
 /// Result reported by the platform after executing one correlated path command.
 ///
 /// `Rejected` is reversible: the platform either made no externally visible change or restored
-/// the previous state completely. `PlatformStateUnknown` means an attempted rollback failed, so
-/// the current transport generation must stop instead of issuing a stale ABORT and continuing on
-/// potentially inconsistent routes or firewall state.
+/// the previous state completely. `PlatformStateUnknown` means the previous state cannot be
+/// confirmed after mutation or rollback failure, so the current transport generation must stop
+/// instead of issuing a stale ABORT and continuing on potentially inconsistent routes or firewall state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathCommandOutcome {
     Accepted,

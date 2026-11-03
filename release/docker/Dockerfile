@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 
 # ============================================================================
 # qeli — ONE multi-arch image, BOTH roles (`qeli server` / `qeli client`), with
@@ -19,7 +19,7 @@
 
 # ---- build stage (buildx runs this natively per target arch; cross arches
 #      build under QEMU emulation — slow but correct) --------------------------
-FROM rust:1-bookworm AS build
+FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073 AS build
 WORKDIR /src/qeli
 # Only the real build inputs are copied (no target/, no client apps) so the
 # context is small and the layers cache well. The `ring` crypto provider needs a
@@ -27,6 +27,9 @@ WORKDIR /src/qeli
 # deliberately avoided).
 COPY qeli/Cargo.toml qeli/Cargo.lock ./
 COPY qeli/src ./src
+# include_bytes! embeds the reviewed legal resources while compiling the CLI.
+# Runtime-stage COPY alone is too late: these are required build inputs too.
+COPY qeli/third-party-notices/rust ./third-party-notices/rust
 # The `qeli` binary carries BOTH roles (default features = server + client). The
 # `qeli-client` MIPS/router-only binary is intentionally not built here.
 # `--features jemalloc`: this is a server image, so it uses the same allocator as
@@ -40,12 +43,12 @@ COPY qeli/src ./src
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/qeli/target \
-    cargo build --release --features jemalloc --bin qeli \
+    cargo build --locked --release --features jemalloc --bin qeli \
  && cp target/release/qeli /qeli \
  && strip /qeli
 
 # ---- runtime stage ----------------------------------------------------------
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 # qeli shells out to `ip` (iproute2 — always, for the TUN + routes) and to
 # `iptables` (server NAT mode only); ca-certificates is for any outbound TLS
 # (REALITY cert borrowing). The rest is a bundled diagnostic toolkit so you can
@@ -53,6 +56,10 @@ FROM debian:bookworm-slim
 # just apt-install each time): ping/traceroute/mtr for reachability, tcpdump for
 # the wire, dig+host for DNS, ss (iproute2) + netstat for sockets, ps/top/free for
 # processes, curl for egress/IP checks, and nano/less to read & edit the config.
+# Use only the reviewed Debian snapshot. Clear inherited live sources before
+# copying the policy; Debian archive signatures remain mandatory.
+RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources
+COPY release/docker/debian.sources /etc/apt/sources.list.d/qeli-snapshot.sources
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       iproute2 iptables ca-certificates \
@@ -61,6 +68,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /qeli /usr/local/bin/qeli
+# Preserve the same reviewed Cargo/toolchain notices as other distributions.
+COPY LICENSE LICENSING.md /usr/share/doc/qeli/
+COPY qeli/third-party-notices/rust /usr/share/doc/qeli/licenses/rust
 # Baked-in example configs — the entrypoint seeds a writable copy on first run.
 # These live in /usr/share/qeli (NOT /etc/qeli): a volume mounted at /etc/qeli
 # would otherwise hide them and the first-run seed would fail.

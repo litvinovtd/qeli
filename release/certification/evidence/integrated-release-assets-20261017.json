@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "source_commit": "8b18038849873125219b2a2f6ed8f8d339800ee5",
+  "CI_url": "https://github.com/litvinovtd/qeli/actions/runs/39050213313",
+  "status": "FRESH_APPLICATIONS_AND_16_DISTRIBUTION_ASSETS_VERIFIED",
+  "assets": {
+    "qeli-openwrt-files.tar.gz": {
+      "sha256": "06e58e46ef9e23e4331ac514e7cb5a6b7c4b845e35c2e5d83822f3902ae4adae",
+      "bytes": 51730,
+      "origin": "Exact committed deployment/feed files"
+    },
+    "qeli-keenetic-files.tar.gz": {
+      "sha256": "c5b394f63370aa34935de90b6a205fd8a2a55d08d5e2582320aa519d52d2fb77",
+      "bytes": 42559,
+      "origin": "Exact committed deployment/feed files"
+    },
+    "install-keenetic.sh": {
+      "sha256": "2c8f695d7509651d49db6986183d5fcb876554a490200f084e12c3068d969429",
+      "bytes": 8426,
+      "origin": "Exact committed deployment/feed files"
+    },
+    "qeli-linux-amd64": {
+      "sha256": "1d94d4c412f6c1fd231765b760196b0b4f518c20135bf0ccd1b52b192710cf76",
+      "bytes": 18814616,
+      "origin": "Fresh exact green candidate CI Linux/DEB output"
+    },
+    "qeli_0.8.2_amd64.deb": {
+      "sha256": "3151dce0f3b42df427efb9da50ebd4bc8373798dbba35382150744b97c1288a7",
+      "bytes": 4832288,
+      "origin": "Fresh exact green candidate CI Linux/DEB output"
+    },
+    "QeliWin-net-required.exe": {
+      "sha256": "eb73c7648eb6cb9a5dac109b13434c60660edbce1d8c5d406e3288dc493cf22b",
+      "bytes": 20367883,
+      "origin": "Fresh exact green CI single-file EXE with verified embedded core/licenses"
+    },
+    "QeliWin-standalone.exe": {
+      "sha256": "5ad93ada7300eb17756918d41f526b1a0a04e973adeb419e4e946193c9cac6a6",
+      "bytes": 74407625,
+      "origin": "Fresh exact green CI single-file EXE with verified embedded core/licenses"
+    },
+    "qeli-client-keenetic-aarch64": {
+      "sha256": "d5f55dbe1a253afb0c8dbe26afb8850a6cd0cdb3f1013c27e82b43d5cadfd8bd",
+      "bytes": 9331744,
+      "origin": "Fresh exact green CI static router ELF"
+    },
+    "qeli-client-openwrt-aarch64": {
+      "sha256": "d5f55dbe1a253afb0c8dbe26afb8850a6cd0cdb3f1013c27e82b43d5cadfd8bd",
+      "bytes": 9331744,
+      "origin": "Fresh exact green CI static router ELF"
+    },
+    "qeli-client-keenetic-mipsel": {
+      "sha256": "8af622644881dfec5995f47a9186b235df19b31fffb1408d7d62d05f33a0c35b",
+      "bytes": 11378968,
+      "origin": "Fresh exact green CI static router ELF"
+    },
+    "qeli-client-openwrt-mipsel": {
+      "sha256": "8af622644881dfec5995f47a9186b235df19b31fffb1408d7d62d05f33a0c35b",
+      "bytes": 11378968,
+      "origin": "Fresh exact green CI static router ELF"
+    },
+    "qeli-client-openwrt-armv7": {
+      "sha256": "d54070211dbd0d150f3a0c98901b034f7e8fd39d17a94a7d2f937500395c44d8",
+      "bytes": 9487420,
+      "origin": "Fresh exact green CI static router ELF"
+    },
+    "qeli-client-openwrt-x86_64": {
+      "sha256": "8d08f59c71ba8a67a7ddaf00c1a68e3baa4f7b1b9d4332a87a9c2ba55a7a2408",
+      "bytes": 10093736,
+      "origin": "Fresh exact green CI static router ELF"
+    },
+    "qeli-android-0.8.2.apk": {
+      "sha256": "f84334d2b9b7666cd4b9164dd26c30a472e9909ddb25926b852ce3680540158c",
+      "bytes": 12217380,
+      "origin": "Fresh exact candidate CI APK, locally aligned/signed with the existing release certificate; fresh A/B-qualified JNI"
+    },
+    "Qeli-macOS-universal.zip": {
+      "sha256": "fc392a267c0ec29aba2213936e49393b78fbcd4677115b558ed5a995c5385c0f",
+      "bytes": 61454236,
+      "origin": "Fresh CI architecture apps combined by the stock universal packager; fresh qualified core, ad-hoc signing"
+    }
+  },
+  "asset_count": 16,
+  "android": {
+    "source_commit": "8b18038849873125219b2a2f6ed8f8d339800ee5",
+    "signed_apk_sha256": "f84334d2b9b7666cd4b9164dd26c30a472e9909ddb25926b852ce3680540158c",
+    "unsigned_apk_sha256": "e2adba3899238fdf7dc2c393de2375b3972d3b61c56a924bf0ce53c683264e5f",
+    "certificate_sha256": "4616b75cb5cb4dfe0d803d048091b04a956c58963f1ab63bcb58cd30c93781f8",
+    "same_release_certificate_as_0_8_1": true,
+    "signature_v2_verified": true,
+    "signature_v3_verified": true,
+    "min_sdk": 28,
+    "payload_entries_unchanged": 1091,
+    "only_added_JAR_signature_entries": [
+      "META-INF/MANIFEST.MF",
+      "META-INF/QELI.RSA",
+      "META-INF/QELI.SF"
+    ],
+    "native_JNI_exact": true,
+    "zip_alignment_16K_checked": true,
+    "device_install_upgrade_not_executed": true
+  },
+  "macos": {
+    "ad_hoc_signature": true,
+    "Developer_ID_notarized": false,
+    "native_signature_scope": {
+      "canonical_sha256": "93fd0d24bf24c66848fe7aa7536ba1c941c49b0840de30f42c375ffd1e062db1",
+      "packaged_sha256": "996819c4250302a401f6163f0d466ce453d208215ee0f3232d2b99cb02d1a6db",
+      "ignored_only_code_signature_ranges": [
+        [
+          6916544,
+          59392
+        ],
+        [
+          13336272,
+          55296
+        ]
+      ],
+      "all_other_bytes_identical": true
+    }
+  },
+  "source_build_evidence": "release/certification/evidence/integrated-source-build-20261017.json",
+  "physical_checks_executed": false,
+  "published": false,
+  "tag_created": false
+}

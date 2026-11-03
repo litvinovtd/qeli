@@ -12,6 +12,8 @@ internal class TransportCore private constructor(
     private var handle: Long,
     val pathTransactionsEnabled: Boolean,
 ) : AutoCloseable {
+    private var carrierDiagnosticsAvailable = true
+
     @Synchronized
     fun start() = requireSuccess(nativeStart(requireHandle()), "start")
 
@@ -52,6 +54,25 @@ internal class TransportCore private constructor(
             udpBufferGrows = values[6],
             udpRecvBufferBytes = values[7],
         )
+    }
+
+    /** Optional, bounded local-write metrics. Completion is not an acknowledgement by the peer. */
+    @Synchronized
+    fun carrierDiagnostics(): String? {
+        if (!carrierDiagnosticsAvailable) return null
+        val bytes = try {
+            nativeCarrierDiagnostics(requireHandle())
+        } catch (_: UnsatisfiedLinkError) {
+            // Older packaged cores remain usable, but cannot supply these measurements.
+            carrierDiagnosticsAvailable = false
+            return null
+        } ?: error("transport core returned no carrier diagnostics")
+        return try {
+            check(bytes.size <= 64 * 1024) { "carrier diagnostics exceed the size limit" }
+            decodeUtf8Strict(bytes)
+        } finally {
+            bytes.fill(0)
+        }
     }
 
     @Synchronized
@@ -304,7 +325,7 @@ internal class TransportCore private constructor(
         const val STATE_CREATED = 0
         const val STATE_CONNECTING = 1
 
-        private const val COMPATIBILITY_ABI_VERSION = 0x0001000b
+        private const val COMPATIBILITY_ABI_VERSION = 0x00010010
         private const val PATH_TRANSACTION_ABI_VERSION = 0x0001000e
         private const val CORE_STRICT_CONFIG = 1L shl 0
         private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
@@ -482,6 +503,7 @@ internal class TransportCore private constructor(
         @JvmStatic private external fun nativeSetDeviceId(handle: Long, deviceId: ByteArray): Int
         @JvmStatic private external fun nativeState(handle: Long): Int
         @JvmStatic private external fun nativeStats(handle: Long): LongArray
+        @JvmStatic private external fun nativeCarrierDiagnostics(handle: Long): ByteArray?
         @JvmStatic private external fun nativePollEvent(handle: Long): ByteArray?
         @JvmStatic private external fun nativeSetTunFd(handle: Long, generation: Long, fd: Int): Int
         @JvmStatic private external fun nativePublishHandshakeNetwork(

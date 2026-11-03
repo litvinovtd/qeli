@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "source_digest": "8050cc08930d5efade4d5870ee89f1edf214a7839cdac9018722a53baed107a8",
+  "base_worktree_commit": "8397978c78c5db13e0eec73a1a1f5be0f78e5ca8",
+  "base_dev_commit": "c1cd0d880c3936cff10364f7f7202a558c02cb25",
+  "status": "SCOPED_HTTP_API_PASS_Q31_IN_PROGRESS",
+  "findings": [],
+  "qualification": "Q31-V002",
+  "raw_packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-openwrt-http-20261007",
+  "raw_seal_sha256": "958c7eadba92e48393f3ce23644e140173d9dac19817dd3ffb64e4f07073c510",
+  "http_runtime": {
+    "verified_templates": {
+      "official_rootfs": {
+        "regular": 959,
+        "links": 215
+      },
+      "native_rpcd": {
+        "regular": 28,
+        "links": 19
+      }
+    },
+    "http_identities": [
+      {
+        "path": "usr/sbin/uhttpd",
+        "sha256": "02723a581496090ccc5d8b19da6bdd0e8fa8878e148dd99ae6be6c13fc5aa94b",
+        "size": 58090
+      },
+      {
+        "path": "usr/lib/uhttpd_ubus.so",
+        "sha256": "b43fd138a1d9597f6a2fe4734833d12b3438f7216ba1c62b04140c720602f35f",
+        "size": 24698
+      },
+      {
+        "path": "usr/share/rpcd/acl.d/luci-base.json",
+        "sha256": "45ccf7f76afde26960fd30349150e30635fe2e4e7491126dd90c49099812e6db",
+        "size": 946
+      },
+      {
+        "path": "usr/lib/opkg/status",
+        "sha256": "ee2210232f6ca9a670d9dca6ae373155edec5846e8f3b093890b09e1b2471465",
+        "size": 28856
+      }
+    ],
+    "active_owned_processes": [],
+    "remaining_runtime_roots": [],
+    "disk_free": 561369088
+  },
+  "actual_luci_ipk": {
+    "path": "luci-app-qeli_0.8.2-r1_all.ipk",
+    "sha256": "ca64037fadcc6f1d218400db8a3223b7c6f265a7e0285a62664e6d25e0a64e95",
+    "execution_scope": "Retained F353/F354 SDK artifact, actual HTTP served now; no fresh SDK build"
+  },
+  "checks": {
+    "http": {
+      "command": "unshare --mount --net --propagation private sh -c 'ip link set lo up && cd /var/tmp/qeli-q31-openwrt-http-20261007/source && QELI_OPENWRT_ROOTFS_TEMPLATE=/var/tmp/qeli-q31-openwrt-procd-20261006/rootfs QELI_OPENWRT_RPCD_TEMPLATE=/var/tmp/qeli-q31-openwrt-rpcd-package-20261006/runtime-template QELI_OPENWRT_LUCI_IPK=/var/tmp/qeli-q31-openwrt-sdk-20261007/sdk/bin/packages/x86_64/base/luci-app-qeli_0.8.2-r1_all.ipk python3 -m unittest discover -s scripts -p test_openwrt_http.py -v'",
+      "rc": 0
+    },
+    "http_log": "http-final.log",
+    "methods_passed": 6,
+    "skipped": 0,
+    "local": [
+      {
+        "id": "luci",
+        "command": [
+          "node",
+          "scripts/test_openwrt_luci.js"
+        ],
+        "rc": 0,
+        "log": "luci.log"
+      },
+      {
+        "id": "recipes",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_native_recipes.py",
+          "-v"
+        ],
+        "rc": 0,
+        "log": "recipes.log"
+      },
+      {
+        "id": "bindings",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/gen_config_bindings.py",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "bindings.log"
+      },
+      {
+        "id": "docs",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/check_docs.py"
+        ],
+        "rc": 0,
+        "log": "docs.log"
+      },
+      {
+        "id": "diff",
+        "command": [
+          "git",
+          "diff",
+          "--cached",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "diff.log"
+      }
+    ],
+    "baseline": "No new product defect; initial fixture failures only",
+    "cleanup": "runtime-proof.json"
+  },
+  "input_proof": {
+    "base_worktree": "8397978c78c5db13e0eec73a1a1f5be0f78e5ca8",
+    "base_dev": "c1cd0d880c3936cff10364f7f7202a558c02cb25",
+    "source_stage_tree_before_certification": "c77a8f1b78850609099638c10c8497b57073e3c9",
+    "source_digest": "8050cc08930d5efade4d5870ee89f1edf214a7839cdac9018722a53baed107a8",
+    "staged_inputs": [
+      {
+        "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "df8ab80a74eb7257fd9443642a243f86095ed44b9050a0746b1b42ed29ffbd2a",
+        "size": 201069
+      },
+      {
+        "path": "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "f69adef497251e83c5463590e9b752a51f388ea12525aa27e9498d49c4ce9770",
+        "size": 94607
+      },
+      {
+        "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "f7339653adc4528887a07ef2e9b41ec78a199d951e09c3a98bfe9eea5f298e31",
+        "size": 278240
+      },
+      {
+        "path": "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "fd24b4eee17647c9b70f6ca81c1997698fdf1ddeb82eefe43fb514e7117b76cd",
+        "size": 132944
+      },
+      {
+        "path": "qeli-openwrt/INSTALL.md",
+        "sha256": "9aa434989a0fe27f32fcfd36b0631d4ae36c1c8c72bc18cb5c910e42a35141c6",
+        "size": 18569
+      },
+      {
+        "path": "qeli-openwrt/README.md",
+        "sha256": "4839fa77cf4ece2d925c3bcb367232a0df8aefcf7769c60a70c0c183070f20bc",
+        "size": 18000
+      },
+      {
+        "path": "scripts/test_openwrt_http.py",
+        "sha256": "f64fb1335688e435a8a8a97ffb80f91e637c715f84c3113d37e2bc71f622eebb",
+        "size": 12230
+      }
+    ],
+    "git_lab_inputs_verified": 7,
+    "human_content_sha256": {
+      "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+      "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+    }
+  },
+  "reused_packets": [
+    {
+      "packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-openwrt-sdk-20261007",
+      "raw_seal_sha256": "e2d90b12a206509acc22f54f49232eafa19623588b004f6498ba0e2e14a98481",
+      "verified_files": 96
+    },
+    {
+      "packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-openwrt-procd-20261006",
+      "raw_seal_sha256": "fa6679ae7f4e6927c0794d1a9ff31ca744376d7abc29f3032e1774c359e774f7",
+      "verified_files": 73
+    }
+  ],
+  "scope": "Q31-V002 actual HTTP/session API qualification: official musl OpenWrt24.10.4 uhttpd2025.07.06~7e64e8ba-r4/ubus plugin connects to retained native GNU rpcd/ucode/fs/UCI over private Unix socket.6 new HTTP methods PASS without skips in private mount/net namespaces and two owned chroots; loopback only, no authentication-bypass flag. Anonymous/invalid SID/wrong password denied; reader qeli/status allowed and secrets/mutations/foreign UCI denied; writer5 closed inert service verbs, literal Unicode/metacharacter stdin secrets/boolean status/clear; actual session UCI apply-confirm commits enabled intent, embedded SID spoof rejected; local revocation and idle expiry deny; exact previous SDK minified JS served, malformed request recovery. Genuine unchanged LuCI base ACL supplies framework UCI methods; Qeli granular ACL unchanged. Initial missing-base-ACL/commit/idle polling/parse-error/read-receipt and saved-template inventory fixture failures retained, corrected, not new product defects. All959 official-rootfs files/215 links match prior SHA-verified archive;28 GNU rpcd files/19 links and7 exact Git/lab inputs verified. Previous actual SDK IPK SHA ca64037fadcc6f1d218400db8a3223b7c6f265a7e0285a62664e6d25e0a64e95; prior96 SDK and73 rootfs sealed raw files reverified.14 source LuCI/37recipes/docs9/bindings/diff PASS. No owned processes/temporary mount/runtime roots remain; host services/network/firewall and .10 untouched. Service verbs use inert adapter; no real VPN/procd combined path, browser DOM/HTML login, TLS/cookies/CORS/CSRF whole-LuCI policy or firmware qualification. Production config/Rust/core/native/ABI/artifacts unchanged, no fresh Rust/cross/FFI build.41historic cases/acceptance preserved except source_digest; scoped supplement only. Q31 IN_PROGRESS28/37(75.7%),9remain;Q29SIGKILLFAIL/ENONET,Q30drainOPEN/Appleexclusions,D06ACCEPTED retained. Full SDK Rust/compiler compatibility/resolver/install, source release-cut, preflight/config/core generation/ABA, admin replacement races, SIGKILL/powerloss transaction and clean A/B remain OPEN; physical firmware USER_EXCLUDED. No push/deploy.",
+  "remaining": [
+    "Full Qeli SDK Rust/bootstrap/compiler compatibility and runtime resolver/install OPEN",
+    "source pin/date/mirror release-cut OPEN",
+    "preflight/config/core generation/ABA OPEN",
+    "administrator replacement races OPEN",
+    "full SIGKILL/powerloss installer transaction OPEN",
+    "hermetic shared caches/config/PATH/clean A/B OPEN",
+    "firmware/PID1/WAN/reboot physical USER_EXCLUDED",
+    "browser DOM/HTML login/TLS/whole-LuCI cookie/CORS/CSRF not qualified by HTTP API test",
+    "combined HTTP to actual VPN/procd networking not run"
+  ]
+}

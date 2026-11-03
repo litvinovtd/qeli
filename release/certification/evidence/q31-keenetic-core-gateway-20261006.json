@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F330_F331_CORE_GATEWAY_INI_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T16:31:19.643622+00:00",
+  "base_commit": "3ecca89cb4c3b825607abc015edd8081fe179ada",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-keenetic-core-gateway-20261006",
+  "raw_seal_sha256": "35fcb4b12797f5e9acc56f3adf5e8b558335064a511fbd67c05a3bc1e5510d21",
+  "checks": [
+    {
+      "id": "native-recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "native-recipes.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    },
+    {
+      "id": "busybox-suite",
+      "command": "cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "busybox-suite.log"
+    },
+    {
+      "id": "busybox-comparison",
+      "command": "cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 reproduce.py",
+      "exit_code": 0,
+      "log": "busybox-comparison.log"
+    },
+    {
+      "id": "dash-suite",
+      "command": "cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "dash-suite.log"
+    },
+    {
+      "id": "dash-comparison",
+      "command": "cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 reproduce.py",
+      "exit_code": 0,
+      "log": "dash-comparison.log"
+    },
+    {
+      "id": "busybox-suite-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "busybox-suite-final.log"
+    },
+    {
+      "id": "dash-suite-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "dash-suite-final.log"
+    },
+    {
+      "id": "client-bin-tests",
+      "command": "export PATH=/root/.cargo/bin:$PATH; export CARGO_TARGET_DIR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0; cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006/qeli && cargo +1.97.0 test --offline --locked --bin qeli-client --no-default-features --features client-bin --jobs 1",
+      "exit_code": 0,
+      "log": "client-bin-tests.log"
+    },
+    {
+      "id": "client-bin-build",
+      "command": "export PATH=/root/.cargo/bin:$PATH; export CARGO_TARGET_DIR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0; cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006/qeli && cargo +1.97.0 build --offline --locked --bin qeli-client --no-default-features --features client-bin --jobs 1",
+      "exit_code": 0,
+      "log": "client-bin-build.log"
+    },
+    {
+      "id": "client-bin-clippy",
+      "command": "export PATH=/root/.cargo/bin:$PATH; export CARGO_TARGET_DIR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0; cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006/qeli && cargo +1.97.0 clippy --offline --locked --bin qeli-client --no-default-features --features client-bin --jobs 1 -- -D warnings",
+      "exit_code": 0,
+      "log": "client-bin-clippy.log"
+    },
+    {
+      "id": "client-bin-tests-final",
+      "command": "export PATH=/root/.cargo/bin:$PATH; export CARGO_TARGET_DIR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0; cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006/qeli && cargo +1.97.0 test --offline --locked --bin qeli-client --no-default-features --features client-bin --jobs 1",
+      "exit_code": 0,
+      "log": "client-bin-tests-final.log"
+    },
+    {
+      "id": "client-bin-build-final",
+      "command": "export PATH=/root/.cargo/bin:$PATH; export CARGO_TARGET_DIR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0; cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006/qeli && cargo +1.97.0 build --offline --locked --bin qeli-client --no-default-features --features client-bin --jobs 1",
+      "exit_code": 0,
+      "log": "client-bin-build-final.log"
+    },
+    {
+      "id": "client-bin-clippy-final",
+      "command": "export PATH=/root/.cargo/bin:$PATH; export CARGO_TARGET_DIR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0; cd /var/tmp/qeli-q31-keenetic-core-gateway-20261006/qeli && cargo +1.97.0 clippy --offline --locked --bin qeli-client --no-default-features --features client-bin --jobs 1 -- -D warnings",
+      "exit_code": 0,
+      "log": "client-bin-clippy-final.log"
+    }
+  ],
+  "source_review": {
+    "F330": "Remove independent shell INI/boolean parsing; shared bounded opened-file loader + strict canonical parser in Linux client-bin metadata command.",
+    "F331": "Include exit_node with gateway_nat/forward in core ownership; reject failed/malformed metadata before startup or recovery mutations. Stop recovery unchanged.",
+    "exact_executed_rust_inputs": 317,
+    "exact_shell_comparison_inputs": 17,
+    "scoped_unchanged_git_inputs": 1201,
+    "default_core_region_equals_baseline": true,
+    "native_abi_and_recipes_unchanged": true
+  },
+  "qualification": {
+    "rust_bin_unit_tests": 8,
+    "strict_clippy": "PASS Rust1.97.0 offline locked jobs1",
+    "host_build": "Linux x86_64 debug client-bin; no-default-features",
+    "host_sha256": "afa69da1d5bbcc64599f593856984d203cfec50dd81acbf6a248190ff0ce1b38",
+    "process_helper_sha256": "63523cc606305c3911510591be46222bbbd2e51d0db15f9e87cf5c387a39950a",
+    "tests_per_busybox_ash_and_dash": 155,
+    "breakdown": {
+      "owned_native_process": 47,
+      "state_models": 44,
+      "installer": 12,
+      "hook": 17,
+      "verifier": 19,
+      "new_owner": 16
+    },
+    "actual_host_inspector_subcases_per_shell": 22,
+    "original_current_comparison_records_per_shell": 16,
+    "comparison_scope": "Original awk versus current actual core parser on quoted/case/on/exit_node scenarios in both init templates. Firewall/proc/sys/service callbacks modeled. Baseline does not execute inspector despite generic raw row label.",
+    "process_scope": "Owned helper processes only; signaling failures/group constraints are models; shortened polling does not certify production elapsed timings.",
+    "provenance_correction": "Ten initial CRLF-only inputs replaced with canonical staged Git blobs; all317 final inputs exact, rerun Rust tests/build/Clippy PASS; host byte identity carries prior actual-inspector runs. Initial state fixture corrected then full shell suites rerun. Windows rustfmt unavailable, pinned lab formatter used.",
+    "local_native_recipes": 37,
+    "docs_and_bindings": "PASS"
+  },
+  "limitations": {
+    "release_cross_32bit_ffi_build": "NOT_RUN",
+    "actual_vpn_network_or_firmware_runtime": "NOT_RUN / ROUTER_USER_EXCLUDED",
+    "config_inspection_start_path_replacement": "OPEN",
+    "opkgtun_generations_concurrency": "OPEN",
+    "packaging_source_toolchain_abi_provenance": "OPEN",
+    "prior_results": "Q29 SIGKILL recovery FAIL/ENONET,Q30 drain OPEN/Apple skips,D06 accepted retained; historical case dates/artifacts/statuses not fresh qualification.",
+    "progress": "Q31 IN_PROGRESS,28/37 (75.7%),9 remain"
+  }
+}

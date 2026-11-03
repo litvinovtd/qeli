@@ -1,0 +1,38 @@
+{
+  "status": "EXACT_DOCUMENTATION_DELTA_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_digest": "d24d9a1c073afc7790ff400544b76b4c026150c9b28441f27bcac8a31cf2cec3",
+  "source_commit": "1a1836402a877ae0158afafff75ced98720f85da",
+  "previous_source_commit": "9ca6804df5da3f7e54c3dd22991fa5101ec96418",
+  "document_files": {
+    "docs/eng/index.md": "a46637d98d34dd2d2bdf0d5fc17190096e9174b1a1fb3b751427b00099b64f00",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "3db26605fef105a7f16fbf3e117ad2fdb96e7cbcc3674c192e32151e68dd9511",
+    "docs/eng/reports/AUDIT-Q35-FINAL.md": "d024029266129cf9bc5b23bf2d98f1cd246ada0dac5536c744562df1cdc46d00",
+    "docs/eng/reports/AUDIT-Q36-TUN-STAGE.md": "dab5eabda641151e6e2eca35a0839d2d0fea704f99eadb29f74ffdef25cc1474",
+    "docs/ru/index.md": "4d6224724263f35372703fc5478e0297da4f4288615cc9a74c90c70ff800c2c5",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "9f2aa1d24edcc3a33343ace0754ffe0512400c390b670708860efe2195581a03",
+    "docs/ru/reports/AUDIT-Q35-FINAL.md": "7ab529a0e506a7bbade55fe7a12d58929c863461dca6b95bb15e4ee5bbad1271",
+    "docs/ru/reports/AUDIT-Q36-TUN-STAGE.md": "6488d20921e06c5d3aea1b027ab9340f89c8b291927bf0694278879b70a78b3f"
+  },
+  "exact_non_certification_delta": [
+    "docs/eng/index.md",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q35-FINAL.md",
+    "docs/eng/reports/AUDIT-Q36-TUN-STAGE.md",
+    "docs/ru/index.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q35-FINAL.md",
+    "docs/ru/reports/AUDIT-Q36-TUN-STAGE.md"
+  ],
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "q35_evidence_sha256": "cbdecc4673376d37b713d9cda070c4dea47b8c5094624a66b58978f1e5585207",
+  "q36_evidence_sha256": "4d9fec0628ec0a5efead36d00fcb8e11a9197102dfdeb4ab800d916fc045b470",
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "scope": "Exact8Markdown-only source delta after qualified adopted native/source commit9ca6804d, plus2excluded evidence documents. No code/INI/Cargo/recipe/native binary change; native digest unchanged and A/B/copies validate. Q35 final combines retained bounded evidence; Q36 actual6phase diagnostic retains incomplete server read and perturbed windows, causeNOT_ESTABLISHED. Preserve every prior Linux execution fact and physical status; no new matrix execution or public source/hostedCI/release claim.",
+  "new_matrix_execution": false,
+  "no_push_deploy_release": true,
+  "driver_sha256": "033c68ee43c11d8b7f6ce54946318adbcaf9379198e1f9c2bc3875d6f9b579fa"
+}

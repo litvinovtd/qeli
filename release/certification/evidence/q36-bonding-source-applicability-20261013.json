@@ -1,0 +1,33 @@
+{
+  "status": "EXACT_DOCUMENTATION_DELTA_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_commit": "f75ff200d03a43b713166d05f36db734827710c3",
+  "source_digest": "70b6f37a63a42ce65068287da366ec0317acca9bd5df81dcbcc0dfaf12bba4a0",
+  "previous_source_commit": "f8dccd6954cb9e6c6f0f735bfcfc0d759514fca2",
+  "document_files": {
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "b2dcd4e358660c62249865a79001478afa9c6e2b0f4e42d566c380f05303a6e8",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md": "78cddcbcd813eb4ecc0c09b70699acc60f5f27eb60e6e1cc3a163db657c4e54d",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "5bc251f47c3a0a517dcfa80a12e86f220c02877281ff724d991be35e0010f2a2",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md": "d695492a68d787147a51277e19c1e924906800affd5e0633581452d7178ea588"
+  },
+  "exact_non_certification_delta": [
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md"
+  ],
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "runtime_qualification_sha256": {
+    "q36-bonding-control-20261013": "b6372ae5b8c8c777438245ad0615de01770377c7e45c43906d43f3ff73901ee8"
+  },
+  "current_Q36_sessions": 6,
+  "current_Q36_windows": 18,
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "new_certification_matrix_execution": false,
+  "scope": "Exact four-Markdown-only delta plus two excluded evidence files. Native/helper/INI/Cargo/product inputs and native digest unchanged. Six fresh sessions/18 eight-second TCPraw P1 unlimited up/down/bidir windows,3 fixed1/2 carrier pairs, required recordizer default2-8ms. Actual native-PID established socket endpoints verified stable/mirrored on42 combined snapshots, original queue/qdisc/MTU/affinity.1s senderTCP_INFO and30 idleICMP eachsession; reverse RTT not zero-imputed. Q36-F030 P2 reproduced: pairedmedian upload-98.2841%, all two-carrier native uplink drops QueueFull,1carrier native uplink0;4MiB64slots65535B lead21queue entries at width2. Bonding also activates boundedcopy pools/queues; no exact innerflow placement or ACK-event/kernel FULL_RING claim. Candidate slot-sizing fix pending, not applied. Full source/host/services/stagedCLI/SHAarchivecleanup PASS. Original20 Linux certification facts/21 physicalstatuses unchanged; no new certification executions/publicrelease/hostedCI/Q29/Q36 closure.",
+  "no_push_deploy_release": true,
+  "driver_sha256": "45b974690b4722677c411b82f709af2d275c4827a4ed47103b1dac2e810d8bed"
+}

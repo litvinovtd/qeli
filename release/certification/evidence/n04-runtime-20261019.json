@@ -1,0 +1,301 @@
+{
+  "schema_version": 1,
+  "scope": "Fresh isolated execution of actual N04 CI/deb binary. Functional release gate, not a throughput benchmark.",
+  "source_commit": "ec3e559501d7d4ac68b1d41b34c5945c7a758aaf",
+  "source_digest": "2115e32c8c164d5e1a865ffa2c5c1e1807c5a0acc8d6d30629916fb407010367",
+  "executed_source_commit": "52b7a8578897a1f272bc7355b1cf6c7e004e3cc7",
+  "executed_source_digest": "3bd890b9644eac49764b4864f1d61001b820706cb468ed401bf3db6f2feaf82a",
+  "source_applicability": {
+    "status": "PASS",
+    "build_commit": "52b7a8578897a1f272bc7355b1cf6c7e004e3cc7",
+    "documentation_commit": "ec3e559501d7d4ac68b1d41b34c5945c7a758aaf",
+    "changed_paths": [
+      "qeli-openwrt/INSTALL.md",
+      "release/keenetic/README.md",
+      "docs/ru/manuals/KEENETIC-DEPLOY.md",
+      "docs/eng/manuals/KEENETIC-DEPLOY.md"
+    ],
+    "actual_ELF_sizes": {
+      "aarch64": {
+        "bytes": 9359248,
+        "MiB": "8.93",
+        "sha256": "82e4e73314e5aa8af89d57399376d384174c8f68768da7609bc3c4c7d3f4ab00"
+      },
+      "armv7": {
+        "bytes": 9514540,
+        "MiB": "9.07",
+        "sha256": "392b6a9313f5f716ac40e41950c987fc6676c491efe191008e5f2678effd4994"
+      },
+      "x86_64-musl": {
+        "bytes": 10130088,
+        "MiB": "9.66",
+        "sha256": "d29dd8a8664e844a34d20fe3ee3a225c4ef7330eaa6cbfc86fb162ecaeaa58ea"
+      },
+      "mipsel": {
+        "bytes": 11398712,
+        "MiB": "10.87",
+        "sha256": "7a855c2500d459e4b9669b1226be6b2a03b19c9a44b42f70dcfdc6b149f305fa"
+      }
+    },
+    "only_size_description_changed": true
+  },
+  "artifact_sha256": "bae6320bdbff5c16a2219441ddb9cc82d60ec2c6720caca03faa3ea353d2b843",
+  "executed_at": "2026-10-19T00:39:28.220458+00:00",
+  "environment": "Debian lab 10.66.116.11; each case in independent mount/network/PID namespaces",
+  "host_preserved": true,
+  "host_variance": "Captured structural host state unchanged; pre-existing maintenance service was not modified.",
+  "host_state_evidence": "release/certification/evidence/n04-host-state-20261019.json",
+  "cases": [
+    {
+      "id": "linux.outer4.inner4.tcp.full",
+      "status": "passed",
+      "log_sha256": "422a773351c2b9e0c120a6f8df008b3cdc63e35351be49e9162a31e4edc455bc",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer4.inner6.tcp.full",
+      "status": "passed",
+      "log_sha256": "a452a364c22577c2108e66b01fc4d4b4716c106ab6134d72a3d97070f576d1d8",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer6.inner4.tcp.full",
+      "status": "passed",
+      "log_sha256": "5c0985b471f5da9f85ab9e662326cd8cbf55dcc375ca0ede5943548b226ec53a",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer6.inner6.tcp.full",
+      "status": "passed",
+      "log_sha256": "726bd203d55db85e9159f3a64224af5fb5abc1d497fbca27782920db8fb2c5e8",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer4.inner4.udp-fake-tls.full",
+      "status": "passed",
+      "log_sha256": "5ee8bb15b4159b9aab679a5a75012a7a7d380901055910efaa1bba5c744166b4",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer4.inner6.udp-fake-tls.full",
+      "status": "passed",
+      "log_sha256": "a1a53cf52c1046876ef6f2db81da944cbad0b84c72d129c8032448715cfa406a",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer6.inner4.udp-fake-tls.full",
+      "status": "passed",
+      "log_sha256": "20f8e689f3884a50fd90cdc9c48ac7f12b8f1198f89fa1aa6c9029e6306ba198",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer6.inner6.udp-fake-tls.full",
+      "status": "passed",
+      "log_sha256": "e77f0900cf0b51c5eaa9b4aae9e37fe224652170b28df1b7ccf938f672057e5f",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer4.inner4.udp-quic.full",
+      "status": "passed",
+      "log_sha256": "79a9bef43c9f232a884422c39829965738c4fd34145200391ec632f34f18cab2",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer4.inner6.udp-quic.full",
+      "status": "passed",
+      "log_sha256": "f5a18228a8293d3c9ab423f14c63256478674a884932ed12ac0b44a8dcbb2bb3",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer6.inner4.udp-quic.full",
+      "status": "passed",
+      "log_sha256": "472fdff4d958e27647a0f0cdfa73897c0820bfa8d04e11dfccf18ed572b9c0dc",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.outer6.inner6.udp-quic.full",
+      "status": "passed",
+      "log_sha256": "9fc70024100f256ae6b7261c11f19064d57ae096ba303fd71cbb72c27836530a",
+      "checks_passed": 13,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.dual.tcp.split",
+      "status": "passed",
+      "log_sha256": "cb69d7295ef730df0ef44b61a9734c7f5dcff0a722e6a899d45f2ba2e0958773",
+      "checks_passed": 19,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.dual.udp.split",
+      "status": "passed",
+      "log_sha256": "9d6c566404da8f901837ab40db8bf58bce7c79520bddce84c797ee9b71c313ce",
+      "checks_passed": 19,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.tap.ndp-ra",
+      "status": "passed",
+      "log_sha256": "2d96cb3c6ce6d1859ca96560d1b9c233cf074fc14e8f3c24f95274af0b4804b3",
+      "checks_passed": 15,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.dns.ipv4-ipv6",
+      "status": "passed",
+      "log_sha256": "0ee884c61d2bef6cfb2b7ea472e96de561ff5ff44d05b2f17af310bea0e267cd",
+      "checks_passed": 105,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.mtu.1280-pmtu-ptb",
+      "status": "passed",
+      "log_sha256": "9e90111c1b198a53058179d2e6090f14b45aada7d90a274287c86d25ea0f34c9",
+      "checks_passed": 36,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.legacy-peer",
+      "status": "passed",
+      "log_sha256": "dbd44fa1362e8d44da13c5a5fde798be3a2686fd5e504223a6ad76a32917fe69",
+      "checks_passed": 26,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.roaming-flap-soak",
+      "status": "passed",
+      "log_sha256": "b7eaee915f73cbf0aaa059dc2f480a61edb1f12867a7c9508f1d57fd8e57c2dc",
+      "checks_passed": 33,
+      "checks_failed": 0,
+      "namespaces": {
+        "mnt": "mnt:[4026532321]",
+        "net": "net:[4026532323]",
+        "pid": "pid:[4026532322]"
+      }
+    },
+    {
+      "id": "linux.leak.ipv4-ipv6",
+      "status": "passed",
+      "derived_from": [
+        "linux.dual.tcp.split",
+        "linux.dual.udp.split",
+        "linux.outer4.inner4.tcp.full",
+        "linux.outer4.inner4.udp-fake-tls.full",
+        "linux.outer4.inner4.udp-quic.full",
+        "linux.outer4.inner6.tcp.full",
+        "linux.outer4.inner6.udp-fake-tls.full",
+        "linux.outer4.inner6.udp-quic.full",
+        "linux.outer6.inner4.tcp.full",
+        "linux.outer6.inner4.udp-fake-tls.full",
+        "linux.outer6.inner4.udp-quic.full",
+        "linux.outer6.inner6.tcp.full",
+        "linux.outer6.inner6.udp-fake-tls.full",
+        "linux.outer6.inner6.udp-quic.full"
+      ]
+    }
+  ],
+  "actual_executions": 19,
+  "physical_checks_executed": false,
+  "published": false
+}

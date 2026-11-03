@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F307_F310_FIXTURES_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T13:00:58.327522+00:00",
+  "base_commit": "4542f06e67de854df0d735d8fb666e15f7637917",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-openwrt-controls-20261006",
+  "raw_seal_sha256": "86feeab90306f620a7f89f41d44fb95aac6908efa50dbb763ad22239d1ac4bcd",
+  "checks": [
+    {
+      "id": "luci-final",
+      "command": [
+        "node",
+        "scripts/test_openwrt_luci.js"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "luci-final.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "C:\\Python314\\python.exe",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "C:\\Python314\\python.exe",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "diff.log"
+    },
+    {
+      "id": "current-busybox-qualified",
+      "command": "cd /var/tmp/qeli-q31-openwrt-controls-20261006/current && QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p test_openwrt_init.py -v",
+      "exit_code": 0,
+      "log": "current-busybox-qualified.log",
+      "status": "PASS"
+    },
+    {
+      "id": "current-dash-qualified",
+      "command": "cd /var/tmp/qeli-q31-openwrt-controls-20261006/current && QELI_OPENWRT_TEST_SHELL='/bin/sh' python3 -m unittest discover -s scripts -p test_openwrt_init.py -v",
+      "exit_code": 0,
+      "log": "current-dash-qualified.log",
+      "status": "PASS"
+    },
+    {
+      "id": "native-recipes",
+      "status": "PASS",
+      "tests": 37,
+      "log": "native-recipes-final.log",
+      "baseline": "preexisting assertion FAIL; Android implementation unchanged"
+    }
+  ],
+  "source_review": {
+    "fixes": [
+      "F307 LuCI committed intent/control serialization",
+      "F308 checked firewall retry",
+      "F309 atomic INI/control/MTU validation",
+      "F310 stale recipe assertion only"
+    ],
+    "node_fixtures": 7,
+    "shell_fixtures_per_interpreter": 10,
+    "interpreters": [
+      "BusyBox ash",
+      "dash"
+    ],
+    "not_device_runtime": true,
+    "source_proof": {
+      "base_commit": "4542f06e67de854df0d735d8fb666e15f7637917",
+      "changed_paths": [
+        "docs/eng/index.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "docs/ru/index.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "qeli-openwrt/INSTALL.md",
+        "qeli-openwrt/README.md",
+        "qeli-openwrt/files/qeli.init",
+        "qeli-openwrt/luci-app-qeli/htdocs/luci-static/resources/view/qeli/config.js",
+        "scripts/test_native_recipes.py",
+        "scripts/test_openwrt_init.py",
+        "scripts/test_openwrt_luci.js"
+      ],
+      "unchanged_implementation_git_inputs": 845,
+      "scope": "Git base/index identity plus exact working changed-path allowlist; OpenWrt INI/LuCI product only; Android source unchanged; no binary qualification rerun",
+      "runtime_exclusions": [
+        "real router USER_EXCLUDED",
+        "Swift/Xcode/Apple USER_EXCLUDED; NOT_RUN",
+        "Windows VM USER_EXCLUDED"
+      ],
+      "retained": [
+        "Q29 SIGKILL FAIL",
+        "Q29 auto/null DnsResolver ENONET",
+        "Q30 OS callback drain OPEN",
+        "D06 ACCEPTED_LIMITATION"
+      ]
+    }
+  },
+  "remaining": [
+    "install/upgrade rollback",
+    "UI cached status/unsaved form ownership",
+    "cross-process secret/lifecycle concurrency",
+    "build-helper/provenance and available cross-build checks"
+  ],
+  "platforms": {
+    "router_runtime": "USER_EXCLUDED",
+    "actual_rpcd_procd_fw4": "NOT_RUN"
+  },
+  "retained_observations": [
+    "Q29 SIGKILL FAIL",
+    "Q29 auto/null DnsResolver ENONET",
+    "Q30 OS callback drain OPEN",
+    "D06 ACCEPTED_LIMITATION"
+  ],
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "q31": "IN_PROGRESS"
+  }
+}

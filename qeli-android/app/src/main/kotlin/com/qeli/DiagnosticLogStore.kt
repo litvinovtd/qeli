@@ -1,6 +1,7 @@
 package com.qeli
 
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -29,6 +30,8 @@ internal object DiagnosticLogStore {
     internal const val MAX_BYTES = 512L * 1024L
     private const val MAX_MESSAGE_CHARS = 4_096
     private const val MAX_SESSION_CHARS = 64
+    // One normalized UTF-8/base64 record fits within this extra boundary allowance.
+    private const val MAX_RECORD_BYTES = 24 * 1024
 
     private val lock = Any()
     private val knownCounts = mutableMapOf<String, Int>()
@@ -44,14 +47,22 @@ internal object DiagnosticLogStore {
         maxEntries: Int = MAX_ENTRIES,
         maxBytes: Long = MAX_BYTES,
     ): DiagnosticLogEntry {
+        val entry = entry(message, sessionId, level, timestampMs)
+        appendBatch(directory, listOf(entry), maxEntries, maxBytes)
+        return entry
+    }
+
+    internal fun entry(message: String, sessionId: String = "", level: String = "info",
+                       timestampMs: Long = System.currentTimeMillis()): DiagnosticLogEntry =
+        DiagnosticLogEntry(timestampMs.coerceAtLeast(0L), normalizeSessionId(sessionId),
+            normalizeLevel(level), normalizeMessage(message))
+
+    /** Production callers batch on their single IO worker; never call this on Android main. */
+    internal fun appendBatch(directory: File, entries: List<DiagnosticLogEntry>,
+                             maxEntries: Int = MAX_ENTRIES, maxBytes: Long = MAX_BYTES) {
         require(maxEntries > 0) { "maxEntries must be positive" }
         require(maxBytes > 0) { "maxBytes must be positive" }
-        val entry = DiagnosticLogEntry(
-            timestampMs = timestampMs.coerceAtLeast(0L),
-            sessionId = normalizeSessionId(sessionId),
-            level = normalizeLevel(level),
-            message = normalizeMessage(message),
-        )
+        if (entries.isEmpty()) return
         synchronized(lock) {
             check(directory.exists() || directory.mkdirs()) {
                 "cannot create diagnostic log directory '${directory.absolutePath}'"
@@ -60,7 +71,7 @@ internal object DiagnosticLogStore {
             val key = file.absoluteFile.normalize().path
             var count = knownCounts[key]
             if (count == null) {
-                val loaded = loadUnlocked(file)
+                val loaded = loadUnlocked(file, maxBytes)
                 val retained = retainNewest(loaded.entries, maxEntries, maxBytes)
                 if (loaded.hadInvalidRecord || retained.size != loaded.entries.size ||
                     file.length() > maxBytes
@@ -70,17 +81,25 @@ internal object DiagnosticLogStore {
                 count = retained.size
             }
 
-            val bytes = encode(entry).toByteArray(StandardCharsets.UTF_8)
-            FileOutputStream(file, true).use { output -> output.write(bytes) }
-            count++
+            FileOutputStream(file, true).use { output ->
+                entries.forEach { raw ->
+                    output.write(encode(entry(raw.message, raw.sessionId, raw.level, raw.timestampMs))
+                        .toByteArray(StandardCharsets.UTF_8))
+                }
+            }
+            count += entries.size
             if (count > maxEntries || file.length() > maxBytes) {
-                val retained = retainNewest(loadUnlocked(file).entries, maxEntries, maxBytes)
+                // Leave headroom after rotation: a long session must not rewrite 1000 records
+                // for every subsequent event. Tiny test/custom limits retain exact semantics.
+                val loaded = loadUnlocked(file, maxBytes).entries
+                val retained = retainNewest(loaded,
+                    if (maxEntries >= 32) maxEntries * 3 / 4 else maxEntries,
+                    if (maxBytes >= MAX_RECORD_BYTES * 2) maxBytes * 3 / 4 else maxBytes)
                 rewriteUnlocked(file, retained)
                 count = retained.size
             }
             knownCounts[key] = count
         }
-        return entry
     }
 
     internal fun read(
@@ -93,7 +112,7 @@ internal object DiagnosticLogStore {
         synchronized(lock) {
             val file = File(directory, FILE_NAME)
             if (!file.exists()) return emptyList()
-            val loaded = loadUnlocked(file)
+            val loaded = loadUnlocked(file, maxBytes)
             val retained = retainNewest(loaded.entries, maxEntries, maxBytes)
             if (loaded.hadInvalidRecord || retained.size != loaded.entries.size ||
                 file.length() > maxBytes
@@ -122,15 +141,30 @@ internal object DiagnosticLogStore {
         val hadInvalidRecord: Boolean,
     )
 
-    private fun loadUnlocked(file: File): LoadResult {
+    private fun loadUnlocked(file: File, maxBytes: Long): LoadResult {
         if (!file.exists()) return LoadResult(emptyList(), false)
         val entries = mutableListOf<DiagnosticLogEntry>()
         var invalid = false
-        file.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
-            lines.forEach { line ->
-                val entry = decode(line)
-                if (entry == null) invalid = true else entries += entry
-            }
+        // Rotation bounds normal writes, but a corrupt/restored file can be much larger.
+        // Seek to a bounded tail before decoding; include one complete record at the edge.
+        FileInputStream(file).use { input ->
+            val budget = (minOf(maxBytes, MAX_BYTES) + MAX_RECORD_BYTES).toInt()
+            val start = (input.channel.size() - budget).coerceAtLeast(0L)
+            val partialFirstLine = if (start > 0) {
+                input.channel.position(start - 1)
+                invalid = true
+                input.read() != '\n'.code
+            } else false
+            val bytes = BoundedInput.read(input, budget)
+            try {
+                bytes.inputStream().bufferedReader(StandardCharsets.UTF_8).use { reader ->
+                    if (partialFirstLine) reader.readLine()
+                    reader.forEachLine { line ->
+                        val entry = decode(line)
+                        if (entry == null) invalid = true else entries += entry
+                    }
+                }
+            } finally { bytes.fill(0) }
         }
         return LoadResult(entries, invalid)
     }

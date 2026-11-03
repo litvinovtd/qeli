@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_F396_ORCHESTRATION_WITH_DOCUMENTED_SCOPE",
+  "source_digest": "34189dd901024cd16c8c358a95586e5de9ebb25be9d8d28f79c24a4763149454",
+  "qualification_source_commit": "f687a0c42e4c1d3593731cd6ba444b9ab20943be",
+  "base_worktree_commit": "c4877f845448181d623d0650ed7100395a59e33c",
+  "base_dev_commit": "7f4fac1747542b89142c6e7e188fb80c3f96a552",
+  "findings": [
+    "F396",
+    "F397",
+    "F398"
+  ],
+  "baseline": {
+    "whole_script_real_git": true,
+    "external_ci_lab_certification": "CONTROLLED_SEAMS_NOT_REAL_BUILDS",
+    "positive_control_pass": 1,
+    "mixed_commit_false_pass_reproduced": 3
+  },
+  "verification": {
+    "whole_program_new_methods": 12,
+    "windows_related_methods": 81,
+    "windows_pass": 78,
+    "windows_preexisting_skips": 3,
+    "linux": {
+      "suites": [
+        {
+          "suite": "test_release_preflight.py",
+          "rc": 0,
+          "methods": 12,
+          "uid": 65534,
+          "skipped": 0
+        },
+        {
+          "suite": "test_release_ci_gate.py",
+          "rc": 0,
+          "methods": 18,
+          "uid": 65534,
+          "skipped": 0
+        },
+        {
+          "suite": "test_router_release_gate.py",
+          "rc": 0,
+          "methods": 15,
+          "uid": 65534,
+          "skipped": 0
+        },
+        {
+          "suite": "test_release_certification.py",
+          "rc": 0,
+          "methods": 11,
+          "uid": 65534,
+          "skipped": 0
+        }
+      ],
+      "inputs_unchanged": 328
+    },
+    "backup_and_cleanup": {
+      "root": "/var/tmp/qeli-preflight-identity-20261008.KomlFI",
+      "backup_sha256": "e0c2b0c02ee0d3da9f0b6d40f51805e8fc8720c7bcd0cee149f7422550dbfeef",
+      "process_mount_path_guards": "PASS",
+      "removed": "OWNED_ROOT_REMOVED"
+    },
+    "mac_path": {
+      "windows_pass": 11,
+      "windows_symlink": "UNAVAILABLE",
+      "linux_pass": 12,
+      "linux_skips": 0,
+      "tools": "BUILD/REMOVE/XCODE MOCKED; actual path guard/production CI invocation",
+      "cleanup": {
+        "root": "/var/tmp/qeli-preflight-path-20261008.FBpUGC",
+        "backup_sha256": "55dd3d31810f1522fc4aa21425060c92f78aff00260f80ad3a89af590b86216a",
+        "guards": "process/mount/path PASS",
+        "result": "OWNED_ROOT_REMOVED",
+        "preparation": "first tar refused root directory mtime change as output was created; repeated only backup after entry existed, no tests repeated"
+      }
+    },
+    "ios_fixture": {
+      "library": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-win\\QeliWin\\native\\qeli.dll",
+      "sha256": "8474a3d3ad20ce7f45c5607b59e931e57ee5d1cb912b3250cd861daa5ccc02e1",
+      "cases": [
+        {
+          "case": "old_exit_node",
+          "expected_valid": false,
+          "response": {
+            "error": "'exit_node = true' requires split-tunnel routing (`gateway = false` and `routing = split-tunnel`) so the physical WAN remains available",
+            "ok": false
+          }
+        },
+        {
+          "case": "fixed_exit_node",
+          "expected_valid": true,
+          "response": {
+            "ok": true,
+            "result": {
+              "valid": true
+            }
+          }
+        },
+        {
+          "case": "keepalive",
+          "expected_valid": true,
+          "response": {
+            "ok": true,
+            "result": {
+              "valid": true
+            }
+          }
+        },
+        {
+          "case": "post_up",
+          "expected_valid": true,
+          "response": {
+            "ok": true,
+            "result": {
+              "valid": true
+            }
+          }
+        },
+        {
+          "case": "lan_subnet",
+          "expected_valid": true,
+          "response": {
+            "ok": true,
+            "result": {
+              "valid": true
+            }
+          }
+        },
+        {
+          "case": "tcp_nodelay",
+          "expected_valid": true,
+          "response": {
+            "ok": true,
+            "result": {
+              "valid": true
+            }
+          }
+        },
+        {
+          "case": "autostart",
+          "expected_valid": true,
+          "response": {
+            "ok": true,
+            "result": {
+              "valid": true
+            }
+          }
+        }
+      ],
+      "scope": "ACTUAL_SHARED_ABI_POLICY_ONLY; Swift XCTest/Keychain runtime NOT_RUN",
+      "initial_candidates": "explicit routing syntax refused by native editor; fixed fixture uses supported gateway=false and its shared default split mode"
+    },
+    "native_recipe_methods": 37,
+    "final_checks": [
+      {
+        "check": "docs",
+        "rc": 0
+      },
+      {
+        "check": "bindings",
+        "rc": 0
+      },
+      {
+        "check": "sha",
+        "rc": 0
+      },
+      {
+        "check": "provenance",
+        "rc": 0
+      },
+      {
+        "check": "certification",
+        "rc": 0
+      },
+      {
+        "check": "diff",
+        "rc": 0
+      }
+    ]
+  },
+  "source_reconciliation": {
+    "rust_tree": "bfa0cfc6b25f7c2ddd1a15799bcf75ecf80f38e8",
+    "rust_and_native_paths_unchanged_from_base": true,
+    "sdk_package_recipe_unchanged": true,
+    "native_provenance": "PASS_UNCHANGED_INPUTS_PREVIOUS_BUILD_SCOPE",
+    "production_pin_and_hash": "UNCHANGED"
+  },
+  "audit": {
+    "full_done": 29,
+    "full_total": 37,
+    "full_percent": 78.4,
+    "q31_criteria_done": 3,
+    "q31_criteria_total": 5,
+    "q31_status": "IN_PROGRESS",
+    "remaining": "SDK Rust bootstrap/build; production release-cut source archive; successful exact-commit CI/full preflight; iOS Keychain status(-34018) signed-host/runtime qualification",
+    "old_debt": "14 DONE + D06 ACCEPTED_LIMITATION",
+    "retained": [
+      "Q29 SIGKILL FAIL; auto-null DnsResolver ENONET",
+      "Q30 Apple runtime exclusions/callback scope",
+      "Mac/Xcode/iOS, real firmware, Windows network VM USER_EXCLUDED",
+      "D06 BPF cancelled"
+    ]
+  },
+  "limits": [
+    "Whole-program external gates controlled in regression fixtures; no new CI/cross/SDK runtime claim",
+    "Ignored caches and edits reverted wholly within one gate are not guarded",
+    "Boundary checks do not lock Git or authorize later publishing",
+    "Historic 41 release cases and prior supplements reused with their original scopes; metadata digest rebind is not fresh execution"
+  ],
+  "raw_directory": "audit-debt-20260924/q31-preflight-identity-20261008",
+  "raw_seal": {
+    "file_count": 56,
+    "total_bytes": 5658697,
+    "manifest_sha256": "b49a5d7259cde183e169eeaf6e387603e848b9a90d83c143d6099f92906fea75"
+  },
+  "orchestration_source_commit": "26a7b503d603aaa5a9e64c78d57aea0f6d1038d3",
+  "ci_diagnostics": {
+    "run": {
+      "conclusion": "failure",
+      "databaseId": 37598403060,
+      "headSha": "83c07f5c31178c67a005f20f59975e14528ab73a",
+      "status": "completed",
+      "url": "https://github.com/litvinovtd/qeli/actions/runs/37598403060"
+    },
+    "macos_build": "F397 output mismatch fixed; no actual Apple build this turn",
+    "native_libraries": "old source/provenance mismatch; current unchanged-input provenance PASS locally",
+    "ios_known_key": "F398 invalid default gateway fixture fixed; shared ABI validated",
+    "ios_keychain": "status(-34018) OPEN; requires signed-host/runtime verification",
+    "actual_successful_actions": "NOT_RUN"
+  },
+  "live_read_only_preflight": {
+    "source_commit": "c1b26f34795e1ade1e24cd0cca7fffaf1ca06bc1",
+    "rc": 1,
+    "verdict": "EXPECTED_FAIL_STALE_FAILED_CI_AND_DEVELOPMENT_PIN",
+    "optional_lab": "SKIPPED_NOT_NEW_BUILD",
+    "certification_metadata": "PASS_NOT_FRESH_MATRIX",
+    "cwd": "outside_repository"
+  }
+}

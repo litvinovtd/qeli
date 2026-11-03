@@ -2,6 +2,7 @@ pub mod auth;
 pub mod cipher;
 pub mod derive;
 pub mod exchange;
+pub(crate) mod key_file;
 pub mod mlkem;
 pub mod reality;
 pub mod secret;
@@ -370,14 +371,13 @@ mod tests {
     }
 
     #[test]
-    fn test_packet_codec_counter_wraps() {
+    fn test_packet_codec_sequential_packets() {
         let key = [0x42u8; 32];
         let mut enc = PacketCodec::new(key);
         let mut dec = PacketCodec::new(key);
 
-        // simulate wrapping around
-        // we can't easily set counter to u64::MAX, but we can verify
-        // wrapping_add is used by checking many packets work
+        // Sequential packet regression. Exhaustion is tested at the actual boundary
+        // in protocol::packet; the live codec refuses encryption before wrap.
         for i in 0..100 {
             let data = format!("wrap test {}", i);
             let packet = enc.encrypt_packet(data.as_bytes(), &[]).unwrap();

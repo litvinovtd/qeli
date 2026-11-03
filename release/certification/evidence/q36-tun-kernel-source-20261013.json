@@ -1,0 +1,42 @@
+{
+  "status": "PRIMARY_MATCHING_VERSION_TUN_SOURCE_REVIEW_NO_RUNTIME_REASON_CAPTURE",
+  "upstream_version": "v6.12.105",
+  "observed_lab_kernel": "6.12.105+deb13-amd64",
+  "inputs": {
+    "tun-v6.12.105.c": {
+      "status": "FETCHED",
+      "url": "https://raw.githubusercontent.com/gregkh/linux/v6.12.105/drivers/net/tun.c",
+      "sha256": "21e335a34682aaaececf9c4f2f9ea3c7d56ee9adc1373ca476a4e0c3d9643913",
+      "bytes": 90269
+    },
+    "taildrop-revert.json": {
+      "status": "FETCHED",
+      "url": "https://api.github.com/repos/torvalds/linux/commits/f11b48aa674b475f196bede7d69593c050107fc5",
+      "sha256": "673d1c0af0ce9ebc15b727d1a2322cdf15b4b504a03313440c35be9d7c3b6395",
+      "bytes": 6239
+    }
+  },
+  "primary_revert_commit": "f11b48aa674b475f196bede7d69593c050107fc5",
+  "original_backpressure_commit_reverted": "1d6e569b7d0c0b2736636749e4be0a27f3cefcb3",
+  "source_findings": [
+    {
+      "scope": "tun_net_xmit lines1066-1150",
+      "finding": "Failure to enqueue to tfile tx_ring chooses FULL_RING and increments TX dropped; same counter also covers unattached queue/filter/memory/orphan-fragment errors, so ip-link aggregate is not a unique reason capture."
+    },
+    {
+      "scope": "tun_queue_resize/device_event lines3687-3727",
+      "finding": "tx_queue_len notifier resizes each pointer ring, explaining that earlier500/1000 intervention changed driver ring capacity as well as visible link length."
+    },
+    {
+      "scope": "upstream revert API commit message",
+      "finding": "Automatic queue stop/wake backpressure patch was reverted after an independently reported throughput regression; it is not a ready universal fix for Qeli."
+    }
+  ],
+  "limitations": [
+    "Exact Debian-patched/compiled tun module equivalence not demonstrated by upstream tag SHA.",
+    "No per-event FULL_RING reason observed; this is a source-supported hypothesis, not a runtime cause qualification.",
+    "No kernel patch applied, upgraded kernel or module build/runtime; no product defaults changed."
+  ],
+  "Q36_closed": false,
+  "no_push_deploy_release": true
+}

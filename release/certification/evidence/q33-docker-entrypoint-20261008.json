@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q33_ENTRYPOINT_WITH_Q31_BOOTSTRAP_CAPACITY_DEFERRED",
+  "source_digest": "dae0440b30fb861f5cc5005f275cc37471b6fafa7608496b74f14102e4203554",
+  "qualification_source_commit": "03dcdb4c3335cb8f5daaeeddc575a8dcab45f000",
+  "baseline_commit": "05ac66fec62f759017f1699202c7349d5fae0971",
+  "base_dev_commit": "47c85d60dccf5ea061c0dadc931c281eaebd6cbe",
+  "scenario": "F400-F403/Q33-F003-F006; Q31-V012 capacity decision",
+  "product_changes": [
+    "Docker entrypoint empty argv, explicit config precedence/single option, new0600 config/users and no-replace link/nonregular-safe publication",
+    "Linux CI root/chroot regression command"
+  ],
+  "verification": {
+    "entrypoint": {
+      "rows": [
+        {
+          "phase": "baseline",
+          "shell": "/bin/dash",
+          "rc": 1,
+          "log": "baseline-dash.log",
+          "tests": 4,
+          "expected_baseline_failures": 4
+        },
+        {
+          "phase": "baseline",
+          "shell": "/bin/ash",
+          "rc": 1,
+          "log": "baseline-ash.log",
+          "tests": 4,
+          "expected_baseline_failures": 4
+        },
+        {
+          "phase": "fixed",
+          "shell": "/bin/dash",
+          "rc": 0,
+          "log": "fixed-dash.log",
+          "tests": 17,
+          "expected_baseline_failures": 0
+        },
+        {
+          "phase": "fixed",
+          "shell": "/bin/ash",
+          "rc": 0,
+          "log": "fixed-ash.log",
+          "tests": 17,
+          "expected_baseline_failures": 0
+        }
+      ],
+      "fixed_scenarios": 34,
+      "fixed_entrypoint_invocations": 46,
+      "baseline_failed_scenarios": 8,
+      "scope": "whole unchanged production entrypoint script in private chroots, actual dash/ash and host coreutils; qeli argv-recording seam, no Docker image/daemon networking",
+      "fixed_sha256": "48f8607ef55b732890a3240f70da2127b52228038abf60a78a278879d488b568"
+    },
+    "final_inputs": {
+      "status": "PASS",
+      "rows": [
+        {
+          "path": "entrypoint-baseline.sh",
+          "sha256": "cfed8dfe73f1768b08d7dd378993bb3f121e77df691b68e7a4f786304621e8df",
+          "size": 2943
+        },
+        {
+          "path": "entrypoint-fixed.sh",
+          "sha256": "48f8607ef55b732890a3240f70da2127b52228038abf60a78a278879d488b568",
+          "size": 4865
+        },
+        {
+          "path": "test_docker_entrypoint.py",
+          "sha256": "3fd88e47a8a524a42d22bccac278d0a104e48faaaba6458ed1ef703ae785552f",
+          "size": 11782
+        },
+        {
+          "path": "ash-inputs.tar",
+          "sha256": "7c53f02824ce479cd87d13405dc7b49e9a467934f4bae585df9a7a7a1298dd67",
+          "size": 1331200
+        },
+        {
+          "path": "remote-tests.py",
+          "sha256": "2742e6bdc275291dec2a48f66a4055b59586790832bee08c42862ec8427be3e8",
+          "size": 1881
+        }
+      ]
+    },
+    "entrypoint_cleanup": {
+      "status": "PASS",
+      "removed_owned_root": "/var/tmp/qeli-q33-entrypoint-20261008.PSmIQd",
+      "backup_removed_after_local_sha": "/var/tmp/qeli-q33-entrypoint-20261008.PSmIQd-backup.tar.gz",
+      "service": "MainPID=777\nActiveState=active\n",
+      "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "entrypoint_backup": {
+      "lab_after": {
+        "service": "MainPID=777\nActiveState=active\n",
+        "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n",
+        "docker": null,
+        "host_dash_sha256": "a6f559e00b69a4aa4d8cb607be18d9386c5aee55c509e2c075549dcf00e00fc7",
+        "coreutils": "ln (GNU coreutils) 9.7",
+        "temporary_chroots_remaining": []
+      },
+      "backup": "/var/tmp/qeli-q33-entrypoint-20261008.PSmIQd-backup.tar.gz",
+      "sha256": "c591acbda988197bb463fea4aa821dbf0da47f2dd3f374b5d06e58d478ffcd19",
+      "size": 669672
+    },
+    "ci_command": {
+      "status": "PASS",
+      "rc": 0,
+      "ci_command": "sudo unshare --mount --net --pid --fork python3 -B scripts/test_docker_entrypoint.py",
+      "lab_command": "root executes same unshare/Python arguments, sudo omitted; TMPDIR private",
+      "methods": 17,
+      "entrypoint_invocations": 23,
+      "inputs": [
+        {
+          "path": "scripts/test_docker_entrypoint.py",
+          "sha256": "3fd88e47a8a524a42d22bccac278d0a104e48faaaba6458ed1ef703ae785552f"
+        },
+        {
+          "path": "release/docker/entrypoint.sh",
+          "sha256": "48f8607ef55b732890a3240f70da2127b52228038abf60a78a278879d488b568"
+        }
+      ],
+      "limits": "dash-only pipeline command with argv-recording qeli seam; not GitHub Actions result, Docker image or daemon network"
+    },
+    "ci_cleanup": {
+      "status": "PASS",
+      "own_root_removed": "/var/tmp/qeli-q33-entrypoint-ci-20261008.ZjQDap",
+      "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n",
+      "service": "MainPID=777\nActiveState=active\n"
+    },
+    "ci_backup": {
+      "status": "PASS",
+      "sha256": "3cdcd8e250addbc82dc58b9d4e469bfb1200e3d9d1a36017e303ff2721ea6f53",
+      "size": 5783,
+      "scope": "all test/entrypoint input bytes and output kept locally; remote intermediates not preserved"
+    },
+    "bootstrap": "NOT_ADMITTED_CAPACITY_DEFERRED; only partial SDK download, no host prepare/configure/compile",
+    "capacity": {
+      "disk": {
+        "total": 50407821312,
+        "used": 38258057216,
+        "free": 9556008960
+      },
+      "memory": "MemTotal:        2020932 kB\nMemFree:         1612676 kB\nMemAvailable:    1701224 kB\nBuffers:           39508 kB\nCached:           140440 kB\nSwapCached:         3984 kB\nActive:           111952 kB\nInactive:          84448 kB\nActive(anon):      12832 kB\nInactive(anon):     3672 kB\nActive(file):      99120 kB\nInactive(file):    80776 kB\nUnevictable:           0 kB\nMlocked:               0 kB\nSwapTotal:       2094076 kB\nSwapFree:        1893756 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:               336 kB\nWriteback:             0 kB\nAnonPages:         16304 kB\nMapped:            55012 kB\nShmem:                20 kB\nKReclaimable:      80540 kB\nSlab:             137400 kB\nSReclaimable:      80540 kB\nSUnreclaim:        56860 kB\nKernelStack:        2032 kB\nPageTables:         2428 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:     3104540 kB\nCommitted_AS:     468192 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       22436 kB\nVmallocChunk:          0 kB\nPercpu:             1344 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:         0 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nUnaccepted:            0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:      178024 kB\nDirectMap2M:     1918976 kB\nDirectMap1G:           0 kB\n",
+      "service": "MainPID=777\nActiveState=active\n",
+      "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "capacity_decision": {
+      "proof": {
+        "decision": "NOT_ADMITTED_RESOURCE_CAPACITY; no host/prepare/configure/bootstrap executed",
+        "recommendation": {
+          "url": "https://rustc-dev-guide.rust-lang.org/building/prerequisites.html",
+          "date": "2026-10-08",
+          "ram_gib": 8,
+          "free_disk_gb": 30,
+          "strict_minimum": false
+        },
+        "owned_download_cancelled": [
+          [
+            2757005,
+            "python3 -u -B remote-prepare.py ",
+            2757004
+          ],
+          [
+            2757006,
+            "curl --fail --location --max-time 600 --output /var/tmp/qeli-sdk-bootstrap-20261008.svjHYp/sdk.tar.zst https://downloads.openwrt.org/releases/24.10.4/targets/x86/64/openwrt-sdk-24.10.4-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst ",
+            2757004
+          ]
+        ],
+        "disk_after": {
+          "total": 50407821312,
+          "used": 38268792832,
+          "free": 9545273344
+        },
+        "services": "MainPID=777\nActiveState=active\n",
+        "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n",
+        "partial_sdk_bytes": 9437184,
+        "production_mutations": false
+      },
+      "backup": "/var/tmp/qeli-sdk-bootstrap-20261008.svjHYp-backup.tar.gz",
+      "sha256": "a40bc8dcf7fefbbd9386283e2582fe054da62a0a816cb89aad0796de16013981",
+      "size": 834257
+    },
+    "bootstrap_cleanup": {
+      "status": "PASS",
+      "exact_owned_root_removed": "/var/tmp/qeli-sdk-bootstrap-20261008.svjHYp",
+      "backup_removed_after_local_sha": "/var/tmp/qeli-sdk-bootstrap-20261008.svjHYp-backup.tar.gz",
+      "service": "MainPID=777\nActiveState=active\n",
+      "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "docs": "all9 checks/664 Markdown PASS",
+    "native": "14SHA/provenance PASS; qeli/native inputs/artifacts unchanged",
+    "recipe_contract": "38 mocked recipe tests PASS; no new heavy native builds",
+    "shell_syntax": "bash -n PASS"
+  },
+  "raw_packets": {
+    "q31-sdk-bootstrap-20261008": {
+      "path": "audit-debt-20260924/q31-sdk-bootstrap-20261008",
+      "status": "SEALED",
+      "files": 13,
+      "bytes": 1016634,
+      "manifest_sha256": "9c9b347eb444fe467fdbb6f46edad754408d61eee7f2fb197b2bdb770ba5ce6d"
+    },
+    "q33-docker-entrypoint-20261008": {
+      "path": "audit-debt-20260924/q33-docker-entrypoint-20261008",
+      "status": "SEALED",
+      "files": 25,
+      "bytes": 2072139,
+      "manifest_sha256": "8596d49f7129b2b32856cadd0f60ab6fd6c3ea0d288d21b1fdcc80effe283e46"
+    },
+    "q33-docker-entrypoint-ci-20261008": {
+      "path": "audit-debt-20260924/q33-docker-entrypoint-ci-20261008",
+      "status": "SEALED",
+      "files": 8,
+      "bytes": 25685,
+      "manifest_sha256": "f2f651e5a0198917e3c2e205354aabd8bd6ebfd1985dfd0d10a85d128ab9e9f6"
+    }
+  },
+  "limits": [
+    "exact whole entrypoint in private chroots with qeli argv-recording seam; daemon and Docker image not executed",
+    "dash/ash use actual Debian coreutils; no BusyBox utilities claim",
+    "deterministic competing creator injected at ln; no privileged-parent or powerloss/SIGKILL durability claim",
+    "hard-link support required for first-run creation; existing bytes/modes preserved",
+    "local exact Linux CI command PASS does not mean new Actions run",
+    "Rust upstream8GB/30GB are recommendations not strict minima; measured lab~2GB/~9GB; deferred, no invented OOM/ENOSPC/compilerFAIL",
+    "Q33 full installer/updater/Docker image integration and Q31 bootstrap/source-cut/current CI remain OPEN",
+    "Q29 SIGKILLFAIL/ENONET,Q30Apple/callback,user exclusions,D06accepted retained"
+  ],
+  "progress": {
+    "Q31": "3/5 IN_PROGRESS",
+    "Q33": "IN_PROGRESS; entrypoint scoped closure only",
+    "full_audit": "29/37 DONE78.4%;8remain",
+    "old_debt": "14DONE+D06accepted"
+  },
+  "historical_policy": "41cases/acceptance and55prior supplements preserved modulo source_digest; existing evidence/date/artifact/failed/skip dispositions not rewritten; no full matrix/soak/benchmark/native execution",
+  "actions": "local dev commit; NO_PUSH_DEPLOY_RELEASE"
+}

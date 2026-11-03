@@ -1,0 +1,495 @@
+{
+  "schema_version": 1,
+  "status": "PASS_Q22",
+  "executed_at": "2026-10-04T10:14:58.184603+00:00",
+  "artifact_sha256": "36a0e491f9437773b73b3e29f9c7ab0b7f624142e782dd78777f0c6168e6cef1",
+  "core_commit": "0d968fda05ae07b845b889ccfb1e0aaebfb8c2df",
+  "fixes": [
+    "Q22-F001 P2: poison queued object access inside unwind boundary; generation-safe retirement",
+    "Q22-F002 P2: cancel leased runners before resuming control-operation panic and retiring public handle"
+  ],
+  "unit": {
+    "passed": 2402,
+    "ignored": 60,
+    "feature": "transport-core-ffi",
+    "groups": {
+      "transport_core::": 213,
+      "transport_core::ffi::": 17,
+      "protocol::realtls::registry::": 10
+    },
+    "groups_overlap": true,
+    "default_passed": 2384,
+    "new_registry_regression": 1,
+    "strengthened_ffi_assertion": 1
+  },
+  "baselines": {
+    "registry": {
+      "started_at": "2026-10-04T09:12:46.723607+00:00",
+      "scope": "Actual production registry with one new concurrency test, before production fix. Standalone Rust std test crate; no whole-core compilation.",
+      "host_before": {
+        "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+        "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+        "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+        "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+        "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+        "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall6_legacy": "",
+        "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+        "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+        "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+        "named_namespaces": ""
+      },
+      "input_sha256": "6696016bf7b67a547998c272d5e3310522327676480b87b8fc59006a47ff031b",
+      "command": "export PATH=/root/.cargo/bin:$PATH; rustc +1.96.0 --edition=2021 --test /var/tmp/qeli-q22-registry-baseline-20261004/registry.rs -o /var/tmp/qeli-q22-registry-baseline-20261004/tests && /var/tmp/qeli-q22-registry-baseline-20261004/tests",
+      "exit_code": 101,
+      "expected_failure": "queued_operation_never_observes_state_left_by_a_panicking_call",
+      "status": "PASS_DEFECT_REPRODUCED",
+      "host_after": {
+        "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+        "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+        "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+        "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+        "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+        "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall6_legacy": "",
+        "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+        "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+        "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+        "named_namespaces": ""
+      },
+      "host_restored": true
+    },
+    "cancellation": {
+      "started_at": "2026-10-04T09:30:48.419324+00:00",
+      "original_sha256": "51c5b01511c74155d69fd9d56265324822ba2e3b9bcb5412803f2ac66456a422",
+      "fixture_sha256": "5ff1ffc97ee7479fd93fa4fe583c0b815d620f67ebf4c9c56aa3994d402f629b",
+      "host_before": {
+        "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+        "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+        "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+        "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+        "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+        "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall6_legacy": "",
+        "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+        "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+        "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+        "named_namespaces": ""
+      },
+      "header_sha256": "f26726abc8123f6351dbed1ab6f699b0b2fbb465a2e2ae7d8c4714b0f32fa027",
+      "command": "export PATH=/root/.cargo/bin:$PATH; export CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/var/tmp/qeli-q06-inline-build-20261003; cd /var/tmp/qeli-d15-linux-source-r2-20261003/qeli; ulimit -Sn 4096; cargo +1.96.0 test --offline --locked --lib --features transport-core-ffi transport_core::ffi::",
+      "exit_code": 101,
+      "status": "PASS_DEFECT_REPRODUCED",
+      "input_restored": true,
+      "host_after": {
+        "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+        "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+        "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+        "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+        "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+        "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall6_legacy": "",
+        "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+        "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+        "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+        "named_namespaces": ""
+      },
+      "host_restored": true
+    }
+  },
+  "windows": {
+    "status": "PASS",
+    "library_sha256": "c6b29b17e5aa72c55a7d9d42dcaa9f652d837ee8d289d310919f3e3d0e77daff",
+    "checks": [
+      {
+        "check": "ABI 1.16 and declared capabilities",
+        "passed": true
+      },
+      {
+        "check": "null configuration rejected before allocation",
+        "passed": true
+      },
+      {
+        "check": "invalid UTF8 returns no handle",
+        "passed": true
+      },
+      {
+        "check": "Created state",
+        "passed": true
+      },
+      {
+        "check": "device identity requires sixteen nonzero bytes",
+        "passed": true
+      },
+      {
+        "check": "start transitions once",
+        "passed": true
+      },
+      {
+        "check": "publish copies plan and enters AwaitingNetwork",
+        "passed": true
+      },
+      {
+        "check": "buffer size probe preserves plan and future event tail",
+        "passed": true
+      },
+      {
+        "check": "stale generation cannot accept network",
+        "passed": true
+      },
+      {
+        "check": "positive ACK enters Running",
+        "passed": true
+      },
+      {
+        "check": "old stats prefix and caller tail preserved",
+        "passed": true
+      },
+      {
+        "check": "malformed batch has no partial acceptance",
+        "passed": true
+      },
+      {
+        "check": "fixed packet pool applies backpressure",
+        "passed": true
+      },
+      {
+        "check": "empty downlink reports zero bytes",
+        "passed": true
+      },
+      {
+        "check": "stop terminates generation",
+        "passed": true
+      },
+      {
+        "check": "stopped bridge is unavailable",
+        "passed": true
+      },
+      {
+        "check": "free and stale handle refuse reuse",
+        "passed": true
+      },
+      {
+        "check": "100 registry reuse cycles preserve stale-handle isolation",
+        "passed": true
+      },
+      {
+        "check": "eight concurrent frees destroy one generation exactly once",
+        "passed": true
+      },
+      {
+        "check": "second native runner cannot enter an active generation",
+        "passed": true
+      },
+      {
+        "check": "free invalidates public handle while runner is leased",
+        "passed": true
+      },
+      {
+        "check": "free cancels and joins pending native handshake",
+        "passed": true
+      }
+    ],
+    "scope": "Windows packaged C ABI and real localhost handshake cancellation; no Wintun or OS network mutation."
+  },
+  "header": {
+    "header_sha256": "f26726abc8123f6351dbed1ab6f699b0b2fbb465a2e2ae7d8c4714b0f32fa027",
+    "checks": [
+      {
+        "command": "cc -std=c11 -Wall -Wextra -Werror /var/tmp/qeli-q22-header-20261004/check.c -o /var/tmp/qeli-q22-header-20261004/check && /var/tmp/qeli-q22-header-20261004/check",
+        "exit_code": 0,
+        "output": "PASS frozen C header layouts and version compatibility"
+      },
+      {
+        "command": "c++ -std=c++11 -Wall -Wextra -Werror /var/tmp/qeli-q22-header-20261004/check.c -o /var/tmp/qeli-q22-header-20261004/check && /var/tmp/qeli-q22-header-20261004/check",
+        "exit_code": 0,
+        "output": "PASS frozen C header layouts and version compatibility"
+      }
+    ],
+    "status": "PASS"
+  },
+  "jni": {
+    "started_at": "2026-10-04T10:14:58.184603+00:00",
+    "source_commit": "13c21d2ad47be82343df4fdfe627960a9096d4ce",
+    "host_before": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "service_before": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+    "working_before": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0  /root/qeli-src/target/release/qeli",
+    "audit_android_client_abi.java_sha256": "4326e879c863986e0b61c4b19e9f4c48f91abc38446371af2f76e8ccf25ddb4e",
+    "libqeli.so_sha256": "f29aad37de890d30f1db4ce3ac8fc06a86cec0638eb820e07f7924a297c9bdb8",
+    "runner.py_sha256": "1c4f61cf622677d9e1c4e91db44ca2e36ac9417d1115b785663aa27480ce0a6e",
+    "exit_code": 0,
+    "runtime": {
+      "started_at": 1791108920.704743,
+      "library_sha256": "f29aad37de890d30f1db4ce3ac8fc06a86cec0638eb820e07f7924a297c9bdb8",
+      "java_sha256": "4326e879c863986e0b61c4b19e9f4c48f91abc38446371af2f76e8ccf25ddb4e",
+      "userdata_before": {
+        "userdata-qemu.img": {
+          "size": 6488064,
+          "mtime_ns": 1780516611593940558,
+          "sha256": "ed4bb2acadf1649b4ff11855b34625b0bdcdb7381837556b564fe3efee91ee1b"
+        },
+        "userdata-qemu.img.qcow2": {
+          "size": 1273823232,
+          "mtime_ns": 1788523495036757142,
+          "sha256": "2761f1a8bc55b4e19beabdbb9067fb6dc5997e03cc9dc1bad4cc91c482578fc7"
+        },
+        "userdata.img": {
+          "size": 1048576,
+          "mtime_ns": 1780516505618024000,
+          "sha256": "30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58"
+        }
+      },
+      "emulator_command": [
+        "/root/android-sdk/emulator/emulator",
+        "-avd",
+        "test",
+        "-port",
+        "5562",
+        "-read-only",
+        "-no-snapshot-load",
+        "-no-snapshot-save",
+        "-no-window",
+        "-no-audio",
+        "-no-boot-anim",
+        "-gpu",
+        "swiftshader",
+        "-memory",
+        "1024",
+        "-cores",
+        "1"
+      ],
+      "links_before": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\\    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n2: dummy0: <BROADCAST,NOARP,UP,LOWER_UP> mtu 1500 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\\    link/ether fe:82:0d:78:c4:ba brd ff:ff:ff:ff:ff:ff\n3: ifb0: <BROADCAST,NOARP> mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 32\\    link/ether 3e:bc:86:85:07:af brd ff:ff:ff:ff:ff:ff\n4: ifb1: <BROADCAST,NOARP> mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 32\\    link/ether 2a:06:e1:d9:c4:d2 brd ff:ff:ff:ff:ff:ff\n5: tunl0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ipip 0.0.0.0 brd 0.0.0.0\n6: gre0@NONE: <NOARP> mtu 1476 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/gre 0.0.0.0 brd 0.0.0.0\n7: gretap0@NONE: <BROADCAST,MULTICAST> mtu 1462 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ether 00:00:00:00:00:00 brd ff:ff:ff:ff:ff:ff\n8: erspan0@NONE: <BROADCAST,MULTICAST> mtu 1450 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ether 00:00:00:00:00:00 brd ff:ff:ff:ff:ff:ff\n9: ip_vti0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ipip 0.0.0.0 brd 0.0.0.0\n10: ip6_vti0@NONE: <NOARP> mtu 1364 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/tunnel6 :: brd ::\n11: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/sit 0.0.0.0 brd 0.0.0.0\n12: ip6tnl0@NONE: <NOARP> mtu 1452 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/tunnel6 :: brd ::\n13: ip6gre0@NONE: <NOARP> mtu 1448 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/gre6 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00 brd 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\n14: hwsim0: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ieee802.11/radiotap 12:00:00:00:00:00 brd ff:ff:ff:ff:ff:ff\n15: eth0: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ether 52:54:00:12:34:56 brd ff:ff:ff:ff:ff:ff\n16: wlan0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc mq state DOWN mode DORMANT group default qlen 1000\\    link/ether 02:15:ba:00:00:00 brd ff:ff:ff:ff:ff:ff\n",
+      "packages_before": "",
+      "exit_code": 0,
+      "checks": 23,
+      "status": "PASS",
+      "facts": {
+        "ro.build.version.sdk": "34",
+        "ro.build.version.release": "14",
+        "ro.product.cpu.abi": "x86_64"
+      },
+      "links_after": "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\\    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n2: dummy0: <BROADCAST,NOARP,UP,LOWER_UP> mtu 1500 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\\    link/ether fe:82:0d:78:c4:ba brd ff:ff:ff:ff:ff:ff\n3: ifb0: <BROADCAST,NOARP> mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 32\\    link/ether 3e:bc:86:85:07:af brd ff:ff:ff:ff:ff:ff\n4: ifb1: <BROADCAST,NOARP> mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 32\\    link/ether 2a:06:e1:d9:c4:d2 brd ff:ff:ff:ff:ff:ff\n5: tunl0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ipip 0.0.0.0 brd 0.0.0.0\n6: gre0@NONE: <NOARP> mtu 1476 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/gre 0.0.0.0 brd 0.0.0.0\n7: gretap0@NONE: <BROADCAST,MULTICAST> mtu 1462 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ether 00:00:00:00:00:00 brd ff:ff:ff:ff:ff:ff\n8: erspan0@NONE: <BROADCAST,MULTICAST> mtu 1450 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ether 00:00:00:00:00:00 brd ff:ff:ff:ff:ff:ff\n9: ip_vti0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ipip 0.0.0.0 brd 0.0.0.0\n10: ip6_vti0@NONE: <NOARP> mtu 1364 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/tunnel6 :: brd ::\n11: sit0@NONE: <NOARP> mtu 1480 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/sit 0.0.0.0 brd 0.0.0.0\n12: ip6tnl0@NONE: <NOARP> mtu 1452 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/tunnel6 :: brd ::\n13: ip6gre0@NONE: <NOARP> mtu 1448 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/gre6 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00 brd 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\n14: hwsim0: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ieee802.11/radiotap 12:00:00:00:00:00 brd ff:ff:ff:ff:ff:ff\n15: eth0: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000\\    link/ether 52:54:00:12:34:56 brd ff:ff:ff:ff:ff:ff\n16: wlan0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc mq state DOWN mode DORMANT group default qlen 1000\\    link/ether 02:15:ba:00:00:00 brd ff:ff:ff:ff:ff:ff\n",
+      "packages_after": "",
+      "userdata_after": {
+        "userdata-qemu.img": {
+          "size": 6488064,
+          "mtime_ns": 1780516611593940558,
+          "sha256": "ed4bb2acadf1649b4ff11855b34625b0bdcdb7381837556b564fe3efee91ee1b"
+        },
+        "userdata-qemu.img.qcow2": {
+          "size": 1273823232,
+          "mtime_ns": 1788523495036757142,
+          "sha256": "2761f1a8bc55b4e19beabdbb9067fb6dc5997e03cc9dc1bad4cc91c482578fc7"
+        },
+        "userdata.img": {
+          "size": 1048576,
+          "mtime_ns": 1780516505618024000,
+          "sha256": "30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58"
+        }
+      },
+      "userdata_preserved": true
+    },
+    "status": "PASS",
+    "host_after": {
+      "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+      "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+      "firewall6_legacy": "",
+      "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+      "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "named_namespaces": ""
+    },
+    "service_after": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+    "working_after": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0  /root/qeli-src/target/release/qeli",
+    "host_restored": true
+  },
+  "native": {
+    "desktop": {
+      "result_sha256": "35a1c1a22f8a2378c7d6ccb1485d72faf651a0880b3b55d4e1d1d11d9d36e55a",
+      "source_commit": "13c21d2ad47be82343df4fdfe627960a9096d4ce",
+      "host_restored": false,
+      "accepted_legacy_delta": [
+        "firewall4",
+        "firewall4_legacy"
+      ],
+      "record": {
+        "artifacts": {
+          "native-libs/macos-universal/libqeli.dylib": {
+            "consumed": {
+              "qeli-mac/QeliMac/native/libqeli.dylib": "f8dc8d23ca5c76dffccfc26ff64b62791663826ac01243c97cdbe19bb7407bf0"
+            },
+            "final_sha256": "f8dc8d23ca5c76dffccfc26ff64b62791663826ac01243c97cdbe19bb7407bf0",
+            "pass_a_sha256": "f8dc8d23ca5c76dffccfc26ff64b62791663826ac01243c97cdbe19bb7407bf0",
+            "pass_b_sha256": "f8dc8d23ca5c76dffccfc26ff64b62791663826ac01243c97cdbe19bb7407bf0",
+            "reproducible": true
+          },
+          "native-libs/windows-x64/qeli.dll": {
+            "consumed": {
+              "qeli-win/QeliWin/native/qeli.dll": "c6b29b17e5aa72c55a7d9d42dcaa9f652d837ee8d289d310919f3e3d0e77daff"
+            },
+            "final_sha256": "c6b29b17e5aa72c55a7d9d42dcaa9f652d837ee8d289d310919f3e3d0e77daff",
+            "pass_a_sha256": "c6b29b17e5aa72c55a7d9d42dcaa9f652d837ee8d289d310919f3e3d0e77daff",
+            "pass_b_sha256": "c6b29b17e5aa72c55a7d9d42dcaa9f652d837ee8d289d310919f3e3d0e77daff",
+            "reproducible": true
+          }
+        },
+        "recipe": "qeli-native-repro-v1",
+        "schema": 1,
+        "source_commit": "13c21d2ad47be82343df4fdfe627960a9096d4ce",
+        "source_date_epoch": 1791106576,
+        "source_digest": "c81ac0de322a86e45fc3a9fabe503750c208d205bda7ba8f88da9f2c73a93645",
+        "source_dirty": false,
+        "toolchain": {
+          "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+          "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+          "cargo_zigbuild_version": "0.23.0",
+          "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+          "rcodesign": "apple-codesign 0.29.0",
+          "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+          "rust_toolchain": "1.97.0",
+          "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+          "zig": "0.13.0"
+        }
+      }
+    },
+    "android": {
+      "result_sha256": "d60f2faf91bf31c6722aba9ddf6c439be8bbf828bf3d33fda2c1067f65ab9f95",
+      "source_commit": "13c21d2ad47be82343df4fdfe627960a9096d4ce",
+      "host_restored": true,
+      "accepted_legacy_delta": [],
+      "record": {
+        "artifacts": {
+          "native-libs/android/arm64-v8a/libqeli.so": {
+            "consumed": {
+              "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "51e59476d32a0e1260a7e05397e32cbf374ea104e76924431c76e4e059d3b665"
+            },
+            "final_sha256": "51e59476d32a0e1260a7e05397e32cbf374ea104e76924431c76e4e059d3b665",
+            "pass_a_sha256": "51e59476d32a0e1260a7e05397e32cbf374ea104e76924431c76e4e059d3b665",
+            "pass_b_sha256": "51e59476d32a0e1260a7e05397e32cbf374ea104e76924431c76e4e059d3b665",
+            "reproducible": true
+          },
+          "native-libs/android/x86_64/libqeli.so": {
+            "consumed": {
+              "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "f29aad37de890d30f1db4ce3ac8fc06a86cec0638eb820e07f7924a297c9bdb8"
+            },
+            "final_sha256": "f29aad37de890d30f1db4ce3ac8fc06a86cec0638eb820e07f7924a297c9bdb8",
+            "pass_a_sha256": "f29aad37de890d30f1db4ce3ac8fc06a86cec0638eb820e07f7924a297c9bdb8",
+            "pass_b_sha256": "f29aad37de890d30f1db4ce3ac8fc06a86cec0638eb820e07f7924a297c9bdb8",
+            "reproducible": true
+          }
+        },
+        "recipe": "qeli-native-repro-v1",
+        "schema": 1,
+        "source_commit": "13c21d2ad47be82343df4fdfe627960a9096d4ce",
+        "source_date_epoch": 1791106576,
+        "source_digest": "c81ac0de322a86e45fc3a9fabe503750c208d205bda7ba8f88da9f2c73a93645",
+        "source_dirty": false,
+        "toolchain": {
+          "android_ndk": "26.3.11579264",
+          "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+          "cargo_ndk": "cargo-ndk v4.1.2:",
+          "cargo_ndk_version": "4.1.2",
+          "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+          "rust_toolchain": "1.97.0",
+          "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+        }
+      }
+    }
+  },
+  "fixtures_sha256": {
+    "scripts/audit_client_abi.py": "b5a1e9e0ee0d26041faf90848b4938dcd8ec19045b682da696b9351ea81bd592",
+    "scripts/audit_android_client_abi.java": "4326e879c863986e0b61c4b19e9f4c48f91abc38446371af2f76e8ccf25ddb4e"
+  },
+  "plan": {
+    "done": 22,
+    "total": 37,
+    "percent": 59.5,
+    "remaining": 15,
+    "next": "Q23 roaming, resume and CONTROL_V2"
+  },
+  "limits": [
+    "Internal panic injections confirm defects; no remote panic trigger, Rust memory UAF or invalid-address sandbox is established.",
+    "C ABI requires valid caller-owned memory; unwind does not cover OOM abort/fatal faults. Slot generations have a finite 32-bit wrap boundary.",
+    "Pool byte budgets describe initial reservations, not a universal hard heap cap.",
+    "Fresh Windows C ABI and Android JNI lifecycle do not qualify OS network setup or installed-app E2E. User-excluded Mac/iOS/router/Windows VM network runtime unchanged.",
+    "CLI release bytes equal Q21; previous network matrix rows keep original executable/date/evidence. No new benchmark, deployed binary replacement, restart or push.",
+    "60 ignored tests remain excluded; prior privileged TUN evidence reused only for unchanged inputs.",
+    "Desktop retains previously accepted ambient legacy three-rule delta and Q25-A125 WAN replacement limitation.",
+    "Initial build/JNI preparation failures are retained; successful final desktop-final/android-final-r4/jni are authoritative. Verified inactive private Linux build caches removed for Android headroom after preserving results."
+  ],
+  "raw_root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q22-core-20261004",
+  "raw_sha256": {
+    "cache-cleanup.json": "6d11b6af1aea7a44490730cfd66db115e58c542707259a0637e2691fa331966a",
+    "debug-cache-cleanup.json": "7f01ba41c1636075cd81e584cc74ad9093f0c5080468466abc14dd1cad6752e8",
+    "dependency-cache-cleanup.json": "c03a45803187ea88bcc269fc23c2186446f328fc47fb0dcf1d39c759c4d09d3e",
+    "header.json": "4a5c4b93852bf3cdfe9580e516e9042dc57b5739c06dd0b8444f1beab46fb785",
+    "unit-cache-cleanup.json": "a2ba07a5dc5fa090b5c859006b315258dcf8d88bf3b4a7b3a4bf3e2afd97cb29",
+    "windows-calibration.json": "7dd97dcf43899233cb8d57301385d3b65309eb91ef394c130b4616b672560998",
+    "windows.json": "641b812968cce8467d54a510c3d4d67158b947bf6554db026fcb643e7e305475",
+    "android-final/build.log": "055d1d0bd9977271d8c3641c75e2855bdcae9ad87b4a5bd121e464095cc02334",
+    "android-final/result.json": "0735fd7933f33fd31fce0c59923d98a34bfe91909c4c1d92142e0544c6b3c395",
+    "android-final-r2/build.log": "0557e1e6c591e87aa42fa33bfa87b4fe8e1ef6f01b739d0409cb3d29e88bc6ef",
+    "android-final-r2/result.json": "55ce46502c03440636e1ac15ff6146180e7b3c309ddc135d69aec588d1024e61",
+    "android-final-r3/build.log": "e7b9d2580fd248606f598ffe749726c6a0b3e52dd6756891a098f743f6ac4654",
+    "android-final-r3/result.json": "2da2b7db034c92cadd85e523eea482b008f6bf9d34c69a771421b4ce52c055cf",
+    "android-final-r4/build.log": "2f20992cc14a61f5981df5e9e6f34f5ade0768e561c6676e7dbc28a0ec0fd4e7",
+    "android-final-r4/result.json": "d60f2faf91bf31c6722aba9ddf6c439be8bbf828bf3d33fda2c1067f65ab9f95",
+    "baseline/result.json": "47a8238cdeeb1e3046f3045859aa1feac99d10eb52bbb5f6cdb9d437516bd53d",
+    "baseline/tests.log": "92e7f1c7ce478d98e33629894e99026f1bd571417691696b2ade3eca20393b14",
+    "cancel-baseline/result.json": "43f8a67e36fa7fee4c2a5554ee5b1c15108219c7a728ddb30699b72a05e7083d",
+    "cancel-baseline/tests.log": "8efc691d7854aea281dd818ebd479e2c2728bbb0eb354fe4f6323128ac9cf885",
+    "cancel-baseline-r2/result.json": "23f111e7e354e63ccaebd77b7923285d6de62bc56579a11ef7eac268ad1da0cb",
+    "cancel-baseline-r2/tests.log": "0bc29a3413480892495ee356aef1e52cf6c35c8902f0fdc9830f66b8a767db4a",
+    "desktop/build.log": "db2ef89f115f858c7708b8ca4791416c7ff5e248af7549d0846715cb03087b15",
+    "desktop/result.json": "2fc7301df3329d60abc83a4b5173bba81da60e200a9a427fad3dbec69b4c50bc",
+    "desktop-final/build.log": "e1641334aeec630622c8343a655d6b135fe841f118c84d48084711eeb8e12b85",
+    "desktop-final/result.json": "35a1c1a22f8a2378c7d6ccb1485d72faf651a0880b3b55d4e1d1d11d9d36e55a",
+    "fixed-registry/registry.rs": "eb03e758528235bf2a7063375e946869e5622183f8c02bbd7506e991bec3870f",
+    "fixed-registry/result.json": "cabbaf74bf6a9caa153e3f02d340fcb02089c0e33cbfc3448ec431bb340b4201",
+    "fixed-registry/tests.log": "4735313b656fceb9bbcf81649b8440f68c7e470f6938e84dda19d8ea392e20a5",
+    "jni/result.json": "46a193087674d5903d770cbc02a5aeb0f517431d781309197c8eee669fc99d7a",
+    "jni/runtime.log": "917a48edb485d5aae2256115b588a3571a72aa739d696dbc84265b7d8a2db859",
+    "jni-calibration/result.json": "9acf322155b72bd0fdfc5801c76f8bdb82265f70f0f553a4709af229542ad46f",
+    "jni-calibration/runtime.log": "475b313e6b3aef88b8259322bfb5fb503ad1d47aa5d5b245d82f7f2566415a95",
+    "jni-compile/result.json": "a8ec1519afc45e91c45a2d25e77dae198ddd7635efe323da02504afeca30574a",
+    "jni-compile/runtime.log": "a146135f2cc9b0c2cd4b00077465d815d68b44b85119c4fcaef7946f0f5936a2",
+    "linux-build/clippy.log": "d55477247eeef26c32a702003e09fe844d4760cadd596d64bee1cad146b20fb0",
+    "linux-build/release.log": "44fe4710df2f4e8928f80e4ba6948b261eb4fd2ba16f6638633ae209a983e65f",
+    "linux-build/result.json": "409b2cb62f00e7c0c36502e1f41cb4f16e97902692b58445fb3952b73880f3b1",
+    "linux-build/unit.log": "3d6b045536388f5a62098fc90dd6b6780143ec42b853267e89d6183cd686b2dc",
+    "linux-build-r2/clippy.log": "7cfe616532c15b3119bcb601cf68ad48ff3338b00511374f3331c8bc17c10731",
+    "linux-build-r2/release.log": "ca60f5b7baef2ac44ff94aaea24c99b61caf6765d7439ba21e345e975e919d12",
+    "linux-build-r2/result.json": "a06d752c98cc4dcd3448edb49f5f88ed952dd3c45d3f04d5d1c8fefdf3b58c5c",
+    "linux-build-r2/unit.log": "c666cbeb3f187cbf33f387f14aadadda5511d82a60d3dbe12fe9492c4c218821",
+    "jni-compile/artifacts/d8.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "jni-compile/artifacts/javac.log": "1ea034f4dc1fb08054e9217ce3b9ab05ef1793f931ad7346e38747537c84a63a",
+    "jni-compile/artifacts/result.json": "54bfecc2f6fec29dec2c7d2cb68ce566f0f0bb29429c2d44e80dc2d7602a8916",
+    "jni/artifacts/d8.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "jni/artifacts/emulator.log": "56b775786080cd85a848fc0e7953fb9bde89caa90a8ce1d9e4e0f12ccd2f1820",
+    "jni/artifacts/javac.log": "1ea034f4dc1fb08054e9217ce3b9ab05ef1793f931ad7346e38747537c84a63a",
+    "jni/artifacts/jni.log": "f67b8bf4831a860ca6127fc6d02ea052b0ecdf2568e8a2a64b7bd5ec20c0bb24",
+    "jni/artifacts/result.json": "72fb51d4469e3b53482c2faff5d3b3a2a336ebc8659e257c4d74ef88ceeed6f0"
+  }
+}

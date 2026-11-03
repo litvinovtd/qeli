@@ -1,0 +1,1010 @@
+{
+  "status": "RETAINED_SIX_UID_DNS_CELLS_AND_36_FAMILY_CHECKS_ARCHIVE_SHA_REVALIDATED_NO_RUNTIME_REPLAY",
+  "qualification": {
+    "status": "RETAINED_SIX_UID_DNS_CELLS_AND_36_FAMILY_CHECKS_ARCHIVE_SHA_REVALIDATED_NO_RUNTIME_REPLAY",
+    "reviewed_at_unix": 1791950919.4755158,
+    "review_source_commit": "9324fb2be7819111cd7bfa557a2b567306511fe8",
+    "actual_runtime_source_identity": "361327f7000aa73ef380f757515103818d9cff57\ncc3f15dcef1290b58aafb90f638ddde84cf1b356\n",
+    "actual_runtime_date": "2026-10-12",
+    "raw_sha256": {
+      "q29-dns-selection-control-r2-20261012/backup-proof.json": "bbc729d69076e3ac2c63d539ea1d4ab506eb56963f2ac3c0155fe5c302a294e5",
+      "q29-dns-selection-control-r2-20261012/cleanup.json": "e0487766f11f050617afc75652815e863ab73e499d600f03dc01a11827e0c093",
+      "q29-dns-selection-control-r2-20261012/launch.json": "9383d669f80ead960bfb05ee5a38e6c1a29fa1be4cbda6b162c71230a58bf745",
+      "q29-dns-selection-control-r2-20261012/qualification-partial.json": "44a82039288f69a910060961b8d8ac35f1c22c91fa3ae53d79bf4d79d6df68c3",
+      "q29-dns-selection-control-r2-20261012/runtime/evidence/dns-selection-cells.json": "e1bf1787932707fc2b10fbb8c87e6650a7d4bc0da3dedcc5cff8d88b1b00352b",
+      "q29-dns-selection-control-r2-20261012/runtime/evidence/dns-receipts.json": "132ce5e1e6efe2b9fd655dda12882bc41e1ca827c1ec0ee0ffe8c4c32dd01541",
+      "q29-dns-selection-control-r2-20261012/runtime/evidence/result.json": "293cecf933fe8869c447d2c85e3e87599c9f70888fce9d194c8c3a742d0401c0",
+      "q29-dns-selection-control-r3-20261012/backup-proof.json": "3139031e193872a417f58372cd99564d9b97c20c7a2e1ef56d4f060dbebf8bbe",
+      "q29-dns-selection-control-r3-20261012/cleanup.json": "2ddf5edbde6af654c2acb827226a05c551d0ad5b77a5966f669aab21355fa5a6",
+      "q29-dns-selection-control-r3-20261012/launch.json": "8651e542fdb3bde9549e006af61449dfe0771da2a2a510693294489a93958a83",
+      "q29-dns-selection-control-r3-20261012/qualification.json": "be7bc1195072a91efcb8ca2524f149b2b419472dbb206fef7db0a6a870f4820f",
+      "q29-dns-selection-control-r3-20261012/runtime/evidence/dns-selection-cells.json": "e5f8864882fb607e3aec274a2808525a2ef3e8b8e6948a226bd02f591554004d",
+      "q29-dns-selection-control-r3-20261012/runtime/evidence/dns-receipts.json": "2d5cce8df5f885d3a483ee29c776d0cf13a95161c860c105a1ad65ed5ec1c620",
+      "q29-dns-selection-control-r3-20261012/runtime/evidence/result.json": "c0736442b6bb428cb8a9fc3787f5203f70811d58c43fa969a7329966fed3f000",
+      "q29-dns-native-selection-20261014/review.json": "b994f4e0664a6424a887446dfbef249e429f6ed6fdcc25e8ec748bc375f637bd"
+    },
+    "cells": [
+      {
+        "stage": "physical-baseline",
+        "runtime_source_packet": "q29-dns-selection-control-r2-20261012",
+        "uid": 10150,
+        "pid": 2437,
+        "started_ms": 1791784812650,
+        "done_ms": 1791784812775,
+        "active_netid": "100",
+        "selected_netid": 100,
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.0.2.15:43235"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fec0::5054:ff:fe12:3456]:42915"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.0.2.15:48243"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fec0::5054:ff:fe12:3456]:42716"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.0.2.15:39260"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fec0::5054:ff:fe12:3456]:35712"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-135290079006.test",
+            "started_ms": 1791784812679,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784812703
+          },
+          {
+            "mode": "a",
+            "name": "q29-135313943054.test",
+            "started_ms": 1791784812703,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791784812726
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-135337095111.test",
+            "started_ms": 1791784812726,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784812734
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-135345235156.test",
+            "started_ms": 1791784812734,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784812755
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-135366074751.test",
+            "started_ms": 1791784812755,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784812775
+          }
+        ],
+        "policy": {
+          "always_on_vpn_app": "null",
+          "always_on_vpn_lockdown": "null"
+        }
+      },
+      {
+        "stage": "qeli-secure-open",
+        "runtime_source_packet": "q29-dns-selection-control-r2-20261012",
+        "uid": 10150,
+        "pid": 2437,
+        "started_ms": 1791784839059,
+        "done_ms": 1791784839306,
+        "active_netid": "101",
+        "selected_netid": 100,
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.86.0.2:42068"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd86:29:1::2]:54541"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.86.0.2:43322"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd86:29:1::2]:51489"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-161761444302.test",
+            "started_ms": 1791784839151,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791784839167
+          },
+          {
+            "mode": "a",
+            "name": "q29-161777302262.test",
+            "started_ms": 1791784839167,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791784839204
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-161815166301.test",
+            "started_ms": 1791784839204,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784839240
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-161850278160.test",
+            "started_ms": 1791784839240,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784839294
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-161905061477.test",
+            "started_ms": 1791784839294,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791784839306
+          }
+        ],
+        "policy": {
+          "always_on_vpn_app": "com.qeli",
+          "always_on_vpn_lockdown": "0"
+        }
+      },
+      {
+        "stage": "qeli-secure-lockdown",
+        "runtime_source_packet": "q29-dns-selection-control-r2-20261012",
+        "uid": 10150,
+        "pid": 2437,
+        "started_ms": 1791784850318,
+        "done_ms": 1791784850349,
+        "active_netid": "102",
+        "selected_netid": 100,
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.86.0.2:49696"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd86:29:1::2]:57218"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.86.0.2:60957"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd86:29:1::2]:35986"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-172934616862.test",
+            "started_ms": 1791784850324,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791784850324
+          },
+          {
+            "mode": "a",
+            "name": "q29-172935176330.test",
+            "started_ms": 1791784850324,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791784850335
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-172946223796.test",
+            "started_ms": 1791784850335,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784850341
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-172952062293.test",
+            "started_ms": 1791784850341,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791784850349
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-172959677897.test",
+            "started_ms": 1791784850349,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791784850349
+          }
+        ],
+        "policy": {
+          "always_on_vpn_app": "com.qeli",
+          "always_on_vpn_lockdown": "1"
+        }
+      },
+      {
+        "stage": "control-secure-open",
+        "runtime_source_packet": "q29-dns-selection-control-r3-20261012",
+        "uid": 10150,
+        "pid": 2534,
+        "started_ms": 1791785319938,
+        "done_ms": 1791785320017,
+        "active_netid": "101",
+        "selected_netid": 100,
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:53402"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:42859"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:58294"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:49950"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-112143144299.test",
+            "started_ms": 1791785319957,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791785319961
+          },
+          {
+            "mode": "a",
+            "name": "q29-112147106043.test",
+            "started_ms": 1791785319961,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791785319978
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-112164279839.test",
+            "started_ms": 1791785319979,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785319994
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-112179340800.test",
+            "started_ms": 1791785319994,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785320017
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-112202787254.test",
+            "started_ms": 1791785320017,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791785320017
+          }
+        ],
+        "policy": {
+          "always_on_vpn_app": "com.qeli.audit.dnstun",
+          "always_on_vpn_lockdown": "0"
+        }
+      },
+      {
+        "stage": "control-secure-lockdown",
+        "runtime_source_packet": "q29-dns-selection-control-r3-20261012",
+        "uid": 10150,
+        "pid": 2534,
+        "started_ms": 1791785340861,
+        "done_ms": 1791785340928,
+        "active_netid": "102",
+        "selected_netid": 100,
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:33392"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:49967"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:56841"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:47607"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "bind",
+            "success": false,
+            "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-133071859849.test",
+            "started_ms": 1791785340886,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791785340887
+          },
+          {
+            "mode": "a",
+            "name": "q29-133072527997.test",
+            "started_ms": 1791785340887,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791785340898
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-133083888978.test",
+            "started_ms": 1791785340898,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785340909
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-133095066808.test",
+            "started_ms": 1791785340909,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785340926
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-133111919172.test",
+            "started_ms": 1791785340926,
+            "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+            "done_ms": 1791785340928
+          }
+        ],
+        "policy": {
+          "always_on_vpn_app": "com.qeli.audit.dnstun",
+          "always_on_vpn_lockdown": "1"
+        }
+      },
+      {
+        "stage": "control-bypass-open",
+        "runtime_source_packet": "q29-dns-selection-control-r3-20261012",
+        "uid": 10150,
+        "pid": 2534,
+        "started_ms": 1791785367037,
+        "done_ms": 1791785367067,
+        "active_netid": "104",
+        "selected_netid": 104,
+        "family_checks": [
+          {
+            "network": "default",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:50186"
+          },
+          {
+            "network": "default",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:34259"
+          },
+          {
+            "network": "active",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:56202"
+          },
+          {
+            "network": "active",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:41206"
+          },
+          {
+            "network": "selected",
+            "target": "8.8.8.8",
+            "phase": "connect",
+            "success": true,
+            "source": "/10.88.29.2:38193"
+          },
+          {
+            "network": "selected",
+            "target": "2000::",
+            "phase": "connect",
+            "success": true,
+            "source": "/[fd88:29::2]:50292"
+          }
+        ],
+        "queries": [
+          {
+            "mode": "auto",
+            "name": "q29-159230495124.test",
+            "started_ms": 1791785367045,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785367052
+          },
+          {
+            "mode": "a",
+            "name": "q29-159238140290.test",
+            "started_ms": 1791785367052,
+            "answers": [
+              "198.19.0.1"
+            ],
+            "done_ms": 1791785367054
+          },
+          {
+            "mode": "aaaa",
+            "name": "q29-159240186880.test",
+            "started_ms": 1791785367054,
+            "answers": [
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785367056
+          },
+          {
+            "mode": "auto-active",
+            "name": "q29-159241415602.test",
+            "started_ms": 1791785367056,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785367061
+          },
+          {
+            "mode": "auto-selected",
+            "name": "q29-159246695198.test",
+            "started_ms": 1791785367061,
+            "answers": [
+              "198.19.0.1",
+              "2001:db8:29::1"
+            ],
+            "done_ms": 1791785367067
+          }
+        ],
+        "policy": {
+          "always_on_vpn_app": "com.qeli.audit.dnstun",
+          "always_on_vpn_lockdown": "0"
+        }
+      }
+    ],
+    "socket_checks": 36,
+    "successful_checks": 28,
+    "failed_selected_network_bind_checks": 8,
+    "Qeli_secure_cells": 2,
+    "independent_secure_TUN_cells": 2,
+    "positive_controls": 2,
+    "original_whole_runtime_FAILURES_preserved": true,
+    "whole_runtime_failures": [
+      "Traceback (most recent call last):\n  File \"/var/tmp/qeli-q29-data-current-61e291205ce641a7802f79492c0620ed/audit_android_data_plane_lab.py\", line 678, in main\n    __import__(\"dns_selection_case\").run(arun, evidence, echo, result)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-61e291205ce641a7802f79492c0620ed/dns_selection_case.py\", line 46, in run\n    wait_until(lambda:any(row.get('bytes')==257 and row.get('protocol')==protocol and (':' in row['peer'])==(family=='ipv6') for row in echo.rows),'Qeli focused socket receipt absent',10)\n    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-61e291205ce641a7802f79492c0620ed/android_lab_ui.py\", line 14, in wait_until\n    raise AssertionError(message)\nAssertionError: Qeli focused socket receipt absent\n",
+      "Traceback (most recent call last):\n  File \"/var/tmp/qeli-q29-data-current-fc66e1842d544ed2bdb219b7f5df7889/audit_android_data_plane_lab.py\", line 695, in main\n    assert \"FATAL EXCEPTION\" not in (evidence / \"android-runtime.log\").read_text()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n"
+    ],
+    "exact_current_APK_runtime_qualified": false,
+    "exact_AVD_source_revision_proven": false,
+    "new_runtime_tests": 0,
+    "new_APKs": 0,
+    "new_builds": 0,
+    "new_lab_mutations": 0,
+    "existing_diagnostic_gap_corrected": "getdnsnetid and same-cell family bind errors were already captured; no repeat required to acquire these observations",
+    "additional_candidate_review": {
+      "name": "android_setprocdns from Qeli native core",
+      "outcome": "CALLING_PROCESS_ONLY_NOT_FOREIGN_UID_WORKAROUND",
+      "basis": "Inspected net.c delegates to setNetworkForResolv; NetdClient writes process-local atomic netIdForResolv. Qeli cannot alter a different caller process through this public call."
+    },
+    "transparent_foreign_application_workaround_admitted": false,
+    "user_limitation_accepted": false,
+    "Q29_closed": false,
+    "remaining": "A safe transparent Qeli workaround for foreign-process generic/null DNS has not been found. Caller explicit VPN Network works in retained controls; per-process bind/setprocdns cannot be applied to other apps by Qeli. Do not reinterpret this as current APK compatibility PASS or user acceptance.",
+    "formal_done": 33,
+    "total": 37,
+    "no_push_deploy_release": true
+  },
+  "qualification_sha256": "30ce4d31d239e48c93c102fcef5b68713422bf0fdd153aeed98eae81325c8176",
+  "primary_source_review": {
+    "status": "JNI_NATIVE_APP_NETID_SOURCE_CHAIN_REVIEW_COMPLETE_NO_TRANSPARENT_QELI_FIX_ADMITTED",
+    "source_commit": "9324fb2be7819111cd7bfa557a2b567306511fe8",
+    "observed_unix": 1791950659.4616675,
+    "references": {
+      "NetworkUtils.cpp": {
+        "url": "https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/heads/android14-release/framework/jni/android_net_NetworkUtils.cpp",
+        "sha256": "3ea9776302f04978c1617d02c9b7839b04241cdf83859e11b01376fcdfa486d9",
+        "bytes": 10409,
+        "matches": [
+          {
+            "line": 108,
+            "text": "static jint android_net_utils_bindSocketToNetworkHandle(JNIEnv *env, jclass clazz, jobject javaFd,"
+          },
+          {
+            "line": 190,
+            "text": "static jobject android_net_utils_getDnsNetwork(JNIEnv *env, jclass clazz) {"
+          },
+          {
+            "line": 192,
+            "text": "if (int res = android_getprocdns(&dnsNetHandle) < 0) {"
+          },
+          {
+            "line": 193,
+            "text": "jniThrowErrnoException(env, \"getDnsNetwork\", -res);"
+          },
+          {
+            "line": 254,
+            "text": "{ \"bindSocketToNetworkHandle\", \"(Ljava/io/FileDescriptor;J)I\", (void*) android_net_utils_bindSocketToNetworkHandle },"
+          },
+          {
+            "line": 262,
+            "text": "{ \"getDnsNetwork\", \"()Landroid/net/Network;\", (void*) android_net_utils_getDnsNetwork },"
+          }
+        ],
+        "exact_AVD_revision": false
+      },
+      "NetdClient.cpp": {
+        "url": "https://android.googlesource.com/platform/system/netd/+/refs/heads/android14-release/client/NetdClient.cpp",
+        "sha256": "da71ea696a5a4e8f0fa668a4628f532b95d25a00413cb09b4329dc88a7857fad",
+        "bytes": 21716,
+        "matches": [
+          {
+            "line": 611,
+            "text": "extern \"C\" int getNetworkForDns(unsigned* dnsNetId) {"
+          },
+          {
+            "line": 618,
+            "text": "return getNetworkForDnsInternal(fd, dnsNetId);"
+          },
+          {
+            "line": 621,
+            "text": "int getNetworkForDnsInternal(int fd, unsigned* dnsNetId) {"
+          },
+          {
+            "line": 628,
+            "text": "const std::string cmd = \"getdnsnetid \" + std::to_string(resolvNetId);"
+          }
+        ],
+        "exact_AVD_revision": false
+      },
+      "DnsProxyListener.cpp": {
+        "url": "https://android.googlesource.com/platform/packages/modules/DnsResolver/+/refs/heads/android14-release/DnsProxyListener.cpp",
+        "sha256": "b532b5d729c8a779f534985d97df1fd8f94ef211297d140cc8161cbc9895abb0",
+        "bytes": 58460,
+        "matches": [
+          {
+            "line": 113,
+            "text": "bool queryingViaTls(unsigned dns_netid) {"
+          },
+          {
+            "line": 114,
+            "text": "const auto privateDnsStatus = PrivateDnsConfiguration::getInstance().getStatus(dns_netid);"
+          },
+          {
+            "line": 152,
+            "text": "if (queryingViaTls(ctx->dns_netid)) {"
+          },
+          {
+            "line": 293,
+            "text": "event->set_private_dns_modes(getPrivateDnsModeForMetrics(netContext.dns_netid));"
+          },
+          {
+            "line": 315,
+            "text": "DnsQueryLog::Record record(netContext.dns_netid, netContext.uid, netContext.pid,"
+          },
+          {
+            "line": 327,
+            "text": "(query_name.ends_with(\".local\") && is_mdns_supported_network(netContext.dns_netid) &&"
+          },
+          {
+            "line": 329,
+            "text": "? getDnsEventSubsamplingRate(netContext.dns_netid, returnCode, true)"
+          },
+          {
+            "line": 330,
+            "text": ": getDnsEventSubsamplingRate(netContext.dns_netid, returnCode, false);"
+          },
+          {
+            "line": 336,
+            "text": "event.set_network_type(resolv_get_network_types_for_net(netContext.dns_netid));"
+          },
+          {
+            "line": 353,
+            "text": "it->onDnsEvent(netContext.dns_netid, eventType, returnCode, latencyMs, query_name, ip_addrs,"
+          },
+          {
+            "line": 361,
+            "text": ".netId = static_cast<int32_t>(netContext.dns_netid),"
+          },
+          {
+            "line": 369,
+            "text": ".netId = static_cast<int32_t>(netContext.dns_netid),"
+          },
+          {
+            "line": 803,
+            "text": "if (!getDns64Prefix(mNetContext.dns_netid, &prefix)) {"
+          },
+          {
+            "line": 901,
+            "text": "return makeThreadName(mNetContext.dns_netid, mClient->getUid());"
+          },
+          {
+            "line": 1123,
+            "text": "return makeThreadName(mNetContext.dns_netid, mClient->getUid());"
+          },
+          {
+            "line": 1137,
+            "text": "DnsProxyListener::GetDnsNetIdCommand::GetDnsNetIdCommand() : FrameworkCommand(\"getdnsnetid\") {}"
+          },
+          {
+            "line": 1144,
+            "text": "LOG(WARNING) << \"GetDnsNetIdCommand::runCommand: getdnsnetid: from UID \" << uid"
+          },
+          {
+            "line": 1145,
+            "text": "<< \", invalid number of arguments to getdnsnetid: \" << argc;"
+          },
+          {
+            "line": 1152,
+            "text": "LOG(WARNING) << \"GetDnsNetIdCommand::runCommand: getdnsnetid: from UID \" << uid"
+          },
+          {
+            "line": 1163,
+            "text": "netcontext.app_netid |= NETID_USE_LOCAL_NAMESERVERS;"
+          },
+          {
+            "line": 1167,
+            "text": "sendCodeAndBe32(cli, ResponseCode::DnsProxyQueryResult, netcontext.app_netid);"
+          },
+          {
+            "line": 1170,
+            "text": "<< \"GetDnsNetIdCommand::runCommand: getdnsnetid: failed to send result to uid \""
+          },
+          {
+            "line": 1230,
+            "text": "if (!getDns64Prefix(mNetContext.dns_netid, &prefix)) {"
+          },
+          {
+            "line": 1312,
+            "text": "return makeThreadName(mNetContext.dns_netid, mClient->getUid());"
+          },
+          {
+            "line": 1379,
+            "text": "if (!getDns64Prefix(mNetContext.dns_netid, &prefix)) {"
+          },
+          {
+            "line": 1476,
+            "text": "return makeThreadName(mNetContext.dns_netid, mClient->getUid());"
+          }
+        ],
+        "exact_AVD_revision": false
+      },
+      "DnsUtils.java": {
+        "url": "https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/heads/android14-release/framework/src/android/net/util/DnsUtils.java",
+        "sha256": "4cc6033b3b96f55971980ebf1cdc62cfbafa25e1528034d0acc82ac6ef874510",
+        "bytes": 13619,
+        "matches": [
+          {
+            "line": 175,
+            "text": "if (network != null) network.bindSocket(socket);"
+          },
+          {
+            "line": 176,
+            "text": "Os.connect(socket, new InetSocketAddress(addr, 0));"
+          },
+          {
+            "line": 343,
+            "text": "public static boolean haveIpv4(@Nullable Network network) {"
+          },
+          {
+            "line": 346,
+            "text": "return checkConnectivity(network, AF_INET, addrIpv4);"
+          },
+          {
+            "line": 353,
+            "text": "public static boolean haveIpv6(@Nullable Network network) {"
+          },
+          {
+            "line": 356,
+            "text": "return checkConnectivity(network, AF_INET6, addrIpv6);"
+          },
+          {
+            "line": 359,
+            "text": "private static boolean checkConnectivity(@Nullable Network network,"
+          },
+          {
+            "line": 368,
+            "text": "if (network != null) network.bindSocket(socket);"
+          },
+          {
+            "line": 369,
+            "text": "Os.connect(socket, addr);"
+          }
+        ],
+        "exact_AVD_revision": false
+      },
+      "net.c": {
+        "url": "https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android14-release/native/android/net.c",
+        "sha256": "82fef095bdd5f2e74588aceb2de6c073049354abab87c4aa32f0b6c27decf99a",
+        "bytes": 4599,
+        "exact_AVD_revision": false
+      },
+      "NetworkController.cpp": {
+        "url": "https://android.googlesource.com/platform/system/netd/+/refs/heads/android14-release/server/NetworkController.cpp",
+        "sha256": "807d91e2887133e14c2d85768b46fec471f045dbf2ac7ab0884ceef027743070",
+        "bytes": 39084,
+        "matches": [
+          {
+            "line": 297,
+            "text": "unsigned NetworkController::getNetworkForConnectLocked(uid_t uid) const {"
+          },
+          {
+            "line": 299,
+            "text": "if (virtualNetwork && !virtualNetwork->isSecure()) {"
+          },
+          {
+            "line": 310,
+            "text": "return getNetworkForConnectLocked(uid);"
+          },
+          {
+            "line": 338,
+            "text": "const bool explicitlySelected = (nc.app_netid != NETID_UNSET);"
+          },
+          {
+            "line": 340,
+            "text": "nc.app_netid = getNetworkForConnectLocked(uid);"
+          },
+          {
+            "line": 344,
+            "text": "fwmark.netId = nc.app_netid;"
+          },
+          {
+            "line": 354,
+            "text": "nc.app_netid, nc.app_mark, nc.dns_netid, nc.dns_mark, uid);"
+          }
+        ],
+        "exact_AVD_revision": false,
+        "retained_path": "q29-dns-lockdown-bypass-review-20261014\\NetworkController.cpp"
+      },
+      "DnsResolver.java": {
+        "url": "https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/heads/android14-release/framework/src/android/net/DnsResolver.java",
+        "sha256": "c0ce8ec58435a7a4288c5ce230d390c25a99461e989e32e274be5ff3ac2daee0",
+        "bytes": 23829,
+        "matches": [
+          {
+            "line": 19,
+            "text": "import static android.net.NetworkUtils.getDnsNetwork;"
+          },
+          {
+            "line": 24,
+            "text": "import static android.net.util.DnsUtils.haveIpv4;"
+          },
+          {
+            "line": 25,
+            "text": "import static android.net.util.DnsUtils.haveIpv6;"
+          },
+          {
+            "line": 29,
+            "text": "import static android.system.OsConstants.ENONET;"
+          },
+          {
+            "line": 346,
+            "text": "queryNetwork = (network != null) ? network : getDnsNetwork();"
+          },
+          {
+            "line": 351,
+            "text": "final boolean queryIpv6 = haveIpv6(queryNetwork);"
+          },
+          {
+            "line": 352,
+            "text": "final boolean queryIpv4 = haveIpv4(queryNetwork);"
+          },
+          {
+            "line": 358,
+            "text": "new DnsException(ERROR_SYSTEM, new ErrnoException(\"resNetworkQuery\", ENONET))));"
+          },
+          {
+            "line": 446,
+            "text": "queryNetwork = (network != null) ? network : getDnsNetwork();"
+          }
+        ],
+        "exact_AVD_revision": false,
+        "retained_path": "q29-dns-lockdown-bypass-review-20261014\\DnsResolver.java"
+      }
+    },
+    "inference": "Inspected Android14 branch links DnsResolver null to JNI android_getprocdns, NetdClient getdnsnetid, and DnsProxyListener app_netid response. Inspected netd chooses a physical/default connect network for secure VPN when caller has no explicit process/DNS binding. DnsUtils binds family-probe sockets to this returned network and converts bind/connect errors to false; both false causes ENONET before query. This supports the prior runtime hypothesis, not exact-AVD source equivalence or new runtime attribution.",
+    "additional_candidate": {
+      "name": "android_setprocdns from Qeli native core",
+      "outcome": "CALLING_PROCESS_ONLY_NOT_FOREIGN_UID_WORKAROUND",
+      "basis": "Inspected net.c delegates to setNetworkForResolv; NetdClient writes process-local atomic netIdForResolv. Qeli cannot alter a different caller process through this public call."
+    },
+    "source_review_is_not_runtime_test": true,
+    "source_admission_assertions_are_not_behavioral_tests": true,
+    "exact_AVD_revision": false,
+    "new_runtime": false,
+    "product_modified": false,
+    "generic_null_DNS_PASS": false,
+    "user_limitation_accepted": false,
+    "Q29_closed": false,
+    "next_discriminating_observation": "If another API34 run is needed, inspect the getdnsnetid response in the independent DNS-probe UID and record both IPv4/IPv6 bind/connect errors in the same VPN generation. Do not repeat typed DNS, restart, UI, or all-mode benchmarks.",
+    "no_push_deploy_release": true
+  },
+  "scope": "Two Markdown reports only. Retained12October six-cell/36socket observations revalidated against SHA archives and Android14 seven-file native selector review. No new Android runtime/APK or transparent fix, no exact AVD source equivalence. Rust/native and50Linux runtime dependencies unchanged; original20Linux/21physical facts preserved.",
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q29-dns-selector-evidence-reconciliation-20261014",
+  "no_push_deploy_release": true
+}

@@ -6,6 +6,20 @@ import XCTest
 /// differently on one platform.
 final class ParityHardeningTests: XCTestCase {
 
+    func testProfileArchivePreservesRouteAcceptanceAndLegacyDefault() throws {
+        for (suffix, expected) in [("", true), ("pull_routes = false\n", false)] {
+            let text = "[qeli]\nserver = vpn.example:443\nuser = test\npass = test\n" + suffix
+            let profile = Profile(name: "route policy", configText: text)
+            let archive = ProfileArchive(activeProfileID: profile.id, profiles: [profile])
+            let decoded = try JSONDecoder().decode(ProfileArchive.self, from: JSONEncoder().encode(archive))
+            XCTAssertEqual(decoded.profiles[0].configText, text)
+            let config = try VPNConfig.fromINI(decoded.profiles[0].configText)
+            XCTAssertEqual(config.pullRoutes, expected)
+            XCTAssertEqual(try VPNConfig.fromINI(config.toINI()).pullRoutes, expected)
+        }
+    }
+
+
     func testIOSSigningDiagnosticsRequireEverySharedCapability() {
         let valid = IOSSigningDiagnostics.Entitlements(
             networkExtensions: ["packet-tunnel-provider"],

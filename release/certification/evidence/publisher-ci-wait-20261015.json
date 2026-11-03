@@ -1,0 +1,21 @@
+{
+  "status": "PUBLISHER_PENDING_CI_WAIT_CORRECTED",
+  "prior_source_commit": "d363fe7260ec171b3de41362a995f24f039c33b8",
+  "source_digest": "8c1ede5e58efb9a04f0466304f63931775f19a55ffd890d33d6e3ebdd8da2269",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "changed_git_blobs": {
+    "scripts/release_tag.py": "b53f76dbb9015181a64b57f4cb99523c93dd3713",
+    ".github/workflows/release-attest.yml": "865471784062e6f8848f66e8383f172c50611a99",
+    "scripts/test_release_tag.py": "353f427c453f221949bda6e95de8a4f816e67392",
+    ".github/workflows/docker-publish.yml": "01d1b7947a7a63694972b81bba6d3b9aea609391"
+  },
+  "scope": "Only publisher workflows, exact-tag CI admission helper and its tests changed. The opt-in wait retries only an otherwise valid pending exact-commit push CI; failure, missing/mismatched CI, source changes and timeout still refuse publication. All runtime/dependency/native inputs, runtime harnesses and published package bytes unchanged. The published v0.8.2 tag remains d363fe72 and its in-flight Docker run is not restarted.",
+  "actual_regression": "Docker runs38784682251 and38787938998 attempt1 refused because tag CI was still in progress",
+  "release_admission_tests_passed": 37,
+  "beta_policy_tests_passed": 19,
+  "actionlint_workflows_passed": 4,
+  "configured_wait_seconds": 1800,
+  "new_runtime_executions": 0,
+  "published_tag_moved": false,
+  "accepted_API34_ENONET_and_physical_scope_unchanged": true
+}

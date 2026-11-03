@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "status": "SOURCE_FIXES_NATIVE_AB_AND_SDK_PASS",
+  "source_commit": "42134ecb25a7c93509a39ef6f35ccb55606c0105",
+  "native_source_digest": "0d8a6b28ecdc87541b6ac7a965bd314403d056eb772896618e7ba4e3adf3ad1e",
+  "native_AB": {
+    "desktop": {
+      "artifacts": {
+        "native-libs/macos-universal/libqeli.dylib": {
+          "consumed": {
+            "qeli-mac/QeliMac/native/libqeli.dylib": "954a8d5a014827cf42d3aa44ddcdf2df633f6f669192e3d60644de574446c1f1"
+          },
+          "final_sha256": "954a8d5a014827cf42d3aa44ddcdf2df633f6f669192e3d60644de574446c1f1",
+          "pass_a_sha256": "954a8d5a014827cf42d3aa44ddcdf2df633f6f669192e3d60644de574446c1f1",
+          "pass_b_sha256": "954a8d5a014827cf42d3aa44ddcdf2df633f6f669192e3d60644de574446c1f1",
+          "reproducible": true
+        },
+        "native-libs/windows-x64/qeli.dll": {
+          "consumed": {
+            "qeli-win/QeliWin/native/qeli.dll": "00f74798d93f3c4e9eb69a298161106794588d4e44635191bfebab823548af9d"
+          },
+          "final_sha256": "00f74798d93f3c4e9eb69a298161106794588d4e44635191bfebab823548af9d",
+          "pass_a_sha256": "00f74798d93f3c4e9eb69a298161106794588d4e44635191bfebab823548af9d",
+          "pass_b_sha256": "00f74798d93f3c4e9eb69a298161106794588d4e44635191bfebab823548af9d",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "42134ecb25a7c93509a39ef6f35ccb55606c0105",
+      "source_date_epoch": 1792349528,
+      "source_digest": "0d8a6b28ecdc87541b6ac7a965bd314403d056eb772896618e7ba4e3adf3ad1e",
+      "source_dirty": false,
+      "toolchain": {
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+        "cargo_zigbuild_version": "0.23.0",
+        "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+        "rcodesign": "apple-codesign 0.29.0",
+        "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+        "zig": "0.13.0"
+      }
+    },
+    "android": {
+      "artifacts": {
+        "native-libs/android/arm64-v8a/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "88ac28c20ed697acff28004caf1e07f5f520d216e191947c3be091edc0c607d0"
+          },
+          "final_sha256": "88ac28c20ed697acff28004caf1e07f5f520d216e191947c3be091edc0c607d0",
+          "pass_a_sha256": "88ac28c20ed697acff28004caf1e07f5f520d216e191947c3be091edc0c607d0",
+          "pass_b_sha256": "88ac28c20ed697acff28004caf1e07f5f520d216e191947c3be091edc0c607d0",
+          "reproducible": true
+        },
+        "native-libs/android/x86_64/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "4a823b3eb0fdd4460c2aea2c49a95eb0289867fad2db1930595aca5566f9c629"
+          },
+          "final_sha256": "4a823b3eb0fdd4460c2aea2c49a95eb0289867fad2db1930595aca5566f9c629",
+          "pass_a_sha256": "4a823b3eb0fdd4460c2aea2c49a95eb0289867fad2db1930595aca5566f9c629",
+          "pass_b_sha256": "4a823b3eb0fdd4460c2aea2c49a95eb0289867fad2db1930595aca5566f9c629",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "42134ecb25a7c93509a39ef6f35ccb55606c0105",
+      "source_date_epoch": 1792349528,
+      "source_digest": "0d8a6b28ecdc87541b6ac7a965bd314403d056eb772896618e7ba4e3adf3ad1e",
+      "source_dirty": false,
+      "toolchain": {
+        "android_ndk": "26.3.11579264",
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_ndk": "cargo-ndk v4.1.2:",
+        "cargo_ndk_version": "4.1.2",
+        "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+      }
+    }
+  },
+  "sdk_source": {
+    "commit": "42134ecb25a7c93509a39ef6f35ccb55606c0105",
+    "mirror_sha256": "3db4e9288bdcef4e60417adb502a4a302d15a1f0d4abd19803f545703f243075",
+    "actual_SDK_download_prepare": true
+  },
+  "N01": {
+    "Linux": {
+      "status": "PASS",
+      "host": "10.66.116.11",
+      "remote": "/var/tmp/qeli-git-fixture.hxIqnmsO",
+      "executions": 5,
+      "tests_per_execution": 29,
+      "skips_per_execution": 1,
+      "scope": "Actual Linux Git, FIFO/symlink cases and inherited automatic maintenance trace; no VPN/network changes"
+    },
+    "Windows_baseline_negative_and_fixed_positive": true,
+    "scope": "Real Git trace demonstrates and eliminates inherited background maintenance. Original intermittent Directory-not-empty cleanup failure is retained; exact reproduction or exclusive root cause is not claimed."
+  },
+  "N02": {
+    "parallel_docs_commit": "a30af9d333aec8f06a31712168cbc20334697dc2",
+    "preserved_previous_readiness_fixes": true,
+    "old_measurements_not_rebound_to_new_binary": true
+  },
+  "N03": {
+    "integrated_PRs": [
+      188,
+      189,
+      190,
+      191,
+      192,
+      193,
+      194
+    ],
+    "already_in_dev": "source-map-js1.2.2; PR195/main unchanged",
+    "strict_linux_NDP": {
+      "status": "PASS",
+      "root": "/var/tmp/qeli-sdk-082.A4JN2YMx/sdk/build_dir/target-x86_64_musl/qeli-0.8.2",
+      "source_commit": "42134ecb25a7c93509a39ef6f35ccb55606c0105",
+      "ndp_tests": 7,
+      "locked_root_and_fuzz": true,
+      "strict_warnings": true,
+      "clippy_all_targets": true,
+      "new_network_configuration": false
+    }
+  },
+  "application_qualification": {
+    "actual_runtime": "release/certification/evidence/debt-closure-runtime-20261018.json",
+    "actual_assets": "release/certification/evidence/debt-closure-assets-20261018.json",
+    "final_exact_commit_CI_and_preflight": "Mandatory independent checks before draft update; no future PASS claimed."
+  },
+  "first_candidate_failure": {
+    "CI": "https://github.com/litvinovtd/qeli/actions/runs/39155837872",
+    "cause": "CLI generated embedded legal paths retained previous dependency versions; fixed catalogue and repeated full-source native A/B and SDK cut. Original failed logs retained."
+  },
+  "accepted_API34_ENONET_D06_and_physical_scope_unchanged": true,
+  "published": false,
+  "original_stage_status": "SOURCE_FIXES_NATIVE_AB_AND_SDK_PASS_APPLICATION_QUALIFICATION_PENDING"
+}

@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "scope": "Fresh functional qualification after release-readiness corrections; not a throughput benchmark or full endurance campaign.",
+  "source_commit": "b1c68ab48915506162071ddf677730623ded61fd",
+  "source_digest": "c4cde5e25e48100d54118c91fe475c62d8e78ad61d2a17a4bb004aaf457bd5b7",
+  "artifact_sha256": "1d94d4c412f6c1fd231765b760196b0b4f518c20135bf0ccd1b52b192710cf76",
+  "executed_at": "2026-10-17T22:54:17.034036+00:00",
+  "environment": "Debian lab 10.66.116.11; isolated mount/network/PID namespaces",
+  "host_preserved": true,
+  "cases": [
+    {
+      "id": "linux.outer4.inner4.tcp.full",
+      "status": "passed",
+      "log_sha256": "422a773351c2b9e0c120a6f8df008b3cdc63e35351be49e9162a31e4edc455bc",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer4.inner6.tcp.full",
+      "status": "passed",
+      "log_sha256": "a452a364c22577c2108e66b01fc4d4b4716c106ab6134d72a3d97070f576d1d8",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer6.inner4.tcp.full",
+      "status": "passed",
+      "log_sha256": "5c0985b471f5da9f85ab9e662326cd8cbf55dcc375ca0ede5943548b226ec53a",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer6.inner6.tcp.full",
+      "status": "passed",
+      "log_sha256": "726bd203d55db85e9159f3a64224af5fb5abc1d497fbca27782920db8fb2c5e8",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer4.inner4.udp-fake-tls.full",
+      "status": "passed",
+      "log_sha256": "5ee8bb15b4159b9aab679a5a75012a7a7d380901055910efaa1bba5c744166b4",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer4.inner6.udp-fake-tls.full",
+      "status": "passed",
+      "log_sha256": "a1a53cf52c1046876ef6f2db81da944cbad0b84c72d129c8032448715cfa406a",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer6.inner4.udp-fake-tls.full",
+      "status": "passed",
+      "log_sha256": "20f8e689f3884a50fd90cdc9c48ac7f12b8f1198f89fa1aa6c9029e6306ba198",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer6.inner6.udp-fake-tls.full",
+      "status": "passed",
+      "log_sha256": "e77f0900cf0b51c5eaa9b4aae9e37fe224652170b28df1b7ccf938f672057e5f",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer4.inner4.udp-quic.full",
+      "status": "passed",
+      "log_sha256": "79a9bef43c9f232a884422c39829965738c4fd34145200391ec632f34f18cab2",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer4.inner6.udp-quic.full",
+      "status": "passed",
+      "log_sha256": "f5a18228a8293d3c9ab423f14c63256478674a884932ed12ac0b44a8dcbb2bb3",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer6.inner4.udp-quic.full",
+      "status": "passed",
+      "log_sha256": "472fdff4d958e27647a0f0cdfa73897c0820bfa8d04e11dfccf18ed572b9c0dc",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.outer6.inner6.udp-quic.full",
+      "status": "passed",
+      "log_sha256": "9fc70024100f256ae6b7261c11f19064d57ae096ba303fd71cbb72c27836530a",
+      "checks_passed": 13,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.dual.tcp.split",
+      "status": "passed",
+      "log_sha256": "cb69d7295ef730df0ef44b61a9734c7f5dcff0a722e6a899d45f2ba2e0958773",
+      "checks_passed": 19,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.dual.udp.split",
+      "status": "passed",
+      "log_sha256": "9d6c566404da8f901837ab40db8bf58bce7c79520bddce84c797ee9b71c313ce",
+      "checks_passed": 19,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.tap.ndp-ra",
+      "status": "passed",
+      "log_sha256": "2d96cb3c6ce6d1859ca96560d1b9c233cf074fc14e8f3c24f95274af0b4804b3",
+      "checks_passed": 15,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.dns.ipv4-ipv6",
+      "status": "passed",
+      "log_sha256": "0ee884c61d2bef6cfb2b7ea472e96de561ff5ff44d05b2f17af310bea0e267cd",
+      "checks_passed": 105,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.mtu.1280-pmtu-ptb",
+      "status": "passed",
+      "log_sha256": "9e90111c1b198a53058179d2e6090f14b45aada7d90a274287c86d25ea0f34c9",
+      "checks_passed": 36,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.legacy-peer",
+      "status": "passed",
+      "log_sha256": "7b5ff023944f0ef44f0b37b3b6e7e12d52c89e83d5cab8e140fe62d8c674d9ec",
+      "checks_passed": 26,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.roaming-flap-soak",
+      "status": "passed",
+      "log_sha256": "1ff0e8d99d00be1caeb05e4a2604f1588059bfcf518af1deeb7e359e82900733",
+      "checks_passed": 33,
+      "checks_failed": 0
+    },
+    {
+      "id": "linux.leak.ipv4-ipv6",
+      "status": "passed",
+      "derived_from": [
+        "linux.dual.tcp.split",
+        "linux.dual.udp.split",
+        "linux.outer4.inner4.tcp.full",
+        "linux.outer4.inner4.udp-fake-tls.full",
+        "linux.outer4.inner4.udp-quic.full",
+        "linux.outer4.inner6.tcp.full",
+        "linux.outer4.inner6.udp-fake-tls.full",
+        "linux.outer4.inner6.udp-quic.full",
+        "linux.outer6.inner4.tcp.full",
+        "linux.outer6.inner4.udp-fake-tls.full",
+        "linux.outer6.inner4.udp-quic.full",
+        "linux.outer6.inner6.tcp.full",
+        "linux.outer6.inner6.udp-fake-tls.full",
+        "linux.outer6.inner6.udp-quic.full"
+      ]
+    }
+  ],
+  "actual_executions": 19,
+  "physical_checks_executed": false,
+  "accepted_API34_ENONET_and_D06_unchanged": true,
+  "published": false,
+  "tag_created": false
+}

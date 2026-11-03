@@ -1,4 +1,8 @@
 <div x-data="usersPage">
+  <template x-for="entry in dataErrors" :key="entry.source">
+    <div role="alert" class="card p-3 mb-3 text-xs text-red-400" x-text="entry.text"></div>
+  </template>
+  <button class="btn btn-ghost btn-sm mb-3" x-show="dataErrors.length" @click="load()" :disabled="loading">Reload</button>
 
   <div x-show="expiringSoon.length" class="card p-3 mb-4">
     <div class="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs">
@@ -62,7 +66,7 @@
   </div>
 
   <div class="card">
-    <div x-show="!loading && filteredUsers.length === 0" class="py-16 text-center text-slate-600 text-sm">
+    <div x-show="loaded && !loading && !loadError && filteredUsers.length === 0" class="py-16 text-center text-slate-600 text-sm">
       <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z"/></svg>
       <span x-text="users.length ? 'No matching users' : 'No users configured'"></span>
     </div>
@@ -108,12 +112,9 @@
               <div x-show="addressRows(u).length === 0">—</div>
             </td>
             <td class="tbl-td text-xs">
-              <span class="text-slate-500" x-show="!u.bandwidth || (!u.bandwidth.limit_mbps && !u.bandwidth.burst_mbps)">Unlimited</span>
-              <span class="text-slate-300" x-show="u.bandwidth && u.bandwidth.limit_mbps > 0">
-                <span x-text="u.bandwidth.limit_mbps"></span> Mbps
-                <span class="text-slate-500" x-show="u.bandwidth.burst_mbps && u.bandwidth.burst_mbps !== u.bandwidth.limit_mbps">
-                  / <span x-text="u.bandwidth.burst_mbps"></span> burst
-                </span>
+              <span class="text-slate-500" x-show="effectiveBandwidth(u) === 0">Unlimited</span>
+              <span class="text-slate-300" x-show="effectiveBandwidth(u) > 0">
+                <span x-text="effectiveBandwidth(u)"></span> Mbps
               </span>
             </td>
             <td class="tbl-td text-xs">
@@ -193,7 +194,7 @@
     </button>
   </div>
   <div class="card">
-    <div x-show="groups.length === 0" class="py-10 text-center text-slate-600 text-sm">No groups defined</div>
+    <div x-show="groupsLoaded && !readErrors.groups && groups.length === 0" class="py-10 text-center text-slate-600 text-sm">No groups defined</div>
     <table class="w-full" x-show="groups.length > 0">
       <thead>
         <tr>
@@ -260,11 +261,11 @@
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-medium text-slate-400 mb-1.5">Bandwidth limit (Mbps)</label>
-            <input class="inp" type="number" min="0" x-model.number="form.bandwidth_limit" placeholder="0 = unlimited">
+            <input class="inp" type="number" min="0" x-model.number="form.bandwidth_limit" placeholder="0 = inherit group or unlimited">
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-400 mb-1.5">Burst (Mbps)</label>
-            <input class="inp" type="number" min="0" x-model.number="form.bandwidth_burst" placeholder="0 = same as limit">
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Legacy burst (not enforced)</label>
+            <input class="inp" type="number" min="0" :value="form.bandwidth_burst" disabled>
           </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -297,6 +298,7 @@
               <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer text-xs" style="background:var(--bg-2);border:1px solid var(--line)">
                 <input type="checkbox" :checked="(form.profiles || []).includes(p.name)" @change="toggleProfile(p.name)">
                 <span class="text-slate-300" x-text="p.name"></span>
+                <span x-show="p.enabled === false" class="text-amber-400" x-text="qeliT('Disabled')"></span>
                 <span class="badge" :class="p.transport === 'udp' ? 'badge-udp' : 'badge-tcp'" x-text="p.transport"></span>
               </label>
             </template>
@@ -475,9 +477,10 @@
             <label class="block text-xs font-medium text-slate-400 mb-1.5">Profile</label>
             <select class="inp" x-model="share.profile">
               <template x-for="p in profiles" :key="p.name">
-                <option data-i18n-skip :value="p.name" x-text="p.name + ' (' + p.transport + '/' + p.port + ')'"></option>
+                <option data-i18n-skip :value="p.name" x-text="profileLabel(p)"></option>
               </template>
             </select>
+            <p x-show="shareProfileDisabled" class="text-xs text-amber-400 mt-2" x-text="qeliT('This profile is disabled. The configuration can be prepared, but connections will work only after the profile is enabled and the server is restarted.')"></p>
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-400 mb-1.5">Public host <span class="text-red-400">*</span></label>
@@ -543,7 +546,12 @@ function usersPage() {
     groups: [],   // [{name, bandwidth_limit_mbps, max_sessions, allowed_networks}]
     profiles: [], // [{name, transport, port}] for share + allowed-profiles
     publicHost: '', // default share host from web.public_host
-    loading: false,
+    refreshingUsers: false,
+    loading: false, loaded: false, groupsLoaded: false,
+    destroyed: false, loadSequence: 0, refreshTimer: null, visibilityHandler: null,
+    readSequences: { users: 0, groups: 0, profiles: 0, usage: 0 },
+    readPending: { users: 0, groups: 0, profiles: 0, usage: 0 },
+    readErrors: { users: '', groups: '', profiles: '', usage: '' },
     saving: null,  // username of user being enabled/disabled
     modal: null,   // 'create' | 'edit' | 'group' | 'share' | null
     modalSaving: false,
@@ -570,6 +578,11 @@ function usersPage() {
 
     get onlineCount() { return this.usage.filter(u => u.online).length; },
     get userSummary() { return this.filteredUsers.length + ' shown · ' + this.users.length + ' total · ' + this.onlineCount + ' online'; },
+    effectiveBandwidth(user) {
+      const own = Number(user.bandwidth?.limit_mbps || 0);
+      if (own > 0) return own;
+      return Number(this.groups.find(g => g.name === user.group)?.bandwidth_limit_mbps || 0);
+    },
     addressRows(user) {
       const rows = new Map();
       const add = (address, kind) => {
@@ -656,36 +669,55 @@ function usersPage() {
       await this.load();
     },
 
-    // Per-user data usage plus live tunnel addresses (merged into the users table).
-    async loadUsage() {
+    get loadError() { return this.readErrors.users; },
+    get dataErrors() {
+      const labels = { users: 'Users', groups: 'Groups', profiles: 'Profiles', usage: 'Data usage' };
+      return Object.entries(this.readErrors).filter(([, error]) => error)
+        .map(([source, error]) => ({ source, text: this.qeliT(labels[source]) + ': ' + error }));
+    },
+    // Each independent dataset owns its freshness; all errors remain visible.
+    async readSection(key, background, request, apply) {
+      if (this.destroyed || (background && this.readPending[key])) return;
+      const sequence = ++this.readSequences[key];
+      this.readPending[key]++;
       try {
-        const u = await apiFetch('api/usage');
-        if (u.ok) {
-          this.usage = u.usage || [];
-          this.usageByUser = Object.fromEntries(this.usage.map(row => [row.username, row]));
+        const d = await request();
+        if (this.destroyed || sequence !== this.readSequences[key]) return;
+        if (!d.ok) throw new Error(d.error || this.qeliT('Request failed'));
+        apply(d); this.readErrors[key] = '';
+      } catch (e) {
+        if (!this.destroyed && sequence === this.readSequences[key]) {
+          this.readErrors[key] = e.message;
+          if (key === 'usage') { this.activeAddressesByUser = {}; this.refreshUserView(); }
         }
-      } catch { /* non-fatal: configured users are still manageable */ }
-      const active = {};
-      try {
-        const live = await apiFetch('api/clients');
-        if (live.ok) {
-          for (const session of live.clients || []) {
-            const username = String(session.username || '').trim();
-            if (!username) continue;
-            const addresses = Array.isArray(session.addresses) && session.addresses.length
-              ? session.addresses : [session.ip];
-            for (const rawAddress of addresses) {
-              const address = String(rawAddress || '').trim();
-              if (!address) continue;
-              active[username] ||= [];
-              if (!active[username].includes(address)) active[username].push(address);
-            }
+      } finally { this.readPending[key]--; }
+    },
+    async loadUsage(background = false) {
+      await this.readSection('usage', background, async () => {
+        const [usage, live] = await Promise.all([apiFetch('api/usage'), apiFetch('api/clients')]);
+        if (!usage.ok || !live.ok) return {ok:false,error:[usage,live].filter(r => !r.ok).map(r => r.error || this.qeliT('Request failed')).join('; ')};
+        if (!Array.isArray(usage.usage || []) || !Array.isArray(live.clients || [])) return {ok:false,error:this.qeliT('Request failed')};
+        return {ok:true,usage:usage.usage || [],clients:live.clients || []};
+      }, d => {
+        this.usage = d.usage;
+        this.usageByUser = Object.fromEntries(this.usage.map(row => [row.username, row]));
+        const active = {};
+        for (const session of d.clients) {
+          const username = String(session.username || '').trim();
+          if (!username) continue;
+          const addresses = Array.isArray(session.addresses) && session.addresses.length ? session.addresses : [session.ip];
+          for (const rawAddress of addresses) {
+            const address = String(rawAddress || '').trim();
+            if (!address) continue;
+            active[username] ||= [];
+            if (!active[username].includes(address)) active[username].push(address);
           }
         }
-      } catch { /* fail closed: never retain stale addresses after a failed refresh */ }
-      this.activeAddressesByUser = active;
-      this.refreshUserView();
+        this.activeAddressesByUser = active;
+        this.refreshUserView();
+      });
     },
+
     usageFor(name) { return this.usageByUser[name] || {}; },
     usagePct(u) { return u.data_limit_gb ? Math.min(100, ((u.used_down || 0) / (u.data_limit_gb * 1e9)) * 100) : 0; },
     usageColor(u) { const p = this.usagePct(u); return p >= 100 ? '#ef4444' : (p >= 80 ? '#f59e0b' : '#10b981'); },
@@ -701,84 +733,118 @@ function usersPage() {
     openUsage(name, cur, mode) {
       const exp = cur && cur.expire_at ? Math.max(0, Math.ceil((cur.expire_at * 1000 - Date.now()) / 86400000)) : 0;
       const date = cur && cur.expire_at ? this.tsToDateStr(cur.expire_at) : '';
-      this.usageForm = { username: name, data_limit_gb: (cur && cur.data_limit_gb) || 0, expire_days: exp, expire_date: date, mode };
+      this.usageForm = { username: name, data_limit_gb: (cur && cur.data_limit_gb) || 0, expire_days: exp, expire_date: date, original_expire_at: cur?.expire_at ?? null, expiry_edited: false, mode };
       this.modalError = ''; this.modalSaving = false; this.modal = 'usage';
     },
     // Local yyyy-mm-dd for a unix ts (used to prefill the date picker).
     tsToDateStr(ts) { const d = new Date(ts * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; },
     // Keep the two inputs in sync: typing days fills the date; picking a date fills days.
-    syncFromDays() { const n = Number(this.usageForm.expire_days) || 0; this.usageForm.expire_date = n > 0 ? this.tsToDateStr(Math.floor(Date.now() / 1000) + n * 86400) : ''; },
-    syncFromDate() { const s = this.usageForm.expire_date; if (!s) { this.usageForm.expire_days = 0; return; } const ms = new Date(s + 'T23:59:59').getTime() - Date.now(); this.usageForm.expire_days = ms > 0 ? Math.ceil(ms / 86400000) : 0; },
+    syncFromDays() { this.usageForm.expiry_edited = true; const n = Number(this.usageForm.expire_days) || 0; this.usageForm.expire_date = n > 0 ? this.tsToDateStr(Math.floor(Date.now() / 1000) + n * 86400) : ''; },
+    syncFromDate() { this.usageForm.expiry_edited = true; const s = this.usageForm.expire_date; if (!s) { this.usageForm.expire_days = 0; return; } const ms = new Date(s + 'T23:59:59').getTime() - Date.now(); this.usageForm.expire_days = ms > 0 ? Math.ceil(ms / 86400000) : 0; },
     async saveLimit() {
-      this.modalSaving = true;
-      const f = this.usageForm;
-      // Prefer an explicit date (valid through end of that day); else fall back to N days.
-      let expire_at = null;
-      if (f.expire_date) expire_at = Math.floor(new Date(f.expire_date + 'T23:59:59').getTime() / 1000);
-      else if (f.expire_days > 0) expire_at = Math.floor(Date.now() / 1000) + f.expire_days * 86400;
-      const r = await apiFetch(`api/usage/${encodeURIComponent(f.username)}/limit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data_limit_gb: Number(f.data_limit_gb) || 0, expire_at }) });
-      this.modalSaving = false;
-      if (r.ok) { this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
-      else this.modalError = r.error || 'Failed';
+      const owner = this.usageForm;
+      const draft = JSON.stringify(owner);
+      if (this.destroyed || this.modal !== 'usage' || this.modalSaving) return;
+      try {
+        this.modalSaving = true;
+        const f = this.usageForm;
+        // Preserve exact expiry unless the operator actually edits its controls.
+        let expire_at = f.original_expire_at;
+        if (f.expiry_edited) {
+          expire_at = null;
+          if (f.expire_date) expire_at = Math.floor(new Date(f.expire_date + 'T23:59:59').getTime() / 1000);
+          else if (f.expire_days > 0) expire_at = Math.floor(Date.now() / 1000) + f.expire_days * 86400;
+        }
+        const r = await apiFetch(`api/usage/${encodeURIComponent(f.username)}/limit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data_limit_gb: Number(f.data_limit_gb) || 0, expire_at }) });
+        if (this.destroyed || this.usageForm !== owner || this.modal !== 'usage') return;
+        this.modalSaving = false;
+        if (r.ok) { if (JSON.stringify(owner) === draft) this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
+        else this.modalError = r.error || 'Failed';
+      } catch (e) {
+        if (!this.destroyed && this.usageForm === owner && this.modal === 'usage') this.modalError = e.message;
+      } finally {
+        if (this.usageForm === owner && this.modal === 'usage') this.modalSaving = false;
+      }
     },
     async doReset() {
-      this.modalSaving = true;
-      const r = await apiFetch(`api/usage/${encodeURIComponent(this.usageForm.username)}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      this.modalSaving = false;
-      if (r.ok) { this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
-      else this.modalError = r.error || 'Failed';
+      const owner = this.usageForm;
+      const draft = JSON.stringify(owner);
+      if (this.destroyed || this.modal !== 'usage' || this.modalSaving) return;
+      try {
+        this.modalSaving = true;
+        const r = await apiFetch(`api/usage/${encodeURIComponent(this.usageForm.username)}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        if (this.destroyed || this.usageForm !== owner || this.modal !== 'usage') return;
+        this.modalSaving = false;
+        if (r.ok) { if (JSON.stringify(owner) === draft) this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
+        else this.modalError = r.error || 'Failed';
+      } catch (e) {
+        if (!this.destroyed && this.usageForm === owner && this.modal === 'usage') this.modalError = e.message;
+      } finally {
+        if (this.usageForm === owner && this.modal === 'usage') this.modalSaving = false;
+      }
     },
 
     async init() {
       await this.load();
-      setInterval(() => { if (!document.hidden) this.loadUsage(); }, 10000);
-      document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) this.loadUsage();
+      if (this.destroyed) return;
+      this.refreshTimer = qeliPoll(async () => { await this.refreshLive(); return !this.readErrors.users && !this.readErrors.usage; }, 10000);
+      this.visibilityHandler = () => { if (!this.destroyed && !document.hidden) this.refreshLive(); };
+      document.addEventListener('visibilitychange', this.visibilityHandler);
+    },
+    destroy() {
+      this.destroyed = true; this.loadSequence++;
+      this.loading = false;
+      qeliStopPoll(this.refreshTimer);
+      if (this.visibilityHandler) document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.refreshTimer = this.visibilityHandler = null;
+    },
+    async refreshLive() {
+      if (this.destroyed || this.loading) return;
+      await Promise.all([this.refreshUsers(), this.loadUsage(true)]);
+    },
+    async refreshUsers() {
+      // Preserve the user's live refresh and keep the editor paired with its source row.
+      if (this.destroyed || this.refreshingUsers || this.modal) return;
+      this.refreshingUsers = true;
+      try {
+        await this.readSection('users', true, () => apiFetch('api/users', {cache:'no-store'}), d => {
+          if (this.modal) return;
+          if (!Array.isArray(d.users || [])) throw new Error(this.qeliT('Request failed'));
+          this.users = d.users || []; this.loaded = true;
+          const liveNames = new Set(this.users.map(u => u.username));
+          this.selected = this.selected.filter(name => liveNames.has(name));
+          this.refreshUserView();
+        });
+      } finally { this.refreshingUsers = false; }
+    },
+    async load(background = false) {
+      if (this.destroyed || (background && this.readPending.users)) return;
+      const sequence = ++this.loadSequence;
+      if (!background) this.loading = true;
+      try {
+        await Promise.all([
+          this.readSection('users', false, () => apiFetch('api/users', {cache:'no-store'}), d => {
+            if (!Array.isArray(d.users || [])) throw new Error(this.qeliT('Request failed'));
+            this.users = d.users || []; this.loaded = true;
+            const names = new Set(this.users.map(u => u.username));
+            this.selected = this.selected.filter(name => names.has(name));
+            this.refreshUserView();
+          }), this.loadGroups(background), this.loadProfiles(background), this.loadUsage(background),
+        ]);
+      } finally { if (sequence === this.loadSequence) this.loading = false; }
+    },
+    async loadGroups(background = false) {
+      await this.readSection('groups', background, () => apiFetch('api/groups'), d => {
+        this.groups = Object.entries(d.groups || {}).map(([name, g]) => ({ name, ...g }));
+        this.groupsLoaded = true;
       });
     },
-
-    async load() {
-      this.loading = true;
-      try {
-        const [d] = await Promise.all([
-          apiFetch('api/users'),
-          this.loadGroups(),
-          this.loadProfiles(),
-          this.loadUsage(),
-        ]);
-        if (d.ok) this.users = d.users || [];
-        const liveNames = new Set(this.users.map(u => u.username));
-        this.selected = this.selected.filter(name => liveNames.has(name));
-        this.refreshUserView();
-      } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Failed to load users: ') + e.message, type: 'error' });
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    async loadGroups() {
-      try {
-        const d = await apiFetch('api/groups');
-        if (d.ok && d.groups) {
-          // map { name: {..} } → [{name, ..}]
-          this.groups = Object.entries(d.groups).map(([name, g]) => ({ name, ...g }));
-        }
-      } catch (e) { /* non-fatal */ }
-    },
-
-    async loadProfiles() {
-      try {
-        const d = await apiFetch('api/config');
-        if (d.ok && d.config && Array.isArray(d.config.profiles)) {
-          this.profiles = d.config.profiles.map(p => ({
-            name: p.name,
-            transport: p.bind?.transport || 'tcp',
-            port: p.bind?.port || 443,
-          }));
-          this.publicHost = d.config.web?.public_host || '';
-        }
-      } catch (e) { /* non-fatal: share modal still works with a typed profile */ }
+    async loadProfiles(background = false) {
+      await this.readSection('profiles', background, () => apiFetch('api/config'), d => {
+        if (!d.config || !Array.isArray(d.config.profiles)) throw new Error(this.qeliT('Request failed'));
+        this.profiles = d.config.profiles.map(p => ({ name: p.name, enabled: p.enabled !== false, transport: p.bind?.transport || 'tcp', port: p.bind?.port || 443 }));
+        this.publicHost = d.config.web?.public_host || '';
+      });
     },
 
     closeModal() {
@@ -788,6 +854,14 @@ function usersPage() {
       this.form = {};
       this.groupForm = {};
       this.share = {};
+    },
+
+    profileLabel(profile) {
+      return profile.name + ' (' + profile.transport + '/' + profile.port + ')'
+        + (profile.enabled === false ? ' — ' + this.qeliT('Disabled') : '');
+    },
+    get shareProfileDisabled() {
+      return this.profiles.some(p => p.name === this.share.profile && p.enabled === false);
     },
 
     toggleProfile(name) {
@@ -801,7 +875,7 @@ function usersPage() {
       try { host = host || localStorage.getItem('qeli_share_host') || ''; } catch (e) {}
       this.share = {
         user: u.username,
-        profile: this.profiles[0]?.name || 'default',
+        profile: (this.profiles.find(p => p.enabled !== false) || this.profiles[0])?.name || 'default',
         host, label: '',
         uri: '', qr: '', error: '', loading: false,
         needsReset: false, resetMsg: '', reset: false, newPassword: '',
@@ -812,6 +886,8 @@ function usersPage() {
     // No password input: the server decrypts the stored copy. For a legacy user
     // with none, the server replies needs_reset → we offer a reset (allowReset).
     async generateShare(allowReset = false) {
+      const owner = this.share;
+      if (this.destroyed || this.modal !== 'share' || owner.loading) return;
       this.share.error = ''; this.share.uri = ''; this.share.qr = '';
       if (!this.share.host.trim()) { this.share.error = 'Public host is required'; return; }
       this.share.loading = true;
@@ -828,6 +904,7 @@ function usersPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
+        if (this.destroyed || this.share !== owner || this.modal !== 'share') return;
         if (r.ok) {
           this.share.uri = r.uri;
           this.share.qr = this.svgDataUri(r.qr_svg);
@@ -843,9 +920,9 @@ function usersPage() {
           this.share.error = r.error || 'Failed to generate link';
         }
       } catch (e) {
-        this.share.error = 'Network error: ' + e.message;
+        if (!this.destroyed && this.share === owner && this.modal === 'share') this.share.error = 'Network error: ' + e.message;
       } finally {
-        this.share.loading = false;
+        owner.loading = false;
       }
     },
 
@@ -904,6 +981,9 @@ function usersPage() {
     },
 
     async create() {
+      const owner = this.form;
+      const draft = JSON.stringify(owner);
+      if (this.destroyed || this.modal !== 'create' || this.modalSaving) return;
       this.modalError = '';
       if (!this.form.username.trim()) { this.modalError = 'Username is required'; return; }
       if (!this.form.plainPassword) { this.modalError = 'Password is required'; return; }
@@ -927,21 +1007,25 @@ function usersPage() {
             client_subnets: this.cleanClientSubnets(),
           }),
         });
+        if (this.destroyed || this.form !== owner || this.modal !== 'create') return;
         if (r.ok) {
-          this.closeModal();
+          if (JSON.stringify(owner) === draft) this.closeModal();
           this.$dispatch('notify', { msg: r.message || 'User created', type: 'success' });
           await this.load();
         } else {
           this.modalError = r.error || 'Failed to create user';
         }
       } catch (e) {
-        this.modalError = 'Network error: ' + e.message;
+        if (!this.destroyed && this.form === owner && this.modal === 'create') this.modalError = 'Network error: ' + e.message;
       } finally {
-        this.modalSaving = false;
+        if (this.form === owner && this.modal === 'create') this.modalSaving = false;
       }
     },
 
     async save() {
+      const owner = this.form;
+      const draft = JSON.stringify(owner);
+      if (this.destroyed || this.modal !== 'edit' || this.modalSaving) return;
       this.modalError = '';
       this.modalSaving = true;
       try {
@@ -964,17 +1048,18 @@ function usersPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
+        if (this.destroyed || this.form !== owner || this.modal !== 'edit') return;
         if (r.ok) {
-          this.closeModal();
+          if (JSON.stringify(owner) === draft) this.closeModal();
           this.$dispatch('notify', { msg: r.message || 'User updated', type: 'success' });
           await this.load();
         } else {
           this.modalError = r.error || 'Failed to save';
         }
       } catch (e) {
-        this.modalError = 'Network error: ' + e.message;
+        if (!this.destroyed && this.form === owner && this.modal === 'edit') this.modalError = 'Network error: ' + e.message;
       } finally {
-        this.modalSaving = false;
+        if (this.form === owner && this.modal === 'edit') this.modalSaving = false;
       }
     },
 
@@ -1034,6 +1119,9 @@ function usersPage() {
     },
 
     async saveGroup() {
+      const owner = this.groupForm;
+      const draft = JSON.stringify(owner);
+      if (this.destroyed || this.modal !== 'group' || this.modalSaving) return;
       this.modalError = '';
       const name = (this.groupForm.name || '').trim();
       if (!name) { this.modalError = 'Group name is required'; return; }
@@ -1051,17 +1139,18 @@ function usersPage() {
             allowed_networks: nets.length ? nets : null,
           }),
         });
+        if (this.destroyed || this.groupForm !== owner || this.modal !== 'group') return;
         if (r.ok) {
-          this.closeModal();
+          if (JSON.stringify(owner) === draft) this.closeModal();
           this.$dispatch('notify', { msg: r.message || 'Group saved', type: 'success' });
           await this.loadGroups();
         } else {
           this.modalError = r.error || 'Failed to save group';
         }
       } catch (e) {
-        this.modalError = 'Network error: ' + e.message;
+        if (!this.destroyed && this.groupForm === owner && this.modal === 'group') this.modalError = 'Network error: ' + e.message;
       } finally {
-        this.modalSaving = false;
+        if (this.groupForm === owner && this.modal === 'group') this.modalSaving = false;
       }
     },
 

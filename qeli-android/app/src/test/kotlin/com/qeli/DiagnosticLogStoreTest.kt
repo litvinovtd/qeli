@@ -11,6 +11,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticLogStoreTest {
+    @Test
+    fun `normal rotation leaves headroom instead of compacting every following append`() = withTempDirectory { directory ->
+        DiagnosticLogStore.appendBatch(directory, (0..1000).map {
+            DiagnosticLogStore.entry("event-$it", timestampMs = it.toLong())
+        })
+        val rotated = DiagnosticLogStore.read(directory)
+        assertEquals(750, rotated.size)
+        assertEquals("event-1000", rotated.last().message)
+        DiagnosticLogStore.append(directory, "next")
+        assertEquals(751, DiagnosticLogStore.read(directory).size)
+    }
+
     private fun withTempDirectory(block: (File) -> Unit) {
         val directory = Files.createTempDirectory("qeli-diagnostic-log-").toFile()
         try {
@@ -116,5 +128,37 @@ class DiagnosticLogStoreTest {
 
         assertTrue(DiagnosticLogStore.read(directory).isEmpty())
         assertFalse(File(directory, DiagnosticLogStore.FILE_NAME).exists())
+    }
+
+    @Test fun `oversized corrupt prefix retains complete newest records`() = withTempDirectory { directory ->
+        DiagnosticLogStore.append(directory, "latest", timestampMs = 42L)
+        val file = File(directory, DiagnosticLogStore.FILE_NAME)
+        val valid = file.readBytes()
+        file.outputStream().use { output ->
+            val garbage = ByteArray(16 * 1024) { 'x'.code.toByte() }
+            repeat(512) { output.write(garbage) }
+            output.write('\n'.code); output.write(valid)
+        }
+        assertEquals(listOf("latest"), DiagnosticLogStore.read(directory).map { it.message })
+        assertTrue(file.length() <= DiagnosticLogStore.MAX_BYTES)
+    }
+    @Test fun `large valid history keeps the requested newest entry count`() = withTempDirectory { directory ->
+        val file = File(directory, DiagnosticLogStore.FILE_NAME)
+        val encoded = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("профиль".toByteArray(StandardCharsets.UTF_8))
+        file.bufferedWriter(StandardCharsets.UTF_8).use { out ->
+            repeat(50_000) { i -> out.write("$i\tinfo\t\t$encoded\n") }
+        }
+        val entries = DiagnosticLogStore.read(directory, maxEntries = 3)
+        assertEquals(listOf(49_997L, 49_998L, 49_999L), entries.map { it.timestampMs })
+        assertTrue(entries.all { it.message == "профиль" })
+        assertTrue(file.length() <= DiagnosticLogStore.MAX_BYTES)
+    }
+    @Test fun `append repairs an oversized existing journal before adding a record`() = withTempDirectory { directory ->
+        val file = File(directory, DiagnosticLogStore.FILE_NAME)
+        file.outputStream().use { out -> repeat(64) { out.write(ByteArray(16 * 1024) { 'x'.code.toByte() }) } }
+        DiagnosticLogStore.append(directory, "after-recovery", maxBytes = 128)
+        assertEquals(listOf("after-recovery"), DiagnosticLogStore.read(directory, maxBytes = 128).map { it.message })
+        assertTrue(file.length() <= 128)
     }
 }

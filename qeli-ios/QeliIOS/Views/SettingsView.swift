@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var showingImporter = false
     @State private var pendingRestore: ProfileArchive?
     @State private var preparingBackup = false
+    @State private var preparingRestore = false
     @State private var trustedWiFiText = ""
     @FocusState private var trustedWiFiEditorFocused: Bool
 
@@ -116,25 +117,30 @@ struct SettingsView: View {
                             Text(LocalizedStringKey(level.title)).tag(level)
                         }
                     }
+                    Toggle("Clear log after disconnect", isOn: setting(\.clearLogOnDisconnect))
+                    Text("Clear saved history when VPN stops, including after an error. Disable to keep diagnostics. Reconnects do not clear the log.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Backup and restore") {
                     SecureField("Passphrase (optional for export)", text: $passphrase)
                     Button {
+                        let exportPassphrase = passphrase
                         preparingBackup = true
                         Task {
                             defer { preparingBackup = false }
                             do {
-                                backupDocument = BackupDocument(data: try await model.makeBackup(passphrase: passphrase))
+                                backupDocument = BackupDocument(data: try await model.makeBackup(passphrase: exportPassphrase))
                                 showingExporter = true
                             } catch { model.present(error, title: "Backup failed") }
                         }
                     } label: {
                         Label(preparingBackup ? "Preparing…" : "Back up profiles…", systemImage: "square.and.arrow.up")
                     }
-                    .disabled(preparingBackup)
+                    .disabled(preparingBackup || preparingRestore)
                     Button { showingImporter = true } label: {
                         Label("Restore profiles…", systemImage: "square.and.arrow.down")
                     }
+                    .disabled(preparingBackup || preparingRestore || pendingRestore != nil)
                     Text("An empty export passphrase creates Android-compatible plaintext JSON. A passphrase uses QELI-ENC-1 encryption compatible with Android.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -155,7 +161,7 @@ struct SettingsView: View {
             isPresented: $showingExporter,
             document: backupDocument,
             contentType: .data,
-            defaultFilename: passphrase.isEmpty ? "qeli-profiles.json" : "qeli-profiles.qeli-backup"
+            defaultFilename: backupDocument?.defaultFilename ?? "qeli-profiles.json"
         ) { result in
             if case .failure(let error) = result { model.present(error, title: "Backup failed") }
             backupDocument = nil
@@ -165,7 +171,11 @@ struct SettingsView: View {
             allowedContentTypes: [.json, .plainText, .data],
             allowsMultipleSelection: false
         ) { result in
+            guard !preparingRestore else { return }
+            let restorePassphrase = passphrase
+            preparingRestore = true
             Task { @MainActor in
+                defer { preparingRestore = false }
                 do {
                     guard let url = try result.get().first else { return }
                     let access = url.startAccessingSecurityScopedResource()
@@ -176,7 +186,7 @@ struct SettingsView: View {
                             maximumBytes: ProfileStore.maximumBackupFileBytes
                         )
                     }.value
-                    pendingRestore = try await model.decodeBackup(data, passphrase: passphrase)
+                    pendingRestore = try await model.decodeBackup(data, passphrase: restorePassphrase)
                 } catch { model.present(error, title: "Restore failed") }
             }
         }
@@ -244,6 +254,9 @@ struct SettingsView: View {
 struct BackupDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.data, .json, .plainText] }
     var data: Data
+    var defaultFilename: String {
+        BackupCrypto.isEncrypted(data) ? "qeli-profiles.qeli-backup" : "qeli-profiles.json"
+    }
 
     init(data: Data) { self.data = data }
 

@@ -1,5 +1,13 @@
 # Client roaming (seamless network change) — implementation plan
-<!-- normative-sync: roaming-v47-platform-gates-only -->
+<!-- normative-sync: roaming-v51-private-control -->
+
+> Audit update, 23 September 2026: the Linux route adapter uses a connection owner lease;
+> cleanup closes admission for new mutations. `dev_attach=true` does not supply
+> `ROAMING_PATH` because an external manager owns routes. `auto` uses reconnect;
+> `required` is unavailable. [Q25-F027/F028 and limits](../reports/audit-0.8.2/AUDIT-Q25-ROUTE-SCOPE.md).
+> Live results below belong to earlier passes; this fix was checked with host tests
+> and Linux cross-checks, without a new device run.
+
 
 > **Status: design complete; Phases 0–2A and the shared Phase 2B TCP handover are
 > implemented under the internal `experimental-roaming` compile gate, which is included in all
@@ -947,3 +955,33 @@ documentation, and lab is approximately **20–30 engineering weeks**.
 
 Primary risks are cross-worker UDP state, TCP orphan/JOIN/reaper races, nonce reuse,
 platform binding rollback, outer-family PMTU changes, iOS behavior, and interactions
+
+Soak admission: canonical decimal counts1..2147483647 without leading zeros;sample_every<=iterations. Standalone UDP below10kQUIC/1kadapters emits SMOKE and exits0 when children succeed, not endurance PASS. Full roaming_resource_release_gate.sh refuses downgraded counts before its first phase. Separate mandatory bounded release100 is retained. Details/evidence: [Q35](../reports/audit-0.8.2/AUDIT-Q34-RELEASE-SOAK.md).
+
+### Mandatory isolation for Linux TCP/UDP runners
+
+`roaming_netns_e2e.sh` and `roaming_udp_netns_e2e.sh` require root or equivalent
+namespace/mount capabilities, util-linux unshare supporting --kill-child, Python3
+and kernel overlayfs/sysfs. Keep `roaming_netns_isolation.sh` and
+`roaming_netns_supervisor.py` beside them; all cases/modes use them automatically.
+Missing privileges or failed mounts refuse before cleanup. There is no environment
+opt-out. Arguments, cwd, INI settings and soak thresholds are preserved. Private
+mount/process namespaces disappear on completion/interruption; the individual
+WORK directory and logs remain available for result analysis.
+
+CI executes unprivileged `test_roaming_netns_isolation.py`. Separate
+`test_roaming_netns_isolation_kernel.py` requires an independent outer lab and
+verifies parent namespace identities before creating sentinels. Qualification,
+real kernel execution and inherited boundaries are in the
+[Q35 report](../reports/audit-0.8.2/AUDIT-Q34-RELEASE-SOAK.md).
+
+### Control sockets and deep TMPDIR
+
+Linux TCP/UDP runners automatically place control sockets at private
+`/run/qeli-roaming-control/control.sock` (directory0700);TCP secondary uses
+`control-secondary.sock` beside it. Unix addresses stay short for deep TMPDIR/
+WORK paths. Soak statistics and bonding control API use that same path.
+Mandatory isolation gives simultaneous socket names separate mount/PID namespaces.
+Private /run/sockets disappear with the job;WORK with INI/logs remains under
+TMPDIR for inspection. Control sockets no longer depend on WORK.
+[F509 qualification](../reports/audit-0.8.2/AUDIT-Q34-RELEASE-SOAK.md).

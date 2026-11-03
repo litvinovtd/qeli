@@ -1,0 +1,34 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Avalonia.X11</id>
+    <version>11.3.20</version>
+    <authors>Avalonia Team</authors>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <icon>Icon.png</icon>
+    <projectUrl>https://avaloniaui.net/?utm_source=nuget&amp;utm_medium=referral&amp;utm_content=project_homepage_link</projectUrl>
+    <description>Avalonia is a cross-platform UI framework for .NET providing a flexible styling system and supporting a wide range of Operating Systems such as Windows, Linux, macOS and with experimental support for Android, iOS and WebAssembly.</description>
+    <releaseNotes>https://github.com/AvaloniaUI/Avalonia/releases</releaseNotes>
+    <copyright>Copyright 2013-2026 © The AvaloniaUI Project</copyright>
+    <tags>avalonia avaloniaui mvvm rx reactive extensions android ios mac forms wpf net netstandard net461 uwp xamarin</tags>
+    <repository type="git" url="https://github.com/AvaloniaUI/Avalonia/" commit="984c3b833f29806eb159fb7f12a6132e936b75df" />
+    <dependencies>
+      <group targetFramework="net6.0">
+        <dependency id="Avalonia" version="11.3.20" />
+        <dependency id="Avalonia.FreeDesktop" version="11.3.20" exclude="Build,Analyzers" />
+        <dependency id="Avalonia.Skia" version="11.3.20" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0">
+        <dependency id="Avalonia" version="11.3.20" />
+        <dependency id="Avalonia.FreeDesktop" version="11.3.20" exclude="Build,Analyzers" />
+        <dependency id="Avalonia.Skia" version="11.3.20" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework=".NETStandard2.0">
+        <dependency id="Avalonia" version="11.3.20" />
+        <dependency id="Avalonia.FreeDesktop" version="11.3.20" exclude="Build,Analyzers" />
+        <dependency id="Avalonia.Skia" version="11.3.20" exclude="Build,Analyzers" />
+      </group>
+    </dependencies>
+  </metadata>
+</package>

@@ -6,29 +6,15 @@ use axum::Json;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// Reject anything that isn't a parseable Argon2 PHC string. Without this,
-/// callers can store plaintext in `password_hash` and the server happily
-/// accepts it on next login (because PasswordHash::new would fail at verify
-/// time and the user could never log in — but the record is still persisted).
-pub(super) fn validate_argon2_hash(hash: &str) -> Result<(), String> {
-    if !hash.starts_with("$argon2id$")
-        && !hash.starts_with("$argon2i$")
-        && !hash.starts_with("$argon2d$")
-    {
-        return Err("password_hash must be an Argon2 PHC string ($argon2id$…)".into());
-    }
-    argon2::PasswordHash::new(hash)
-        .map(|_| ())
-        .map_err(|e| format!("invalid Argon2 hash: {}", e))
-}
+// Shared by the INI validation gate, panel saves, and user API.
+pub(super) use crate::config::validate_argon2_hash;
 
 /// Hash a plaintext password (Argon2id) and reversibly-encrypt it under the panel
 /// key, so the config/QR can be re-issued later without the plaintext. Encryption
 /// is best-effort: on key failure we still return the hash (enc = None) so user
 /// creation isn't blocked — re-issue then needs a one-time reset.
-pub(crate) fn hash_and_enc(pw: &str) -> Result<(String, Option<String>), String> {
-    let hash = crate::crypto::hash_password(pw.as_bytes())
-        .map_err(|e| format!("hashing failed: {}", e))?;
+pub(crate) async fn hash_and_enc(pw: &str) -> Result<(String, Option<String>), String> {
+    let hash = super::hash::bounded_hash(pw.to_string()).await?;
     let enc = match crate::crypto::secret::encrypt_password(pw) {
         Ok(e) => Some(e),
         Err(e) => {
@@ -49,16 +35,13 @@ pub(crate) fn gen_password(len: usize) -> String {
         .collect()
 }
 
-/// Parse a JSON string array (e.g. `profiles`, `allowed_networks`) into a Vec,
-/// dropping non-strings and blanks. Returns empty for a missing/!array field.
-/// Validate `allowed_networks` entries: each must be an IPv4 CIDR (`10.0.0.0/8`) or a
-/// bare IPv4 address (a /32 host route).
+/// Validate `allowed_networks`: each entry must be an IPv4/IPv6 CIDR or bare IP.
+/// String arrays are parsed strictly by `strings_from_json`.
 ///
 /// This matters more than it used to: the destination ACL is now ENFORCED in the data
 /// plane. Runtime compilation fails closed for an entirely malformed configured list,
 /// but that would unexpectedly lock the user out. Reject at authoring time so the
-/// operator sees the mistake. Blank rows (the panel's empty repeater row) are ignored,
-/// matching the compiler.
+/// operator sees the mistake. The API rejects blank entries before this gate.
 fn validate_allowed_networks(nets: &[String]) -> Result<(), String> {
     for n in nets {
         let s = n.trim();
@@ -107,6 +90,27 @@ fn validate_static_ipv6(ip: &str) -> Result<(), String> {
         )
     })?;
     crate::config::server::validate_tunnel_ipv6_address("static_ipv6", address)
+}
+
+/// Validate fields whose permissive `as_*` fallback could report a successful no-op
+/// or enable a newly created account after a type error. Do this before hashing or locks.
+fn validate_user_body(body: &Value) -> Result<(), String> {
+    super::require_json_object(body)?;
+    for key in ["password", "password_hash"] {
+        if body.get(key).is_some_and(|value| !value.is_string()) {
+            return Err(format!("{key} must be a string"));
+        }
+    }
+    if body.get("enabled").is_some_and(|value| !value.is_boolean()) {
+        return Err("enabled must be a boolean".to_string());
+    }
+    if body
+        .get("bandwidth")
+        .is_some_and(|value| !value.is_object())
+    {
+        return Err("bandwidth must be an object".to_string());
+    }
+    Ok(())
 }
 
 /// Read a nullable string field from a partial JSON update.
@@ -198,16 +202,27 @@ fn u32_limit(n: u64, what: &str) -> Result<u32, String> {
     }
 }
 
-fn strings_from_json(v: &Value) -> Vec<String> {
-    v.as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect()
+fn strings_from_json(body: &Value, key: &str) -> Result<Vec<String>, String> {
+    let Some(value) = body.get(key) else {
+        return Ok(Vec::new());
+    };
+    let entries = value
+        .as_array()
+        .ok_or_else(|| format!("{key} must be an array of strings"))?;
+    entries
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let text = value
+                .as_str()
+                .ok_or_else(|| format!("{key}[{index}] must be a string"))?
+                .trim();
+            if text.is_empty() {
+                return Err(format!("{key}[{index}] must not be empty"));
+            }
+            Ok(text.to_string())
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 /// Parse a JSON array of `{cidr, gateway?, metric?}` into per-user routes.
@@ -217,9 +232,12 @@ fn strings_from_json(v: &Value) -> Vec<String> {
 /// an entry is how a route typed in the panel could vanish without a word and
 /// never reach any client — the admin sees it "saved" and nothing happens.
 fn routes_from_json(v: &Value) -> Result<Vec<UserRoute>, String> {
-    let Some(arr) = v.as_array() else {
+    if v.is_null() {
         return Ok(Vec::new());
-    };
+    }
+    let arr = v
+        .as_array()
+        .ok_or_else(|| "routes must be an array".to_string())?;
     let mut out = Vec::with_capacity(arr.len());
     for r in arr {
         let cidr = r["cidr"].as_str().unwrap_or("").trim().to_string();
@@ -230,10 +248,7 @@ fn routes_from_json(v: &Value) -> Result<Vec<UserRoute>, String> {
                 cidr
             ));
         }
-        let gateway = r["gateway"]
-            .as_str()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
+        let gateway = nullable_trimmed_string(r, "gateway")?.flatten();
         if let Some(gw) = &gateway {
             if !crate::util::is_valid_gateway(gw) {
                 return Err(format!(
@@ -269,10 +284,44 @@ fn routes_from_json(v: &Value) -> Result<Vec<UserRoute>, String> {
 /// Ask the supervisor to SIGHUP the data-plane worker so it hot-reloads the
 /// users file after a panel-side change (the panel owns its own users_db copy;
 /// the worker is a separate process that re-reads the file on signal).
-async fn reload_worker(state: &Arc<ServerState>) {
+async fn reload_worker(state: &Arc<ServerState>) -> bool {
     if let Some(tx) = &state.worker_tx {
-        let _ = tx.send(crate::server::WorkerCmd::ReloadUsers).await;
+        return tx.send(crate::server::WorkerCmd::ReloadUsers).await.is_ok();
     }
+    false
+}
+
+/// Distinguish a pre-publication refusal from a published but unsynced INI.
+/// Refresh the panel and request worker reload after publication even when the
+/// API returns failure: the file now contains the candidate's permissions.
+pub(super) async fn users_write_failure(
+    state: &Arc<ServerState>,
+    config: &crate::config::server::ServerConfig,
+    users_file: &str,
+    error: anyhow::Error,
+) -> Value {
+    let published = crate::util::atomic_write_was_published(&error);
+    let mut message = format!(
+        "could not confirm users file update '{}': {}",
+        users_file, error
+    );
+    let mut reload_requested = false;
+    if published {
+        match super::effective_users(config) {
+            Ok(fresh) => *state.users_db.write().await = fresh,
+            Err(readback) => message.push_str(&format!("; readback failed: {readback}")),
+        }
+        reload_requested = reload_worker(state).await;
+        message.push_str("; change published, durability uncertain");
+        message.push_str(if reload_requested {
+            "; worker reload requested"
+        } else {
+            "; worker reload unavailable"
+        });
+    } else {
+        message.push_str(" — change NOT applied");
+    }
+    json!({"ok": false, "error": message, "published": published, "reload_requested": reload_requested})
 }
 
 /// Send a command to the worker's control socket (for live effects on active
@@ -321,6 +370,9 @@ pub async fn create_user(
     _guard: auth::AuthGuard,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
+    if let Err(error) = validate_user_body(&body) {
+        return Ok(Json(super::err_json(error)));
+    }
     let username = body["username"].as_str().unwrap_or("").to_string();
     if username.is_empty() {
         return Ok(Json(super::err_json("username required")));
@@ -354,7 +406,7 @@ pub async fn create_user(
     let (password_hash, password_enc) = {
         let plaintext = body["password"].as_str().unwrap_or("");
         if !plaintext.is_empty() {
-            match hash_and_enc(plaintext) {
+            match hash_and_enc(plaintext).await {
                 Ok(v) => v,
                 Err(e) => return Ok(Json(super::err_json(e))),
             }
@@ -432,7 +484,18 @@ pub async fn create_user(
         Ok(v) => v.unwrap_or(0),
         Err(e) => return Ok(Json(super::err_json(e))),
     };
-    let allowed_networks_new = strings_from_json(&body["allowed_networks"]);
+    let allowed_networks_new = match strings_from_json(&body, "allowed_networks") {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let profiles = match strings_from_json(&body, "profiles") {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let client_subnets = match strings_from_json(&body, "client_subnets") {
+        Ok(value) => value,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     if let Err(e) = validate_allowed_networks(&allowed_networks_new) {
         return Ok(Json(super::err_json(e)));
     }
@@ -450,9 +513,9 @@ pub async fn create_user(
         group,
         allowed_networks: allowed_networks_new,
         max_sessions,
-        profiles: strings_from_json(&body["profiles"]),
+        profiles,
         routes,
-        client_subnets: strings_from_json(&body["client_subnets"]),
+        client_subnets,
         ..Default::default()
     };
     let mut candidate_users = users.clone();
@@ -480,10 +543,10 @@ pub async fn create_user(
         }
         Err(e) => {
             log::error!("Failed to save users file after create: {}", e);
-            return Ok(Json(super::err_json(format!(
-                "could not write the users file '{}': {} — change NOT applied",
-                users_file, e
-            ))));
+            drop(users);
+            return Ok(Json(
+                users_write_failure(&state, &config, &users_file, e).await,
+            ));
         }
     };
     if taken {
@@ -567,6 +630,9 @@ pub async fn update_user(
     Path(username): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
+    if let Err(error) = validate_user_body(&body) {
+        return Ok(Json(super::err_json(error)));
+    }
     let static_ip_update = match nullable_trimmed_string(&body, "static_ip") {
         Ok(value) => value,
         Err(error) => return Ok(Json(super::err_json(error))),
@@ -578,6 +644,15 @@ pub async fn update_user(
     let group_update = match nullable_trimmed_string(&body, "group") {
         Ok(value) => value,
         Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    // KDF must not occupy a users/config write lock while its blocking job runs.
+    let password_update = if let Some(pw) = body["password"].as_str().filter(|p| !p.is_empty()) {
+        match hash_and_enc(pw).await {
+            Ok(value) => Some(value),
+            Err(error) => return Ok(Json(super::err_json(error))),
+        }
+    } else {
+        None
     };
     let _config_write_guard = state.config_write_lock.lock().await;
     let config = match super::current_server_config(&state).await {
@@ -631,14 +706,9 @@ pub async fn update_user(
             // the re-issue copy since we can't encrypt what we never see.
             // Empty `password` falls through to `password_hash` (was: an empty-but-present
             // password entered this branch and no-op'd, ignoring a supplied hash).
-            if let Some(pw) = body["password"].as_str().filter(|p| !p.is_empty()) {
-                match hash_and_enc(pw) {
-                    Ok((h, e)) => {
-                        edited.password_hash = h;
-                        edited.password_enc = e;
-                    }
-                    Err(err) => return Ok(Json(super::err_json(err))),
-                }
+            if let Some((hash, encrypted)) = password_update {
+                edited.password_hash = hash;
+                edited.password_enc = encrypted;
             } else if let Some(v) = body["password_hash"].as_str().filter(|v| !v.is_empty()) {
                 if let Err(e) = validate_argon2_hash(v) {
                     return Ok(Json(super::err_json(e)));
@@ -661,14 +731,10 @@ pub async fn update_user(
             // An INVALID value is now an error, not a silent no-op: `as_u64()` returns
             // None for "-5"/"1.5"/"abc" exactly as for a missing key, so the old
             // `if let Some(..)` reported success while leaving the limit untouched.
-            let mut new_bw_limit: Option<u64> = None;
             if let Some(bw) = body.get("bandwidth") {
                 match opt_u32_limit(bw, "limit_mbps") {
                     Ok(Some(limit)) => {
                         edited.bandwidth.limit_mbps = limit;
-                        // Send the SAME range-checked value the file gets — the old code
-                        // shipped the raw u64 here while writing a wrapped u32 to disk.
-                        new_bw_limit = Some(limit as u64); // applied live below
                     }
                     Ok(None) => {}
                     Err(e) => return Ok(Json(super::err_json(e))),
@@ -685,14 +751,20 @@ pub async fn update_user(
                 Err(e) => return Ok(Json(super::err_json(e))),
             }
             if body.get("allowed_networks").is_some() {
-                let nets = strings_from_json(&body["allowed_networks"]);
+                let nets = match strings_from_json(&body, "allowed_networks") {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Json(super::err_json(error))),
+                };
                 if let Err(e) = validate_allowed_networks(&nets) {
                     return Ok(Json(super::err_json(e)));
                 }
                 edited.allowed_networks = nets;
             }
             if body.get("profiles").is_some() {
-                edited.profiles = strings_from_json(&body["profiles"]);
+                edited.profiles = match strings_from_json(&body, "profiles") {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Json(super::err_json(error))),
+                };
             }
             if body.get("routes").is_some() {
                 match routes_from_json(&body["routes"]) {
@@ -701,7 +773,10 @@ pub async fn update_user(
                 }
             }
             if body.get("client_subnets").is_some() {
-                edited.client_subnets = strings_from_json(&body["client_subnets"]);
+                edited.client_subnets = match strings_from_json(&body, "client_subnets") {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Json(super::err_json(error))),
+                };
             }
             let mut candidate_users = users.clone();
             if let Some(candidate) = candidate_users
@@ -753,10 +828,10 @@ pub async fn update_user(
                 }
                 Err(e) => {
                     log::error!("Failed to save users file after update: {}", e);
-                    return Ok(Json(super::err_json(format!(
-                        "could not write the users file '{}': {} — change NOT applied",
-                        users_file, e
-                    ))));
+                    drop(users);
+                    return Ok(Json(
+                        users_write_failure(&state, &config, &users_file, e).await,
+                    ));
                 }
             };
             if !applied {
@@ -766,12 +841,8 @@ pub async fn update_user(
                 ))));
             }
             drop(users);
-            if let Some(limit) = new_bw_limit {
-                worker_control(
-                    json!({"cmd": "set-bandwidth", "username": username, "mbps": limit}),
-                )
-                .await;
-            }
+            // Reload applies effective bandwidth to live sessions without rewriting
+            // the just-published INI through the CLI's set-bandwidth defaults.
             reload_worker(&state).await;
             Ok(Json(
                 json!({"ok": true, "message": format!("user '{}' updated", username)}),
@@ -799,21 +870,20 @@ pub async fn delete_user(
     // Delete on a freshly re-read copy: this process's snapshot may predate changes the
     // worker made over the control socket, and writing it back verbatim reverted them.
     let outcome = UsersDb::update_locked_checked(&users_file, |db| {
-        let before = db.users.len();
-        db.users.retain(|u| u.username != username);
-        let removed = db.users.len() < before;
-        if !removed
-            && config
-                .auth
-                .users
-                .iter()
-                .any(|user| user.username == username)
+        if config
+            .auth
+            .users
+            .iter()
+            .any(|user| user.username == username)
         {
             anyhow::bail!(
                 "user '{}' is defined inline in server.conf; remove that [user:*] section or disable the user instead",
                 username
             );
         }
+        let before = db.users.len();
+        db.users.retain(|u| u.username != username);
+        let removed = db.users.len() < before;
         let effective = super::effective_users_from_external(&config, db.clone())?;
         Ok((removed, effective))
     });
@@ -824,10 +894,10 @@ pub async fn delete_user(
         }
         Err(e) => {
             log::error!("Failed to save users file after delete: {}", e);
-            return Ok(Json(super::err_json(format!(
-                "could not write the users file '{}': {} — change NOT applied",
-                users_file, e
-            ))));
+            drop(users);
+            return Ok(Json(
+                users_write_failure(&state, &config, &users_file, e).await,
+            ));
         }
     };
     if removed {
@@ -857,7 +927,7 @@ pub async fn disable_user(
     _guard: auth::AuthGuard,
     Path(username): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
-    // disable in users.json
+    // Disable in the authoritative users INI file.
     let result = set_user_enabled(&state, &username, false).await?;
 
     // also kick the user's active sessions in the worker if just disabled
@@ -907,10 +977,10 @@ async fn set_user_enabled(
         }
         Err(e) => {
             log::error!("Failed to save users file after set_enabled: {}", e);
-            return Ok(Json(super::err_json(format!(
-                "could not write the users file '{}': {} — change NOT applied",
-                users_file, e
-            ))));
+            drop(users);
+            return Ok(Json(
+                users_write_failure(state, &config, &users_file, e).await,
+            ));
         }
     };
     match found {
@@ -935,6 +1005,9 @@ pub async fn set_user_bandwidth(
     Path(username): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
+    if let Err(error) = super::require_json_object(&body) {
+        return Ok(Json(super::err_json(error)));
+    }
     let limit_mbps = match opt_u32_limit(&body, "limit_mbps") {
         Ok(v) => v.unwrap_or(0),
         Err(e) => return Ok(Json(super::err_json(e))),
@@ -981,10 +1054,10 @@ pub async fn set_user_bandwidth(
             }
             Err(e) => {
                 log::error!("Failed to save users file after set-bandwidth: {}", e);
-                Err(format!(
-                    "could not write the users file '{}': {} — change NOT applied",
-                    users_file, e
-                ))
+                drop(users);
+                return Ok(Json(
+                    users_write_failure(&state, &config, &users_file, e).await,
+                ));
             }
         }
     };
@@ -1001,8 +1074,8 @@ pub async fn set_user_bandwidth(
         Err(msg) => return Ok(Json(super::err_json(msg))),
     }
 
-    // apply live to the worker's active sessions, then reload its users file
-    worker_control(json!({"cmd": "set-bandwidth", "username": username, "mbps": limit_mbps})).await;
+    // Reload applies the persisted effective limit live. A second set-bandwidth
+    // writer used to overwrite an explicitly supplied burst with its CLI default.
     reload_worker(&state).await;
 
     Ok(Json(
@@ -1033,6 +1106,9 @@ pub async fn upsert_group(
     Path(name): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
+    if let Err(error) = super::require_json_object(&body) {
+        return Ok(Json(super::err_json(error)));
+    }
     if name.trim().is_empty() {
         return Ok(Json(super::err_json("group name required")));
     }
@@ -1054,8 +1130,11 @@ pub async fn upsert_group(
         Ok(v) => v,
         Err(e) => return Ok(Json(super::err_json(e))),
     };
-    let group_nets = if body.get("allowed_networks").is_some_and(|v| v.is_array()) {
-        let nets = strings_from_json(&body["allowed_networks"]);
+    let group_nets = if body.get("allowed_networks").is_some_and(|v| !v.is_null()) {
+        let nets = match strings_from_json(&body, "allowed_networks") {
+            Ok(value) => value,
+            Err(error) => return Ok(Json(super::err_json(error))),
+        };
         if let Err(e) = validate_allowed_networks(&nets) {
             return Ok(Json(super::err_json(e)));
         }
@@ -1075,9 +1154,8 @@ pub async fn upsert_group(
         Err(error) => return Ok(Json(super::err_json(error))),
     };
     let mut users = state.users_db.write().await;
-    // Snapshot before mutating so a failed write can be undone (see create_user) —
-    // the group no longer lingers in memory after a failed persist, so the message
-    // below is now literally true.
+    // Install the validated candidate only after publication, or read it back
+    // when directory fsync leaves durability uncertain.
     let users_file = config.auth.users_file.clone();
     if let Err(e) = UsersDb::update_locked_checked(&users_file, |db| {
         db.groups.insert(name.clone(), group);
@@ -1086,10 +1164,10 @@ pub async fn upsert_group(
     .map(|(_fresh, effective)| *users = effective)
     {
         log::error!("Failed to save users file after group upsert: {}", e);
-        return Ok(Json(super::err_json(format!(
-            "could not persist the group: {} — change NOT applied",
-            e
-        ))));
+        drop(users);
+        return Ok(Json(
+            users_write_failure(&state, &config, &users_file, e).await,
+        ));
     }
     drop(users);
     reload_worker(&state).await;
@@ -1112,13 +1190,13 @@ pub async fn delete_group(
     // Snapshot before mutating so a failed write can be undone (see create_user).
     let users_file = config.auth.users_file.clone();
     let existed = match UsersDb::update_locked_checked(&users_file, |db| {
-        let existed = db.groups.remove(&name).is_some();
-        if !existed && config.auth.groups.contains_key(&name) {
+        if config.auth.groups.contains_key(&name) {
             anyhow::bail!(
                 "group '{}' is defined inline in server.conf; remove that [group:*] section there",
                 name
             );
         }
+        let existed = db.groups.remove(&name).is_some();
         let effective = super::effective_users_from_external(&config, db.clone())?;
         Ok((existed, effective))
     }) {
@@ -1128,10 +1206,10 @@ pub async fn delete_group(
         }
         Err(e) => {
             log::error!("Failed to save users file after group delete: {}", e);
-            return Ok(Json(super::err_json(format!(
-                "could not write the users file '{}': {} — change NOT applied",
-                users_file, e
-            ))));
+            drop(users);
+            return Ok(Json(
+                users_write_failure(&state, &config, &users_file, e).await,
+            ));
         }
     };
     if !existed {
@@ -1150,7 +1228,10 @@ mod merge_tests {
     //! panel edits a user from a snapshot that may already be stale — the worker changes
     //! bandwidth/limits/expiry over the control socket — so writing the whole entry back
     //! reverted whatever it had not seen. These pin that only the edited fields travel.
-    use super::{merge_changed_fields, nullable_trimmed_string, routes_from_json};
+    use super::{
+        merge_changed_fields, nullable_trimmed_string, routes_from_json, strings_from_json,
+        validate_user_body,
+    };
     use crate::config::users::UserEntry;
 
     fn user(name: &str) -> UserEntry {
@@ -1271,6 +1352,104 @@ mod merge_tests {
         merge_changed_fields(&before, &after, &mut slot);
         assert_eq!(slot.bandwidth.limit_mbps, 7);
         assert_eq!(slot.static_ip.as_deref(), Some("10.0.0.9"));
+    }
+
+    #[test]
+    fn access_control_arrays_reject_wrong_types_without_dropping_entries() {
+        for key in ["allowed_networks", "profiles", "client_subnets"] {
+            for value in [
+                serde_json::json!("10.0.0.0/8"),
+                serde_json::json!(123),
+                serde_json::json!({}),
+                serde_json::json!(null),
+                serde_json::json!([123]),
+                serde_json::json!(["10.0.0.0/8", false]),
+                serde_json::json!([""]),
+            ] {
+                let body = serde_json::json!({key: value});
+                assert!(strings_from_json(&body, key).is_err(), "accepted {body}");
+            }
+            assert!(strings_from_json(&serde_json::json!({}), key)
+                .unwrap()
+                .is_empty());
+            assert!(strings_from_json(&serde_json::json!({key: []}), key)
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                strings_from_json(&serde_json::json!({key: ["10.0.0.0/8"]}), key).unwrap(),
+                ["10.0.0.0/8"]
+            );
+        }
+        for bad in [
+            serde_json::json!("10.0.0.0/8"),
+            serde_json::json!({}),
+            serde_json::json!(false),
+        ] {
+            assert!(routes_from_json(&bad).is_err());
+        }
+    }
+
+    #[test]
+    fn malformed_mutations_cannot_select_default_access_or_limits() {
+        for body in [
+            serde_json::json!(null),
+            serde_json::json!([]),
+            serde_json::json!(false),
+            serde_json::json!(5),
+            serde_json::json!("bad"),
+        ] {
+            assert!(validate_user_body(&body).is_err());
+            assert!(super::super::require_json_object(&body).is_err());
+        }
+        for key in ["enabled", "bandwidth", "password", "password_hash"] {
+            for value in [
+                serde_json::json!(null),
+                serde_json::json!([]),
+                serde_json::json!(5),
+            ] {
+                assert!(validate_user_body(&serde_json::json!({key: value})).is_err());
+            }
+        }
+        assert!(validate_user_body(&serde_json::json!({"enabled": false, "bandwidth": {}, "password": "", "password_hash": ""})).is_ok());
+        assert!(validate_user_body(&serde_json::json!({})).is_ok());
+    }
+
+    #[test]
+    fn route_gateway_types_cannot_silently_remove_the_next_hop() {
+        for gateway in [
+            serde_json::json!(false),
+            serde_json::json!(5),
+            serde_json::json!([]),
+            serde_json::json!({}),
+        ] {
+            assert!(routes_from_json(
+                &serde_json::json!([{"cidr": "10.20.0.0/16", "gateway": gateway}])
+            )
+            .is_err());
+        }
+        for gateway in [
+            serde_json::json!(null),
+            serde_json::json!(""),
+            serde_json::json!(" "),
+        ] {
+            assert_eq!(
+                routes_from_json(
+                    &serde_json::json!([{"cidr": "10.20.0.0/16", "gateway": gateway}])
+                )
+                .unwrap()[0]
+                    .gateway,
+                None
+            );
+        }
+        assert_eq!(
+            routes_from_json(
+                &serde_json::json!([{"cidr": "10.20.0.0/16", "gateway": "10.77.0.1"}])
+            )
+            .unwrap()[0]
+                .gateway
+                .as_deref(),
+            Some("10.77.0.1")
+        );
     }
 
     #[test]

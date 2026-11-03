@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "status": "SCOPED_ANDROID_AND_EXISTING_PANEL_INTEGRATION",
+  "source_digest": "b42ae4d6f76c8d2a8f2da9fd9d92b038b47d6de435c362bf454dc497157a635a",
+  "android_qualified_commit": "5aa9831e864c57b07fa4c0dca85d4855edde1874",
+  "android_source_digest": "80b7d80f3f097d5f106ece167318e161af15f7e896c9ce68f4c0f3d433441338",
+  "android_raw_seal_sha256": "2d8532f50652e9b132758255b25dd6c669bcc97d2b7b5d4fa1fa13985c81971a",
+  "existing_user_commit": "01303fba1e1676adc17aafbcdf7dc6be5033ac5c",
+  "existing_user_parent": "31f5b849ac61797b7f660defdb857253aceb935d",
+  "preserved_user_committed_sha256": {
+    "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+    "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+  },
+  "checks": {
+    "panel_regression": 118,
+    "new_refresh_cases": 4,
+    "panel_static_templates": 11,
+    "android_source_inputs_unchanged": 306,
+    "android_auxiliary_inputs_unchanged": 23
+  },
+  "integration_raw_seal": {
+    "files": [
+      {
+        "path": "integrate-panel-commit.py",
+        "sha256": "84bfc684a4482a8cf6444f6681fb5eb0640f408d2569eaaee42fe8906b532170",
+        "size": 4807
+      },
+      {
+        "path": "transfer-integrated.py",
+        "sha256": "ad9d093d0f8184ec51b5e7abf4c90d5ae636ad37cd7084c8512271bea3f5e03d",
+        "size": 3291
+      },
+      {
+        "path": "integration-panel-check.cjs",
+        "sha256": "49573184e2c1f9340cfc3e67f5e769b17245342492003844e1caa1efc3cdccaf",
+        "size": 2144
+      },
+      {
+        "path": "integration-panel-check.log",
+        "sha256": "9412a7f1c867d5f408a074b15cdbc5b836daac602f1d8297e2267eac49def2b2",
+        "size": 91
+      },
+      {
+        "path": "integration-panel-regression.log",
+        "sha256": "3677546af5cc1789c886ef06efa3fb7df07f93491215175c3b95765faa0b546e",
+        "size": 8883
+      },
+      {
+        "path": "integration-panel-static.log",
+        "sha256": "b8e4165d118b8fbb51655003173e95486b1f5cc0f7f2a0090db08e4d8c6997bb",
+        "size": 48
+      }
+    ]
+  },
+  "scope": "Integration preserves independent existing user panel commit 01303fba (only CHANGELOG/users.html, exact original SHA), retains sealed F284-F285 Android snapshot5aa9831e and all306 Android/23 auxiliary/7managed inputs unchanged. Current embedded panel components118 regressionPASS+4refresh casesPASS/static11templatesPASS; no browser/server runtime or new native build claim. Combined source digest updates automated-case identity only; earlier statuses, dates, artifacts, skips, D06, SIGKILLFAIL/ENONET and Q29IN_PROGRESS28/37 unchanged. Android evidence keeps its original80b7d80f snapshot and raw382seal. Main-tree transfer must exactly match this combined tree; no push/deploy.",
+  "qualified_at": "2026-10-06T09:52:52.543245+00:00"
+}

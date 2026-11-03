@@ -17,48 +17,29 @@ public static class ServiceHostRunner
         ServiceState.ResetLog();
         ServiceState.AppendLog("Daemon starting");
 
-        var stop = new ManualResetEventSlim(false);
+        using var stop = new ManualResetEventSlim(false);
         // Cancel the DEFAULT signal disposition (terminate): otherwise the process can exit
         // before the loop reaches tunnel.Stop() below, leaving pf/DNS/route state up. (C-08)
         using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => { ctx.Cancel = true; stop.Set(); });
         using var sigInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, ctx => { ctx.Cancel = true; stop.Set(); });
 
         var tunnel = new VpnTunnel();
-        VpnStatus last = VpnStatus.Connecting;
-        string? lastExtra = null;
-        tunnel.LogLine += ServiceState.AppendLog;
-        tunnel.StatusChanged += (s, extra) =>
+        var lifecycle = new DaemonLifecycle(ServiceState.LoadProfile, cfg =>
         {
-            last = s; lastExtra = extra;
-            ServiceState.WriteStatus(s, extra, tunnel.BytesUp, tunnel.BytesDown, tunnel.ConnectedSince);
+            ServiceState.AppendLog($"Connecting profile '{cfg.DisplayName}'");
+            tunnel.LogLevel = cfg.LoggingLevel;
+            return tunnel.Start(cfg);
+        }, tunnel.Stop, ServiceState.AppendLog);
+        tunnel.LogLine += ServiceState.AppendLog;
+        tunnel.StatusChanged += (status, extra) =>
+        {
+            lifecycle.Observe(status, extra);
+            lifecycle.Publish((state, detail) => ServiceState.WriteStatus(state, detail,
+                tunnel.BytesUp, tunnel.BytesDown, tunnel.ConnectedSince));
         };
         tunnel.ConnectionDropped += msg => ServiceState.AppendLog($"Connection lost: {msg}");
-
-        bool tunnelStarted = false;
-        bool startRefused = false;
         bool executableRemoved = false;
         string? executablePath = Environment.ProcessPath;
-
-        bool StopTunnelWithRetry(string reason)
-        {
-            for (int attempt = 1; attempt <= 3; attempt++)
-            {
-                try
-                {
-                    ServiceState.AppendLog($"Stopping tunnel ({reason}), attempt {attempt}/3");
-                    tunnel.Stop();
-                    return true;
-                }
-                catch (Exception e)
-                {
-                    ServiceState.AppendLog($"Tunnel cleanup attempt {attempt}/3 failed: {e.Message}");
-                    ServiceState.WriteStatus(VpnStatus.Error,
-                        "disconnect incomplete: macOS DNS restore will be retried");
-                    if (attempt < 3) Thread.Sleep(250);
-                }
-            }
-            return false;
-        }
 
         // Keep the LaunchDaemon process alive even while disconnected: KeepAlive would
         // otherwise respawn it in a tight loop. The separate desired-state file decides
@@ -79,67 +60,21 @@ public static class ServiceHostRunner
             }
 
             bool desired = !executableRemoved && ServiceState.DesiredConnected();
-            if (!desired) startRefused = false;
-            if (desired && !tunnelStarted && !startRefused)
+            lifecycle.Step(desired);
+            if (lifecycle.CanPoll)
             {
-                var cfg = ServiceState.LoadProfile();
-                if (cfg == null)
-                {
-                    ServiceState.WriteStatus(VpnStatus.Disconnected, "no profile configured");
-                }
-                else
-                {
-                    try
-                    {
-                        ServiceState.AppendLog($"Connecting profile '{cfg.DisplayName}'");
-                        tunnel.LogLevel = cfg.LoggingLevel;
-                        tunnelStarted = tunnel.Start(cfg);
-                        startRefused = !tunnelStarted;
-                    }
-                    catch (Exception e)
-                    {
-                        ServiceState.AppendLog($"Could not start tunnel: {e.Message}");
-                        ServiceState.WriteStatus(VpnStatus.Error, e.Message);
-                    }
-                }
-            }
-            else if (!desired && tunnelStarted)
-            {
-                if (StopTunnelWithRetry(executableRemoved ? "application removed" : "user disconnect"))
-                {
-                    tunnelStarted = false;
-                    last = VpnStatus.Disconnected;
-                    lastExtra = null;
-                }
-            }
-
-            if (tunnelStarted)
-            {
-                // The GUI's NetworkAddressChanged handler is not the owner of this headless
-                // tunnel. Poll the filtered physical signature here so Wi-Fi/Ethernet, DHCP
-                // and resolver changes reach the daemon without a transport timeout.
                 try { tunnel.OnNetworkChanged(); }
                 catch (Exception e) { ServiceState.AppendLog($"Network-state poll failed: {e.Message}"); }
-                ServiceState.WriteStatus(last, lastExtra,
-                    tunnel.BytesUp, tunnel.BytesDown, tunnel.ConnectedSince);
             }
-            else
-            {
-                if (desired && last == VpnStatus.Error)
-                    ServiceState.WriteStatus(last, lastExtra);
-                else
-                    ServiceState.WriteStatus(VpnStatus.Disconnected,
-                        executableRemoved ? "Qeli.app was removed; connection disabled" :
-                        desired ? "no profile configured" : "connection disabled");
-            }
+            lifecycle.Publish((state, detail) => ServiceState.WriteStatus(state,
+                executableRemoved && state == VpnStatus.Disconnected
+                    ? "Qeli.app was removed; connection disabled" : detail,
+                tunnel.BytesUp, tunnel.BytesDown, tunnel.ConnectedSince));
             stop.Wait(1000);
         }
 
         ServiceState.AppendLog("Daemon stopping");
-        if (!tunnelStarted || StopTunnelWithRetry("launchd stop"))
-            ServiceState.WriteStatus(VpnStatus.Disconnected, null);
-        else
-            throw new InvalidOperationException(
-                "daemon stopped before the original macOS DNS settings could be restored");
+        try { lifecycle.Shutdown(); }
+        finally { lifecycle.Publish((state, detail) => ServiceState.WriteStatus(state, detail)); }
     }
 }

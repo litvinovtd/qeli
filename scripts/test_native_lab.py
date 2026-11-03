@@ -110,16 +110,19 @@ class NativeLabTests(unittest.TestCase):
             (root / "src" / "asset.css").write_text("asset")
             (root / "Cargo.toml").write_text("manifest")
             (root / "Cargo.lock").write_text("lock")
+            (root / ".cargo").mkdir()
+            (root / ".cargo" / "config.toml").write_text("[build]\n")
             connection = FakeConnection()
             sftp = FakeSftp()
             count = native_lab.sync_qeli_source(
                 connection, sftp, root, "/opt/qeli-src"
             )
             self.assertEqual(count, 4)
-            self.assertIn("rm -rf /opt/qeli-src/src", connection.commands[0][0])
+            self.assertIn("rm -rf /opt/qeli-src/src /opt/qeli-src/.cargo", connection.commands[0][0])
             self.assertEqual(
                 [remote for _local, remote in sftp.puts],
                 [
+                    "/opt/qeli-src/.cargo/config.toml",
                     "/opt/qeli-src/src/a.rs",
                     "/opt/qeli-src/src/asset.css",
                     "/opt/qeli-src/src/z.rs",
@@ -132,6 +135,24 @@ class NativeLabTests(unittest.TestCase):
     def test_source_sync_rejects_broad_remote_root(self):
         with self.assertRaisesRegex(ValueError, "unsafe remote source root"):
             native_lab.sync_qeli_source(FakeConnection(), FakeSftp(), ".", "/")
+
+    def test_source_sync_embeds_original_notice_inputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for relative, data in {".cargo/config.toml": "", "Cargo.toml": "", "Cargo.lock": "",
+                    "src/embedded_license_files.rs": "catalogue", "third-party-notices/rust/INDEX.tsv": "index",
+                    "third-party-notices/rust/files/example/LICENSE": "original"}.items():
+                file = root / relative
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text(data)
+            connection, sftp = FakeConnection(), FakeSftp()
+            native_lab.sync_qeli_source(connection, sftp, root, "/var/tmp/private-source")
+            self.assertIn(("LICENSE", "/var/tmp/private-source/third-party-notices/rust/files/example/LICENSE"), sftp.puts)
+            (root / "third-party-notices/rust/INDEX.tsv").unlink()
+            fresh = FakeConnection()
+            with self.assertRaisesRegex(RuntimeError, "canonical source bundle"):
+                native_lab.sync_qeli_source(fresh, FakeSftp(), root, "/var/tmp/private-source")
+            self.assertEqual(fresh.commands, [])
 
     def test_cargo_package_version_comes_from_installed_inventory(self):
         connection = FakeConnection("cargo-zigbuild v0.20.1:")
@@ -159,13 +180,30 @@ class NativeLabTests(unittest.TestCase):
         self.assertEqual(result, "x86_64-pc-windows-gnu")
         self.assertEqual(len(connection.commands), 1)
 
-    def test_repro_cleanup_is_scoped_to_exact_tmp_roots(self):
-        connection = FakeConnection("disk")
-        self.assertEqual(native_lab.reset_repro_group(connection, "desktop"), "disk")
-        command = connection.commands[0][0]
-        self.assertIn("/tmp/qeli-native-repro/desktop-a", command)
-        self.assertIn("/tmp/qeli-native-repro/desktop-b", command)
+    def test_repro_cleanup_uses_disk_and_checks_capacity(self):
+        connection = FakeConnection("/dev/sda1 49152000 40000000 9152000 82% /var/tmp")
+        result = native_lab.reset_repro_group(connection, "desktop")
+        self.assertIn("MiB free on /var/tmp/qeli-native-repro", result)
+        command = connection.commands[1][0]
+        self.assertIn("/var/tmp/qeli-native-repro/desktop-a", command)
+        self.assertIn("/var/tmp/qeli-native-repro/desktop-b", command)
         self.assertNotIn("/opt/qeli-src/target", command)
+        self.assertIn("df -Pk /var/tmp", connection.commands[0][0])
+
+    def test_repro_cleanup_rejects_low_space_before_sync_or_build(self):
+        connection = FakeConnection("/dev/sda1 49152000 48000000 472000 99% /var/tmp")
+        with self.assertRaisesRegex(RuntimeError, "needs at least 8 GiB"):
+            native_lab.reset_repro_group(connection, "android")
+        self.assertEqual(len(connection.commands), 1)
+        self.assertNotIn("rm", connection.commands[0][0])
+        self.assertNotIn("mkdir", connection.commands[0][0])
+
+    def test_repro_cleanup_bad_inventory_preserves_passes(self):
+        connection = FakeConnection("invalid disk inventory")
+        with self.assertRaisesRegex(RuntimeError, "invalid build filesystem inventory"):
+            native_lab.reset_repro_group(connection, "desktop")
+        self.assertEqual(len(connection.commands), 1)
+        self.assertNotIn("rm", connection.commands[0][0])
 
     def test_repro_cleanup_rejects_path_syntax(self):
         with self.assertRaisesRegex(ValueError, "invalid reproducibility group"):

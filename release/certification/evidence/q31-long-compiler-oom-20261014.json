@@ -1,0 +1,49 @@
+{
+  "status": "ACTUAL_SOURCE_COMPILER_CGROUP_OOM_AND_OWNED_CLEANUP_QUALIFIED",
+  "qualification": {
+    "status": "ACTUAL_SOURCE_COMPILER_CGROUP_OOM_AND_OWNED_CLEANUP_QUALIFIED",
+    "source_commit": "4eb79632105bad950c962bf959a39075ac802d7f",
+    "host": "10.66.116.10",
+    "compiler_result_status": "VALIDATED_SOURCE_COMPILER_RESUME_STARTING",
+    "unit_result": "oom-kill",
+    "memory_max_bytes": 1207959552,
+    "memory_peak_bytes": 1207959552,
+    "swap_max_bytes": 536870912,
+    "swap_peak_bytes": 536682496,
+    "kernel_oom_process": "llvm-tblgen",
+    "kernel_constraint": "CONSTRAINT_MEMCG",
+    "last_displayed_LLVM_operation": [
+      1690,
+      3710
+    ],
+    "worker_result_interrupted_before_finally": true,
+    "full_Host_Compile_Install_PASS": false,
+    "cold_SDK_graph_PASS": false,
+    "consumer_refused_without_new_SDK_build": true,
+    "owned_bytes_removed": 6858519526,
+    "remaining_free_bytes": 9288957952,
+    "evidence_archive_bytes": 79253,
+    "host_accounts_staged_preserved": true,
+    "root_archive_unit_removed": true,
+    "formal_done": 33,
+    "total": 37,
+    "Q31_closed": false,
+    "raw_files": {
+      "q31-compiler-keeper-20261014\\completion.json": "bb9a9b7aa02ed8a91af2759c08a7a42ef655ec768eec79ecf3a828eb314fe09d",
+      "q31-compiler-keeper-20261014\\archive.json": "ad9f5f4e4d3371f02f2f515df9fd5e6b864d94a8318d7906565a808505b05dad",
+      "q31-compiler-keeper-20261014\\runtime.tar.gz": "45447f67a35eb03a73ad4b7f99e0e01cde73b96d8333345f78b614127632ed33",
+      "q31-compiler-keeper-20261014\\cleanup.json": "02f2dc254d5ddee4f8dc0596a4a171b32668a7221e69d58f2cb69c124fce2e0f",
+      "q31-compiler-keeper-20261014\\finished-unit.json": "5ecf4e3478b3ccc51186076a368b62a710d19015e66348eacf94bd4a3ec0c730",
+      "q31-compiler-keeper-20261014\\launch.json": "831110ab8a03fa633a05f94779f64cc723edc2c441998e09eac5a172457bd163",
+      "q31-cold-sdk-consumer-20261014\\completion.json": "6b10fa098402c8b277340e7f218868b1553e029c8cb9f24cd172e0255d26d648",
+      "q31-cold-sdk-consumer-20261014\\oom-capacity.json": "2c20fec8818a4996c0ebbbfc74992a3d0920f7a3720256b3b3f1158ff0a6100c"
+    },
+    "reason": "The isolated compiler exhausted its 1152 MiB memory / 512 MiB swap cgroup at llvm-tblgen; this is not a Qeli compilation failure. Exact resources for the whole bootstrap remain unmeasured. Do not repeat this identical resource budget.",
+    "no_push_deploy_release": true,
+    "qualified_unix": 1791960890.6494706
+  },
+  "qualification_sha256": "78fa178633aa186ae967372a00bc7d0a1d6af53bc6842918863b4bca5886385e",
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-long-compiler-oom-20261014",
+  "scope": "Four Markdown report/plan changes only. Actual source compiler cgroup OOM and qualified owned cleanup retained as failure; no SDK/native/VPN runtime relabel. Rust/native and Linux script closure unchanged; original automated and physical execution facts preserved.",
+  "no_push_deploy_release": true
+}

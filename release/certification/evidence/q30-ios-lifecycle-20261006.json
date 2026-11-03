@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F295_F297_SOURCE_FIXES_Q30_IN_PROGRESS",
+  "executed_at": "2026-10-06T11:55:51.537975+00:00",
+  "base_commit": "ebcb85d78b4dcc1ee39806a633c5227ca68fe4ca",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q30-ios-lifecycle-20261006",
+  "raw_seal_sha256": "e4f2bb266f72da1e8281771396c8b21f9b1ba0caea4ec12764c142a5be7eff2a",
+  "checks": [
+    {
+      "id": "ipa-verifier",
+      "status": "PASS",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_verify_ios_ipa.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "ipa-verifier.log"
+    },
+    {
+      "id": "docs",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "status": "PASS",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    }
+  ],
+  "source_review": {
+    "status": "SOURCE_AND_STRUCTURE_ONLY",
+    "new_xctest_cases": {
+      "ProviderOperationGateTests.swift": 6,
+      "SingleUseResourceLifecycleTests.swift": 3,
+      "AsyncResultCompletionTests.swift": 4
+    },
+    "xctest": "NOT_RUN",
+    "swift_build": "NOT_RUN",
+    "apple_runtime": "USER_EXCLUDED",
+    "lab_swift_probe": {
+      "host": "10.66.116.11",
+      "command": "command -v swift || true",
+      "exit_code": 0,
+      "output": "",
+      "status": "SWIFT_NOT_INSTALLED",
+      "mode": "read-only via existing strict-host-key SSH helper",
+      "mutations": "NONE",
+      "credentials_retained": "NO"
+    },
+    "effect_admission_methods": 6,
+    "lock_order": "engine state -> provider lifecycle -> shared store; install snapshot read outside provider lock; packet handoff deferred before lease release",
+    "gates": "provider-wide distinct read/settings gates; callbacks own unique leases;queued waiters cancel/timeout without releasing OS operation",
+    "settings_budget_seconds": 15,
+    "settings_cache": "cleared before OS request,current generation only restores fingerprint and publishes facts",
+    "monitor": "eager controller,terminal single-use lifecycle;late observed/arm rejected",
+    "native_generation": "delayed stats/connected/pump install/downlink check native identity + plan generation",
+    "completion": "original result retained before park;duplicates ignored",
+    "native_worker_join": "NOT_CLAIMED",
+    "callback_never_returns": "OPEN_PLATFORM_QUALIFICATION;gate remains occupied,settings waiters timeout/read waiters cancellable;no auto unlock or accepted success",
+    "unchanged_git_inputs": 782,
+    "xml_inputs": [
+      "qeli-ios/Config/App-Info.plist",
+      "qeli-ios/Config/PacketTunnel-Info.plist",
+      "qeli-ios/Config/PrivacyInfo.xcprivacy",
+      "qeli-ios/Config/QeliIOS.entitlements",
+      "qeli-ios/Config/QeliPacketTunnel.entitlements",
+      "qeli-ios/Config/QeliWidgets.entitlements",
+      "qeli-ios/Config/Widget-Info.plist",
+      "qeli-ios/MDM/Apple-IKEv2-AlwaysOn.mobileconfig",
+      "qeli-ios/MDM/Qeli-Managed-App-Configuration.plist",
+      "qeli-ios/MDM/Qeli-PerApp-VPN.mobileconfig"
+    ],
+    "changed_paths": [
+      "docs/eng/index.md",
+      "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/eng/reports/AUDIT-Q30-IOS-LIFECYCLE.md",
+      "docs/ru/index.md",
+      "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/ru/reports/AUDIT-Q30-IOS-LIFECYCLE.md",
+      "qeli-ios/PARITY.md",
+      "qeli-ios/QeliCore/Support/AsyncResultCompletion.swift",
+      "qeli-ios/QeliCore/Support/NSLock+WithLock.swift",
+      "qeli-ios/QeliCore/Support/ProviderOperationGate.swift",
+      "qeli-ios/QeliCore/Support/SingleUseResourceLifecycle.swift",
+      "qeli-ios/QeliIOSTests/AsyncResultCompletionTests.swift",
+      "qeli-ios/QeliIOSTests/ProviderOperationGateTests.swift",
+      "qeli-ios/QeliIOSTests/SingleUseResourceLifecycleTests.swift",
+      "qeli-ios/QeliPacketTunnel/IOSRoamingController.swift",
+      "qeli-ios/QeliPacketTunnel/PacketTunnelProvider.swift",
+      "qeli-ios/QeliPacketTunnel/QeliNativeTunnelEngine.swift"
+    ]
+  },
+  "findings": {
+    "F295": "terminal monitor stop, eager ownership,suspended start checks,partial-engine cleanup and no stale completed task retention",
+    "F296": "current-engine provider effects,atomic generation-fenced network facts/native identity,subgeneration stats/downlink and safe provider lifetime",
+    "F297": "provider-wide callback-owned read/settings leases,shared settings queue/OS15s budget,stale cache invalidation;supporting original completion outcomes"
+  },
+  "qualification": "Source/structure only;13 new XCTest NOT_RUN,no Swift/Xcode/actual Apple API/signed IPA/memory/leak/native-join execution",
+  "historical_runtime": "unchanged implementation Git hashes; old artifacts/dates/statuses retained; no Android/Linux matrices repeated",
+  "plan": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "Q29": "IN_PROGRESS; SIGKILL FAIL/auto-null ENONET preserved",
+    "Q30": "IN_PROGRESS;app/UI/settings/message/whole-section reconciliation still under review"
+  },
+  "D06": "UNCHANGED_ACCEPTED_LIMITATION",
+  "platform_skips": "UNCHANGED_USER_EXCLUDED",
+  "push": "NOT_RUN",
+  "source_digest": "f218716900130430f4749d646346a7892db7d40d12cf651103c82df5801d5989"
+}

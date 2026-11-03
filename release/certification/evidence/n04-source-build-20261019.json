@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "status": "SOURCE_NATIVE_AB_SDK_AND_ACTUAL_DISTRIBUTION_PASS",
+  "source_commit": "18107c5f9e2ff57e8d06b03580f8c6bbe7b1b311",
+  "native_source_digest": "88c6de4fd8003c8f84932192a3b31e639ea6b11a741ccb2eaf149a766a75e699",
+  "native_AB": {
+    "desktop": {
+      "artifacts": {
+        "native-libs/macos-universal/libqeli.dylib": {
+          "consumed": {
+            "qeli-mac/QeliMac/native/libqeli.dylib": "0948c7d2c4b484d4eeb1c89446b3b24f076a58967feffffd30c642c0b5d729fe"
+          },
+          "final_sha256": "0948c7d2c4b484d4eeb1c89446b3b24f076a58967feffffd30c642c0b5d729fe",
+          "pass_a_sha256": "0948c7d2c4b484d4eeb1c89446b3b24f076a58967feffffd30c642c0b5d729fe",
+          "pass_b_sha256": "0948c7d2c4b484d4eeb1c89446b3b24f076a58967feffffd30c642c0b5d729fe",
+          "reproducible": true
+        },
+        "native-libs/windows-x64/qeli.dll": {
+          "consumed": {
+            "qeli-win/QeliWin/native/qeli.dll": "3053079f33fb003e154182c316a023df46b1223c6d64bf924be60ca56aba8474"
+          },
+          "final_sha256": "3053079f33fb003e154182c316a023df46b1223c6d64bf924be60ca56aba8474",
+          "pass_a_sha256": "3053079f33fb003e154182c316a023df46b1223c6d64bf924be60ca56aba8474",
+          "pass_b_sha256": "3053079f33fb003e154182c316a023df46b1223c6d64bf924be60ca56aba8474",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "18107c5f9e2ff57e8d06b03580f8c6bbe7b1b311",
+      "source_date_epoch": 1792367958,
+      "source_digest": "88c6de4fd8003c8f84932192a3b31e639ea6b11a741ccb2eaf149a766a75e699",
+      "source_dirty": false,
+      "toolchain": {
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+        "cargo_zigbuild_version": "0.23.0",
+        "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+        "rcodesign": "apple-codesign 0.29.0",
+        "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+        "zig": "0.13.0"
+      }
+    },
+    "android": {
+      "artifacts": {
+        "native-libs/android/arm64-v8a/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "e76605e699e0950eeb3115138bc495ab35ea216b9e1f3f97342a7c95bc69b0ea"
+          },
+          "final_sha256": "e76605e699e0950eeb3115138bc495ab35ea216b9e1f3f97342a7c95bc69b0ea",
+          "pass_a_sha256": "e76605e699e0950eeb3115138bc495ab35ea216b9e1f3f97342a7c95bc69b0ea",
+          "pass_b_sha256": "e76605e699e0950eeb3115138bc495ab35ea216b9e1f3f97342a7c95bc69b0ea",
+          "reproducible": true
+        },
+        "native-libs/android/x86_64/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "c2ab5affed241e80f4b9f0dfa0aa83fb59696b9f8d323cbd3ca576364a294ff8"
+          },
+          "final_sha256": "c2ab5affed241e80f4b9f0dfa0aa83fb59696b9f8d323cbd3ca576364a294ff8",
+          "pass_a_sha256": "c2ab5affed241e80f4b9f0dfa0aa83fb59696b9f8d323cbd3ca576364a294ff8",
+          "pass_b_sha256": "c2ab5affed241e80f4b9f0dfa0aa83fb59696b9f8d323cbd3ca576364a294ff8",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "18107c5f9e2ff57e8d06b03580f8c6bbe7b1b311",
+      "source_date_epoch": 1792367958,
+      "source_digest": "88c6de4fd8003c8f84932192a3b31e639ea6b11a741ccb2eaf149a766a75e699",
+      "source_dirty": false,
+      "toolchain": {
+        "android_ndk": "26.3.11579264",
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_ndk": "cargo-ndk v4.1.2:",
+        "cargo_ndk_version": "4.1.2",
+        "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+      }
+    }
+  },
+  "sdk_source": {
+    "commit": "18107c5f9e2ff57e8d06b03580f8c6bbe7b1b311",
+    "mirror_sha256": "bfbfd2b4d15a863c79526912165b64294fc9ea058de9517d242d20632276c31f",
+    "actual_SDK_download_prepare": true
+  },
+  "N04_diagnostic": "release/lab-results/n04-tun-20261019.json",
+  "diagnostic_scope": "Identified Linux test ELF only; its performance measurements are not rebound to future packaged binaries.",
+  "product_scope": "Linux UDP raw TUN input uses transport runtime; TCP/TAP and other platform readers retain established backends. Same bounded pool and default tx_queue_len=1000.",
+  "future_application_qualification": "Pending exact green candidate CI, collected distributions, fresh actual CLI runtime, final certification and preflight.",
+  "checks": [
+    {
+      "name": "native-hashes",
+      "exit_code": 0
+    },
+    {
+      "name": "native-provenance",
+      "exit_code": 0
+    },
+    {
+      "name": "native-verify",
+      "exit_code": 0
+    },
+    {
+      "name": "native-provenance-check",
+      "exit_code": 0
+    },
+    {
+      "name": "native-legal",
+      "exit_code": 0
+    },
+    {
+      "name": "embedded-legal",
+      "exit_code": 0
+    },
+    {
+      "name": "portable-harness",
+      "exit_code": 0
+    },
+    {
+      "name": "docs",
+      "exit_code": 0
+    },
+    {
+      "name": "actionlint",
+      "exit_code": 0
+    }
+  ],
+  "accepted_API34_ENONET_D06_and_physical_scope_unchanged": true,
+  "published": false,
+  "original_stage_status": "SOURCE_NATIVE_AB_SDK_PASS_DISTRIBUTION_PENDING",
+  "application_qualification": {
+    "runtime": "release/certification/evidence/n04-runtime-20261019.json",
+    "assets": "release/certification/evidence/n04-assets-20261019.json",
+    "packaged_UDP": "release/certification/evidence/n04-packaged-udp-20261019.json",
+    "final_CI_preflight": "Required independently before updating private draft; no future success claimed."
+  },
+  "original_CI_dependency_fetch_failure": {
+    "run_id": 39180777223,
+    "head": "52b7a8578897a1f272bc7355b1cf6c7e004e3cc7",
+    "original_attempt": 1,
+    "job_id": 117832853142,
+    "original_job": "android-build",
+    "original_failed_stage": "Strict dependency resolution before Qeli compilation",
+    "HTTP_status": 403,
+    "original_job_log_sha256": "bcf60ed4764e9c26be558057df84300aa221cc1ac43599d1fddebf1dbced91dc",
+    "original_outcome": "FAIL_RETAINED",
+    "exact_cause_of_403_not_established": true,
+    "readonly_endpoint_probes": [
+      {
+        "url": "https://repo.maven.apache.org/maven2/org/jdom/jdom2/2.0.6.1/jdom2-2.0.6.1.pom",
+        "status": 200,
+        "sha256": "55795e1018b8ae647b937967cf810a99b08582c2374e7873c128734c8c914bf3",
+        "bytes": 4600
+      },
+      {
+        "url": "https://repo1.maven.org/maven2/org/jdom/jdom2/2.0.6.1/jdom2-2.0.6.1.pom",
+        "status": 200,
+        "sha256": "55795e1018b8ae647b937967cf810a99b08582c2374e7873c128734c8c914bf3",
+        "bytes": 4600
+      }
+    ],
+    "official_403_reference": "https://central.sonatype.org/faq/403-error-central/",
+    "retry_reference": "https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs",
+    "retry_scope": "Only failed job, same workflow/head; no dependency, verification, TLS or repository changes",
+    "retry_count": 1,
+    "at": "2026-10-19T00:43:58.805314+00:00"
+  },
+  "qualified_CI_attempt": 2
+}

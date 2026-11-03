@@ -1,0 +1,582 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_PRIVATE_APK_SNAPSHOT_REAL_DEBUG_BUILD_SCOPED",
+  "source_digest": "1737d2b19da6d25143aa521b0d5184beee1964cc9a58348c39efcf950355c749",
+  "qualification_source_commit": "43459a38d4960170f9e81d0f0ecba21e683a705f",
+  "product_source_commit": "43459a38d4960170f9e81d0f0ecba21e683a705f",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F492/Q34-F046"
+  ],
+  "verification": {
+    "baseline_input_gap": {
+      "status": "BASELINE_REPRODUCED",
+      "exact_baseline_policy": {
+        "SYNC_EXT": [
+          ".kt",
+          ".xml",
+          ".kts",
+          ".properties",
+          ".pro",
+          ".png",
+          ".webp",
+          ".json",
+          ".jar",
+          ".bat"
+        ],
+        "SYNC_FILES": [
+          "gradlew"
+        ],
+        "SKIP_DIRS": [
+          ".gradle",
+          ".idea",
+          ".kotlin",
+          "build",
+          "dist",
+          "jniLibs"
+        ],
+        "SKIP_FILES": [
+          "local.properties"
+        ]
+      },
+      "tracked_android_inputs_omitted": [
+        ".gitignore",
+        "LICENSE",
+        "README.md",
+        "app/buildscript-gradle.lockfile",
+        "app/gradle.lockfile",
+        "app/src/androidTest/java/com/qeli/SystemNetworkProbeReceiver.java",
+        "buildscript-gradle.lockfile",
+        "generate_icons.py",
+        "gradle/licenses/Apache-2.0.txt",
+        "gradle/licenses/maven-runtime.tsv",
+        "keystore.properties.example"
+      ],
+      "conformance_baseline": "project/conformance; Gradle input expects ../conformance",
+      "new_snapshot_inventory_complete": true,
+      "scope": "Actual committed-file inventory through baseline extension policy; no old builder SSH/build executed"
+    },
+    "windows": {
+      "status": "PASS",
+      "methods": 71,
+      "suites": [
+        {
+          "label": "builder-final",
+          "methods": 22,
+          "log": "windows-qualified-test_rebuild_apk.log"
+        },
+        {
+          "label": "native-recipes",
+          "methods": 38,
+          "log": "windows-final-test_native_recipes.py.log"
+        },
+        {
+          "label": "workflow",
+          "methods": 11,
+          "log": "windows-test_check_workflows.py.log"
+        }
+      ],
+      "actionlint": {
+        "returncode": 0,
+        "log": "windows-actionlint.log",
+        "scope": "Official pinned SHA binary; all4workflow Actions semantics; no hosted run"
+      },
+      "scope": "Final22builder methods supersede previous20/21 runs; unchanged38recipe/11workflow qualification inherited from this packet, not repeated"
+    },
+    "linux_build": {
+      "status": "PASS_REAL_DEBUG_APK_PRIVATE_SNAPSHOT_FINAL_PRODUCER",
+      "receipt": {
+        "source_commit": "40c644229eb3f91429d6ead272e2428e2ebd320a",
+        "source_archive_sha256": "62a9a57317d80d6c46fb3042f2138ca9e9a30a4435a516f26e51da1675216991",
+        "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+        "remote_root": "/var/tmp/qeli-apk-build.aRdfhXpq",
+        "artifact_sha256": "1525e14c4098bca83e3f1557f29c5c9a1d1c85878042c1ea90ef97815b4027ee",
+        "size": 30474984,
+        "variant": "debug",
+        "local_artifact": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\qeli-android\\dist\\40c644229eb3f91429d6ead272e2428e2ebd320a-aRdfhXpq\\app-debug.apk",
+        "source_files": 1046
+      },
+      "qualification_source_commit": "82d31cb3bd8567c386236f45668f7f0c6159a890",
+      "artifact_source_commit": "40c644229eb3f91429d6ead272e2428e2ebd320a",
+      "final_selected_source_files_equal_to_current_HEAD": true,
+      "roots": [
+        "/var/tmp/qeli-apk-build.CKrJMOlF",
+        "/var/tmp/qeli-apk-build.aRdfhXpq"
+      ],
+      "source_b_mutation": "Observed original SHA refusal1; source A exact SHA PASS after real build",
+      "junit": [
+        {
+          "file": "TEST-com.qeli.ProfileAppsEditorTest.xml",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.RouteComplementsTest.xml",
+          "tests": 13,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.ProfileStoreUtf8Test.xml",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.ReconnectPolicyTest.xml",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.AndroidVpnPublicationTest.xml",
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.ConfigHardeningTest.xml",
+          "tests": 17,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.AndroidSessionContinuityTest.xml",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.UpdatePrivacyTest.xml",
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.TransportCoreEventDispatcherTest.xml",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.ProfileStoreActiveIndexTest.xml",
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.ConfigImportRangesTest.xml",
+          "tests": 35,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.TrustedWifiPolicyTest.xml",
+          "tests": 12,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.ProfileAutoProbePolicyTest.xml",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.BoundedInputTest.xml",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.AndroidKillSwitchPolicyTest.xml",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.AndroidRoamingPolicyTest.xml",
+          "tests": 10,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.DiagnosticLogStoreTest.xml",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.QeliLinkConformanceTest.xml",
+          "tests": 3,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.ConfigRoundTripCompletenessTest.xml",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.crypto.BackupCryptoTest.xml",
+          "tests": 7,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.TransportCoreEventTest.xml",
+          "tests": 18,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.ProtectionSummaryTest.xml",
+          "tests": 14,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.ProfileStoreBoundsTest.xml",
+          "tests": 2,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.VpnConnectRequestTest.xml",
+          "tests": 9,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        {
+          "file": "TEST-com.qeli.BackupExporterTest.xml",
+          "tests": 6,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ],
+      "tests": 201,
+      "failures": 0,
+      "skipped": 0,
+      "native_jni_sha256": {
+        "arm64-v8a": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0",
+        "x86_64": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+      },
+      "apk_notice_members": 563,
+      "host_jni_sha256": "dd30778c323a80c0ebb3114962c25c4d77fee78f0f01134f5ff63dc0454b9aad",
+      "before": "active\nMainPID=777\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n777\n845",
+      "after": "active\nMainPID=777\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n777\n845",
+      "gradle_mode": "Explicit online, private Maven/wrapper/cache/SDK; strict committed locks/verification unchanged; no global Gradle cache/SDK write",
+      "initial_offline_failure": "linux-command-16.log retained; AGP absent from original default offline cache",
+      "signing_scope": "Java Properties synthetic key parser only; debug APK, no production release signing/expected publisher proof",
+      "scope": "One fresh private Rust host core then cached final ownership command; final real JVM/debug APK online; separate passive mutated source/checksum refusal and final21Linux tests. No second concurrent compiler, emulator/install/VPN/native ABI recut/push/deploy/release",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "linux_final": {
+      "status": "PASS_22_FINAL_LINUX_METHODS_AND_RECOVERY_CLEANUP",
+      "producer_commit": "82d31cb3bd8567c386236f45668f7f0c6159a890",
+      "debug_signature": "Valid debug APK only; expected release publisher remains OPEN",
+      "recovered_archive_sha256": "2c60efbaf6f239af2c67ceea1aed6bc3aa428f0aab09127f3ccef3d57c078c15",
+      "roots_removed": [
+        "/var/tmp/qeli-apk-build.CKrJMOlF",
+        "/var/tmp/qeli-apk-build.aRdfhXpq"
+      ],
+      "original_service_unchanged": true,
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "sdk": {
+      "status": "PASS_FINAL_PRIVATE_SDK_HASHES",
+      "sdk_input_hashes": {
+        "platform-tools/source.properties": "2dccd788c0234d8cf7f7457377e57f57527a86a629c6ed54feb8af0f549dac38",
+        "platform-tools/adb": "a902be8f45c6c62e76c9efaf6947a0fa747c9cabd89a2ac8e0d16ecb30b3ed01",
+        "platform-tools/fastboot": "a686e2c7e8dc9cf4cba0cb8a2eef05f7b2bd682c925abd032fe203215d80b618",
+        "platform-tools/package.xml": "55d46ccebf3bba4ad4349d3747643bb0ed38aac843ce6c87782b009328f73e1e",
+        "licenses/android-sdk-license": "c43fa37686457c3f18caa3607945f4ec52a9d1beaaad8117e50dc4e863270c85",
+        "licenses/mips-android-sysimage-license": "1ed4c83beca7c3c2523c6c1e836d32f62cd6240aa5478ed42d5dba8bbfa7a860",
+        "licenses/google-gdk-license": "62a7bc9d8641aa16c5510babdbe4bceabd061030d45dde463b3cc1b7ea480e92",
+        "licenses/microxr-sysimage-license": "0f090bd5e73cf18cf91f7131b563d70a859dbe54b3d5f931e0ee01ee6706d802",
+        "licenses/android-googlexr-license": "315d89d7d8648ae07a4b1d304dcd3b76fac16a01fea0927545ed4f97204d2a79",
+        "licenses/android-googletv-license": "bf71f76846c291bd5b06faea6946279bbf07d257fca68d8be4e634540e24bed5",
+        "licenses/android-sdk-preview-license": "c6cc28fe55c00a86dbe57488393190915403695044e1173c4a28105e2db84407",
+        "licenses/android-sdk-arm-dbt-license": "9dce0be88e239ee0d4fad023badcfaf4b8d6c54cedd45139dd463875229a4a15",
+        "platforms/android-37.0/android.jar": "bf1b4387cc7ca94fc6ef684f040d9d16fbf16248e181819f020736ea2053f177",
+        "platforms/android-37.0/source.properties": "fa89029fc0cee414cb5e44a37cd3033771217eeecb5086577bb6d9b1b03b5b5f",
+        "platforms/android-37.0/package.xml": "7f8001358f1b6432ea6186dd0fe6ba00bb67ea8daf24c708d05a02f5570091d7",
+        "build-tools/36.1.0/source.properties": "cde98413251206c52e50cfcefc2e0627b2660c03814e9c9ab7e2c56fdf5a9472",
+        "build-tools/36.1.0/aapt2": "012764928a2e5ad747531f669fcda1cf2ccd2d0b6eb8bdb728807c17e3cf16d0",
+        "build-tools/36.1.0/package.xml": "517dea987f514627d12b321d2401318bad06970c2b05420d1086a89bcfc904f5",
+        "build-tools/36.0.0/source.properties": "7dee6632e9ad6cb111da2bb99d747211e27927061b1276d040bb1d71fded5ebb",
+        "build-tools/36.0.0/aapt2": "1a6a396b9cd071f7040071fdd108718cb98c3c9f4960044f373b288993d19eb7",
+        "build-tools/36.0.0/package.xml": "737904dbcee0845bc18385d3627cd6238bf5f1395f07c7300f88db717b7303b7"
+      },
+      "additional_download": "Gradle installed Platform-Tools37.0.1 into privateSDK only; log retained",
+      "scope": "Byte inventory and observed download; no claim of independent full SDK source/publisher qualification"
+    },
+    "legal": {
+      "status": "PASS",
+      "apk_sha256": "1525e14c4098bca83e3f1557f29c5c9a1d1c85878042c1ea90ef97815b4027ee",
+      "reviewed_maven_coordinates": 76,
+      "indexed_assets": 562,
+      "original_archives": 63,
+      "embedded_notices": [
+        {
+          "coordinate": "androidx.annotation:annotation-jvm:1.10.0",
+          "origin": "META-INF/androidx/annotation/annotation/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.appcompat:appcompat-resources:1.8.0",
+          "origin": "META-INF/androidx/appcompat/appcompat-resources/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.appcompat:appcompat:1.8.0",
+          "origin": "META-INF/androidx/appcompat/appcompat/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.collection:collection-jvm:1.5.0",
+          "origin": "META-INF/androidx/collection/collection/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.constraintlayout:constraintlayout-core:1.1.2",
+          "origin": "META-INF/androidx/constraintlayout/constraintlayout-core/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.constraintlayout:constraintlayout:2.2.2",
+          "origin": "META-INF/androidx/constraintlayout/constraintlayout/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.core:core-ktx:1.19.0",
+          "origin": "META-INF/androidx/core/core-ktx/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.core:core-viewtree:1.0.0",
+          "origin": "META-INF/androidx/core/core-viewtree/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.core:core:1.19.0",
+          "origin": "META-INF/androidx/core/core/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.customview:customview:1.2.0",
+          "origin": "META-INF/androidx/customview/customview/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.dynamicanimation:dynamicanimation:1.1.0",
+          "origin": "META-INF/androidx/dynamicanimation/dynamicanimation/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.graphics:graphics-shapes-android:1.0.1",
+          "origin": "META-INF/androidx/graphics/graphics-shapes/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.lifecycle:lifecycle-common-jvm:2.11.0",
+          "origin": "META-INF/androidx/lifecycle/lifecycle-common/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.lifecycle:lifecycle-livedata-core-ktx:2.11.0",
+          "origin": "META-INF/androidx/lifecycle/lifecycle-livedata-core-ktx/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.lifecycle:lifecycle-livedata-core:2.11.0",
+          "origin": "META-INF/androidx/lifecycle/lifecycle-livedata-core/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.lifecycle:lifecycle-livedata:2.11.0",
+          "origin": "META-INF/androidx/lifecycle/lifecycle-livedata/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.lifecycle:lifecycle-process:2.11.0",
+          "origin": "META-INF/androidx/lifecycle/lifecycle-process/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.lifecycle:lifecycle-runtime-android:2.11.0",
+          "origin": "META-INF/androidx/lifecycle/lifecycle-runtime/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.lifecycle:lifecycle-runtime-ktx-android:2.11.0",
+          "origin": "META-INF/androidx/lifecycle/lifecycle-runtime-ktx/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.lifecycle:lifecycle-viewmodel-android:2.11.0",
+          "origin": "META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.11.0",
+          "origin": "META-INF/androidx/lifecycle/lifecycle-viewmodel-savedstate/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.lifecycle:lifecycle-viewmodel:2.11.0",
+          "origin": "META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.profileinstaller:profileinstaller:1.4.0",
+          "origin": "META-INF/androidx/profileinstaller/profileinstaller/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        },
+        {
+          "coordinate": "androidx.savedstate:savedstate-android:1.4.0",
+          "origin": "META-INF/androidx/savedstate/savedstate/LICENSE.txt",
+          "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ],
+      "native_bundle": {
+        "status": "PASS",
+        "locked_packages": 235,
+        "resources": 458,
+        "indexed_files": 532,
+        "bytes": 6557892,
+        "supplements": 6,
+        "toolchains": {
+          "status": "PASS",
+          "components": 7,
+          "resources": 65,
+          "files": 69,
+          "bytes": 3999768
+        },
+        "scope": "Full Cargo.lock superset; not per-binary linkage or complete release licensing"
+      },
+      "scope": "Project, Maven and reviewed native Cargo/toolchain legal resource packaging; per-binary linkage/source/signature admission remains separate"
+    },
+    "cleanup": {
+      "status": "REMOVED_OWNED_ROOTS_AFTER_RECOVERY",
+      "roots": [
+        "/var/tmp/qeli-apk-build.CKrJMOlF",
+        "/var/tmp/qeli-apk-build.aRdfhXpq"
+      ],
+      "archive": "/var/tmp/qeli-apk-snapshot-recovery-20261009.a4mew9j3.tar.gz",
+      "guards": {
+        "process_fd_references": [],
+        "mount_guard": "PASS",
+        "resolved_ownership": "PASS"
+      }
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-CLIENT-SUPPLY.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-CLIENT-SUPPLY.md",
+        "scripts/rebuild_apk.py",
+        "scripts/test_native_recipes.py",
+        "scripts/test_rebuild_apk.py"
+      ],
+      "qualified_paths": [
+        {
+          "path": "scripts/rebuild_apk.py",
+          "sha256": "46cefb5a2711e778410cfc44d512cdfe825cca38c7c4fdaec5f5833dc3303f39",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_native_recipes.py",
+          "sha256": "79b81c141a3626ee1a3c1b60be374f1952b9e72dd7e23233dcfae96fe742c28f",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_rebuild_apk.py",
+          "sha256": "c382314db7ec219c5a40d98c6f61a3bd38d4486f510f4df9075a1dacbf9ea43c",
+          "normalization": "LF"
+        }
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-apk-snapshot-20261009",
+    "files": 127,
+    "bytes": 180541943,
+    "manifest_sha256": "5db226ad94b5c7e764973618383df4955b4b845abd36254b1d9d544907ee3f28",
+    "runtime_status": "PASS_Q34_PRIVATE_APK_SNAPSHOT_WINDOWS_LINUX_REAL_BUILD_SCOPED",
+    "path": "audit-debt-20260924/q34-apk-snapshot-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F492/Q34-F046 shared APK source/target/output contamination and incomplete extension-filtered inputs closed: clean committed full Git snapshot, native provenance, exact blobs/inventory, unsafe/export/hidden-trust refusal, own mktemp source/Cargo/Gradle project state and unique local APK+BUILD receipt; explicit JNI input, Java Properties private release-input parsing/removal and requestedSDK signer. Actual1046-file snapshot source40c64422, finalbuilder82d31cb3 with selected inputs identical; passive secondroot mutation SHA-refused, firstroot real debug APK/JVM tests PASS; no second concurrent compiler.71Windows22Linux regression methods, official4workflowactionlint724Markdown9docsPASS. Fresh hostJNI97.89s then cache finalownership; strict lock/verification retained; initialoffline missingAGP and incomplete harnessSDK refusals preserved; successful explicitonline ownGradlehome/SDK only, extra PlatformTools37.0.1 downloaded privately; byte inventory recorded,no independent fullSDK publisher/source claim. APK JNI matches both frozen native inputs; full legal gate and validdebug signature PASS; no expectedrelease publisher/release signing/install/emulator/VPN qualification. LocalENOSPC duplicate-cache refusal retained; only incomplete ownnewarchive and SHA-qualified oldregenerable publishscratch removed after2619filehash and uniqueQeli recovery proof. APK/hostJNI/JUnitXML/inputsource/logs SHA recovered; archive decoded member hashes checked; regenerable compile/dependency/SDK caches excluded with provenance receipts, own2roots/ownrecoveryarchive removed afterresolved ownership/processfd/mountguards. Original .11 service777845 CLI75bc retained,.10unused. Nativee3fb14SHA/protectedqelitree/existingOpenWrtgate unchanged,inheritedexecution notrerun.41cases93priorsupplements preserved modulo source_digest bookkeeping;append94scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;F459bracesOPEN/Q29SIGKILLFAIL-ENONET/Q30Q31/D06accepted/USER_EXCLUDED retained;no hostedActions/push/deploy/release.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

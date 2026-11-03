@@ -1,0 +1,326 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "scope": "Actual new packaged CLI at both endpoints; Linux lab checks, not universal performance qualification.",
+  "source_commit": "52b7a8578897a1f272bc7355b1cf6c7e004e3cc7",
+  "binary_sha256": "bae6320bdbff5c16a2219441ddb9cc82d60ec2c6720caca03faa3ea353d2b843",
+  "server_binary_sha256": "bae6320bdbff5c16a2219441ddb9cc82d60ec2c6720caca03faa3ea353d2b843",
+  "columns": [
+    "mode",
+    "client_queue",
+    "offered_mbps",
+    "goodput_mbps",
+    "iperf_loss_percent",
+    "client_TUN_drops",
+    "server_TUN_drops",
+    "client_CPU_one_core_percent",
+    "Qeli_socket_drops_client_server",
+    "UDP6_RcvbufErrors_client_server"
+  ],
+  "rows": [
+    [
+      "udp-faketls",
+      1000,
+      900,
+      898.2091744850436,
+      0,
+      0,
+      0,
+      99.05955288290846,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-faketls",
+      1000,
+      900,
+      899.7909287505298,
+      0.023376903903161352,
+      0,
+      0,
+      101.80103298110159,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-faketls",
+      1000,
+      900,
+      899.8179119290048,
+      0,
+      0,
+      0,
+      99.22881111302446,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-quic",
+      1000,
+      950,
+      949.3956066550539,
+      0.014876584928471225,
+      221,
+      0,
+      103.66468925107397,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-quic",
+      1000,
+      950,
+      949.5165024397966,
+      0,
+      0,
+      0,
+      105.00980342383237,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-quic",
+      1000,
+      950,
+      949.5205409852462,
+      0.0065984645776915336,
+      0,
+      0,
+      103.8159882249658,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-faketls",
+      2000,
+      900,
+      899.5222615469435,
+      0.019397828864253567,
+      0,
+      0,
+      100.10412733231857,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-faketls",
+      2000,
+      900,
+      899.6589565531971,
+      0,
+      0,
+      0,
+      99.91042565650898,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-faketls",
+      2000,
+      900,
+      899.772546185478,
+      0.00198953080468705,
+      0,
+      0,
+      99.97710364052682,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-quic",
+      2000,
+      950,
+      949.8062974032754,
+      0.0020868773784511736,
+      0,
+      0,
+      101.86049713690078,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-quic",
+      2000,
+      950,
+      949.738284791973,
+      0.0006731454674086525,
+      355,
+      0,
+      101.52909219202293,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    [
+      "udp-quic",
+      2000,
+      950,
+      949.763315172954,
+      0,
+      0,
+      0,
+      101.85648101478762,
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ]
+  ],
+  "seconds": 15,
+  "omit_seconds": 3,
+  "inner_family": 6,
+  "direction": "upload",
+  "payload_bytes": 1200,
+  "server_queue": 1000,
+  "actual_server_tun_descriptors": 2,
+  "actual_client_tun_descriptors": 1,
+  "requested_iperf_socket_bytes": 4194304,
+  "actual_socket_bytes": 8388608,
+  "recordizer": "required",
+  "source_of_raw": "/opt/qeli-release-short-gigabit-n04packaged-20261019",
+  "raw_receipt_sha256": "0979628c4e4f1a4a3fc8db62bfabe749fd01c3703f2632cef0ed1917755aac82",
+  "controller_sha256": "b592fa95e2fd75064265d29fc46c1dc1510e9a3cb51bc55bc291c472c564f56f",
+  "restoration": {
+    "server": {
+      "boot_id": true,
+      "protected_files": true,
+      "sysctls": true,
+      "hostname": true,
+      "kernel": true,
+      "cpus": true,
+      "processes": true,
+      "links": true,
+      "addresses": true,
+      "routes4": true,
+      "routes6": true,
+      "rules4": true,
+      "rules6": true,
+      "qdiscs": true,
+      "iptables": true,
+      "ip6tables": true
+    },
+    "client": {
+      "boot_id": true,
+      "protected_files": true,
+      "sysctls": true,
+      "hostname": true,
+      "kernel": true,
+      "cpus": true,
+      "processes": true,
+      "links": true,
+      "addresses": true,
+      "routes4": true,
+      "routes6": true,
+      "rules4": true,
+      "rules6": true,
+      "qdiscs": true,
+      "iptables": true,
+      "ip6tables": true
+    }
+  },
+  "diagnostic_results_rebound": false,
+  "published": false,
+  "source_applicability": {
+    "status": "PASS",
+    "build_commit": "52b7a8578897a1f272bc7355b1cf6c7e004e3cc7",
+    "documentation_commit": "ec3e559501d7d4ac68b1d41b34c5945c7a758aaf",
+    "changed_paths": [
+      "qeli-openwrt/INSTALL.md",
+      "release/keenetic/README.md",
+      "docs/ru/manuals/KEENETIC-DEPLOY.md",
+      "docs/eng/manuals/KEENETIC-DEPLOY.md"
+    ],
+    "actual_ELF_sizes": {
+      "aarch64": {
+        "bytes": 9359248,
+        "MiB": "8.93",
+        "sha256": "82e4e73314e5aa8af89d57399376d384174c8f68768da7609bc3c4c7d3f4ab00"
+      },
+      "armv7": {
+        "bytes": 9514540,
+        "MiB": "9.07",
+        "sha256": "392b6a9313f5f716ac40e41950c987fc6676c491efe191008e5f2678effd4994"
+      },
+      "x86_64-musl": {
+        "bytes": 10130088,
+        "MiB": "9.66",
+        "sha256": "d29dd8a8664e844a34d20fe3ee3a225c4ef7330eaa6cbfc86fb162ecaeaa58ea"
+      },
+      "mipsel": {
+        "bytes": 11398712,
+        "MiB": "10.87",
+        "sha256": "7a855c2500d459e4b9669b1226be6b2a03b19c9a44b42f70dcfdc6b149f305fa"
+      }
+    },
+    "only_size_description_changed": true
+  }
+}

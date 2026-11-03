@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_Q37_FIXES_VERIFIED_FULL_Q37_IN_PROGRESS",
+  "date": "2026-10-11",
+  "baseline_commit": "893078cd7a6d644891296e0a8a51959645262dcd",
+  "raw_packet": "q37-baseline-20261011",
+  "baseline_checks": {
+    "docs": {
+      "exit_code": 0,
+      "seconds": 4.24245439999504,
+      "log_sha256": "23eed3485086eecf44d849e0a804fac868f2daf14c15402bceceb20244e61046"
+    },
+    "panel": {
+      "exit_code": 0,
+      "seconds": 0.08163289999356493,
+      "log_sha256": "b8e4165d118b8fbb51655003173e95486b1f5cc0f7f2a0090db08e4d8c6997bb"
+    },
+    "panel-editors": {
+      "exit_code": 0,
+      "seconds": 0.20286309999937657,
+      "log_sha256": "4c16cc3287083aee2c85ac390fe47d93479d8410415dac86927abb7aff6bc622"
+    },
+    "site-docs": {
+      "exit_code": 1,
+      "seconds": 0.029886999996961094,
+      "log_sha256": "9d843ac188d7e022613b9b659267ecd0943351e6ce5257f617b2f2a8b99f82d5"
+    },
+    "versions": {
+      "exit_code": 1,
+      "seconds": 0.16059929999755695,
+      "log_sha256": "bd94c6d71d1a37e38da51ca48b2b69636c86d5bca5df424d9d17bccde52da136"
+    },
+    "native-provenance": {
+      "exit_code": 1,
+      "seconds": 0.09571019999566488,
+      "log_sha256": "4e2ff6f8d267b782d3e106e86ada6786d8f8870f7f9e96e24bdb527f9ec8a979"
+    },
+    "certification": {
+      "exit_code": 1,
+      "seconds": 0.23156320000998676,
+      "log_sha256": "5877dd95b32757192f6e33f0a40cc35fadbddc9c57f18c5b38b46d3340066719"
+    }
+  },
+  "findings": [
+    {
+      "id": "Q37-F001",
+      "problem": "RU/EN OPERATIONS removed versioned attestation examples still required by sync_version.py",
+      "fix": "Restore explicit latest-released amd64 package verification against litvinovtd/qeli; keep unmatched and stale version checks mandatory",
+      "verification": "Five methods across RU/EN: current, stale, missing, development-version and exact CRLF-preserving write repair"
+    },
+    {
+      "id": "Q37-F002",
+      "problem": "Private site/ is intentionally ignored; an unconditional test command fails from a fresh Git worktree",
+      "fix": "Explicit --site-root PATH selects real private website; absent or invalid inputs remain failures",
+      "verification": "Actual RU/EN pages PASS, five negative CLI/event-handler scenarios refuse, all five website input hashes unchanged; no website mutation or fabricated fixtures"
+    }
+  ],
+  "targeted_source_inputs": {
+    "scripts/test_site_docs.js": "d3058f6f6362026f0d4d426fe413d643a2fb47219a9aa51d885b39689f83d80d",
+    "scripts/sync_version.py": "0ec03fe2029f2f30011d44ce3590eeac18b62215a210b31e6fe0e72046270e3f",
+    "docs/ru/manuals/OPERATIONS.md": "12634e204dfd584c70cd783a5f2bfb2a41294488c34a835fcefc9d04ef6f615b",
+    "docs/eng/manuals/OPERATIONS.md": "72bfae23313e7588105603ca881c1ee107b3cb19a313f4fd927aabc0a0a5b2af"
+  },
+  "actual_site_inputs": {
+    "js/docs.js": "c5146a256f268112f520f4cde9bea15a400faff4cc3d8246cc4d0ca33b942710",
+    "docs/index.html": "b3c9e02ad07bd45480f7233ad02c17021efd89cd60430e027519cee9d76b4fc6",
+    "install/debian/index.html": "c304066361cfc88b768f9926727ac0388bf4ce4dfa4780d1ae80ea75a6934e76",
+    "en/docs/index.html": "7cb5a6e937bf02426fd2f90ff0305a131c9a9a121b23f2003298e472d09d5176",
+    "en/install/debian/index.html": "306260aea13603c40ad234e628cfab17378ab0df2fcc630d6c45adcb67e4ad2e"
+  },
+  "targeted_receipt_sha256": "157aa8e4058d3795bb866ac94087488ae86c3b8607e20a0e0e2a314e0c89f324",
+  "gate_tests": {
+    "native-tests": {
+      "exit_code": 0,
+      "log_sha256": "671b2a82413dcb859baf54095f83aa4443c4a8925005170fb98ecc16a155e9d2"
+    },
+    "certification-tests": {
+      "exit_code": 0,
+      "log_sha256": "8ed0c2b154ee71565c8b37140891bb1e97aafe022ee231275d9e47e1676a88ca"
+    }
+  },
+  "gate_test_scope": "97 native tool/unit fixture tests and 18 certification gate tests; no new native build, device run or certification",
+  "open_debt": {
+    "native_libraries": {
+      "status": "STALE",
+      "recorded_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "current_source_digest": "7d42e38ff1b3727970c87eed1903d29abb6fc1eccac4cc67f0a908bbb3d21e35",
+      "required": "Actual independent A/B rebuilds of current recipes and binary inventories before provenance update; do not compile on hosts during benchmarks"
+    },
+    "release_certification": {
+      "status": "STALE",
+      "baseline_problems": 21,
+      "baseline_current_tree_digest_prefix": "7131ac1586fa5fd0",
+      "recorded_tree_digest_prefix": "68659eb29697ea7e",
+      "required": "Freeze final committed release inputs, execute and bind all 20 automated Linux cases to that exact tree; doc/publication commits change the committed tree digest too; never restamp historical results"
+    },
+    "full_Q37": "Key/default/example parity, features/OS/FFI-aware dead-code review and integration remain open"
+  },
+  "global_done": 30,
+  "global_total": 37,
+  "push_deploy_release": false
+}

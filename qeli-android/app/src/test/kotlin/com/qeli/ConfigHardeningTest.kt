@@ -171,12 +171,17 @@ class ConfigHardeningTest {
         assertEquals("include", VpnConfig.fromIni(cfg.toIni()).appsMode)
     }
 
-    /** The link authority now matches Rust and iOS byte-for-byte, empty password included. */
+    /** An old passwordless link remains importable as a draft, but cannot be re-shared. */
     @Test
-    fun `link keeps the colon when the password is empty`() {
-        val uri = profile(pass = "").toQeliUri()
-        assertTrue("expected 'user:@host', got $uri", uri.startsWith("qeli://alice:@vpn.example.com:443"))
-        assertEquals("", VpnConfig.fromQeliUri(uri).password)
+    fun `passwordless link imports but cannot be shared`() {
+        val draft = VpnConfig.fromQeliUri("qeli://alice:@vpn.example.com:443")
+        assertEquals("", draft.password)
+        try {
+            draft.toQeliUri()
+            fail("expected export without an inline pass to be refused")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message.orEmpty().contains("inline pass"))
+        }
     }
 
     @Test
@@ -215,7 +220,7 @@ class ConfigHardeningTest {
     fun `emitting refuses an out of range mtu and an unknown mode`() {
         for (bad in listOf(profile().copy(mtu = 99_999), profile(mode = "nope"))) {
             try {
-                bad.toIni()
+                bad.toTransportCoreIni()
                 fail("expected toIni to refuse $bad")
             } catch (_: IllegalArgumentException) { /* expected */ }
         }
@@ -234,4 +239,51 @@ class ConfigHardeningTest {
             excludeRoutes = listOf("2001:db8::/32")
         ).validate()
     }
+    @Test
+    fun `every schema field survives a model copy and edit`() {
+        val fields = ConfigCore.call(org.json.JSONObject().put("version",1).put("op","schema")).getJSONArray("fields")
+        val entries = (0 until fields.length()).map(fields::getJSONObject)
+        val source = buildString {
+            for (section in listOf("qeli", "logging")) {
+                append("[$section]\n")
+                for (field in entries) {
+                    val key = field.getString("key")
+                    if (key.startsWith("logging.") != (section == "logging")) continue
+                    val value = when (key) {
+                        "server" -> "vpn.example.com:443"
+                        "pass" -> "secret"
+                        "tun.tx_queue_len" -> "500"
+                        "pull_routes" -> "false"
+                        "windows_disable_sharing" -> "true"
+                        "logging.file" -> "/tmp/coverage.log"
+                        "logging.time_format" -> "rfc3339"
+                        else -> field.getString("default")
+                    }
+                    val localKey = if (section == "logging") key.removePrefix("logging.") else key
+                    append("$localKey = $value\n")
+                }
+            }
+        }
+        val saved = VpnConfig.fromIni(source).copy(password="edited").toIni()
+        val raw = ConfigCore.call(org.json.JSONObject().put("version",1).put("op","import").put("source",saved)).getJSONObject("raw")
+        assertEquals(87, entries.size)
+        for (field in entries) assertTrue(field.getString("key"), raw.has(field.getString("key")))
+        assertEquals("edited", raw.getJSONArray("pass").getString(0))
+        assertEquals("false", raw.getJSONArray("pull_routes").getString(0))
+        assertEquals("true", raw.getJSONArray("windows_disable_sharing").getString(0))
+        assertEquals("500", raw.getJSONArray("tun.tx_queue_len").getString(0))
+        assertEquals("/tmp/coverage.log", raw.getJSONArray("logging.file").getString(0))
+        assertEquals("rfc3339", raw.getJSONArray("logging.time_format").getString(0))
+    }
+
+    @Test
+    fun `duplicate carried scalars survive model operations and cannot activate`() {
+        for ((key, first, second) in listOf(Triple("autostart","true","false"), Triple("recv_buffer_size","4194304","0"))) {
+            val config=VpnConfig.fromIni("[qeli]\nserver = vpn.example.com:443\n$key = $first\n$key = $second\n")
+            try { config.validate(); fail("accepted duplicate $key") } catch (_: IllegalArgumentException) { }
+            val raw=ConfigCore.call(org.json.JSONObject().put("version",1).put("op","import").put("source",config.copy(password="edited").toIni())).getJSONObject("raw")
+            assertEquals(2, raw.getJSONArray(key).length())
+        }
+    }
+
 }

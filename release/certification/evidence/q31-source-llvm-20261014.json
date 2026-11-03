@@ -1,0 +1,174 @@
+{
+  "status": "SOURCE_LLVM_REMEDY_ACTUAL_CONFIGURATION_AND_OUTCOME_ARCHIVE_CLEANUP_QUALIFIED",
+  "qualification": {
+    "status": "SOURCE_LLVM_REMEDY_ACTUAL_CONFIGURATION_AND_OUTCOME_ARCHIVE_CLEANUP_QUALIFIED",
+    "source_commit": "f3b61e7618a1b7ceb1c9ef4135f440c77ea427cf",
+    "host": "10.66.116.10",
+    "original_CI404_qualification_sha256": "7d69490e8bea38bfdc9555d853a313411aa649dddce14b9382230d492e4b72b0",
+    "one_flag_recipe_change_verified": true,
+    "other_feed_bytes_preserved": true,
+    "bootstrap_compilation_PASS": true,
+    "generated_download_ci_llvm": false,
+    "old_CI_download_attempted": false,
+    "full_Host_Compile_Install_PASS": false,
+    "actual_result_status": "COMPILER_ATTEMPT_FAILURE_RETAINED",
+    "actual_error": "owned time/disk/free-space budget exceeded: host-compile",
+    "guard_metrics": {
+      "stage": "host-compile",
+      "elapsed_seconds": 1202.4932676670142,
+      "owned_bytes": 6512947857,
+      "free_bytes": 2058006528
+    },
+    "steps": [
+      {
+        "label": "extract-sdk",
+        "command": [
+          "tar",
+          "--zstd",
+          "-xf",
+          "/var/tmp/qeli-q31-source-llvm-a14546c9006245979f80b6c4a6910ad2/sdk.tar.zst",
+          "--strip-components=1",
+          "-C",
+          "/var/tmp/qeli-q31-source-llvm-a14546c9006245979f80b6c4a6910ad2/sdk"
+        ],
+        "exit": 0,
+        "seconds": 5.000484031159431,
+        "owned_bytes": 1474741085,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "extract-gawk.deb",
+        "command": [
+          "dpkg-deb",
+          "-x",
+          "/var/tmp/qeli-q31-source-llvm-a14546c9006245979f80b6c4a6910ad2/gawk.deb",
+          "/var/tmp/qeli-q31-source-llvm-a14546c9006245979f80b6c4a6910ad2/deps"
+        ],
+        "exit": 0,
+        "seconds": 5.155847100075334,
+        "owned_bytes": 1477810047,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "extract-sigsegv.deb",
+        "command": [
+          "dpkg-deb",
+          "-x",
+          "/var/tmp/qeli-q31-source-llvm-a14546c9006245979f80b6c4a6910ad2/sigsegv.deb",
+          "/var/tmp/qeli-q31-source-llvm-a14546c9006245979f80b6c4a6910ad2/deps"
+        ],
+        "exit": 0,
+        "seconds": 5.127286375965923,
+        "owned_bytes": 1477864283,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "host-prepare",
+        "command": [
+          "make",
+          "-C",
+          "feeds/packages/lang/rust",
+          "TOPDIR=/var/tmp/qeli-q31-source-llvm-a14546c9006245979f80b6c4a6910ad2/sdk",
+          "V=s",
+          "-j1",
+          "host-prepare"
+        ],
+        "exit": 0,
+        "seconds": 40.775776733178645,
+        "owned_bytes": 5040127843,
+        "log_sha256": "b28cbd8deff2ba93493e65bfe3ea1bac5db662798b3bf1a3375396a4ef1c81e7"
+      },
+      {
+        "label": "host-configure",
+        "command": [
+          "make",
+          "-C",
+          "feeds/packages/lang/rust",
+          "TOPDIR=/var/tmp/qeli-q31-source-llvm-a14546c9006245979f80b6c4a6910ad2/sdk",
+          "V=s",
+          "-j1",
+          "host-configure"
+        ],
+        "exit": 0,
+        "seconds": 6.888167655095458,
+        "owned_bytes": 5040238116,
+        "log_sha256": "3e2515cee6c9ced388ee6f3c48e712b01ab89a3e494f8d02874f4a7a41bf92bc"
+      }
+    ],
+    "CMake_configs": [
+      {
+        "path": "build/x86_64-unknown-linux-gnu/llvm/build/CMakeCache.txt",
+        "sha256": "e0e589d70b70f98d451bc9fff3defeef8ad7818e4b8e7e6a6b592b8509e41b2f",
+        "bytes": 72024,
+        "ninja_graph": {
+          "bytes": 11715967,
+          "sha256": "ca221fd7ddc500a7a4221900ad1a5083d20ed137b25a7def1c2f455fb2b360b2",
+          "build_statements": 11780
+        }
+      }
+    ],
+    "elapsed_seconds": 1275.3246524333954,
+    "last_displayed_Ninja_CPP_indicator": [
+      548,
+      3710
+    ],
+    "LLVM_compilation_started": true,
+    "LLVM_compilation_completed": false,
+    "limits": {
+      "memory_mib": 1152,
+      "swap_mib": 512,
+      "cpu_percent": 100,
+      "runtime_seconds": 1500,
+      "owned_bytes": 7516192768,
+      "minimum_initial_free_bytes": 8589934592,
+      "minimum_remaining_free_bytes": 1073741824
+    },
+    "finished_unit": {
+      "RuntimeMaxUSec": "25min",
+      "MainPID": "0",
+      "Result": "exit-code",
+      "ExecMainStatus": "1",
+      "MemoryPeak": "1213587456",
+      "MemorySwapPeak": "282873856",
+      "MemoryMax": "1207959552",
+      "MemorySwapMax": "536870912",
+      "KillMode": "control-group",
+      "LoadState": "loaded",
+      "ActiveState": "failed"
+    },
+    "host_accounts_staged_preserved": true,
+    "owned_root_archive_unit_removed": true,
+    "evidence_archive_bytes": 77371,
+    "owned_bytes_removed": 6512968313,
+    "source_archive": {
+      "bytes": 267487572,
+      "sha256": "0b9d55610d8270e06c44f459d1e2b7918a5e673809c592abed9b9c600e33d95a"
+    },
+    "CMake_graph_does_not_prove_completed_LLVM": true,
+    "Qeli_SDK_IPK_rebuilt": false,
+    "whole_cold_Qeli_dependency_graph_PASS": false,
+    "Q31_closed": false,
+    "raw_sha256": {
+      "preparation.json": "2a236b6859714a3f17dcf7cb547424c92eb5fbcb6ae2ea52ec0d9512a9ef043e",
+      "generator-replay.json": "245a6b01a6c01dd294f3267f87aa6e969f4ce89d180207941d4bd35f41b07572",
+      "plan.json": "f9bef19b783e386a7e8ed70f33afbed03af9ac9df32b9689100475ce77c1fd13",
+      "worker.py": "3450c40574e9472e66158d19bdc96ae5d6aad110dfbb25b60e8424ffa4dd0511",
+      "controller.py": "ae57e0739fdd385af9d45b597e6e94d09f3afcbfc5edec111f0d971f6e19ee7b",
+      "launch.json": "fe716ff13399ce34a9059d1eea3f0f6c8e3c15a16c267b5b845a8675c8ec9ed3",
+      "result.json": "54ea004aa0fa487aaa69979de87d85e288a89d4f5cb62c39a9b6ada98f630cbe",
+      "host-compile.log": "2d9bc47a735e26078743b550052ee97e8ae41b23a0a5495137fcddf596924f2d",
+      "runtime.tar.gz": "841bebb36b8383b7569914db92be77ae08748111d6e1f624818cb20225355a7d",
+      "archive.json": "28fccbfeb4652f5fb576ccab72e799e4bf4c21d10820f1b34f7364c24da2cf11",
+      "cleanup.json": "4a62b30f49a893b3acb2e381840c69b198bdf94363ce98aea184582df98f175e",
+      "finished-unit.json": "70707c4cde40253cf98a6f2935b5c16ed9e3a699145bfa4630538388bb0bbf02",
+      "completion.json": "b7a221c0ee9c1d6d0a9d7127322b68738b514f32cd8372d3df0ac2be151438c9"
+    },
+    "formal_done": 33,
+    "total": 37,
+    "no_push_deploy_release": true
+  },
+  "qualification_sha256": "aaa306ced9753ada1f590924ab9eb9db99d8ece35cc301a3ba01b48f5f52b96c",
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-source-llvm-20261014",
+  "scope": "Six Markdown report/plan/install changes only. Actual private-feed one-flag source LLVM fallback passed configuration/bootstrap and entered C++ compilation, then owned guard stopped it; full compiler/cold graph unqualified. Original CI404/raw retained. Rust/native and50Linux dependencies unchanged; original20Linux/21physical identities preserved.",
+  "no_push_deploy_release": true
+}

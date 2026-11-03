@@ -2,8 +2,6 @@ package com.qeli
 
 import android.Manifest
 import android.content.BroadcastReceiver
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -32,6 +30,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.tabs.TabLayout
 import com.qeli.databinding.ActivityMainBinding
@@ -95,10 +94,23 @@ class MainActivity : AppCompatActivity() {
     private var clientIp = ""
     private var clientGateway = ""
     private var logLineCount = 0
+    private val diagnosticJournal by lazy { AndroidDiagnosticJournal.get(noBackupFilesDir) }
+    private var logRestoreJob: Job? = null
+    private var restoringLog = false
+    private var displayedLogEpoch = 0L
+    private var restoredThroughSequence = 0L
+    private val restoreLiveRecords = ArrayDeque<JournalRecord>()
+    private var reportJob: Job? = null
+    private var pendingReport: ByteArray? = null
+    private var pendingReportEpoch = -1L
+    private var pendingReportPrivacyRevision = -1L
+    private var reportExpiryJob: Job? = null
     // Mirror of PREF_LOG_TIME_FORMAT, cached because appendLog reads it per line.
     // Refreshed in onCreate and whenever Settings is saved.
     private var logTimeFormat = DEFAULT_LOG_TIME_FORMAT
-    private var pendingConnect = false
+    private val connectRequest by lazy {
+        ViewModelProvider(this)[VpnConnectViewModel::class.java].request
+    }
     private var logAutoScroll = true
     // True while a fullScroll is already queued on scrollLog, so a burst of log lines
     // coalesces into a single scroll per frame instead of one layout pass per line.
@@ -111,6 +123,9 @@ class MainActivity : AppCompatActivity() {
 
     private val profiles = mutableListOf<Profile>()
     private var activeIndex = 0
+    private var profileStoreLoadRejected = false
+    private var observedProfileVersion: ProfileStore.SecureStore.Version? = null
+    private var profileRevision = 0L
     private val reach = HashMap<Int, Long>()   // profile index -> ping ms (-1 = down, -2 = checking)
 
     /** Encrypted-at-rest profile store: profiles carry the server password and
@@ -121,14 +136,28 @@ class MainActivity : AppCompatActivity() {
     private val secureStore: ProfileStore.SecureStore by lazy {
         // Same store the Quick Settings tile reads — see ProfileStore for the shared params.
         val store = ProfileStore.open(this)
+        // Preserve a failed encrypted migration and its revision for explicit backup
+        // restore; an older plaintext copy must not turn it into an ordinary write.
+        if (store.legacyMigrationFailure != null) return@lazy store
         val legacy = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         if (!store.contains(KEY_PROFILES)) {
             legacy.getString(KEY_PROFILES, null)?.let { raw ->
-                store.edit().putString(KEY_PROFILES, raw).apply()
+                check(store.edit().putString(KEY_PROFILES, raw).commit()) {
+                    "Could not commit migrated profile store"
+                }
+                check(store.getString(KEY_PROFILES, null) == raw) {
+                    "Migrated profile store did not pass read-back verification"
+                }
             }
         }
         if (legacy.contains(KEY_PROFILES)) {
-            legacy.edit().remove(KEY_PROFILES).apply() // wipe the old plaintext secrets
+            // Preserve the plaintext recovery copy if the encrypted entry is unreadable.
+            check(store.getString(KEY_PROFILES, null) != null) {
+                "Encrypted profile store is absent; refusing to erase legacy profiles"
+            }
+            check(legacy.edit().remove(KEY_PROFILES).commit()) {
+                "Could not erase legacy plaintext profiles"
+            }
         }
         store
     }
@@ -161,6 +190,9 @@ class MainActivity : AppCompatActivity() {
         const val DEFAULT_LOG_TIME_FORMAT = "time"
         const val PREF_LOG_LEVEL = "log_level"
         const val DEFAULT_LOG_LEVEL = "info"
+        const val PREF_CLEAR_LOG_ON_DISCONNECT = "clear_log_on_disconnect"
+        const val PREF_RETAIN_ERROR_REPORT = "retain_error_report"
+        const val DEFAULT_CLEAR_LOG_ON_DISCONNECT = true
         const val PREF_AUTO_PROBE = "auto_probe_profiles"
         const val PREF_PROBE_INTERVAL_SECS = "probe_interval_secs"
         /** True only while this process has a started Activity. The VPN service uses this
@@ -171,11 +203,11 @@ class MainActivity : AppCompatActivity() {
         internal var uiVisible = false
             private set
         private const val PREF_LAST_AUTO_PROBE_MS = "last_auto_probe_ms"
-        private const val MAX_IMPORTED_FILE_BYTES = 8 * 1024 * 1024
+        private const val MAX_IMPORTED_FILE_BYTES = ProfileStore.MAX_PROFILE_SET_BYTES
         // QELI-ENC-1 base64-expands an otherwise valid 8 MiB plaintext archive.
-        private const val MAX_IMPORTED_BACKUP_BYTES = 12 * 1024 * 1024
-        private const val MAX_IMPORTED_CONFIG_BYTES = 1024 * 1024
-        private const val MAX_IMPORTED_PROFILES = 256
+        private const val MAX_IMPORTED_BACKUP_BYTES = com.qeli.crypto.BackupCrypto.MAX_BACKUP_BYTES
+        private const val MAX_IMPORTED_CONFIG_BYTES = 256 * 1024 // shared editor/native core limit
+        private const val MAX_IMPORTED_PROFILES = ProfileStore.MAX_PROFILES
         private const val MAX_IMPORTED_PROFILE_NAME_CHARS = 256
         private val REACHABILITY_PROBE_IDS = AtomicLong(0L)
         // Flat-INI template — the same `[qeli]` schema the Rust client reads.
@@ -199,7 +231,13 @@ ipv6 = auto
 
     private val vpnPrepareLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
-    ) { r -> if (r.resultCode == RESULT_OK) startVpnService() else { appendLog("VPN permission denied"); setDisconnectedState() } }
+    ) { r ->
+        val granted = r.resultCode == RESULT_OK
+        if (connectRequest.finishPermission(VpnConnectRequest.Permission.VPN, granted)) {
+            if (granted) startVpnService()
+            else { appendLog("VPN permission denied"); setDisconnectedState() }
+        }
+    }
 
     private val importConfigLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -212,8 +250,10 @@ ipv6 = auto
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) { if (pendingConnect) { pendingConnect = false; proceedWithVpnPermission() } }
-        else { appendLog("Notification permission denied - required for VPN"); setDisconnectedState() }
+        if (connectRequest.finishPermission(VpnConnectRequest.Permission.NOTIFICATION, granted)) {
+            if (granted) proceedWithVpnPermission()
+            else { appendLog("Notification permission denied - required for VPN"); setDisconnectedState() }
+        }
     }
 
     private val trustedWifiPermissionLauncher = registerForActivityResult(
@@ -238,6 +278,50 @@ ipv6 = auto
         ActivityResultContracts.OpenDocument()
     ) { uri -> if (uri != null) readRestore(uri) }
 
+    private val diagnosticExportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val bytes = pendingReport
+        val exportEpoch = pendingReportEpoch
+        val privacyRevision = pendingReportPrivacyRevision
+        pendingReport = null
+        reportExpiryJob?.cancel()
+        if (uri == null) { bytes?.fill(0) }
+        else if (bytes == null || exportEpoch != diagnosticJournal.epoch ||
+            privacyRevision != diagnosticJournal.privacyRevision) {
+            bytes?.fill(0)
+            Toast.makeText(this, R.string.report_expired, Toast.LENGTH_LONG).show()
+        } else {
+            reportJob = lifecycleScope.launch {
+                if (!diagnosticJournal.tryStartExternalExport()) {
+                    bytes.fill(0)
+                    Toast.makeText(this@MainActivity, R.string.report_failed, Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                val saved = try {
+                    withContext(Dispatchers.IO) {
+                        try {
+                            check(exportEpoch == diagnosticJournal.epoch &&
+                                privacyRevision == diagnosticJournal.privacyRevision)
+                            contentResolver.openOutputStream(uri, "wt")?.use {
+                                check(exportEpoch == diagnosticJournal.epoch &&
+                                    privacyRevision == diagnosticJournal.privacyRevision)
+                                it.write(bytes)
+                            } ?: error("No output stream")
+                            true
+                        } catch (_: Exception) { false }
+                        finally { bytes.fill(0) }
+                    }
+                } finally {
+                    bytes.fill(0)
+                    diagnosticJournal.finishExternalExport()
+                }
+                Toast.makeText(this@MainActivity, if (saved) R.string.report_saved else R.string.report_failed,
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val status = intent.getStringExtra(VpnServiceImpl.EXTRA_STATUS)
@@ -249,15 +333,15 @@ ipv6 = auto
             )
             val logSessionId = intent.getStringExtra(VpnServiceImpl.EXTRA_LOG_SESSION_ID).orEmpty()
             val logLevel = intent.getStringExtra(VpnServiceImpl.EXTRA_LOG_LEVEL) ?: "info"
+            val logEpoch = intent.getLongExtra(VpnServiceImpl.EXTRA_LOG_EPOCH, -1)
+            val logSequence = intent.getLongExtra(VpnServiceImpl.EXTRA_LOG_SEQUENCE, -1)
             runOnUiThread {
+                if (logEpoch == diagnosticJournal.epoch && displayedLogEpoch != logEpoch) {
+                    resetLogEpoch(logEpoch)
+                }
                 log?.let {
-                    appendLog(
-                        msg = it,
-                        timestampMs = logTimeMs,
-                        persist = false,
-                        sessionId = logSessionId,
-                        level = logLevel,
-                    )
+                    acceptLog(JournalRecord(DiagnosticLogStore.entry(it, logSessionId, logLevel, logTimeMs),
+                        logEpoch, logSequence))
                 }
                 if (status == VpnServiceImpl.STATUS_STATS) {
                     updateSpeed(
@@ -290,6 +374,8 @@ ipv6 = auto
         setContentView(binding.root)
         setDisconnectedState()
         val statePrefs = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
+        diagnosticJournal.setRetainLastError(statePrefs.getBoolean(PREF_RETAIN_ERROR_REPORT, false))
+        diagnosticJournal.beginSession(currentDiagnosticSessionId())
         logTimeFormat = statePrefs
             .getString(PREF_LOG_TIME_FORMAT, DEFAULT_LOG_TIME_FORMAT)
             ?.trim()?.lowercase() ?: DEFAULT_LOG_TIME_FORMAT
@@ -298,6 +384,9 @@ ipv6 = auto
         // foreground service keeps running — restore the real tunnel state so the
         // UI doesn't falsely show "Disconnected".
         restoreServiceState()
+        if (connectRequest.isActive && !isConnected && !isDisconnecting && !isTrustedPaused) {
+            setConnectingState()
+        }
 
         loadProfiles()
         renderActiveProfile()
@@ -327,16 +416,20 @@ ipv6 = auto
 
         // Log tab toolbar
         binding.btnLogClear.setOnClickListener {
-            runCatching { DiagnosticLogStore.clear(noBackupFilesDir) }
-                .onFailure { error -> Log.w("VpnMain", "Unable to clear diagnostic log", error) }
-            binding.tvLog.text = ""
-            logLineCount = 0
+            invalidatePendingReport()
+            val completion = diagnosticJournal.clearAll()
+            resetLogEpoch(diagnosticJournal.epoch)
+            lifecycleScope.launch {
+                try { completion.await() }
+                catch (_: Exception) { Toast.makeText(this@MainActivity, R.string.report_clear_failed, Toast.LENGTH_LONG).show() }
+            }
         }
         binding.btnLogCopy.setOnClickListener {
-            val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("qeli log", binding.tvLog.text))
+            (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                .setPrimaryClip(android.content.ClipData.newPlainText("qeli log", binding.tvLog.text))
             Toast.makeText(this, getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
         }
+        binding.btnLogReport.setOnClickListener { showDiagnosticExport() }
         binding.btnLogAutoscroll.setOnClickListener { setAutoScroll(!logAutoScroll) }
         setAutoScroll(true)
 
@@ -384,6 +477,7 @@ ipv6 = auto
     }
 
     override fun onDestroy() {
+        invalidatePendingReport()
         try { unregisterReceiver(statusReceiver) } catch (_: Exception) {}
         // Cancel the ring-spin animator: an INFINITE ObjectAnimator left running holds
         // a reference to binding.ringGradient (a view of this now-destroyed Activity),
@@ -406,7 +500,7 @@ ipv6 = auto
     /** App version string for the diagnostics footer, e.g. "v0.7.5 (build 705)". */
     private fun appVersion(): String = try {
         val pi = packageManager.getPackageInfo(packageName, 0)
-        val code = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else @Suppress("DEPRECATION") pi.versionCode.toLong()
+        val code = pi.longVersionCode
         "v${pi.versionName} (build $code)"
     } catch (_: Exception) { "v?" }
 
@@ -712,6 +806,24 @@ ipv6 = auto
             }.also { rgLogLevel.addView(it) }
         }
         rgLogLevel.check(logLevelButtons[logLevels.indexOf(currentLogLevel).takeIf { it >= 0 } ?: 0].id)
+        val cbClearLog = android.widget.CheckBox(this).apply {
+            text = getString(R.string.clear_log_on_disconnect)
+            isChecked = prefs.getBoolean(PREF_CLEAR_LOG_ON_DISCONNECT, DEFAULT_CLEAR_LOG_ON_DISCONNECT)
+        }
+        val tvClearLog = android.widget.TextView(this).apply {
+            text = getString(R.string.clear_log_on_disconnect_desc)
+            textSize = 12f
+            setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+        }
+        val cbRetainReport = CheckBox(this).apply {
+            text = getString(R.string.retain_error_report)
+            isChecked = prefs.getBoolean(PREF_RETAIN_ERROR_REPORT, false)
+        }
+        val tvRetainReport = TextView(this).apply {
+            text = getString(R.string.retain_error_report_desc)
+            textSize = 12f
+            setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+        }
         val btnBackup = outlined().apply {
             text = getString(R.string.backup_profiles)
             setOnClickListener { backupLauncher.launch("qeli-profiles.json") }
@@ -740,6 +852,15 @@ ipv6 = auto
             addView(tvLang); addView(rgLang)
             addView(tvLogFmt); addView(rgLogFmt)
             addView(tvLogLevel); addView(rgLogLevel)
+            addView(cbClearLog)
+            addView(tvClearLog, android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { marginStart = dp(26); bottomMargin = dp(8) })
+            addView(cbRetainReport)
+            addView(tvRetainReport, android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { marginStart = dp(26); bottomMargin = dp(8) })
             addView(android.widget.Space(context), android.widget.LinearLayout.LayoutParams(0, dp(12)))
             addView(btnBackup); addView(btnRestore)
         }
@@ -775,7 +896,15 @@ ipv6 = auto
                     .putInt(PREF_PROBE_INTERVAL_SECS, probeInterval)
                     .putString(PREF_LOG_TIME_FORMAT, pickedLogFmt)
                     .putString(PREF_LOG_LEVEL, pickedLogLevel)
+                    .putBoolean(PREF_CLEAR_LOG_ON_DISCONNECT, cbClearLog.isChecked)
+                    .putBoolean(PREF_RETAIN_ERROR_REPORT, cbRetainReport.isChecked)
                     .apply()
+                if (!cbRetainReport.isChecked) invalidatePendingReport()
+                val reportPreference = diagnosticJournal.setRetainLastError(cbRetainReport.isChecked)
+                lifecycleScope.launch {
+                    try { reportPreference.await() }
+                    catch (_: Exception) { Toast.makeText(this@MainActivity, R.string.report_clear_failed, Toast.LENGTH_LONG).show() }
+                }
                 if (cbTrustedWifi.isChecked && trustedSsids.isNotEmpty()) {
                     requestTrustedWifiPermissions()
                 } else {
@@ -790,7 +919,7 @@ ipv6 = auto
                 // the new LAN-bypass setting.
                 if (lanChanged && (isConnected || isConnecting)) {
                     Toast.makeText(this, getString(R.string.reconnecting_lan), Toast.LENGTH_SHORT).show()
-                    connect()
+                    reconnectForSettings()
                 }
                 // Strictly last: recreate() tears down this Activity, so any work above that
                 // still touches this window (the toast, connect()) has to have run already.
@@ -828,27 +957,28 @@ ipv6 = auto
 
     /** Export ALL profiles (the encrypted store's JSON blob) to a user-picked file. */
     private fun writeBackup(uri: android.net.Uri) {
-        val blob = secureStore.getString(KEY_PROFILES, null)
-            ?: run { Toast.makeText(this, getString(R.string.nothing_to_back_up), Toast.LENGTH_SHORT).show(); return }
+        val blob = try { secureStore.getString(KEY_PROFILES, null) }
+        catch (error: Exception) {
+            Toast.makeText(this, getString(R.string.backup_failed, error.message ?: ""), Toast.LENGTH_LONG).show()
+            return
+        } ?: run { Toast.makeText(this, getString(R.string.nothing_to_back_up), Toast.LENGTH_SHORT).show(); return }
         // Optional passphrase: empty = legacy plaintext JSON; non-empty = AES-256-GCM
         // encrypted container so an exported file can't leak credentials at rest.
         promptPassphrase(getString(R.string.backup_passphrase_title), allowEmpty = true) { pass ->
-            try {
-                val out = if (pass.isEmpty()) blob.toByteArray()
-                          else com.qeli.crypto.BackupCrypto.encrypt(blob, pass)
-                val outputLimit = if (pass.isEmpty()) {
-                    MAX_IMPORTED_FILE_BYTES
-                } else {
-                    MAX_IMPORTED_BACKUP_BYTES
+            lifecycleScope.launch {
+                try {
+                    // KDF and a user-selected document provider can both block. Report success
+                    // only after the entire write and close have completed off the UI thread.
+                    withContext(Dispatchers.IO) {
+                        BackupExporter.write(blob, pass) { contentResolver.openOutputStream(uri) }
+                    }
+                    val suffix = getString(if (pass.isEmpty()) R.string.backup_unencrypted else R.string.backup_encrypted)
+                    Toast.makeText(this@MainActivity, getString(R.string.backed_up, profiles.size, suffix), Toast.LENGTH_SHORT).show()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Toast.makeText(this@MainActivity, getString(R.string.backup_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
                 }
-                require(out.size <= outputLimit) {
-                    "backup exceeds the supported export limit"
-                }
-                contentResolver.openOutputStream(uri)?.use { it.write(out) }
-                val suffix = getString(if (pass.isEmpty()) R.string.backup_unencrypted else R.string.backup_encrypted)
-                Toast.makeText(this, getString(R.string.backed_up, profiles.size, suffix), Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(this, getString(R.string.backup_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -879,11 +1009,12 @@ ipv6 = auto
                                     com.qeli.crypto.BackupCrypto.decrypt(bytes, pass)
                                 }
                             } catch (e: Exception) {
-                                Toast.makeText(
-                                    this@MainActivity,
-                                    getString(R.string.wrong_passphrase),
-                                    Toast.LENGTH_LONG,
-                                ).show()
+                                val message = if (e is javax.crypto.AEADBadTagException) {
+                                    getString(R.string.wrong_passphrase)
+                                } else {
+                                    getString(R.string.restore_failed, e.message ?: "")
+                                }
+                                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
                                 return@launch
                             } finally {
                                 bytes.fill(0)
@@ -900,8 +1031,14 @@ ipv6 = auto
                         }
                     }
                 } else {
-                    try { confirmAndRestore(String(bytes, Charsets.UTF_8)) }
-                    finally { bytes.fill(0) }
+                    try {
+                        require(bytes.size <= MAX_IMPORTED_FILE_BYTES) {
+                            "plaintext backup exceeds 8 MiB"
+                        }
+                        confirmAndRestore(decodeUtf8Strict(bytes))
+                    } finally {
+                        bytes.fill(0)
+                    }
                 }
             } catch (e: Exception) {
                 Toast.makeText(
@@ -917,24 +1054,11 @@ ipv6 = auto
      * unbounded. The caller selects the plaintext-config or base64-expanded backup ceiling. */
     private suspend fun readUriBytesBounded(uri: Uri, maxBytes: Int): ByteArray =
         withContext(Dispatchers.IO) {
+            val limit = if (maxBytes < 1024 * 1024) "${maxBytes / 1024} KiB"
+                else "${maxBytes / (1024 * 1024)} MiB"
             contentResolver.openInputStream(uri)?.use { input ->
-                val output = java.io.ByteArrayOutputStream()
-                val buffer = ByteArray(16 * 1024)
-                try {
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        if (output.size() + count > maxBytes) {
-                            throw IllegalArgumentException(
-                                "file exceeds ${maxBytes / (1024 * 1024)} MiB import limit"
-                            )
-                        }
-                        output.write(buffer, 0, count)
-                    }
-                } finally {
-                    buffer.fill(0)
-                }
-                output.toByteArray().also { require(it.isNotEmpty()) { "empty file" } }
+                BoundedInput.read(input, maxBytes, "file exceeds $limit import limit")
+                    .also { require(it.isNotEmpty()) { "empty file" } }
             } ?: throw IllegalArgumentException("empty file")
         }
 
@@ -950,6 +1074,7 @@ ipv6 = auto
         require(n in 1..MAX_IMPORTED_PROFILES) {
             "backup must contain 1..$MAX_IMPORTED_PROFILES profiles"
         }
+        val candidate = ArrayList<Profile>(n)
         for (index in 0 until n) {
             val entry = entries.optJSONObject(index)
                 ?: throw IllegalArgumentException("profile ${index + 1} must be an object")
@@ -957,7 +1082,7 @@ ipv6 = auto
             val stored = storedProfileText(entry)
             validateProfileForStorage(name, stored, "profile ${index + 1}")
             try {
-                VpnConfig.parse(stored).validate()
+                VpnConfig.parse(stored)
             } catch (error: Exception) {
                 throw IllegalArgumentException(
                     "profile ${index + 1} ('$name') is invalid: " +
@@ -965,16 +1090,22 @@ ipv6 = auto
                     error,
                 )
             }
+            candidate.add(Profile(name, stored))
         }
-        val restoredActive = root.optInt("active", 0)
-        require(restoredActive in 0 until n) { "backup active profile index is out of range" }
+        val restoredActive = ProfileStore.readActiveProfileIndex(root, n)
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.restore_profiles)
             .setMessage(getString(R.string.restore_confirm, n))
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.restore_profiles) { _, _ ->
-                secureStore.edit().putString(KEY_PROFILES, root.toString()).apply()
-                loadProfiles(); reach.clear(); renderProfileList(); renderActiveProfile(); pingActive()
+                // Restore is the explicit, confirmed replacement path for an unreadable store.
+                try { persistCandidate(candidate, restoredActive, replacingUnreadableStore = true) }
+                catch (error: Exception) {
+                    Toast.makeText(this, getString(R.string.restore_failed, error.message ?: ""), Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                profiles.clear(); profiles.addAll(candidate); activeIndex = restoredActive
+                reach.clear(); renderProfileList(); renderActiveProfile(); pingActive()
                 Toast.makeText(this, getString(R.string.restored, n), Toast.LENGTH_SHORT).show()
             }
             .show()
@@ -999,44 +1130,65 @@ ipv6 = auto
     }
 
     private fun loadProfiles() {
-        val raw = secureStore.getString(KEY_PROFILES, null)
-        var loadRejected = false
+        profileStoreLoadRejected = false
+        // Capture even an unreadable encrypted entry so explicit backup restore cannot
+        // replace a newer entry written by another Activity while the dialog is open.
+        val raw = try {
+            observedProfileVersion = secureStore.version(KEY_PROFILES)
+            secureStore.getString(KEY_PROFILES, null)
+        } catch (error: Exception) {
+            profileStoreLoadRejected = true
+            Log.e("VpnMain", "profiles decrypt: ${error.message}")
+            null
+        }
         if (raw != null) {
             try {
                 require(raw.toByteArray(Charsets.UTF_8).size <= MAX_IMPORTED_FILE_BYTES) {
                     "stored profile set exceeds the safety limit"
                 }
                 val root = JSONObject(raw)
-                val arr = root.optJSONArray("profiles") ?: JSONArray()
-                require(arr.length() <= MAX_IMPORTED_PROFILES) {
-                    "stored profile set exceeds $MAX_IMPORTED_PROFILES entries"
+                val arr = root.optJSONArray("profiles")
+                    ?: throw IllegalArgumentException("stored profiles must be an array")
+                require(arr.length() in 1..MAX_IMPORTED_PROFILES) {
+                    "stored profile set must contain 1..$MAX_IMPORTED_PROFILES entries"
                 }
+                val storedActive = ProfileStore.readActiveProfileIndex(root, arr.length())
                 val loaded = ArrayList<Profile>(arr.length())
                 for (i in 0 until arr.length()) {
                     val p = arr.getJSONObject(i)
                     val name = p.optString("name", "profile")
                     val stored = storedProfileText(p)
                     validateProfileForStorage(name, stored, "profile ${i + 1}")
-                    VpnConfig.parse(stored).validate()
+                    VpnConfig.parse(stored)
                     loaded.add(Profile(name, stored))
                 }
                 // Commit only after every entry parsed and validated. A corrupt tail must not
                 // replace a previously usable in-memory set with a partial prefix.
                 profiles.clear()
                 profiles.addAll(loaded)
-                activeIndex = root.optInt("active", 0)
+                activeIndex = storedActive
             } catch (e: Exception) {
-                loadRejected = true
+                profileStoreLoadRejected = true
                 Log.e("VpnMain", "profiles load: ${e.message}")
             }
         }
         if (profiles.isEmpty()) {
             profiles.add(Profile(getString(R.string.default_profile_name), TEMPLATE))
-            // Never overwrite a rejected encrypted store merely by opening the app. The
-            // normal creation/import paths below prevent new over-limit stores; retaining an
-            // older/corrupt value here still leaves it recoverable from app data or a fixed
-            // build instead of silently replacing all credentials with the template.
-            if (!loadRejected) persist()
+            // A rejected encrypted store must remain untouched until an explicit restore.
+            if (!profileStoreLoadRejected) {
+                try { persist() }
+                catch (error: Exception) {
+                    profileStoreLoadRejected = true
+                    Log.e("VpnMain", "profiles initial save: ${error.message}")
+                }
+            }
+        }
+        if (profileStoreLoadRejected) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.profile_store_unavailable_title)
+                .setMessage(R.string.profile_store_unavailable_message)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
         }
         if (activeIndex !in profiles.indices) activeIndex = 0
     }
@@ -1054,7 +1206,7 @@ ipv6 = auto
      *
      * Built through the model rather than by string concatenation so the key names come from
      * `toIni` and cannot drift from what `fromIni` reads. It used to be assembled as JSON and
-     * handed to `VpnConfig.fromJson`; that parser is gone (see `VpnConfig.jsonRetired`), and
+     * handed to `VpnConfig.fromJson`; that parser has been removed, and
      * routing here was only ever the full-tunnel default anyway.
      *
      * A profile still stored under the older `json` key is NOT converted — it is passed through
@@ -1076,12 +1228,32 @@ ipv6 = auto
         ""
     }
 
-    private fun persist() {
-        val encoded = encodeProfileSet(profiles, activeIndex)
-        secureStore.edit()
-            .putString(KEY_PROFILES, encoded)
-            .apply()
+    private fun persistCandidate(
+        items: List<Profile>,
+        selectedIndex: Int,
+        replacingUnreadableStore: Boolean = false,
+    ) {
+        check(!profileStoreLoadRejected || replacingUnreadableStore) {
+            getString(R.string.profile_store_write_blocked)
+        }
+        val encoded = encodeProfileSet(items, selectedIndex)
+        val expected = checkNotNull(observedProfileVersion) {
+            "Load the profile store before saving."
+        }
+        val updated = try {
+            secureStore.putStringIfVersion(
+                KEY_PROFILES, expected, encoded,
+                allowUnreadableLegacyRecovery = replacingUnreadableStore,
+            )
+        } catch (error: ProfileStore.SecureStore.StaleVersionException) {
+            throw IllegalStateException(getString(R.string.profile_store_stale), error)
+        }
+        observedProfileVersion = updated
+        profileStoreLoadRejected = false
+        profileRevision++
     }
+
+    private fun persist() = persistCandidate(profiles, activeIndex)
 
     /** Validate and encode a complete prospective state before mutating the live list. */
     private fun encodeProfileSet(items: List<Profile>, selectedIndex: Int): String {
@@ -1119,6 +1291,7 @@ ipv6 = auto
 
     /** index = -1 to create a new profile. */
     private fun showEditor(index: Int) {
+        val openedAtRevision = profileRevision
         val dlgBinding = DialogConfigEditorBinding.inflate(LayoutInflater.from(this))
         val editing = profiles.getOrNull(index)
         dlgBinding.editName.setText(editing?.name ?: getString(R.string.new_profile_title))
@@ -1136,7 +1309,7 @@ ipv6 = auto
             .create()
         dialog.show()
         dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val cfgText = dlgBinding.editJson.text.toString().trim()
+            val cfgText = dlgBinding.editJson.text.toString()
             val roamingPolicy = roamingPolicies.getOrElse(dlgBinding.spinnerRoaming.selectedItemPosition) { "auto" }
             val cfg = try {
                 VpnConfig.parse(cfgText).copy(roaming = roamingPolicy).also { it.validate() }
@@ -1147,19 +1320,28 @@ ipv6 = auto
             val iniText = cfg.toIni()
             var name = dlgBinding.editName.text.toString().trim()
             if (name.isBlank()) name = cfg.serverAddress.ifBlank { getString(R.string.profile_fallback_name) }
+            if (profileRevision != openedAtRevision) {
+                Toast.makeText(this, R.string.profile_changed_during_edit, Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            val reconnectNeeded = editing != null && index == activeIndex &&
+                editing.text != iniText && (isConnected || isConnecting || isTrustedPaused)
             val candidate = profiles.map { it.copy() }.toMutableList()
             if (index < 0) candidate.add(Profile(name, iniText))
             else candidate[index] = Profile(name, iniText)
             val candidateActive = if (index < 0) activeAfterAdd(candidate.size) else activeIndex
             try {
-                encodeProfileSet(candidate, candidateActive)
+                persistCandidate(candidate, candidateActive)
             } catch (e: Exception) {
                 Toast.makeText(this, e.message ?: getString(R.string.invalid_config, ""), Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
             profiles.clear(); profiles.addAll(candidate); activeIndex = candidateActive
-            persist(); renderProfileList(); renderActiveProfile(); pingActive()
+            renderProfileList(); renderActiveProfile(); pingActive()
             dialog.dismiss()
+            if (reconnectNeeded) {
+                Toast.makeText(this, R.string.profile_reconnect_required, Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -1173,7 +1355,7 @@ ipv6 = auto
                 when (which) {
                     0 -> startQrScan()
                     1 -> showPasteLinkDialog()
-                    2 -> try { importConfigLauncher.launch(arrayOf("text/plain", "application/json", "*/*")) }
+                    2 -> try { importConfigLauncher.launch(arrayOf("text/plain", "*/*")) }
                          catch (e: Exception) { Toast.makeText(this, getString(R.string.cannot_open_picker, e.message ?: ""), Toast.LENGTH_LONG).show() }
                 }
             }
@@ -1204,14 +1386,14 @@ ipv6 = auto
     private fun addProfileFromQeliUri(raw: String) {
         try {
             val cfg = VpnConfig.fromQeliUri(raw).also { it.validate() }
-            val label = qeliLabel(raw) ?: cfg.serverAddress
+            val label = cfg.carriedKeys["name"]?.takeIf { it.isNotBlank() } ?: cfg.serverAddress
             val ini = cfg.toIni(label)
             val candidate = profiles.map { it.copy() }.toMutableList()
             candidate.add(Profile(label, ini))
             val candidateActive = activeAfterAdd(candidate.size)
-            encodeProfileSet(candidate, candidateActive)
+            persistCandidate(candidate, candidateActive)
             profiles.clear(); profiles.addAll(candidate); activeIndex = candidateActive
-            persist(); renderProfileList(); renderActiveProfile(); pingActive()
+            renderProfileList(); renderActiveProfile(); pingActive()
             binding.tabs.getTabAt(0)?.select()
             appendLog("Imported \"$label\" from QR/link")
             Toast.makeText(
@@ -1225,40 +1407,36 @@ ipv6 = auto
     }
 
     /** Extract the human label from a qeli:// fragment (#label), if present. */
-    private fun qeliLabel(uri: String): String? {
-        val frag = uri.substringAfter('#', "").trim()
-        if (frag.isEmpty()) return null
-        return try { Uri.decode(frag) } catch (_: Exception) { frag }
-    }
+    private fun qeliLabel(uri: String): String? = runCatching {
+        VpnConfig.fromQeliUri(uri).carriedKeys["name"]?.takeIf { it.isNotBlank() }
+    }.getOrNull()
 
     private fun importConfigFromUri(uri: Uri) {
         lifecycleScope.launch {
             try {
                 val bytes = readUriBytesBounded(uri, MAX_IMPORTED_CONFIG_BYTES)
-                val text = try { bytes.decodeToString().trim() } finally { bytes.fill(0) }
-                require(text.isNotEmpty()) { "Empty file" }
-                // A file may hold a qeli:// link or an INI config. A JSON one is refused by
-                // `parse` below, by name — see `VpnConfig.jsonRetired`.
-                if (text.startsWith("qeli://")) {
+                // Decode strictly: replacement characters could silently alter credentials.
+                // Preserve the INI tail so the shared parser can reject malformed controls.
+                val text = try { bytes.decodeToString(throwOnInvalidSequence = true) } finally { bytes.fill(0) }
+                require(text.isNotBlank()) { "Empty file" }
+                val content = text.trimStart(' ', '\t', '\r', '\n', '\uFEFF')
+                // A file may hold a qeli:// link or an INI config. JSON config is refused
+                // by the shared parser; JSON backup files use the separate Restore action.
+                if (content.startsWith("qeli://")) {
                     addProfileFromQeliUri(text)
                     return@launch
                 }
-                // `parse` only PARSES — fromIni never called validate(), so the comment that
-                // used to sit here claiming otherwise was the whole bug: a raw INI file was stored
-                // verbatim with port 0 / 99999, an unknown proto or mode, an out-of-range timeout
-                // or a negative reconnect, and only failed much later at connect. Validate at the
-                // boundary where untrusted text enters, exactly as the qeli:// import already does.
-                // (Audit 2026-07-29, #5.)
-                val cfg = VpnConfig.parse(text).also { it.validate() }
+                // Strict parsing validates untrusted INI at the import boundary.
+                val cfg = VpnConfig.parse(text)
                 // Stored verbatim: what parsed is already INI, so re-emitting it through `toIni`
                 // would only drop the author's comments and ordering for no gain.
-                val label = commentLabel(text).orEmpty().ifBlank { cfg.serverAddress }
+                val label = commentLabel(content).orEmpty().ifBlank { cfg.serverAddress }
                 val candidate = profiles.map { it.copy() }.toMutableList()
                 candidate.add(Profile(label, text))
                 val candidateActive = activeAfterAdd(candidate.size)
-                encodeProfileSet(candidate, candidateActive)
+                persistCandidate(candidate, candidateActive)
                 profiles.clear(); profiles.addAll(candidate); activeIndex = candidateActive
-                persist(); renderProfileList(); renderActiveProfile(); pingActive()
+                renderProfileList(); renderActiveProfile(); pingActive()
                 binding.tabs.getTabAt(0)?.select()
                 appendLog("Imported \"$label\"")
                 Toast.makeText(
@@ -1562,7 +1740,12 @@ ipv6 = auto
                     Toast.makeText(this, getString(R.string.switch_blocked), Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                activeIndex = i; persist(); renderProfileList(); renderActiveProfile()
+                try { persistCandidate(profiles, i) }
+                catch (e: Exception) {
+                    Toast.makeText(this, e.message ?: "Could not save profile", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                activeIndex = i; renderProfileList(); renderActiveProfile()
                 binding.tabs.getTabAt(0)?.select()
                 Toast.makeText(this, getString(R.string.active_profile_toast, p.name), Toast.LENGTH_SHORT).show()
             }
@@ -1591,6 +1774,8 @@ ipv6 = auto
 
     /** Overflow (⋮) menu for a profile row: Share / Edit / Duplicate / Apps / Move / Delete. */
     private fun showRowMenu(anchor: View, i: Int) {
+        val openedAtRevision = profileRevision
+        val openedProfile = profiles.getOrNull(i) ?: return
         val menu = android.widget.PopupMenu(this, anchor)
         menu.menu.add(0, 1, 0, R.string.share_profile)
         menu.menu.add(0, 2, 1, R.string.edit_profile)
@@ -1600,6 +1785,10 @@ ipv6 = auto
         menu.menu.add(0, 5, 5, R.string.move_down).isEnabled = i < profiles.size - 1
         menu.menu.add(0, 6, 6, R.string.delete_profile)
         menu.setOnMenuItemClickListener { item ->
+            if (profileRevision != openedAtRevision || profiles.getOrNull(i) !== openedProfile) {
+                Toast.makeText(this, R.string.profile_changed_during_edit, Toast.LENGTH_LONG).show()
+                return@setOnMenuItemClickListener true
+            }
             when (item.itemId) {
                 1 -> { shareProfile(i); true }
                 2 -> { showEditor(i); true }
@@ -1622,6 +1811,7 @@ ipv6 = auto
      */
     private fun showAppsDialog(i: Int) {
         val profile = profiles.getOrNull(i) ?: return
+        val openedAtRevision = profileRevision
         val cfg = try { VpnConfig.parse(profile.text) } catch (_: Exception) { null }
         val startMode = cfg?.appsMode ?: "all"
         val startSel = cfg?.apps?.toHashSet() ?: hashSetOf()
@@ -1642,6 +1832,7 @@ ipv6 = auto
         val loading = TextView(this).apply { text = getString(R.string.loading_apps); setPadding(0, dp(8), 0, dp(8)) }
         listBox.addView(loading)
         val checks = HashMap<String, CheckBox>()
+        var appsLoaded = false
 
         fun setListEnabled(on: Boolean) { for (c in checks.values) c.isEnabled = on }
 
@@ -1662,40 +1853,60 @@ ipv6 = auto
             .setView(root)
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.save) { _, _ ->
+                if (!appsLoaded) return@setPositiveButton
+                if (profileRevision != openedAtRevision) {
+                    Toast.makeText(this, R.string.profile_changed_during_edit, Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
                 val mode = when (rgMode.checkedRadioButtonId) { rbInc.id -> "include"; rbExc.id -> "exclude"; else -> "all" }
-                val sel = checks.filterValues { it.isChecked }.keys.toList()
+                val sel = checks.filterValues { it.isChecked }.keys.sorted()
                 val candidate = profiles.map { it.copy() }.toMutableList()
-                candidate[i].text = writeAppsIntoIni(profile.text, mode, sel)
+                val reconnectNeeded: Boolean
                 try {
-                    VpnConfig.parse(candidate[i].text).validate()
-                    encodeProfileSet(candidate, activeIndex)
+                    candidate[i].text = ProfileAppsEditor.replace(profile.text, mode, sel)
+                    reconnectNeeded = i == activeIndex && candidate[i].text != profile.text &&
+                        (isConnected || isConnecting || isTrustedPaused)
+                    VpnConfig.parse(candidate[i].text)
+                    persistCandidate(candidate, activeIndex)
                 } catch (e: Exception) {
                     Toast.makeText(this, e.message ?: "Invalid per-app profile", Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
                 profiles.clear(); profiles.addAll(candidate)
-                persist()
                 val n = if (mode == "all") 0 else sel.size
                 Toast.makeText(this, if (mode == "all") getString(R.string.per_app_all_toast) else getString(R.string.per_app_selected_toast, n), Toast.LENGTH_SHORT).show()
+                if (reconnectNeeded) {
+                    Toast.makeText(this, R.string.profile_reconnect_required, Toast.LENGTH_LONG).show()
+                }
             }
             .create()
         dialog.show()
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled = false
 
-        // Enumerate apps in the background, then build the checkbox rows.
-        lifecycleScope.launch {
-            val apps = withContext(Dispatchers.IO) { loadSelectableApps() }
+        // Preserve configured packages that are uninstalled/hidden from this inventory.
+        // A round trip through this editor must not silently broaden a per-app profile.
+        val enumeration = lifecycleScope.launch {
+            val apps = withContext(Dispatchers.IO) {
+                val known = loadSelectableApps().associateBy { it.pkg }.toMutableMap()
+                for (pkg in startSel) known.putIfAbsent(pkg, AppEntry(pkg, pkg))
+                known.values.sortedBy { it.label.lowercase() }
+            }
+            if (!dialog.isShowing) return@launch
             listBox.removeView(loading)
             for (app in apps) {
                 val cb = CheckBox(this@MainActivity).apply {
                     text = app.label
                     isChecked = startSel.contains(app.pkg)
-                    isEnabled = startMode != "all"
+                    isEnabled = rgMode.checkedRadioButtonId != rbAll.id
                 }
                 checks[app.pkg] = cb
                 listBox.addView(cb)
             }
             if (apps.isEmpty()) listBox.addView(TextView(this@MainActivity).apply { text = getString(R.string.no_apps_found) })
+            appsLoaded = true
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled = true
         }
+        dialog.setOnDismissListener { enumeration.cancel() }
     }
 
     private data class AppEntry(val pkg: String, val label: String)
@@ -1726,29 +1937,13 @@ ipv6 = auto
         for (ai in apps) {
             val pkg = ai.packageName ?: continue
             if (pkg == packageName) continue
-            if (pm.checkPermission(Manifest.permission.INTERNET, pkg) != PackageManager.PERMISSION_GRANTED) continue
+            if (!runCatching { pm.checkPermission(Manifest.permission.INTERNET, pkg) ==
+                    PackageManager.PERMISSION_GRANTED }.getOrDefault(false)) continue
             val label = try { pm.getApplicationLabel(ai).toString() } catch (_: Exception) { pkg }
             out.add(AppEntry(pkg, label))
         }
         out.sortBy { it.label.lowercase() }
         return out
-    }
-
-    /** Replace the `apps_mode`/`apps` lines in an INI config with the given selection
-     *  (removes both keys when mode == "all"). Purely textual so it preserves any
-     *  fields [VpnConfig.toIni] doesn't model (e.g. split-tunnel include/exclude routes). */
-    private fun writeAppsIntoIni(ini: String, mode: String, pkgs: List<String>): String {
-        val appsKey = Regex("^apps\\s*=")
-        val kept = ini.lineSequence().filterNot {
-            val t = it.trimStart()
-            t.startsWith("apps_mode") || appsKey.containsMatchIn(t)
-        }.joinToString("\n").trimEnd()
-        if (mode == "all" || pkgs.isEmpty()) return kept + "\n"
-        return buildString {
-            append(kept).append('\n')
-            append("apps_mode = ").append(mode).append('\n')
-            append("apps = ").append(pkgs.joinToString(", ")).append('\n')
-        }
     }
 
     /** Duplicate a profile (inserted right after it, name + " (copy)"). */
@@ -1760,14 +1955,14 @@ ipv6 = auto
             candidate.add(i + 1, Profile(name, p.text))
             // Insertion before the active row must retain the same active profile.
             val candidateActive = if (activeIndex > i) activeIndex + 1 else activeIndex
-            encodeProfileSet(candidate, candidateActive)
+            persistCandidate(candidate, candidateActive)
             profiles.clear(); profiles.addAll(candidate); activeIndex = candidateActive
         } catch (e: Exception) {
             Toast.makeText(this, e.message ?: "Profile cannot be duplicated", Toast.LENGTH_LONG).show()
             return
         }
         reach.clear()               // indices shifted → re-probe
-        persist(); renderProfileList()
+        renderProfileList()
     }
 
     /** Reorder a profile up (-1) or down (+1); keeps the active selection on the same entry. */
@@ -1783,11 +1978,18 @@ ipv6 = auto
     private fun moveProfile(i: Int, delta: Int) {
         val j = i + delta
         if (j < 0 || j >= profiles.size) return
-        val moved = profiles.removeAt(i)
-        profiles.add(j, moved)
-        activeIndex = when (activeIndex) { i -> j; j -> i; else -> activeIndex }
+        val candidate = profiles.map { it.copy() }.toMutableList()
+        val moved = candidate.removeAt(i)
+        candidate.add(j, moved)
+        val candidateActive = when (activeIndex) { i -> j; j -> i; else -> activeIndex }
+        try { persistCandidate(candidate, candidateActive) }
+        catch (e: Exception) {
+            Toast.makeText(this, e.message ?: "Could not save profiles", Toast.LENGTH_LONG).show()
+            return
+        }
+        profiles.clear(); profiles.addAll(candidate); activeIndex = candidateActive
         reach.clear()               // indices shifted → re-probe
-        persist(); renderProfileList()
+        renderProfileList()
     }
 
     /** Share a profile as a compact qeli:// link + QR (copy to clipboard, or the Android
@@ -1838,20 +2040,33 @@ ipv6 = auto
 
     private fun deleteProfile(i: Int) {
         val p = profiles.getOrNull(i) ?: return
+        val openedAtRevision = profileRevision
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.delete_profile).setMessage(getString(R.string.delete_profile_confirm, p.name))
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.delete_profile) { _, _ ->
-                profiles.removeAt(i)
+                if (profileRevision != openedAtRevision) {
+                    Toast.makeText(this, R.string.profile_changed_during_edit, Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                val currentIndex = profiles.indexOfFirst { it === p }
+                if (currentIndex < 0) return@setPositiveButton
+                val candidate = profiles.map { it.copy() }.toMutableList()
+                candidate.removeAt(currentIndex)
+                if (candidate.isEmpty()) {
+                    candidate.add(Profile(getString(R.string.default_profile_name), TEMPLATE))
+                }
+                // Removing an earlier row must retain the same active profile.
+                val candidateActive = (activeIndex - if (currentIndex < activeIndex) 1 else 0)
+                    .coerceIn(0, candidate.size - 1)
+                try { persistCandidate(candidate, candidateActive) }
+                catch (e: Exception) {
+                    Toast.makeText(this, e.message ?: "Could not save profiles", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                profiles.clear(); profiles.addAll(candidate); activeIndex = candidateActive
                 reach.clear()
-                if (profiles.isEmpty()) profiles.add(Profile(getString(R.string.default_profile_name), TEMPLATE))
-                // Keep pointing at the SAME profile. Removing an earlier entry shifts every
-                // index after it down by one; the old code only clamped an out-of-range
-                // index, so deleting a profile ABOVE the active one silently made a
-                // different profile active — including while that tunnel was running.
-                if (i < activeIndex) activeIndex--
-                activeIndex = activeIndex.coerceIn(0, profiles.size - 1)
-                persist(); renderProfileList(); renderActiveProfile()
+                renderProfileList(); renderActiveProfile()
             }.show()
     }
 
@@ -2053,51 +2268,69 @@ ipv6 = auto
         if (!isConnected && !isConnecting && !isDisconnecting && !isTrustedPaused) connect()
     }
 
-    private fun connect() {
-        if (isDisconnecting || isTrustedPaused) return
+    private fun connect() = startConnectRequest(reconfigure = false)
+
+    /** A settings edit may replace an active attempt, but never steal a permission callback. */
+    private fun reconnectForSettings() = startConnectRequest(reconfigure = true)
+
+    private fun startConnectRequest(reconfigure: Boolean) {
+        if (isDisconnecting || connectRequest.hasOutstandingResult ||
+            (!reconfigure && (isConnected || isConnecting || isTrustedPaused))) return
         val p = current() ?: return
-        // `parse` only PARSES — validate() is a separate step, and connecting without it let a
-        // profile saved before the range checks existed (or hand-edited since) reach the tunnel
-        // with an out-of-range port/transport/mode/timeout/MTU/padding. Import already
-        // validates; this is the other door into the same data. (Audit 2026-07-30, #11.)
-        val cfg = try { VpnConfig.parse(p.text).also { it.validate() } } catch (e: Exception) {
+        // Revalidate saved text through the strict shared parser at activation.
+        val cfg = try { VpnConfig.parse(p.text) } catch (e: Exception) {
             Toast.makeText(this, getString(R.string.profile_config_invalid, e.message ?: ""), Toast.LENGTH_LONG).show(); return
         }
         if (cfg.serverAddress.isBlank() || cfg.serverAddress == "SERVER_IP_OR_HOST") {
             Toast.makeText(this, getString(R.string.set_real_server), Toast.LENGTH_LONG).show()
             binding.tabs.getTabAt(1)?.select(); showEditor(activeIndex); return
         }
+        if (!connectRequest.begin(cfg, reconfigure)) return
         appendLog("Connecting \"${p.name}\"")
         setConnectingState()
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            pendingConnect = true
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS); return
+            connectRequest.awaitPermission(VpnConnectRequest.Permission.NOTIFICATION)
+            try { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+            catch (e: Exception) {
+                connectRequest.launchFailed(VpnConnectRequest.Permission.NOTIFICATION)
+                appendLog("Permission request error: ${e.message}"); setDisconnectedState()
+            }
+            return
         }
         proceedWithVpnPermission()
     }
 
     private fun proceedWithVpnPermission() {
+        if (!connectRequest.isActive) return
         try {
             val vpnIntent = VpnService.prepare(this)
-            if (vpnIntent != null) vpnPrepareLauncher.launch(vpnIntent) else startVpnService()
-        } catch (e: Exception) { appendLog("Error: ${e.message}"); setDisconnectedState() }
+            if (vpnIntent != null) {
+                connectRequest.awaitPermission(VpnConnectRequest.Permission.VPN)
+                vpnPrepareLauncher.launch(vpnIntent)
+            } else startVpnService()
+        } catch (e: Exception) {
+            connectRequest.launchFailed(VpnConnectRequest.Permission.VPN)
+            appendLog("Error: ${e.message}"); setDisconnectedState()
+        }
     }
 
     private fun startVpnService() {
+        val reconfigure = connectRequest.reconfigure
+        val cfg = connectRequest.takeConfiguration() ?: return
         try {
-            val cfg = VpnConfig.parse(current()!!.text)
             val intent = Intent(this, VpnServiceImpl::class.java).apply {
-                action = VpnServiceImpl.ACTION_CONNECT
+                action = if (reconfigure) VpnServiceImpl.ACTION_RECONFIGURE else VpnServiceImpl.ACTION_CONNECT
                 putExtra(VpnServiceImpl.EXTRA_CONFIG, cfg)
             }
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
+            startForegroundService(intent)
         } catch (e: Exception) {
             appendLog("Service error: ${e.message}"); setDisconnectedState()
         }
     }
 
     private fun disconnect() {
+        connectRequest.cancel()
         appendLog("Disconnecting…")
         setDisconnectingState()
         try {
@@ -2156,7 +2389,7 @@ ipv6 = auto
 
     private fun setDisconnectedState() {
         updateJob?.cancel(); updateJob = null
-        isConnected = false; isConnecting = false; isDisconnecting = false
+        isConnected = false; isConnecting = false; isDisconnecting = false; isTrustedPaused = false
         clientIp = ""; clientGateway = ""
         binding.btnPing.isEnabled = true
         binding.btnCheckAll.isEnabled = true
@@ -2209,7 +2442,7 @@ ipv6 = auto
 
     private fun setErrorState(error: String?) {
         updateJob?.cancel(); updateJob = null
-        isConnected = false; isConnecting = false; isDisconnecting = false
+        isConnected = false; isConnecting = false; isDisconnecting = false; isTrustedPaused = false
         clientIp = ""; clientGateway = ""
         binding.btnPing.isEnabled = true
         binding.btnCheckAll.isEnabled = true
@@ -2334,48 +2567,126 @@ ipv6 = auto
             .getString(PREF_DIAGNOSTIC_SESSION_ID, "")
             .orEmpty()
 
-    private fun restoreDiagnosticLog() {
+    private fun clearDisplayedLog() {
         binding.tvLog.text = ""
         logLineCount = 0
-        runCatching { DiagnosticLogStore.read(noBackupFilesDir) }
-            .onFailure { error -> Log.w("VpnMain", "Unable to restore diagnostic log", error) }
-            .getOrDefault(emptyList())
-            .forEach { entry ->
-                appendLog(
-                    msg = entry.message,
-                    timestampMs = entry.timestampMs,
-                    persist = false,
-                    sessionId = entry.sessionId,
-                    level = entry.level,
-                    updateConnectionStep = false,
-                )
+    }
+
+    private fun restoreDiagnosticLog() {
+        clearDisplayedLog()
+        displayedLogEpoch = diagnosticJournal.epoch
+        restoringLog = true
+        val completion = diagnosticJournal.read()
+        logRestoreJob = lifecycleScope.launch {
+            try {
+                val snapshot = completion.await()
+                if (snapshot.epoch == diagnosticJournal.epoch) {
+                    clearDisplayedLog()
+                    snapshot.entries.forEach { renderLog(it, updateConnectionStep = false) }
+                    restoredThroughSequence = snapshot.throughSequence
+                    restoreLiveRecords.filter { it.epoch == snapshot.epoch && it.sequence > snapshot.throughSequence }
+                        .sortedBy { it.sequence }.forEach { renderLog(it.entry, updateConnectionStep = false) }
+                }
+            } catch (_: Exception) {
+                // Live broadcasts have already been displayed; a cancelled/failed restore must
+                // not replace them with an empty snapshot.
+            } finally {
+                restoringLog = false
+                restoreLiveRecords.clear()
             }
+        }
+    }
+
+    private fun resetLogEpoch(epoch: Long) {
+        logRestoreJob?.cancel()
+        restoringLog = false
+        restoreLiveRecords.clear()
+        restoredThroughSequence = 0
+        displayedLogEpoch = epoch
+        clearDisplayedLog()
+    }
+
+    private fun acceptLog(record: JournalRecord, updateConnectionStep: Boolean = true) {
+        if (record.epoch != diagnosticJournal.epoch) return
+        if (displayedLogEpoch != record.epoch) resetLogEpoch(record.epoch)
+        if (record.sequence <= restoredThroughSequence) return
+        if (restoringLog) {
+            if (restoreLiveRecords.size >= MAX_LOG_LINES) restoreLiveRecords.removeFirst()
+            restoreLiveRecords.addLast(record)
+        }
+        renderLog(record.entry, updateConnectionStep)
+    }
+
+    private fun invalidatePendingReport() {
+        reportJob?.cancel()
+        reportExpiryJob?.cancel()
+        pendingReport?.fill(0)
+        pendingReport = null
+        pendingReportEpoch = -1
+        pendingReportPrivacyRevision = -1
+    }
+
+    private fun showDiagnosticExport() {
+        if (reportJob?.isActive == true || pendingReport != null) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.diagnostic_report)
+            .setMessage(R.string.diagnostic_report_desc)
+            .setPositiveButton(R.string.report_current) { _, _ -> prepareDiagnosticExport(lastError = false) }
+            .setNeutralButton(R.string.report_last_error) { _, _ -> prepareDiagnosticExport(lastError = true) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun prepareDiagnosticExport(lastError: Boolean) {
+        if (reportJob?.isActive == true || pendingReport != null) return
+        val exportEpoch = diagnosticJournal.epoch
+        val privacyRevision = diagnosticJournal.privacyRevision
+        reportJob = lifecycleScope.launch {
+            try {
+                val report = if (lastError) diagnosticJournal.exportLastError().await()
+                    else diagnosticJournal.exportCurrent().await()
+                if (report == null) {
+                    Toast.makeText(this@MainActivity, R.string.report_not_available, Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                if (exportEpoch != diagnosticJournal.epoch || privacyRevision != diagnosticJournal.privacyRevision) return@launch
+                val version = appVersion()
+                val bytes = withContext(Dispatchers.IO) {
+                    JSONObject(report).put("exporter_app_version", version).toString(2).toByteArray(Charsets.UTF_8)
+                        .also { check(it.size <= AndroidDiagnosticJournal.REPORT_LIMIT) }
+                }
+                if (exportEpoch != diagnosticJournal.epoch || privacyRevision != diagnosticJournal.privacyRevision) {
+                    bytes.fill(0)
+                    return@launch
+                }
+                pendingReport = bytes
+                pendingReportEpoch = exportEpoch
+                pendingReportPrivacyRevision = privacyRevision
+                // A document picker can remain open indefinitely. Retain at most one bounded
+                // export for five minutes; never persist an unrequested intermediate file.
+                reportExpiryJob = lifecycleScope.launch {
+                    delay(5 * 60 * 1000L)
+                    pendingReport?.fill(0)
+                    pendingReport = null
+                }
+                diagnosticExportLauncher.launch(if (lastError) "qeli-last-error.json" else "qeli-diagnostics.json")
+            } catch (_: Exception) {
+                if (isActive) Toast.makeText(this@MainActivity, R.string.report_failed, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun appendLog(
         msg: String,
         timestampMs: Long = System.currentTimeMillis(),
-        persist: Boolean = true,
         sessionId: String = currentDiagnosticSessionId(),
         level: String = "info",
         updateConnectionStep: Boolean = true,
     ) {
-        val entry = if (persist) {
-            runCatching {
-                DiagnosticLogStore.append(
-                    directory = noBackupFilesDir,
-                    message = msg,
-                    sessionId = sessionId,
-                    level = level,
-                    timestampMs = timestampMs,
-                )
-            }.getOrElse { error ->
-                Log.w("VpnMain", "Unable to persist diagnostic log", error)
-                DiagnosticLogEntry(timestampMs, sessionId, level, msg)
-            }
-        } else {
-            DiagnosticLogEntry(timestampMs, sessionId, level, msg)
-        }
+        acceptLog(diagnosticJournal.append(msg, sessionId, level, timestampMs), updateConnectionStep)
+    }
+
+    private fun renderLog(entry: DiagnosticLogEntry, updateConnectionStep: Boolean) {
         val ts = logStamp(entry.timestampMs)
         val tv = binding.tvLog
         // append() upgrades the buffer to EDITABLE, so we can trim the oldest lines

@@ -1,0 +1,42 @@
+# Q33: real systemd sandbox, SIGHUP and root service mode
+
+<!-- normative-sync: q33-systemd-v1 -->
+
+8 October 2026. F442–F444 / Q33-F045–F047. Q33 remains IN_PROGRESS.
+
+## Findings and fixes
+
+- **F442 / Q33-F045:** native SSH combined stdout and successful nft ownership warnings at unpredictable chunk boundaries. The snapshot could therefore falsely report firewall changes. It now captures streams separately and excludes stderr only on rc0; errors retain stderr and return code. Original failing evidence is preserved.
+- **F443 / Q33-F046:** the packaged ExecReload sends SIGHUP to MainPID. Supervisor handled only SIGINT/SIGTERM, so reload terminated it and stopped the worker. It now installs SIGHUP before startup and handles it in a managed task with normal bounded shutdown. A validated reload updates supervisor users/auth and forwards ReloadUsers to the worker. It preserves the panel lockout tracker; a full queue coalesces with already queued restart/reload work instead of spawning an unbounded sender. Invalid config/users cannot publish new auth state. Startup-only settings still require restart.
+- **F444 / Q33-F047:** selecting root retained only three network capabilities. UID0 then lacked DAC bypass and could not read qeli-owned0700/0600 configuration. The root drop-in adds only CHOWN/DAC_OVERRIDE/FOWNER to existing network bounds and clears root ambient capabilities. ProtectSystem and NoNewPrivileges remain. Removing the drop-in restores packaged qeli capabilities. Config command/publication trust is unchanged: root must explicitly own a reviewed configuration before panel save; the helper does not silently promote another owner's hooks.
+
+## Executed evidence
+
+Linux CLI source `a36d600e0db8a4fd058802ebcb42b0a1f81dcd99`, Rust1.97.0 offline/locked debug artifact, SHA256 `6161d560b7cd898a787cf97922f87951307958f06496eddc2f5b741b9f812956`,78728264 bytes. Build, binary5, SIGHUP4, supervisor23 and Clippy `-D warnings` PASS. Initial library test compilation lacked conformance fixtures; original error log retained, fixtures added from that same commit, final tests rerun. Pinned rustfmt output matches current committed main.rs/server/mod.rs.
+
+Actual manager: Debian systemd257.13-1~deb13u1; daemon UID103/GID105. Packaged unit cloned under a unique qeli-q33-* name; original ExecStart `/usr/bin/qeli` and ExecReload preserved. The candidate binary is bound read-only into that path inside the unit mount namespace. Only owned config/state/runtime/log directory bindings, private network namespace and test control socket differ. Private fake-TLS TCP443 and panel24880, real q33tun; IPv6 off, NAT/forward-private/DNS disabled. No external peer or host firewall change.
+
+Final34 checks PASS: real manager startup and stable updater health; default UID/GID, NET_ADMIN/NET_RAW/NET_BIND_SERVICE capabilities (0x3400), NoNewPrivileges=1; private namespace, low-port listener/TUN, read-only unrelated /etc; qeli config writes, private generated identity and unreadable administrator receipt; SIGHUP keeps supervisor PID and supervisor/worker both reload one user; restart changes supervisor PID while retaining identity bytes; actual CLI root→qeli drop-ins and real manager restarts; root bounding mask0x340b/ambient0 and restored qeli bounds/ambient0x3400; root cannot promote a qeli-owned config through the panel, rejected save keeps bytes; after explicit administrator chown of this fixture config to root, real authenticated panel save succeeds inside qeli-owned0700 directory and retains root0600; invalid INI fails startup/health; corrected INI recovers with unchanged identity/users; owned unit stopped and host state restored. Supervisor PID stability is the updater's actual health criterion; it does not prove every profile is healthy.
+
+Installer/CLI129 methods PASS without skips: ownership2, actualCLI10, Debian16, legacy version2, config21, secrets21, admission18, binary18, updater21. Exact localCI version2+actualCLI10+ownership2 repeat; ShellCheck0.10.0 warning gate and Bash syntax for installer/updater/postinst PASS. These filesystem/package tests retain their daemon/account/systemctl/kernel seams; real manager proof is separate. Native recipes38 mocked checks PASS. Fresh independent desktop Windows/macOS and Android arm64/x64 A/B, exports/static Mach-O qualification, native14 SHA/source/pairs and Windows ABI22 PASS. A/B uses one private registry per group; cross-CARGO_HOME reproducibility and actual Apple/Android device runtime were not tested here. Full Rust test suite, release jemalloc binary, full release matrix, soak/benchmark and current Actions/package CI were not rerun.
+
+Preserved raw failures: first runner could not execute a /var/tmp path under PrivateTmp; nft success diagnostics caused a false snapshot difference (other state was preserved). Second lacked the required panel hash. Third genuinely reproduced supervisor termination on SIGHUP. Fourth genuinely reproduced root config-read EACCES. Fifth wrongly expected root to save another owner's untrusted config, a correct security refusal. Sixth wrongly treated collection of a stopped unit as a recovery failure. Their original FAIL status/logs remain; only the final current run is PASS. The separate success/error nft process-boundary check confirms warning suppression only for rc0 and fatal diagnostics/rc7 retention. Historical CLI0e01/SHAa47f is reused for the first four runs; that binary's Rust inputs match the intended baseline. This is not an independently rebuilt baseline for every audit-helper revision.
+
+`python3 -B scripts/audit_systemd_unit_lab.py --binary /absolute/verified/qeli --sha256 <explicit-SHA> --output /new/output/directory` reads the authorized lab password from stdin and creates only unique owned resources. `--skip-reload-baseline` is exclusively a recorded known-failing baseline bypass, never a passing reload qualification. Final runner source9fd6bc963d0a3e54460f80820182a6e2023e48e6; product source a36d is unchanged by subsequent fixture/docs commits. Raw packets:
+
+- `q33-systemd-20261008`: SEALED 11 files / 15552402 bytes; manifest SHA256 `2aa2c46c5affd8385b3adf2f4804f86da67772d45de910582d5e11368bb33a9c`.
+- `q33-systemd-final-20261008`: SEALED 8 files / 15534897 bytes; manifest SHA256 `237798ba249ea7012fb414ae84ef57d5d3f4d9a65898d8a4a4965a18ac6ce18c`.
+- `q33-systemd-runtime-20261008`: SEALED 8 files / 15525397 bytes; manifest SHA256 `14d53ffb1ef77b09f98c0dd7ee1a7a473de30a1ea969c004e1aa8af4b60f5eae`.
+- `q33-systemd-root-baseline-20261008`: SEALED 8 files / 15571568 bytes; manifest SHA256 `adfa01cf41829d2a55a4b9603aa745beb7045a27aaa088f48999a01579648db4`.
+- `q33-systemd-fixed-20261008`: SEALED 8 files / 15631841 bytes; manifest SHA256 `9ebaae6b4e29844695b3a6940a60c4f951e53324c893daefa0168d7fcd78e0e1`.
+- `q33-systemd-qualified-20261008`: SEALED 8 files / 15657735 bytes; manifest SHA256 `a12c41f37c6a179d7a91109fdd42fe8a7437f1c8d2c64b22ac92ba052d949e10`.
+- `q33-systemd-qualification-final-20261008`: SEALED 8 files / 15667721 bytes; manifest SHA256 `6937beadce3be6bf6f3a22145bc3073ad12c38542645f03adf9b117826d3cb52`.
+- `q33-systemd-build-20261008`: SEALED 707 files / 170432248 bytes; manifest SHA256 `154d162afdbf0432d31c9f5e225ca741cf6b8b2bbb81e03913abd5417bd391e1`.
+
+. Certification: `release/certification/evidence/q33-systemd-20261008.json`; previous41 cases/acceptance and64 supplements retain historical results/dates/artifacts, with source-digest rebinding and supplement65.
+
+All owned roots were archived, downloaded and SHA-verified before process/mount-guarded removal. Units/drop-ins/netns removed, state/logs archived with metadata. Original .11 service777/845 and working binary stayed unchanged; .10 original745/901 preserved. No production service was restarted or payload deployed.
+
+## Remaining scope
+
+This closes the owned real-manager sandbox/reload/root transition and malformed-startup recovery gate. Actual fresh dpkg/binary installer and updater rollback through the real manager, release jemalloc package pipeline, full VPN/auth traffic and Docker image/volume runtime remain OPEN in Q33. No whole-install/account rollback, ancestor/hardlink adversarial race, power-loss/fsync/SIGKILL durability or every-profile health claim. Q31 3/5/capacity-deferred SDK bootstrap/source-cut/current Actions, Q29 SIGKILL FAIL/ENONET, Q30 Apple/callback and previous user exclusions remain unchanged. Full plan29/37 DONE(78.4%),8 remain; old debt14DONE+D06 ACCEPTED. Local dev commit, no push/deploy/release.

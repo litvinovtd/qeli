@@ -1,0 +1,19 @@
+{
+  "status": "PRERELEASE_PUBLICATION_POLICY_CORRECTED",
+  "prior_source_commit": "2c2b4e3d2afb39553d38bf2e7c75b1aabefdadd1",
+  "actual_binary_build_commit": "2c98440fffe8bd00b81c3c8b17ab41bf555818f9",
+  "source_digest": "438d86a851ed3cd227b5b60e1ca87b4953770587efe537d94bad12645dbca54b",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "changed_git_blobs": {
+    ".github/workflows/release-attest.yml": "450c06772cec4ef0753bcb9ce639521f9205ea45",
+    "scripts/docker_publish_ref.py": "6ae74cbaf567e31109b284d279c923e16ba40cbe",
+    ".github/workflows/docker-publish.yml": "305b10b36fff5be54a566f995502b633f08e4b99",
+    "scripts/test_docker_publish_ref.py": "c387e617879319c3e8a31d1640521767ad15863d"
+  },
+  "scope": "Publication workflow and its policy helper/tests only: automatic prerelease publication preserves the already qualified Linux package/checksum bytes; Docker latest additionally requires a published stable GitHub release, including numeric beta tags. No runtime, dependency, native recipe, runtime harness or candidate package bytes changed; all execution identities and physical statuses retained.",
+  "docker_policy_tests_passed": 19,
+  "release_tag_tests_passed": 31,
+  "new_runtime_executions": 0,
+  "actual_candidate_package_bytes_changed": false,
+  "accepted_API34_ENONET_and_physical_scope_unchanged": true
+}

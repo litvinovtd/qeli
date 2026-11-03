@@ -1,0 +1,3980 @@
+{
+  "schema": 1,
+  "status": "SCOPED_F279_FIX_PASS_Q29_IN_PROGRESS",
+  "date": "2026-10-05",
+  "qualified_at": "2026-10-05T17:40:16.293291+00:00",
+  "base_commit": "8f4e07ade7d1fe19d57d854ce4eceb7900804dcb",
+  "source_digest": "d1b073150d34748463c0faa45e6bf97a17cee2758d0f46af33b0259f4feed75e",
+  "source_proof": {
+    "native_source_digest": "68902e1ef699d7e356bb558e709b6d5e7258cdafb2bd6460d7a66f8d5fc7d74b",
+    "native_sha256_rows": [
+      {
+        "path": "native-libs/android/arm64-v8a/libqeli.so",
+        "sha256": "ba21ee1783e523dc044356ef92509536e5bb1db78ed6b324c8ecbd7b1f6f3d11"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+        "sha256": "ba21ee1783e523dc044356ef92509536e5bb1db78ed6b324c8ecbd7b1f6f3d11"
+      },
+      {
+        "path": "native-libs/android/x86_64/libqeli.so",
+        "sha256": "125f9022c4af0dc8e3bc4cda29608fd26781eaed4acae64257c232609364d57b"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+        "sha256": "125f9022c4af0dc8e3bc4cda29608fd26781eaed4acae64257c232609364d57b"
+      },
+      {
+        "path": "native-libs/windows-x64/qeli.dll",
+        "sha256": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7"
+      },
+      {
+        "path": "qeli-win/QeliWin/native/qeli.dll",
+        "sha256": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7"
+      },
+      {
+        "path": "native-libs/macos-universal/libqeli.dylib",
+        "sha256": "e28fac551bb09e8136b98b79e8a8f41610b5493be62b9739a5b9be625f63fff2"
+      },
+      {
+        "path": "qeli-mac/QeliMac/native/libqeli.dylib",
+        "sha256": "e28fac551bb09e8136b98b79e8a8f41610b5493be62b9739a5b9be625f63fff2"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "qeli-win/QeliWin/wintun/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      }
+    ],
+    "managed_artifacts": {
+      "qeli-mac/QeliMac/bin/Release/net10.0/QeliMac.dll": "2ff8c7b366ed1d48a4fbf37503bdd2154de630af92e493f7e4989f5118c77f1d",
+      "qeli-mac/QeliMac/bin/Release/net10.0/QeliShared.dll": "10cc31c52a9d405283b9faf1904d693e6d7e6d05720cce84eae970c813fd7d83",
+      "qeli-mac/QeliMac/bin/Release/net10.0/qeli.dll": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7",
+      "qeli-win/QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll": "74bc21b95709c2b061d1f8b120f1241b66f176bf508fa57f2411318dfd60b056",
+      "qeli-win/QeliWin/bin/Release/net10.0-windows/win-x64/QeliShared.dll": "10cc31c52a9d405283b9faf1904d693e6d7e6d05720cce84eae970c813fd7d83",
+      "qeli-shared/QeliConformance/bin/Release/net10.0/QeliConformance.dll": "67729d45e940a71e141bc691ba4056239af922c2d6de4fb2ddcafe0ace1cba5a",
+      "qeli-shared/QeliConformance/bin/Release/net10.0/QeliShared.dll": "10cc31c52a9d405283b9faf1904d693e6d7e6d05720cce84eae970c813fd7d83"
+    },
+    "linux_server": {
+      "path": "/root/qeli-src/target/release/qeli",
+      "sha256": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0",
+      "fresh_build": false,
+      "prior_qualified_full_cli": true
+    },
+    "source_inputs": {
+      "qeli-android/.gitignore": "2b0d51bcd723005efeacaf6ae183df12bf170213c9997ae67375afbbad72e20b",
+      "qeli-android/LICENSE": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04",
+      "qeli-android/README.md": "9097bcc3d40a988fbe10d2abec04ec0d4b330596fb9f0985b9d9d0a87fed3843",
+      "qeli-android/app/build.gradle.kts": "5f249aa13c85734829ac94532998f5dcc7ab5de34d0116dc7ad05a6089b16495",
+      "qeli-android/app/proguard-rules.pro": "5937a535e578d27f60a544cfcea14e7016824f0a95a3a06fef4cc873d52c23ed",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/ConfigCoreInstrumentedTest.kt": "5b8b1e2a43177cd677d2766a4e61f46a804092ba77e87de18ad2bb1417693d55",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/DiagnosticLogStoreInstrumentedTest.kt": "45087512fdb906c6436d73374618dcdf49ef680eeea5335da2abad265b9f8d39",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/ForegroundServiceLifecycleInstrumentedTest.kt": "95971bd6b6aaf03e36893c04e980b91349316bacb1a288a92d127474b277e89a",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/LegacyProfileRecoveryInstrumentedTest.kt": "109ff334bfa955b74af984640af805d9f4d6da599e34bac9f3382e83763f1c4b",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/ManifestInstrumentedTest.kt": "d3957e51670d4d03bb8e0f1687fd9a4ac37a4c9899fc9f47bf7515382e393dd3",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/ProfileStoreInstrumentedTest.kt": "d72f8e307fb51be8f80629b629b3f813004d2a96c05ee748b753127457c6b200",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/TransportLifecycleInstrumentedTest.kt": "15420dcdc4907ce63b321e6b27035c5ec91b71ccc094fadc0229731b09ab436a",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/TunBuilderInstrumentedTest.kt": "4428093b4fbec04bbe156036e0eb52514cf76fab3486e2933c22919bb353e253",
+      "qeli-android/app/src/main/AndroidManifest.xml": "ef56a42d47f6d8e5b007d3ac9b0c3c2b6a59a88410c937947e83abc6147df8b1",
+      "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "ba21ee1783e523dc044356ef92509536e5bb1db78ed6b324c8ecbd7b1f6f3d11",
+      "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "125f9022c4af0dc8e3bc4cda29608fd26781eaed4acae64257c232609364d57b",
+      "qeli-android/app/src/main/kotlin/com/qeli/AndroidKillSwitchPolicy.kt": "e53ad72a2107c6c6dbbf5435c4862e13abf8e32a72857e4923efda0a06abaf1b",
+      "qeli-android/app/src/main/kotlin/com/qeli/AndroidRoamingPolicy.kt": "12020273563fe85c0c622b0943c63d44c181b30ac8d11f770ad49c35a19ab557",
+      "qeli-android/app/src/main/kotlin/com/qeli/AndroidSessionContinuity.kt": "f2187f429077a25e6df38e8a60d3e4d6216d6621f3ad09ea149dc72a44522e23",
+      "qeli-android/app/src/main/kotlin/com/qeli/BootReceiver.kt": "0338d3b509a3377a721c05207181b3456b72d5b54d3991b0918c75de89151e46",
+      "qeli-android/app/src/main/kotlin/com/qeli/ConfigCore.kt": "94a4c646a976e6fea6d2c1f27f71259262f0f5777b059fc2a846ebf7c7072975",
+      "qeli-android/app/src/main/kotlin/com/qeli/DiagnosticLogStore.kt": "43ee5721db6891de30be19cc37cda8eb3679e89285398543768993b5f5541e9d",
+      "qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt": "6783fc455151d1e5b3633a67e9a66ab5dc3a1d8fa69b097c8a0a11aa0680a112",
+      "qeli-android/app/src/main/kotlin/com/qeli/ProfileAppsEditor.kt": "cbc255a227f9888813a000abebec23c07bbf0076f352e2618808914177678806",
+      "qeli-android/app/src/main/kotlin/com/qeli/ProfileAutoProbePolicy.kt": "fef69deca74028b65c129a51f39220b8ef35f4b728ad4accb29ffbb412f7a983",
+      "qeli-android/app/src/main/kotlin/com/qeli/ProfileLimits.kt": "5531564cec4162b5c7f55a34452c2ebec8b27810815e4c9c34f30b93efba2b4e",
+      "qeli-android/app/src/main/kotlin/com/qeli/ProfileStore.kt": "188b4afb23a1e7ba14625628fb9f9943edf90ede844be283fc819fc201991398",
+      "qeli-android/app/src/main/kotlin/com/qeli/QeliApp.kt": "5f1b01f16ee8b58b4ae86762b4288caba6a966ed6e5b4227e1ae1dbc7c1fdf0b",
+      "qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt": "7011b5e5abd633cc3c24d24a4e6219a4c1dc2a11e7c84039f1c8a5d73c4641bb",
+      "qeli-android/app/src/main/kotlin/com/qeli/QeliTileService.kt": "8a8725eed6f626b982bc7328972897ac5a66024fcbfbb0826ac180dc7d20fc72",
+      "qeli-android/app/src/main/kotlin/com/qeli/QeliWidgetProvider.kt": "63771014bb7430358fd63ca89e8e46d371a95edff2b95e6e09c1970707985981",
+      "qeli-android/app/src/main/kotlin/com/qeli/QrCaptureActivity.kt": "cb6e38378166446e0c846db44a8b3106c01bc7626a2dd213938e7d8290866205",
+      "qeli-android/app/src/main/kotlin/com/qeli/RouteComplements.kt": "7f5cf5e9928c52b1ab9a3ab337ab0135dda7274fc91027c2e7059a509eb8b0ae",
+      "qeli-android/app/src/main/kotlin/com/qeli/StrictUtf8.kt": "c19ea62fb980b370029cee798b08b6e3b16a132ceae17cfd6f910e76ce6f09ee",
+      "qeli-android/app/src/main/kotlin/com/qeli/TransportCore.kt": "6eb6ea3f923b0f0cad3336251b4bcb5f2a2a3daee380df7f2fb96884b74c6772",
+      "qeli-android/app/src/main/kotlin/com/qeli/TransportCoreEvent.kt": "ed4aa48946137605182d72b7f76ef99e75766ee70ac7dd578f1920afa173bdcb",
+      "qeli-android/app/src/main/kotlin/com/qeli/TransportCoreEventDispatcher.kt": "8f297a9cd8cbe17124112ef3780a579607ebd89a32485618153fe3afa2269a78",
+      "qeli-android/app/src/main/kotlin/com/qeli/TrustedWifiPolicy.kt": "a9f59caf84b34218d81999f7ce55daab30d71759a9c1401e41068e7c564e3c23",
+      "qeli-android/app/src/main/kotlin/com/qeli/UpdateChecker.kt": "d757e13e22b6d4667ddf32c04fb04f061a24eca37dca8acbdc52fb28b5b19449",
+      "qeli-android/app/src/main/kotlin/com/qeli/crypto/BackupCrypto.kt": "abf819f1f5bd19e4e58ce65dba2f55b2e562e4d610a6898d65ea1eba939c565b",
+      "qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt": "deb12ac6bd27eda6afd7ac64c5f8909077de719dde10facfad31c9e4b09c0f5d",
+      "qeli-android/app/src/main/kotlin/com/qeli/model/ConfigProjection.kt": "81166e1ea0bd0e35af4735fb2f1d4fc8ce0d49feba12f7ac16ec7760d53d2bf4",
+      "qeli-android/app/src/main/kotlin/com/qeli/model/Protection.kt": "a671276f8073db21e50b202391ec108487669928f0f1d79ddd778fd33f103eac",
+      "qeli-android/app/src/main/res/color/tab_text.xml": "b0d95741ba3a11e70c5d9bba7ecb6db7d2476cd061161229681e429c23685007",
+      "qeli-android/app/src/main/res/drawable-nodpi/ic_logo.png": "87a4defc1dd94e8efcae29049659de3188a89bfcfd7f06ff7936fa9611a25774",
+      "qeli-android/app/src/main/res/drawable/bg_qr_scanner.xml": "b939567238d464f9d231b969a894e224412161731b84a14979d15f6c0f83dc60",
+      "qeli-android/app/src/main/res/drawable/bg_row.xml": "bd901632eaa159d1d39714f5a66ebc17a6d730af42721b73448ffb9d39a4da0a",
+      "qeli-android/app/src/main/res/drawable/bg_row_active.xml": "0784de4d232935a06e07fc6113d8f6fea78a58c99eb95d317767daea9a88b40d",
+      "qeli-android/app/src/main/res/drawable/connect_ring.xml": "21b8083169086564bcce75d2b041341e052adba60c4f3ef0446c5bf68d3a62c5",
+      "qeli-android/app/src/main/res/drawable/dot.xml": "03fcfe3a98d3cbc597f6c22a88e39e82b79974b84f1845ebacb408b839c633dc",
+      "qeli-android/app/src/main/res/drawable/ic_moon.xml": "a0b03d66c2b5709a71dfde79d00ed703c66ed28e790abf7a2ea2d67086cbb73e",
+      "qeli-android/app/src/main/res/drawable/ic_power.xml": "f8b124d80b277f507643ed422ea63e71491c5ad80eb687a22232c8f9ed4c62dc",
+      "qeli-android/app/src/main/res/drawable/ic_settings.xml": "df6f1a18f21a6ca66896f688d34f41da6b947bbb3030796710ac2c504b2674b3",
+      "qeli-android/app/src/main/res/drawable/ic_sun.xml": "a957d9ae2ebca808e443419fcd874b14c196b539dc23e4bdb94873f8c366f740",
+      "qeli-android/app/src/main/res/drawable/tab_indicator_pill.xml": "84f9de33b5adbaae0917bab357fd1032070fff21f8562ca21f62c873ad9350ab",
+      "qeli-android/app/src/main/res/drawable/widget_bg.xml": "3b14a10bea2cd5b1e7f829b9aaeb78d77f0f4d765ebedce800631e9fb1b49044",
+      "qeli-android/app/src/main/res/layout/activity_main.xml": "ef29a79d6a3f33b102897bf7f04f0ea4dc97e2dfca4b457b6770fb01b4db60e9",
+      "qeli-android/app/src/main/res/layout/activity_qr_scanner.xml": "6f72417e2cb7ce18fbceeef05f3864aca2aa80255962590cc2b99e132e1e564b",
+      "qeli-android/app/src/main/res/layout/dialog_config_editor.xml": "d5c30db86fc07d73b6b6f6e31e7cefc6875e9914d2e622cbb474649be863dbae",
+      "qeli-android/app/src/main/res/layout/item_profile.xml": "d02157c7bcb48f3787d7fff98d21e78177ec37735a5e9eecf4870263f31805c5",
+      "qeli-android/app/src/main/res/layout/widget_qeli.xml": "f2581f0c2017d1031dfbd9ff617d58e9344a31a88bfa1ce9b15a6f5194b23e7c",
+      "qeli-android/app/src/main/res/mipmap-hdpi/ic_launcher.png": "6f5e36bc87d0e546cc06dff754bb03c2da2c604842778a41f8033375c124ce38",
+      "qeli-android/app/src/main/res/mipmap-mdpi/ic_launcher.png": "58a8035ede90e5bad7dd07fccf8d9a0fbdbc37001d0275da78fbd2c489e8a9d8",
+      "qeli-android/app/src/main/res/mipmap-xhdpi/ic_launcher.png": "834b7e4bf2d06ba1143d637ac5df56e20ba61dd17f8d6ad41199e1a0e2b36e1d",
+      "qeli-android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png": "98ccb633ab665547be964076cedf3c910dcb99cd912514453472aa4f7858140d",
+      "qeli-android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png": "87a4defc1dd94e8efcae29049659de3188a89bfcfd7f06ff7936fa9611a25774",
+      "qeli-android/app/src/main/res/values-night/bools.xml": "20b837dc20c64286ea0a7e8814e2a0bee5931933a18190a5938a7670540e9f00",
+      "qeli-android/app/src/main/res/values-night/colors.xml": "42eace51bd86e36e9169e806b67f208ece62b605d5e03e44965a60e9641638df",
+      "qeli-android/app/src/main/res/values-ru/strings.xml": "101fb05ecd124d0d086c995156b0fce42eef02ac2b062a9fdcbe42172e958068",
+      "qeli-android/app/src/main/res/values-sw360dp/dimens.xml": "9ec5ba0b2973f708fab30269d2a2319b5a21e164d601606eb08901079c395404",
+      "qeli-android/app/src/main/res/values/bools.xml": "5938202c85589c29085fa3462f7c5e362872bbaf95a20ecbe0cd4e409af25720",
+      "qeli-android/app/src/main/res/values/colors.xml": "09ddca74de1faf01efccd1474e76b03558cc39ca4f7725e4bc5d0f365508de24",
+      "qeli-android/app/src/main/res/values/dimens.xml": "8e1754ef156c1142901bde4c9c770cb920b3ddb0bf8557bccb513ff0ccf20868",
+      "qeli-android/app/src/main/res/values/strings.xml": "37433adcf5b32db257ce247a506c6aca0da4a0cec282d4fe8698fba83d456040",
+      "qeli-android/app/src/main/res/values/themes.xml": "c132c951227c59656ad1d90bee13b15fdb1dde52b3b7cc6e0849295a65490df1",
+      "qeli-android/app/src/main/res/xml/qeli_data_extraction_rules.xml": "7863b9a5af6c9b65ca65cfe9a4fa814470ea12021249ff0c8e20e309d28349b3",
+      "qeli-android/app/src/main/res/xml/qeli_widget_info.xml": "e70a5167d8ce6c7666066daa0ef676069021ae04c79c45efdd1d616c6ca2f518",
+      "qeli-android/app/src/test/kotlin/com/qeli/AndroidKillSwitchPolicyTest.kt": "522fab3be86538359bfaa026bcfc957e1bfec21d1b07e5e5064e04f0a2188177",
+      "qeli-android/app/src/test/kotlin/com/qeli/AndroidRoamingPolicyTest.kt": "718877e54f7dc2553d5f7d1b8af51cbef3f0317a56586964619030217445dfed",
+      "qeli-android/app/src/test/kotlin/com/qeli/AndroidSessionContinuityTest.kt": "3b55274104820befa88adf02574dec472ef6c4c0d793e2ac0152930a0171288c",
+      "qeli-android/app/src/test/kotlin/com/qeli/ConfigHardeningTest.kt": "28f16dcb7e6bbaa7f6c66c8de208fb2223b9d28b8d85e3bfdf3cdbfbe8dfd79e",
+      "qeli-android/app/src/test/kotlin/com/qeli/ConfigImportRangesTest.kt": "d73bfa96d67d4cfcaa5e7282f5c856b747efe7ff8757dbf025f9a229d17f504d",
+      "qeli-android/app/src/test/kotlin/com/qeli/DiagnosticLogStoreTest.kt": "1026fc19681d57cbef5ac4fa8dc4097f27893e5e9d93c9b4cb510d10ceae2cd5",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProfileAppsEditorTest.kt": "86b149c48f436e45c72d941f10d8d7c3097c4c8a598ddbafbe982358c3c330b8",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProfileAutoProbePolicyTest.kt": "ae247965ad0fe9696191789d64a24f889c78ddc6facf05f946957132d0731905",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProfileStoreActiveIndexTest.kt": "403d85c230d1d6fefbed443ef88223b11892825abb011144309d869ece995d9c",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProfileStoreBoundsTest.kt": "7c6f1c5d9dc3e3b80910a959303593480d6f776f9a5270ff564db0353fc335c8",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProfileStoreUtf8Test.kt": "8652b497453f8bea34022ac57bc38d1b609386b77077525e298480ef513ab4ef",
+      "qeli-android/app/src/test/kotlin/com/qeli/ProtectionSummaryTest.kt": "0906c5c0d5515cef2a7586c614924f3a66df19b0d37785456f10633383e86c2f",
+      "qeli-android/app/src/test/kotlin/com/qeli/QeliLinkConformanceTest.kt": "7947b59919c496cf91a07a482ee20f5517a66748b0f1cb361839ee8d42341654",
+      "qeli-android/app/src/test/kotlin/com/qeli/ReconnectPolicyTest.kt": "52a4c6ff9dfa82511342b6e438a92a18b28d5504adee13b957c3f6014e88be3d",
+      "qeli-android/app/src/test/kotlin/com/qeli/RouteComplementsTest.kt": "21540a64a483fbad2e558f9d467cf1e93b33e83c1cc7f732960788070c53a65f",
+      "qeli-android/app/src/test/kotlin/com/qeli/TransportCoreEventDispatcherTest.kt": "4e532ad7d28d8a141111b7b0e7af2fe7c229dff1b0af0711a69a2dd475a2c4da",
+      "qeli-android/app/src/test/kotlin/com/qeli/TransportCoreEventTest.kt": "517e342ae22667f7e1134183ca40bde30de234c3bc743c8c76abaace62ead5af",
+      "qeli-android/app/src/test/kotlin/com/qeli/TrustedWifiPolicyTest.kt": "3cb963947741c8e0d64a09cb43aaa20f425ff7dd8ab565193938c003845e74f3",
+      "qeli-android/app/src/test/kotlin/com/qeli/UpdatePrivacyTest.kt": "336dd0f1ae40848e26a74ed18f496c5f5fc8bd60e7453bb5360d8e438696f53d",
+      "qeli-android/app/src/test/kotlin/com/qeli/crypto/BackupCryptoTest.kt": "5da8d9d1f02aca2957715e01000e18aaf110a4785f75c1ee92b45a96963eac86",
+      "qeli-android/build.gradle.kts": "f910768e9bc5e98cdfce2e6a9bf1f5c5c4558c69dc318340250b93fcb0281a57",
+      "qeli-android/generate_icons.py": "0fc7a553e811bc19dfc21961dd051d44a9342e7b40d51a480064fc19f1073eb8",
+      "qeli-android/gradle.properties": "678c35a27eeda302d6a960484179d118d08fb1edf05c1b40745bc7aed6e88f03",
+      "qeli-android/gradle/wrapper/gradle-wrapper.jar": "7a9ce74cff467ca1bf60a4fcd9f05185acceda4d0f382434d393e17864262c5d",
+      "qeli-android/gradle/wrapper/gradle-wrapper.properties": "d01b41913834fb3cb14e71f69a08898e6a47e663b08f5c9b8c7e0772c38889d2",
+      "qeli-android/gradlew": "a5a5c199ba02189ae8c46a334223371a20599d9c298ef65e7540ede4a3f72d59",
+      "qeli-android/gradlew.bat": "d539676c48b596afda64c963ec8f7ee56c7b3fe7e3b81d1dbe2d1a1e3dd9e9f8",
+      "qeli-android/keystore.properties.example": "7b6acc074783eb9719f33cacedc08b2f13d4cb9dcc17a35fc8f921d0d59247ec",
+      "qeli-android/settings.gradle.kts": "74b6fd5f7976ea04241055bf169c5a7a3de585b45782f03980d2048c8a6fb706",
+      "qeli-mac/QeliMac/AboutWindow.axaml": "22a3e23378011ee4cda706f50939fc75184c286dd1ab271db9e9fa781016971b",
+      "qeli-mac/QeliMac/AboutWindow.axaml.cs": "2b40de64a21bc5003c39552423e8de75290026978800a8ed782add70a79bd2b3",
+      "qeli-mac/QeliMac/App.axaml": "462b9cd574accf3f0c70064bca69a1544609fad157f7c29f6763e2bf64c12682",
+      "qeli-mac/QeliMac/App.axaml.cs": "fe773412b7b10068cb820a9722bb5763d95991d7136ebf3595af09d372383c05",
+      "qeli-mac/QeliMac/AutoStartManager.cs": "f35806b52fc4f8f58a8624b16b0b3923bc7156008a448211cc70dd52292154d2",
+      "qeli-mac/QeliMac/Branding.cs": "46d99177208279534b2ca1f231682561c851501dd9984ea05eaf5ced373db22f",
+      "qeli-mac/QeliMac/CliRunner.cs": "dc47e2a52aeb005972101ce61d6d6d222a7d51a59961c00c589c0b6346681479",
+      "qeli-mac/QeliMac/ConfigEditorWindow.axaml": "7367e7e4c894ecc03ebf33ea06b51b7dbe62bd1ad523233471760c75bce1ad1d",
+      "qeli-mac/QeliMac/ConfigEditorWindow.axaml.cs": "c7af32d3020a25530358fbb00b153f8e4a063499841cb48620d340d4e5e5a7d3",
+      "qeli-mac/QeliMac/Dialogs.cs": "6b8d5c91992384f6a29da7a1b83de6bd7061f2460cc9bcb093c6dfbbfddf3003",
+      "qeli-mac/QeliMac/InputDialog.cs": "208af3d7c2a5e93e992600e075192c8fd3dc8993cedccf64648adc05961a2a73",
+      "qeli-mac/QeliMac/Loc.cs": "b33f3c3155444bafa4eb507168a6d7e561bfc5e07840f4346ec090b85451c0ae",
+      "qeli-mac/QeliMac/MacAppPickerWindow.axaml": "87347ea36b528b519f1ac9972a8b577a6939f51cf594bd0d1de3ded01782575c",
+      "qeli-mac/QeliMac/MacAppPickerWindow.axaml.cs": "c8d6ab2a96a2c24e6db47d3a25351349e5913cfb403579565624ab3aa9f1c234",
+      "qeli-mac/QeliMac/MainWindow.axaml": "bc4dcdcf24ca7d89773837554a5ce936cfb2b760a76e71fb1e603ad10a48188d",
+      "qeli-mac/QeliMac/MainWindow.axaml.cs": "ff74354b887e8cdef5fd87a4d63a80ef233f5cb8193cf548f1aa51a2534f5987",
+      "qeli-mac/QeliMac/Model/AppSettings.cs": "5b62793124075aeaf9aa945ec62a40d5a72fab9c636d4845623ffbb9d1f77375",
+      "qeli-mac/QeliMac/Model/BoundedStorage.cs": "90fe1d9f8018d2366f1c65321ba98aa6d39b726c3037d47e37f06f423fdda43f",
+      "qeli-mac/QeliMac/Model/EncryptedEnvelope.cs": "6f54dce836e5e101dac1a5da329e1524504a89652bba213272d3607cef8220c2",
+      "qeli-mac/QeliMac/Model/MacKeychain.cs": "58a95fef119d2c01c04faef24ff289d01e279b77279f4bc04705a29dd1d115a9",
+      "qeli-mac/QeliMac/Model/MacStorageSelfTest.cs": "d5efa5bf0797517c87c0ddadaae280a3efcd170cd84eb6cec90edce4e70d5051",
+      "qeli-mac/QeliMac/Model/Paths.cs": "3fc02e95c2376ad233c1e3e3d8cc67a3cc55d38f330bd53853b5fb4c7bbc5a68",
+      "qeli-mac/QeliMac/Model/ProfileKeyCoordinator.cs": "010651ee2c914f48dacb3573fa592ab1b51adb5a8f269b5b36af167251f00eba",
+      "qeli-mac/QeliMac/Model/ProfileStore.cs": "c1236032f566c6655d837be8a06f7cd826631024e0ad47e0390616f88f0229ad",
+      "qeli-mac/QeliMac/Model/SecureKey.cs": "c5eb481ec63a94e1ce4e787dcce095fdac940ae245b17f8cb9aa95890cd94f34",
+      "qeli-mac/QeliMac/Program.cs": "e6b2a0272a2a46bf5d6cdcee8632065cec6339ab25dcca06d7ec2f3818646ad7",
+      "qeli-mac/QeliMac/QeliMac.csproj": "b55c0b2a7026aec926257b9d2cacc403c484f3e89e7f2441061237096698f353",
+      "qeli-mac/QeliMac/QrShareWindow.axaml": "a392c763ae72c07d6298097ce750cf2f1ab9e29a0c9286c4c5b6e6a61e3378aa",
+      "qeli-mac/QeliMac/QrShareWindow.axaml.cs": "91658f1ef390d3ef12a22be5142f88b5fb89ae2248097b5542b5c10b7ffe9680",
+      "qeli-mac/QeliMac/ReachabilityToBrushConverter.cs": "4631aaaac336fd1e22679245c19ec0e9c83d4db4984d1b5366d2d552eea78ae7",
+      "qeli-mac/QeliMac/Service/DaemonCli.cs": "c2d0821f12cfe45223ee98d42f3b4f6201216503868c74ed2454eaf4df0ed722",
+      "qeli-mac/QeliMac/Service/DaemonLifecycle.cs": "20eb5885f1cce07c6e662d2431b893c82aab0b59826abc7df219ef00e02b9a29",
+      "qeli-mac/QeliMac/Service/PlistRegistration.cs": "b3719bcb139bef747d5aaab0a4f012b8b2643a3589583164b2f6545c4d034c21",
+      "qeli-mac/QeliMac/Service/ServiceControlLock.cs": "c94a069bb89813384f5039c5d7875043f476467725b7460d4aeaadadfc6c7b04",
+      "qeli-mac/QeliMac/Service/ServiceControlSelfTest.cs": "11a6a7551e8b098ff70b9fab0d42e88417ed9d539a20d405423c92a34da1dd26",
+      "qeli-mac/QeliMac/Service/ServiceHost.cs": "539ce5728eea31cdf6bc74de396ea5942eb9e5a7fda474c2ca8da59ee2c964c0",
+      "qeli-mac/QeliMac/Service/ServiceManager.cs": "5c09e90457acc71aa19437ab8e63fdc559d7859a2ee7f052889da508019968ba",
+      "qeli-mac/QeliMac/Service/ServiceObservation.cs": "bfb2c62e0a092cc04523d0263be8bbdf839053d6f9d520ce3b3bdb947eebc948",
+      "qeli-mac/QeliMac/Service/ServiceProfileCodec.cs": "abd7886f86e001415215436819ee4f47870acd74aed40c181fb87f854a5816a7",
+      "qeli-mac/QeliMac/Service/ServiceProfileTransition.cs": "4209b0eecd2fd287775c43070877534557b1fe9c8e29406d713757538e1e5430",
+      "qeli-mac/QeliMac/Service/ServiceState.cs": "03999f9e3ec828f2cf6071a196e38b6a27349a75f3528abc804e640a09f00d38",
+      "qeli-mac/QeliMac/SettingsWindow.axaml": "fd062c71d3d4ac5b2c86b3abe3b10e4267776408fb36545fc7900674ceb9eda6",
+      "qeli-mac/QeliMac/SettingsWindow.axaml.cs": "9d5f56465ddd235c72992e680110405766221d3de859d6ab0a63b9231d79c47e",
+      "qeli-mac/QeliMac/Styles/Controls.axaml": "c0633be8ffea20b179eecece6838d87bdb6d016190591d0b72ffdd435787bfe4",
+      "qeli-mac/QeliMac/ThemeManager.cs": "be1e2ba705bbe3482bd72e43dc8a320f903203511714bb4f2e337d8cb7585862",
+      "qeli-mac/QeliMac/Toast.cs": "4ff57d56f926b9a609b663a93ffd9fe43123129450482c3eafa3eebb2b04cbf1",
+      "qeli-mac/QeliMac/ToolProcess.cs": "488d78e4fc28afa2b2c66760a69798a8495cffead1109d9850ec2bc1764b59f6",
+      "qeli-mac/QeliMac/TrayController.cs": "bbff28d2c079ff69c8d0b7cad27d12f7448575ce8c1c610603009bab34a9559c",
+      "qeli-mac/QeliMac/Ui.cs": "70b68309410d4b3dab168c87f4bdc0069de5d4ba6559aae33961d62426c6f7f8",
+      "qeli-mac/QeliMac/UiShot.cs": "9b0ad6f6f49402cfc7a03214ef79107d8ead0570003efdcb219469019d84ed90",
+      "qeli-mac/QeliMac/Vpn/DnsJournal.cs": "7efef9d8b896896d0571fc287730006ab595d06645ff2e23bb104831cbdf5938",
+      "qeli-mac/QeliMac/Vpn/ForwardingJournal.cs": "93571bb3a83be27edd9a0894035c760441479c26c82de6248009a7a7c71e05f0",
+      "qeli-mac/QeliMac/Vpn/KillSwitch.cs": "9a69e9238e45d75e8acba5548ee6e66b376e1295211e0366678c8c484206bb61",
+      "qeli-mac/QeliMac/Vpn/MacForwardingSelfTest.cs": "7cff4facc0094a2a04d5bd3dda2c819d0331700e4d2305239cb6a20bed4c5b13",
+      "qeli-mac/QeliMac/Vpn/MacNetworkSelfTest.cs": "bdb2db3faa17a9c0c69058a11c09cad6eac4dcbf29c9196b02c13b3e11a32dff",
+      "qeli-mac/QeliMac/Vpn/MacPerAppSelfTest.cs": "f9774a2d9c4a168a964abe689595eb65d975518534481b45f4cc13d47fb34cd7",
+      "qeli-mac/QeliMac/Vpn/MacRoamingSocket.cs": "be87531ea6720c0e48bc5c347136fe58ea75f5505b89a86d7c26c28e08a83f15",
+      "qeli-mac/QeliMac/Vpn/NetworkConfigurator.Roaming.cs": "6e46ca2e2df06392a522fb4de11d3013887854e7b0c4106722bcf63175467c12",
+      "qeli-mac/QeliMac/Vpn/NetworkConfigurator.cs": "2c76655e90c7e29c632556b1d4277192793dae890c49acd08a9acbc22d1d4e32",
+      "qeli-mac/QeliMac/Vpn/PerAppController.cs": "915c6b0a6ec5bcf0ca10e40e0008730a49ba3423b3c7b5c5c350239632f38b71",
+      "qeli-mac/QeliMac/Vpn/PfRecovery.cs": "869268dd0ac5e5156f36a4541587c12d9431fc26e641f88c41fb0cb93dd0a0c6",
+      "qeli-mac/QeliMac/Vpn/UtunDevice.cs": "dab94207840fde6aabbf7d27a244cde338788565265c5e0d8709570e4e151c66",
+      "qeli-mac/QeliMac/Vpn/VpnTunnel.Roaming.cs": "68105e967ad599299b577a5d54befbb5338090a688b463d35a8868dd4903d015",
+      "qeli-mac/QeliMac/Vpn/VpnTunnel.cs": "d9a84d7b3acf0a2aa0e6629343713ea67432a0fef183ce5709d2aeb24bb51905",
+      "qeli-mac/build_app.sh": "8c5c358e4ce189e0a54be237e6052b5f48a454c89d074056738bac3fb5f0be03",
+      "qeli-mac/build_dylib.sh": "b53b99a406092cc561ed13cb381c35b1d14164941e7310bbeb1754fb7fc06cd0",
+      "qeli-mac/per-app/Common/RelayRegistry.swift": "ddfd68a29aae0a1df019dd4ee7337c36027d0413cac01a4ca79ae8f55eecf5ad",
+      "qeli-mac/per-app/Common/RelayWork.swift": "a9d7fdae83fb66028f0e247ad558bee19d4101537a67f025156c52335d0bd78d",
+      "qeli-mac/per-app/Common/RoutingState.swift": "ffb34ef1c8095ca774008b208f1dd2c7d3b6fb6042b40a03419f00fa79b7d053",
+      "qeli-mac/per-app/Common/SocketRelay.swift": "6a434384ba56c19d3dc2eba1d0ee4941ee19f9fd6f949a76851cb443c608d6ba",
+      "qeli-mac/per-app/Config/Extension.entitlements": "84e25b022bf343252f50f9bf8bc0304bcf52c452e4b5048450cc375f467e0c82",
+      "qeli-mac/per-app/Config/Host.entitlements": "fab3977772b9a0e1be293bcb058b0af25e3e8b045939c213860224429cf74a8e",
+      "qeli-mac/per-app/DNSProxyExtension/DNSProxyProvider.swift": "f507277074cc5f835c954bab0ae1b2e4dd4126d1dcd53712140970a80e0b362f",
+      "qeli-mac/per-app/Helper/main.swift": "65bdfd3db8e29327f48bdf5507e48e308dde4dc41836c4cd651ed9d8bd4f42d0",
+      "qeli-mac/per-app/ProxyExtension/TransparentProxyProvider.swift": "f0e68591448d4e88e427ff995b316fb5b05703ee8e390f6e0f1266cb702e91ff",
+      "qeli-mac/per-app/ProxyExtension/main.swift": "b8db9309a98eecbf4ab3b617b325d86bd1c6625fd781d49b311a1efd698e2a95",
+      "qeli-mac/per-app/Tests/main.swift": "422205a8cee8cb51b57ac0c200ea6a4426f420c62835b6d011b1671fa370d6f4",
+      "qeli-mac/per-app/build.sh": "183721e39cdcce342f1443c9eaa86418258fd468b0d3984bc4a4e3edaa911fba",
+      "qeli-mac/per-app/generate_project.sh": "72b23fc0bff92d45bbd82f69309dd595d30dd3f2450f165abc885590d985f6ef",
+      "qeli-mac/per-app/project.yml": "ea3f4ecb1f73f8c1c6a64c91b59025e84436e4d4bc09066409de90d4128ddf71",
+      "qeli-shared/QeliConformance/AppSettingsStoreConformance.cs": "7155030faf73f890b8fcd0771e0d5528d5fd7692d360cf1b857251879e208243",
+      "qeli-shared/QeliConformance/ConfigBoundaryConformance.cs": "93bdd54018b7cd9c19e002e7856a8fd449240be346b0db31a8185f17f6ae563b",
+      "qeli-shared/QeliConformance/ManagementEventConformance.cs": "3dcc5b776c40a93522dfffa99d886ff21359a5ad25399821b3a79e88094c61cc",
+      "qeli-shared/QeliConformance/NativeLifecycleConformance.cs": "3eb5a062479c12a942e180c68d9112f717baf8c03bd43c1477ac0c6f065f8205",
+      "qeli-shared/QeliConformance/NetworkPolicyConformance.cs": "64ed0a13d14369e507b35fd02cc7b23f2ff746792024de2686d97b20349ce088",
+      "qeli-shared/QeliConformance/ProfileStoreConformance.cs": "fad9d918d72bc43e5e1c6fb4ae2150b12974671b97e1a232162dfaed310ed65b",
+      "qeli-shared/QeliConformance/ProfileStoreProcessConformance.cs": "f143ea05267a2b2a42aabc53e64ac0e27d25fcb8ac2318b94291bc5c3fad91ea",
+      "qeli-shared/QeliConformance/Program.cs": "47d9fe0200e9453f5dc68990d41599069ae24054ad39b3ac73779fcdc35f72f8",
+      "qeli-shared/QeliConformance/QeliConformance.csproj": "40602fd3412fe56b544288d67ed95b0d08248d146bf00d32e2c17cdcec4bfd24",
+      "qeli-shared/QeliConformance/RoamingPathConformance.cs": "d2dc8eab25e4aeef6f88486edfe6501ca9a28ab83ea18c84eac936cdf1243d36",
+      "qeli-shared/QeliConformance/RouteReaderConformance.cs": "061f52ee2e3db4a4678dfe3c50e35f0764a7cd1f9f5f05ab124c7fe32f92415f",
+      "qeli-shared/QeliConformance/UpdateMetadataConformance.cs": "9eea6974428e222ededabbda91286589d167489f1752d4134115a53ccec91b8d",
+      "qeli-shared/QeliShared/BrandPalette.cs": "c74a813519805af9f7d20d4fa077a02cadd6c0a9515f8f23bd8ca38eba11b97d",
+      "qeli-shared/QeliShared/Crypto/KeyDerivation.cs": "71f04d0512a837a0838a0c58934d5ea63a73cd162a1ca07da0db2d9a186291a8",
+      "qeli-shared/QeliShared/Crypto/KeyExchange.cs": "d8c17cc05ebfeca1a14bb6e83205220de01e7b95967697fd0afa0659dbdc91c8",
+      "qeli-shared/QeliShared/Crypto/PacketCipher.cs": "9ac7bdadf645a61245041c4b6a82dffecb7401046671a385b7cc9042a3c8d3c7",
+      "qeli-shared/QeliShared/Loc.cs": "a38a8c7ab6c08fdbd43cf8ae69edc825039f979285e526da9a0a1ec43f1a8455",
+      "qeli-shared/QeliShared/LogTime.cs": "44cd60d3500b3e84f0d2384e91911ab8452b37a1d068a731df9daf562e5ef867",
+      "qeli-shared/QeliShared/Model/AppSettingsStore.cs": "e6df76c504971e8379c054973f389eb2262d0622e151a7d45857c9379fde7754",
+      "qeli-shared/QeliShared/Model/ConfigCore.cs": "f75f0ef9309edda42ad229e9482392bca8518342cd05b8e74615ae50e164999f",
+      "qeli-shared/QeliShared/Model/DesktopServiceProfileTransition.cs": "4e67227af6c758ebf995efad5fb537655e4202e53fc0636bf2789deafb043962",
+      "qeli-shared/QeliShared/Model/DesktopServiceStatus.cs": "a1b05bbcb1b9332bd5f89a8500ccf0ce2fce1ae97e99c70399bb76f09b4be5e9",
+      "qeli-shared/QeliShared/Model/LinkConformance.cs": "bcd6b5c969698b02746b98981a52e2386b873b3d4724fc1941683fa6e37cade6",
+      "qeli-shared/QeliShared/Model/PairPresetSelection.cs": "4e87449d35758c2c3956e80cea793ccdf69355fa2fe7184c43c0ba20a2a97fa6",
+      "qeli-shared/QeliShared/Model/ProfileStoreFile.cs": "423fdc207c8cca68aa387322995b0e06a1340057b5a992ad9dd620249edd3014",
+      "qeli-shared/QeliShared/Model/ProfileStorePayload.cs": "0d77787f00cea59f52f79f0c55a3d6eafc61a2772b0faafd291fde47e98d7b06",
+      "qeli-shared/QeliShared/Model/ProfileStoreRecovery.cs": "f3d05dd1e8e67eea0a29811478bd0c7e06449bf3435a1c7f1b0e68fdc18c4ec3",
+      "qeli-shared/QeliShared/Model/TransportWireLimits.cs": "13ec3fd380be7f85d73f0f706f118a03fa3d0d0c40d86243d393f5f3e7929573",
+      "qeli-shared/QeliShared/Model/VpnConfig.Native.g.cs": "96b37209f936191e28e3fbd5595d8ae52f1834caaaa4e9ca2050206421d8ef0a",
+      "qeli-shared/QeliShared/Model/VpnConfig.cs": "5c4aa13920fe4a51021827c69b0bfd48fbe2f6cf0554d88c529fe9b77108ab06",
+      "qeli-shared/QeliShared/Protocol/CtrlFrame.cs": "a5220b1529362a8f26471aff06f446cdbce5a1e67738d6559dd7b8f079207249",
+      "qeli-shared/QeliShared/Protocol/ObfsStream.cs": "9493f54dd6107d8825c798fe242691ac9d86b138cfa5b0c91a00b94110976c9c",
+      "qeli-shared/QeliShared/Protocol/PacketCodec.cs": "2bd8d7ad212e51357b7b90cdc6a569bef983d6c31dfb45dd949fa4448fc0d3bd",
+      "qeli-shared/QeliShared/Protocol/PacketCodecBenchmark.cs": "6b85b5f19b11f3275b4c72a35469c565b0a34d2a5ce98bce5b255e8c1155fb4d",
+      "qeli-shared/QeliShared/Protocol/PrpNonceConformance.cs": "00bdaaa79371f9b48404c4c9a5f8d10fa37a5fcf4d94b361e9df5cb1c0f6865b",
+      "qeli-shared/QeliShared/Protocol/Quic.cs": "0a57d673894032e6e46c93e2a4042e211c9a9c0278dd425e95a0e111a3d8030b",
+      "qeli-shared/QeliShared/Protocol/TlsHandshake.cs": "094236618d808ae8ebac044c9983ac2ca938aaabeb53c7570d2f48a67e53f365",
+      "qeli-shared/QeliShared/Protocol/UdpFrag.cs": "f0447e88a1e3cff8f10cef4f91de7ac891e4a61fd741452a5db22925bb11c2b9",
+      "qeli-shared/QeliShared/Protocol/WireConformance.cs": "c1c246f9932969f3b1af86a8d294ec4571b4639b296420b76f304515e614dbbc",
+      "qeli-shared/QeliShared/QeliShared.csproj": "c6b2458f812b911d6f6a4bd73eb882f0b645bef6d4b68d7ec3d64ef70ba90216",
+      "qeli-shared/QeliShared/Update/SemVer.cs": "1f5a7e217f4eb41eb6654dd4bf4492789548f91c69173b6b8f24e958c03f4c4a",
+      "qeli-shared/QeliShared/Update/UpdateChecker.cs": "93f6364d4f3a9c2bf26df316abf25dcb9293727c4bad97b4b09ba52f24f253ee",
+      "qeli-shared/QeliShared/Vpn/NativeRoamingPath.cs": "67f9644bb57e8d06011e789615d98e01dfccbc1f86852ea61fa376a9e8dce4ec",
+      "qeli-shared/QeliShared/Vpn/NativeRoamingPlatformStateUnknownException.cs": "e54083733c20c501fb1de0b92b8f76d8d92873b52f49911126db38e8d74daa7f",
+      "qeli-shared/QeliShared/Vpn/NativeTransportCore.cs": "7b5aa16924a445983ec1e0c7dee68536626911bd6cf5945ea6fb75f71a442fab",
+      "qeli-shared/QeliShared/Vpn/NativeWorkerLifetime.cs": "a237fa6ac941ad9982f31cac1642de48a9e0eb62fa7b46a7dc114a551b60a3e5",
+      "qeli-shared/QeliShared/Vpn/PhysicalDnsPolicy.cs": "2a5fe976bbeae4cf4ec39e285934597bfe61df1594aa6ad10d857cfc46973bdc",
+      "qeli-shared/QeliShared/Vpn/RouteFileParser.cs": "1ad690b38cf61415cc297120ca432401b73509b00470b2910c6e32ef5c89369f",
+      "qeli-shared/QeliShared/Vpn/RouteLocalPolicy.cs": "b56997dabc7d5fa82017bfb0ef5e6e63a47b9a63b7f0a300618e0aefb5031743",
+      "qeli-shared/QeliShared/Vpn/TunDevice.cs": "cb631f04252188a21e283ffd310eb6cf6f4ddde695bbaf7c8a4f23948bfc18af",
+      "qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs": "c4bc1929865f03f5eed8a412d74e4be864d7454b180d332a6b3ebc090dd4b706",
+      "qeli-win/QeliWin/AboutWindow.xaml.cs": "be6c9f21f3dcdb13eeb9b7f6819caaf4cc9bbf554f5a3293c62ca6a111a55f16",
+      "qeli-win/QeliWin/App.xaml.cs": "7b0a2355f31ef91729600da380f50495ee392ae818da4288b1cec77514c01f7b",
+      "qeli-win/QeliWin/AppPickerWindow.xaml.cs": "3b761119574e8464f16cbf9a8abb5daad7e8be8d97c6b9ad666f036b6329ab42",
+      "qeli-win/QeliWin/AutoStartManager.cs": "b275b61d580aabadae65ec6019623de62b1f9adbb24d55c7dda11605f2a25b24",
+      "qeli-win/QeliWin/Branding.cs": "6d7655c4cd9aae73729e4bdcda95b1bebc5aed711e48c76596e08671f4195cf0",
+      "qeli-win/QeliWin/CliRunner.cs": "ad8cab3e9dfbb274bc19ad6ce738537f13b1b5bba3d861393016a8bb233626d0",
+      "qeli-win/QeliWin/ConfigEditorWindow.xaml.cs": "2c4f41c1b50b23551b078afd97600e1e1994311bb85418bc63d80a548a89762e",
+      "qeli-win/QeliWin/InputDialog.cs": "5ff1b8b3c02a9eacbebedd4c069a2dad461d3dbef13f370279fd5970ebc82b3d",
+      "qeli-win/QeliWin/Loc.cs": "aea654fb2f708364ffe2d6d0b8a100fe3c3c383f40344767a017b26a264d13a7",
+      "qeli-win/QeliWin/MainWindow.xaml.cs": "f103925dde5bac083f828df8c73355497a597d470f34dc0a8576af1a97461ab0",
+      "qeli-win/QeliWin/Model/AppSettings.cs": "19c0232996d3c3d83a70fc8289a8019a2db1d57f170dd31421daa8ee16eeff07",
+      "qeli-win/QeliWin/Model/ProfileStore.cs": "c7ebfa438107f69c6ccea089b62ce24b2ef487cf0b034f08125e5ed6c2cafa64",
+      "qeli-win/QeliWin/Model/ProfileStoreSelfTest.cs": "878c337335a9dc27036c3cab12bb610de0f0d81c1f521450d426a428e78b8d66",
+      "qeli-win/QeliWin/Program.cs": "567710e34db56dba7f3edc4d242a7933a9c7c56de5793bbe606aa7c5ae35ebd2",
+      "qeli-win/QeliWin/QeliWin.csproj": "598b18e38dd5ae20c51d775de443ad14e4bf6f343dc486a7223cc0d1952cd8b7",
+      "qeli-win/QeliWin/QrShareWindow.xaml.cs": "a25e7354857fb553f2e9256873c0627699d58ad01334d0398d0081b32a122870",
+      "qeli-win/QeliWin/ReachabilityToBrushConverter.cs": "04043a14791f09b543071280585522786a4d0fb33264539bd55fa00036c59396",
+      "qeli-win/QeliWin/Service/ServiceControlSelfTest.cs": "91884a06e96ca689ff6dcec2bd5fa4981d751250e6b0d03c042f83b3536e0020",
+      "qeli-win/QeliWin/Service/ServiceHost.cs": "61e8fde79322141d48d7911110e263cda02e50a8deaeb5fc7b2df35198f4b995",
+      "qeli-win/QeliWin/Service/ServiceManager.cs": "911ef8f34f1e6562a0b6e68ae20320ee0828019d95aa95f8515931cb822a573e",
+      "qeli-win/QeliWin/Service/ServiceObservation.cs": "d46caf4c7a8016e49e0285580be86500f166c174a727d95f1b937d1b3f82a6bf",
+      "qeli-win/QeliWin/Service/ServiceObservationSelfTest.cs": "daec5ffe320377ad012370bcc5614681fb3d376bc8d33d1a1e2f4e6b4bbaa4cc",
+      "qeli-win/QeliWin/Service/ServiceProfileSelfTest.cs": "21855bdf0305f0b0ce382c0a7b9fb087876a013273f8ef59eddd5e14f644d994",
+      "qeli-win/QeliWin/Service/ServiceProfileTransition.cs": "559bbea13cb17cec58b85d09f1ebcbfd5f7e47cad6e172f904a0e752ff5bc64b",
+      "qeli-win/QeliWin/Service/ServiceRegistration.cs": "464e3017f331d1dbb49ba6aecc6cf55aa4db83884372024e286d325659a74ef6",
+      "qeli-win/QeliWin/Service/ServiceSecuritySelfTest.cs": "b1951f5363b649c423af94d203c2c2c1010ae2a2ab409a9edd849daf6baeb9df",
+      "qeli-win/QeliWin/Service/ServiceState.cs": "9269070c747697b8d350743fe83fb95962c7b7a090f9a3ef64b6d629d4a994e3",
+      "qeli-win/QeliWin/SettingsWindow.xaml.cs": "f19dc414a856d235205efeb3deb9ce2a212238fdcdfeca49774c5163b7390c31",
+      "qeli-win/QeliWin/SystemPaths.cs": "d087d5ee59f00d2ec817afa5988bcb566c3b952f25c47239384a6d446bcaab6c",
+      "qeli-win/QeliWin/ThemeManager.cs": "c51a4c584fd0800737a493ab5772d49a56443cb54d2956b3cedb9d48643d26c0",
+      "qeli-win/QeliWin/Toast.cs": "12a72f17c21c5bee57517ba957c1d0cd16e826ed55cf2a4f6d45952ca0e03763",
+      "qeli-win/QeliWin/TrayController.cs": "65507ce3ae62b10c7bfdf65f0b503dd666ae6a7a7faedf828dc4e9c02b3f1fd8",
+      "qeli-win/QeliWin/Ui.cs": "c33affd1506446a0d243b99cc2f824ecef5b3eb59b2a756988e62396f5a11f4b",
+      "qeli-win/QeliWin/Vpn/DriverResourceSelfTest.cs": "ffcc54010b5540b868ede5d2036d33efb25a07beac1912659db6fecda7370c54",
+      "qeli-win/QeliWin/Vpn/KillSwitch.cs": "24ad69007321ce2d8f98b046b06df93a54e99678ea0e4f33df35a6dfb7e8ec1e",
+      "qeli-win/QeliWin/Vpn/NativeLoader.cs": "5f88e9648853e43509397dafb7b96e944e3e40ce62e129bdfc357383e6bc854f",
+      "qeli-win/QeliWin/Vpn/NativeModuleCache.cs": "cb03a1efc7dfc52f3b78358cafa8027dffd1fd0c741af8de4deb6a2cd7a22fac",
+      "qeli-win/QeliWin/Vpn/NetworkConfigurator.cs": "00b3cc16eea7337e247a81dbc191af3ed965fbd0006f91823ff8f175447c3a8d",
+      "qeli-win/QeliWin/Vpn/PendingFragmentBuffer.cs": "cbb2ec5e9850b626d00a2ee8281fdf5a101e0dfa9149e23b6d936be6c71113d9",
+      "qeli-win/QeliWin/Vpn/ProcessAppMap.cs": "05ad67668a55c82543d050364cb26e2bc8efbb9da44c2402e59aa3240f839263",
+      "qeli-win/QeliWin/Vpn/RetainedDriverGates.cs": "0f714d541ddbd04fded21492a94bd9daef47c4c5e4321a0a7143220af9fb05cb",
+      "qeli-win/QeliWin/Vpn/VpnTunnel.cs": "1be48abff2243d6a0d18affd980412881d80ac2ccb7d6919856a35a36fbfc2d8",
+      "qeli-win/QeliWin/Vpn/WinDivertAdapter.cs": "20c733ef71dc3eb5a4a6616e5e16daa1996904806c99e01e1f4fc8cd6120ba4e",
+      "qeli-win/QeliWin/Vpn/WinDivertDestinationPolicy.cs": "e2cfbcb1d24d7f8507e5711210527383b974b1b6c58327d858bf7c3d403d770b",
+      "qeli-win/QeliWin/Vpn/WinDivertFlowTable.cs": "881b52b879827ec7b2a5f3eb4a985886d475574acfe024d961ae17f1f0498fb9",
+      "qeli-win/QeliWin/Vpn/WinDivertKillSwitchGate.cs": "112d756e06a57088f00d3de80365eef1ea56261ef1661cc52d1832575071538e",
+      "qeli-win/QeliWin/Vpn/WinDivertNative.cs": "9ae309425d4ead53b94e4499ba5934bb5bd9ca7a2aeba0956919dec2b91b7c73",
+      "qeli-win/QeliWin/Vpn/WinDivertRuntime.cs": "9e2975f7013438ae8206d1b8a845f11189243b49e6fd147094b55b1358bf2e00",
+      "qeli-win/QeliWin/Vpn/WinDivertSelfTest.cs": "5927e6f2c2d4091b9e57f46d05baeb18d32456944f1fc142e1eeb2728c8ad513",
+      "qeli-win/QeliWin/Vpn/WindowsRoamingSocket.cs": "6df2bcb311def95c5ad7d227b88a6028bd6897be2bc41c81ab78ec5f7a53e94c",
+      "qeli-win/QeliWin/Vpn/Wintun.cs": "1aa5c9bbe1f31d833c8f47733b001df243718101125b655e31ff69862bb11484",
+      "qeli-win/QeliWin/WindowsCommand.cs": "967dd2d041fb43a58d5f9fa85cc509c4022a5269a5dd42c4b34b19d477460df4",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/VpnDataPlaneInstrumentedTest.kt": "27857813163c9b874fbf00a2c83054433156166ab46a4a67cba7279acdf1156d",
+      "qeli-android/app/src/androidTest/kotlin/com/qeli/VpnSystemLifecycleInstrumentedTest.kt": "31c17002a8d52f1425963196275da715f4d66ee6cd8c59f2e73f1afa4af07980",
+      "qeli-android/app/src/androidTest/AndroidManifest.xml": "208f0c049906bbbd329ba092c27fb660967fc1be6ed4b55a29dab775d86dea52",
+      "qeli-android/app/src/androidTest/java/com/qeli/SystemNetworkProbeReceiver.java": "ff82efb09f6b17458c89ca3d5b5b1bd51aef8e047e1d109c858aa53c1e3ac112",
+      "scripts/fixtures/android_restart_control/AndroidManifest.xml": "d4d76837167053bb0507f776715c2ee75d38a1489e0e3d5b813519a66dfa14d4",
+      "scripts/fixtures/android_restart_control/ControlService.java": "2dae88592f9b127f36631a90b00e75d679ecd613e4365a63d5093ea9bd27baa6",
+      "scripts/fixtures/android_restart_control/ModeReceiver.java": "4950fce9939ce989b3e0e0a2225190c7f93b8c574efde2be529475fafecfdc05",
+      "qeli-android/app/src/main/kotlin/com/qeli/AndroidVpnPublication.kt": "36b42098137025073654bd27f56d810ecfe9c2f91f2de63ab2a542fd68daf138",
+      "qeli-android/app/src/test/kotlin/com/qeli/AndroidVpnPublicationTest.kt": "253f7e0bde47904f837472a0d1ee71c73fdfa5906b3f3f714d5139faed4a4bb5"
+    },
+    "changed_source_inputs": [
+      "qeli-android/README.md",
+      "qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt"
+    ],
+    "new_source_inputs": [
+      "qeli-android/app/src/main/kotlin/com/qeli/AndroidVpnPublication.kt",
+      "qeli-android/app/src/test/kotlin/com/qeli/AndroidVpnPublicationTest.kt"
+    ],
+    "auxiliary_inputs": {
+      "scripts/android_lab_ui.py": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1",
+      "scripts/audit_android_data_plane_lab.py": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746",
+      "scripts/audit_android_nat64.py": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78",
+      "scripts/audit_android_network_handover.py": "7b2ebafad969d3f65754696b12d1b6c59a9dacf1b891e24c6b5e5eb3daaf4934",
+      "scripts/audit_android_power_lifecycle.py": "452eb0ed92ecb21c7e8482f32bfc32952dd78eb68b812771358a6fd4101d4f31",
+      "scripts/audit_android_release_ui.py": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0",
+      "scripts/audit_android_restart_control.py": "95c532b1e6ffece95f541171bd6dad008d29a92b696e356a6fa72488eeda6fa9",
+      "scripts/audit_android_udp_recovery.py": "8e36d45275307e4757e4d18bb5fc077240beed09e13c3d7578e994bfc76007d0",
+      "scripts/audit_udp_handshake_contracts.py": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510",
+      "scripts/build_android_restart_control.py": "e776434758ab2fc18c6db811c1ee3ea6c12f57cb601fd4d496518dead116da83",
+      "scripts/roaming_android_sleep_wake_gate.py": "1146d19a20109516e3412026391b584489e32f3283901b3fc27dd045b00c631c",
+      "scripts/test_macos_build_paths.py": "894195974d095b4fb47c020c36a2e5e2e678fd2e86e84ba3b79852f176234332",
+      "scripts/audit_android_leak_bursts.py": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3",
+      "scripts/audit_android_startup_dns.py": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc"
+    },
+    "changed_auxiliary_inputs": [
+      "scripts/audit_android_data_plane_lab.py",
+      "scripts/audit_android_network_handover.py",
+      "scripts/audit_android_release_ui.py",
+      "scripts/audit_android_startup_dns.py"
+    ],
+    "regression_test_inputs": {
+      "scripts/test_android_startup_state.py": "d4eb9109ea97402e8c5574a7e3214a33af35f65b7e6ed7fba56af56ee797ebfa",
+      "scripts/test_android_resolver_diagnostics.py": "086daf4dcd4439a64d2677ebb6032ad3029083fa871d4d689b61741861d16a3c"
+    },
+    "reuse": {
+      "prior_raw_directory": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q29-android-startup-state-20261005",
+      "prior_source_proof_sha256": "64f17b3888f5fb0c999c619f62c470c1f6f851e26ab5f9ca4843e86396df751a",
+      "prior_raw_seal_sha256": "72d066ceea13a006a7b330db60ed03ac7a139f8665fe3bf9b30318922e741e45"
+    },
+    "android_apk_artifacts": {
+      "final-apks/app-release-androidTest.apk": "25f31824b84fe86e2298bf759e8f02d9b77b52d0332157c4cc204823c113034c",
+      "final-apks/app-release.apk": "786e8954762b63a4c2cf8ad873376aeecd594bb5c98999df03d3f58710a8eaf2"
+    },
+    "final_mapping_sha256": "77c1cd1c4a57c433dc4aed17464dba469b9bae8e66c767fe5321169ead28abe3",
+    "initial_mapping_sha256": "503cd7dee664562fa209e04a8268355a1ae7015bbb495c600393fb49a478d190",
+    "initial_apks": {
+      "apks": {
+        "app-release.apk": "f01e1e0dd02cc5459d6804a646a7502152916e0891eba53969372494334dad87",
+        "app-release-androidTest.apk": "25f31824b84fe86e2298bf759e8f02d9b77b52d0332157c4cc204823c113034c"
+      },
+      "build_type": "release",
+      "qualification": "Release/R8 + releaseAndroidTest/R8 applymapping; debug lab key only, non-debuggable target required"
+    },
+    "initial_product_source": "Reconstructed by reversing only API compatibility changes; original APK pair and matched mapping are pinned. Acceptance uses final artifacts.",
+    "executed_source_sets": {
+      "executed-": {
+        "executed-android_lab_ui.py": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1",
+        "executed-audit_android_data_plane_lab.py": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746",
+        "executed-audit_android_leak_bursts.py": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3",
+        "executed-audit_android_nat64.py": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78",
+        "executed-audit_android_network_handover.py": "ab74c373e187fda83d5b66edd53d9bfd331cd6d5f2d4a595614b9ec752476e7e",
+        "executed-audit_android_release_ui.py": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0",
+        "executed-audit_android_startup_dns.py": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc",
+        "executed-audit_udp_handshake_contracts.py": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      "final-executed-": {
+        "final-executed-android_lab_ui.py": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1",
+        "final-executed-audit_android_data_plane_lab.py": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746",
+        "final-executed-audit_android_leak_bursts.py": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3",
+        "final-executed-audit_android_nat64.py": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78",
+        "final-executed-audit_android_network_handover.py": "7b2ebafad969d3f65754696b12d1b6c59a9dacf1b891e24c6b5e5eb3daaf4934",
+        "final-executed-audit_android_release_ui.py": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0",
+        "final-executed-audit_android_startup_dns.py": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc",
+        "final-executed-audit_udp_handshake_contracts.py": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      }
+    }
+  },
+  "checks": {
+    "unit_tests": 172,
+    "new_publication_tests": 5,
+    "helper_tests": 4,
+    "resolver_helper_tests": 2,
+    "cli_guards": 4,
+    "final_runs": 3,
+    "exploratory_runs": 1,
+    "final_burst_samples": 960,
+    "cold_post_CONNECTED_samples": 80,
+    "cold_post_CONNECTED_errors": 0,
+    "final_receipts": 660,
+    "final_blocked_samples": 144,
+    "final_manual_recovery_payloads": 12,
+    "final_DNS_operations": 14,
+    "final_DNS_questions": 14,
+    "reconnect_transitions": 2,
+    "final_elapsed_seconds": [
+      210.08,
+      215.96,
+      226.04
+    ],
+    "final_publication_delay_ms": [
+      557.0,
+      724.0
+    ],
+    "plan_done": 28,
+    "plan_total": 37,
+    "Q29": "IN_PROGRESS",
+    "physical_protected_requests": 0,
+    "host_service_userdata": "UNCHANGED_FOUR_RUNS",
+    "old_APPLIED_FAIL": "RETAINED_PRE_CONNECTED",
+    "API28_29": "LINT_UNIT_SOURCE_ONLY",
+    "QUIC": "NOT_FRESHLY_RUN",
+    "SIGKILL": "PRIOR_FAIL_NOT_CLOSED",
+    "matching_instrumentation": "PRIOR_FAIL_NOT_CLOSED",
+    "initial_APK": "API34_EXPLORATORY_PASS_BUT_NEwAPI_LINT_FAIL",
+    "final_APK_sha256": {
+      "app-release.apk": "786e8954762b63a4c2cf8ad873376aeecd594bb5c98999df03d3f58710a8eaf2",
+      "app-release-androidTest.apk": "25f31824b84fe86e2298bf759e8f02d9b77b52d0332157c4cc204823c113034c"
+    }
+  },
+  "raw_directory": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q29-android-connected-gate-20261005",
+  "raw_seal": {
+    "immutable_after": "qualification",
+    "excluded": "raw-seal,certificate-before,qualification/commit/transfer outputs",
+    "files": [
+      {
+        "path": "__pycache__/write_report.cpython-314.pyc",
+        "size": 22188,
+        "sha256": "9a23af10e7002434d710b95737a1a765d6e05a0b3bb739f49fa7beeb6a219ddc"
+      },
+      {
+        "path": "analyze_capture.py",
+        "size": 12557,
+        "sha256": "6e75298fa6222257ec59b0fa73c7e9885cc4a2b93041d4f80f0dc51363a41d4d"
+      },
+      {
+        "path": "aosp14-ConnectivityService.java",
+        "size": 578353,
+        "sha256": "7ff275818b73874eb1bf0d8d2a691f2586cebf5f50edcb8e9570ca3ed89426da"
+      },
+      {
+        "path": "aosp14-NetworkCapabilities.java",
+        "size": 130889,
+        "sha256": "45ef4d0117f6aaa81bbc1df6d0619f6c576d9a14b756fcf5b8779f3f57622ec5"
+      },
+      {
+        "path": "base-commit.txt",
+        "size": 42,
+        "sha256": "55198afe5bfa44a082a543c004396963de7e1b7edf61841d1dc939878e153035"
+      },
+      {
+        "path": "bindings.log",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "build.log",
+        "size": 5959,
+        "sha256": "1c3c278d6bfe6d09f9c783f0e76d2f0f384e8f0f10503325e35c1b02c76f6ec1"
+      },
+      {
+        "path": "capture-analysis.json",
+        "size": 475868,
+        "sha256": "b16722b92adc007c6dcd552fe39a4781b4b39cfc36e8262a94b9baf24c506c6e"
+      },
+      {
+        "path": "capture-check.log",
+        "size": 833,
+        "sha256": "3d13fc47b84ca92d45d431a97e1fe49c46a43793eb7ac9a854b73f69875cecd5"
+      },
+      {
+        "path": "checks.json",
+        "size": 1271,
+        "sha256": "d365a440222cbc45a620e2c9b9bb789c10bf21f4fef154d80ef61f96173bb0cb"
+      },
+      {
+        "path": "cli-guards.json",
+        "size": 4773,
+        "sha256": "d0420c3a6e9625b7c335a343ed75b82d241167c596fd358635b804bd185971ec"
+      },
+      {
+        "path": "docs.log",
+        "size": 179,
+        "sha256": "e4449e0d1a372e8a3babe39147a2c6db3704483b717711d2ba4d90aefe995819"
+      },
+      {
+        "path": "driver.log",
+        "size": 761,
+        "sha256": "c78e6ce20fd965a61c3eaf17b5b9d7e2c9aeee5ddd2c554a036d9de236888cc1"
+      },
+      {
+        "path": "executed-android_lab_ui.py",
+        "size": 7087,
+        "sha256": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1"
+      },
+      {
+        "path": "executed-audit_android_data_plane_lab.py",
+        "size": 43884,
+        "sha256": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746"
+      },
+      {
+        "path": "executed-audit_android_leak_bursts.py",
+        "size": 7317,
+        "sha256": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3"
+      },
+      {
+        "path": "executed-audit_android_nat64.py",
+        "size": 11650,
+        "sha256": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78"
+      },
+      {
+        "path": "executed-audit_android_network_handover.py",
+        "size": 8121,
+        "sha256": "ab74c373e187fda83d5b66edd53d9bfd331cd6d5f2d4a595614b9ec752476e7e"
+      },
+      {
+        "path": "executed-audit_android_release_ui.py",
+        "size": 4619,
+        "sha256": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0"
+      },
+      {
+        "path": "executed-audit_android_startup_dns.py",
+        "size": 8350,
+        "sha256": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc"
+      },
+      {
+        "path": "executed-audit_udp_handshake_contracts.py",
+        "size": 19012,
+        "sha256": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      {
+        "path": "failed-driver-preparation.log",
+        "size": 201,
+        "sha256": "12aa14ac73a2da7f4bceae98fa2587322b499a8dad2c602a3c9885d9d0068e41"
+      },
+      {
+        "path": "failed-lint.txt",
+        "size": 33777,
+        "sha256": "ab2e455bc546c044370ec789d54849d46434af06287221e6d3b769020311638f"
+      },
+      {
+        "path": "final-all-udp-runner.log",
+        "size": 737,
+        "sha256": "02aa86cced3f68b7967ba8771598b1ff2c0616a5ac4a8d888ff5980867e7d89f"
+      },
+      {
+        "path": "final-apks/app-release-androidTest.apk",
+        "size": 724261,
+        "sha256": "25f31824b84fe86e2298bf759e8f02d9b77b52d0332157c4cc204823c113034c"
+      },
+      {
+        "path": "final-apks/app-release.apk",
+        "size": 10416742,
+        "sha256": "786e8954762b63a4c2cf8ad873376aeecd594bb5c98999df03d3f58710a8eaf2"
+      },
+      {
+        "path": "final-apks/manifest.json",
+        "size": 370,
+        "sha256": "f4566da825e4576920880f804371c719de3049fbbe1cad7ef3cb48b5949b6b92"
+      },
+      {
+        "path": "final-build.log",
+        "size": 7006,
+        "sha256": "700bdad453b788d2793a8f85d4402fb4e0a00f7b7f0f8d1d12e66059e955bd3a"
+      },
+      {
+        "path": "final-driver.log",
+        "size": 2049,
+        "sha256": "694a8ebf3e5044d0e2920319fbb83b0cd4af85ba908afa2d96f63de8432a765a"
+      },
+      {
+        "path": "final-executed-android_lab_ui.py",
+        "size": 7087,
+        "sha256": "fdc1405956316c9ceddf6cd3efb633e4744eb2a5b870875514374f18505beda1"
+      },
+      {
+        "path": "final-executed-audit_android_data_plane_lab.py",
+        "size": 43884,
+        "sha256": "301473618f6784282dc0ae048afd2d03e75d21c8c2659fecbedded548bcb1746"
+      },
+      {
+        "path": "final-executed-audit_android_leak_bursts.py",
+        "size": 7317,
+        "sha256": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3"
+      },
+      {
+        "path": "final-executed-audit_android_nat64.py",
+        "size": 11650,
+        "sha256": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78"
+      },
+      {
+        "path": "final-executed-audit_android_network_handover.py",
+        "size": 8338,
+        "sha256": "7b2ebafad969d3f65754696b12d1b6c59a9dacf1b891e24c6b5e5eb3daaf4934"
+      },
+      {
+        "path": "final-executed-audit_android_release_ui.py",
+        "size": 4619,
+        "sha256": "60421aebfd62b6f032b72a145bdbeb1ea8d05eb81ffc7f929edd2fb6ddfa75f0"
+      },
+      {
+        "path": "final-executed-audit_android_startup_dns.py",
+        "size": 8350,
+        "sha256": "2b3e138a947f07a665e2b0d5c0e7d0c0f4be4c0d2f61e7e524f7d4ce9412a3fc"
+      },
+      {
+        "path": "final-executed-audit_udp_handshake_contracts.py",
+        "size": 19012,
+        "sha256": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      {
+        "path": "final-host-before.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "final-include-tcp-runner.log",
+        "size": 737,
+        "sha256": "d543cb411aca8059e02c420baf30358d4f032e709448afd1778f739e5408c98e"
+      },
+      {
+        "path": "final-lint.txt",
+        "size": 31678,
+        "sha256": "40eceeb464fc7d64a2b63e3a68a4460daddc43a5544490cd9c53aa66e3ad7993"
+      },
+      {
+        "path": "final-product-source/AndroidVpnPublication.kt",
+        "size": 1391,
+        "sha256": "36b42098137025073654bd27f56d810ecfe9c2f91f2de63ab2a542fd68daf138"
+      },
+      {
+        "path": "final-product-source/QeliService.kt",
+        "size": 184566,
+        "sha256": "7011b5e5abd633cc3c24d24a4e6219a4c1dc2a11e7c84039f1c8a5d73c4641bb"
+      },
+      {
+        "path": "final-reuse-tcp-runner.log",
+        "size": 491,
+        "sha256": "5d379d521ff00b9a36b0e7e52b02707b2ef9ac7fd7fc25ef4635d89d8470c806"
+      },
+      {
+        "path": "first-capture-check.log",
+        "size": 502,
+        "sha256": "b9b1174c0d88d08fb17002cc26895476d7ae968060868da47cc0179b9d8969b2"
+      },
+      {
+        "path": "first-full-tests.json",
+        "size": 2943,
+        "sha256": "1273945f7b301c8a6f79a7713a1d4306f6ae3ba346655f4943e70bbd8a63a8a9"
+      },
+      {
+        "path": "full-unit-lint.log",
+        "size": 6297,
+        "sha256": "ee47f91b074f31169e9aa15af44a86e2952706cb0e71602a9f1512e095b80546"
+      },
+      {
+        "path": "helper-tests.log",
+        "size": 218,
+        "sha256": "6b200828178a238a215e8e718bdad07a2c2044f4a84d1a85018c9d791ae9f3cb"
+      },
+      {
+        "path": "host-after-final-all-udp.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "host-after-final-include-tcp.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "host-after-final-reuse-tcp.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "host-after-include-tcp.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "host-before.json",
+        "size": 6079,
+        "sha256": "5e6d7204c531429fecb29423d214e231b01e77fb2d859555b39483dbacf738ca"
+      },
+      {
+        "path": "include-tcp-runner.log",
+        "size": 737,
+        "sha256": "d439affb3434082ee437250c986f70dd73497b05f97104bf8fda63be5b554c76"
+      },
+      {
+        "path": "initial-apks/app-release-androidTest.apk",
+        "size": 724261,
+        "sha256": "25f31824b84fe86e2298bf759e8f02d9b77b52d0332157c4cc204823c113034c"
+      },
+      {
+        "path": "initial-apks/app-release.apk",
+        "size": 10416742,
+        "sha256": "f01e1e0dd02cc5459d6804a646a7502152916e0891eba53969372494334dad87"
+      },
+      {
+        "path": "initial-apks/manifest.json",
+        "size": 370,
+        "sha256": "73889605552c2fc6e9f4a4b4978ff725734b7de888ebbbe55fd706fb15cf2c85"
+      },
+      {
+        "path": "initial-mapping.txt",
+        "size": 13917311,
+        "sha256": "503cd7dee664562fa209e04a8268355a1ae7015bbb495c600393fb49a478d190"
+      },
+      {
+        "path": "initial-product-source/AndroidVpnPublication.kt",
+        "size": 1373,
+        "sha256": "a36b119e94b268ad95067639d005676cf052d1388ef12133a8e1e47289371781"
+      },
+      {
+        "path": "initial-product-source/QeliService.kt",
+        "size": 184141,
+        "sha256": "278e65f1da2809a44d712dc821e99518a34a1a56cb2e9666a2d40a4900f59c46"
+      },
+      {
+        "path": "mapping.txt",
+        "size": 13919413,
+        "sha256": "77c1cd1c4a57c433dc4aed17464dba469b9bae8e66c767fe5321169ead28abe3"
+      },
+      {
+        "path": "pin_sources.py",
+        "size": 3133,
+        "sha256": "9b42172eb1aec8f6720458f85d9b6957e9e928f6319dce709bc4b16b7a7a3d79"
+      },
+      {
+        "path": "publication-tests.xml",
+        "size": 840,
+        "sha256": "48bed9f74bfb3faa3dc025cec793b34e3848bc2c3090cbbd7e34fe78936d3797"
+      },
+      {
+        "path": "qualify.py",
+        "size": 10065,
+        "sha256": "aa1093d6c85e8240a2f911bb59e0e52cdce25dc5ac530e6951ae71271886e8db"
+      },
+      {
+        "path": "remote-root-final-all-udp.txt",
+        "size": 65,
+        "sha256": "192dd4425cffe7744b0be2b3bb24f962d2f4bb3db94878e8021bdbe3bf355e77"
+      },
+      {
+        "path": "remote-root-final-include-tcp.txt",
+        "size": 69,
+        "sha256": "d92038f5f1333b15c4ddd7a47e2c464e114d355abb09460b226c979f433bfcd6"
+      },
+      {
+        "path": "remote-root-final-reuse-tcp.txt",
+        "size": 67,
+        "sha256": "f5f9653357f3a4c6a14119c32ce4eb648fd1feb06d791b933b8c1c49c2a438cf"
+      },
+      {
+        "path": "remote-root-include-tcp.txt",
+        "size": 63,
+        "sha256": "2669b9c034c401ab682508f5773284f1087f2af863a2bccd825b0a3f8a24551e"
+      },
+      {
+        "path": "resolver-helper-tests.log",
+        "size": 105,
+        "sha256": "a83ffcef3c387b94d03a039de793ead719250e49d31be9ca97859adb896d4a8b"
+      },
+      {
+        "path": "runtime-final-all-udp/android-links-after.txt",
+        "size": 2409,
+        "sha256": "0edf011587da5d6acd331cbbe99b21eaee9a35698393fd3b66045fab27b7103f"
+      },
+      {
+        "path": "runtime-final-all-udp/android-runtime.log",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "runtime-final-all-udp/android-services-after.txt",
+        "size": 1441,
+        "sha256": "f9e4ab19d6d11430fa2763cb6cfc816ff7732720131770a6a230147fbe3b915c"
+      },
+      {
+        "path": "runtime-final-all-udp/avd-userdata-after.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-final-all-udp/avd-userdata-before.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-cold-lockdown-start-broadcast.txt",
+        "size": 135,
+        "sha256": "ddb3bc620f00d6c2775a9a39aa3c394c517f3faed8f1531d4f3896fce7fc6e65"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-cold-lockdown-start-logcat.log",
+        "size": 52961,
+        "sha256": "0c04c415a8919220aaa54a1fc5e8c9e145ecb695db0e97f1b90751ffe79de6f3"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-connected-steady-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-connected-steady-logcat.log",
+        "size": 86053,
+        "sha256": "ad376d955525588c03b8704ba0568315589a2c9e077e03d4ae2f2ee4ab6e283b"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-force-stop-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-force-stop-logcat.log",
+        "size": 99289,
+        "sha256": "4c1ecd67c4530a4d4bd273f6f05e5d77409f44319fc60ab461dc66a718b8d1bf"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-physical-baseline-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-physical-baseline-logcat.log",
+        "size": 9816,
+        "sha256": "6a95f9ed9cc711ad1179d6944f40654d34f2ad5ddd1b474bd97ced604c9ec476"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-recovery-ipv4-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-recovery-ipv4-tcp-probe.txt",
+        "size": 300,
+        "sha256": "cab8448f3b85b4302c15ecde45727f6c015f5565cca8df356ac49c611e45b6b8"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-recovery-ipv4-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-recovery-ipv4-udp-probe.txt",
+        "size": 298,
+        "sha256": "f0dc05a5dc340a807a403a958abe435b4e0a1e1e7b6babb0fefcb63feaae68cf"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-recovery-ipv6-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-recovery-ipv6-tcp-probe.txt",
+        "size": 303,
+        "sha256": "dac7e87c283ef51ef7710dcd661bd19a30f767660996d4a48bee7238fec3db66"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-recovery-ipv6-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-recovery-ipv6-udp-probe.txt",
+        "size": 301,
+        "sha256": "a3d8550feb389095b78634d417a1f097068cc9a5455b12a00adb59ce35289c90"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-startup-followup-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-startup-followup-logcat.log",
+        "size": 68680,
+        "sha256": "d87f12c6f1cc49f5830a2195614e983070ac462bdaffd76f3d6e59b16b77bc50"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-stopped-lockdown-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/burst-stopped-lockdown-logcat.log",
+        "size": 110304,
+        "sha256": "a3a20950e936710ec16dc8753183b7933ba9c6f1f5643df4c57d6bb7d96d0ded"
+      },
+      {
+        "path": "runtime-final-all-udp/cold-start-epoch.log",
+        "size": 69541,
+        "sha256": "14ff857a4d6facee655a2ca7bf294b589df343282fddde1b014c78fb7d5cb844"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-blocked-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-blocked-raw.log",
+        "size": 110393,
+        "sha256": "ee5a994b7e4cd4fe154e540250a29f21b843a9fd9104f5c0675628cebd406b9d"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-blocked-system-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-blocked-system.log",
+        "size": 110243,
+        "sha256": "3f76aa5feb4dfb343f22308c1ee2b8f398c3f79b448acb1980dbe48fc917bd39"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-connected-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-connected-raw.log",
+        "size": 68839,
+        "sha256": "5ebbbdfafb1c6af0d4727fbe97976f284ff3884a7b8e4552e2cf9443d0d0f1c0"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-connected-system-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-connected-system.log",
+        "size": 68640,
+        "sha256": "92f99ecf8ccde4742e94b38442bac832ae4fb5d983591f7c325bcc7f2eaf81fe"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-manual-recovery-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-manual-recovery-raw.log",
+        "size": 111763,
+        "sha256": "b3a913150516a308d9ba29b8b5917f039bdfdd3f06176f5abdec41bd979b02c5"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-manual-recovery-system-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-manual-recovery-system.log",
+        "size": 111564,
+        "sha256": "86c115be60e3a27ca6a57a409e232fc45273dbcba25404ad7cbe5f97567770b3"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-physical-baseline-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-physical-baseline-raw.log",
+        "size": 10272,
+        "sha256": "9841a0a621351a8149f6996707d3e4f225819b40dbf0a87cd69b2d07121831f9"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-probes.json",
+        "size": 2982,
+        "sha256": "85c7600c2335a6187ba364a8ffffa10af9a1c27dde0dad00bf10bee035e48443"
+      },
+      {
+        "path": "runtime-final-all-udp/dns-receipts.json",
+        "size": 3694,
+        "sha256": "7e5d3d9fbdc092d8a4ada661935388edab2cfc8794e02c1ec3a39a1e2b229cb3"
+      },
+      {
+        "path": "runtime-final-all-udp/echo-receipts.json",
+        "size": 47425,
+        "sha256": "4e7320745c39391f3eb5a6b5a7f3d3ec9a82b70b7e2a19c377e6fbdbc14c70a6"
+      },
+      {
+        "path": "runtime-final-all-udp/emulator-command.json",
+        "size": 265,
+        "sha256": "cffb48a76bd40e29d3cd52636869ef9ea08319c9e48497e9d7ef8f2cde308ba1"
+      },
+      {
+        "path": "runtime-final-all-udp/emulator.log",
+        "size": 8937,
+        "sha256": "feac70b61bae9bcf6ac10ae7e45b939dabdf5c5c72e2b49ab2855fefffa2a6e6"
+      },
+      {
+        "path": "runtime-final-all-udp/fixed-app-release-androidTest.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-final-all-udp/fixed-app-release.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-final-all-udp/fixed-package.txt",
+        "size": 8583,
+        "sha256": "8bd2cd3d863a55e9888b5342e5f4f73580b9748d379e45a6b21b264c551a1d34"
+      },
+      {
+        "path": "runtime-final-all-udp/fixed-run-as.txt",
+        "size": 41,
+        "sha256": "51df9b29e6a68d3a48ee405f4fb073f200476b5b56523c6e307e68b0c8b9753e"
+      },
+      {
+        "path": "runtime-final-all-udp/leak-any.pcap",
+        "size": 439666,
+        "sha256": "bc7f079bac4608107de193b638b75ae9fceeb8f160c539fa195965ad3e77576c"
+      },
+      {
+        "path": "runtime-final-all-udp/leak-bursts.json",
+        "size": 216129,
+        "sha256": "9f7692a9e17f9e7bd765ba130c41353652708effdc02befcedfb06385743bea8"
+      },
+      {
+        "path": "runtime-final-all-udp/leak-capture.log",
+        "size": 299,
+        "sha256": "ad4288d21a786d4c252a7a3a48ac88439089a0781e3c0bfcd547717a1399aa79"
+      },
+      {
+        "path": "runtime-final-all-udp/namespace-identities.json",
+        "size": 90,
+        "sha256": "34ef469437038728a8c4473256998b60aae0381f8ca369729df435b7f53cfba7"
+      },
+      {
+        "path": "runtime-final-all-udp/namespace-network-after.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-final-all-udp/namespace-network-before.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-final-all-udp/published-start.json",
+        "size": 2695,
+        "sha256": "6d410e3b0477bae4e9abd8797f5a1c874bad4bf1568ff58b17f0b86386c84843"
+      },
+      {
+        "path": "runtime-final-all-udp/Q29BASELINE-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/Q29BASELINE-probe.txt",
+        "size": 301,
+        "sha256": "a310c25f390bb8fcf20b1df5542b154802805708815cd8e8b531efbe9fd98fa0"
+      },
+      {
+        "path": "runtime-final-all-udp/Q29PROTECTED-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/Q29PROTECTED-probe.txt",
+        "size": 303,
+        "sha256": "d53c4463abf675d0cdb16c3b4513dea7abf88f688d8767e770aaf138b3069cf4"
+      },
+      {
+        "path": "runtime-final-all-udp/release-fixture.ini",
+        "size": 445,
+        "sha256": "a90fb01b37921bd5139f2be1f8383bb9fe0c275af348b33fb5817cc1f1961894"
+      },
+      {
+        "path": "runtime-final-all-udp/release-start-ipv4-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/release-start-ipv4-tcp-probe.txt",
+        "size": 306,
+        "sha256": "75533b685856246b4078bba3462ebf884e1cf29d8b1e491d06891d70a2c69f86"
+      },
+      {
+        "path": "runtime-final-all-udp/release-start-ipv4-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/release-start-ipv4-udp-probe.txt",
+        "size": 304,
+        "sha256": "b3a99b65893afcbdd406bca3a3a6d4c6494532ec7436fff45369fb0c2f8f9591"
+      },
+      {
+        "path": "runtime-final-all-udp/release-start-ipv6-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/release-start-ipv6-tcp-probe.txt",
+        "size": 309,
+        "sha256": "f6f5b00f99f1764341b1e6890800125f81cc405ff439bc08a95cb90f2b1dff9a"
+      },
+      {
+        "path": "runtime-final-all-udp/release-start-ipv6-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-all-udp/release-start-ipv6-udp-probe.txt",
+        "size": 307,
+        "sha256": "015ae51e181ec8b7f7ed72d9e483f2ce391f692c6434b2e0c76f00540fa201b2"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-01-launcher-dump.log",
+        "size": 81,
+        "sha256": "474f9f34c31d2df703e02cbfca9ea3889a8e27c7d49f15312e51be9f140358ab"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-01-launcher.xml",
+        "size": 5782,
+        "sha256": "f2e806af8ea377e361d95b957c5705170c189811e4d8a41b01eae476bdc381f9"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-02-launcher-dump.log",
+        "size": 81,
+        "sha256": "157882bfc456b2c1655c4182c18b3c7b22174f022c1186f6e61a0fabd59db256"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-02-launcher.xml",
+        "size": 14537,
+        "sha256": "acdcebb5ceb736da8ef551a258929aecac940e9e5159399a721d65b5431e7112"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-03-profiles-dump.log",
+        "size": 81,
+        "sha256": "f8296b27bf894a798757cb4628113242bcc56f81fbb14732f480cda1d0c4a07e"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-03-profiles.xml",
+        "size": 4115,
+        "sha256": "389344df28b813c6e6b833da8e1cd8f28d2934a728d302aa4376ea4735c3e9be"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-04-profiles-dump.log",
+        "size": 81,
+        "sha256": "116fcee9f853b76324320b1fbb13a3e8687a7a6ccb25574a5bd100acfd4ca7fc"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-04-profiles.xml",
+        "size": 12567,
+        "sha256": "f8241ff5bb17eeec89a57f28fccb9c87f7d4354ead178074d86fc81083d8618c"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-05-import-chooser-dump.log",
+        "size": 81,
+        "sha256": "b2ebfbc774effb2478922ab06f27f03474c60f1adca8a53424dba7a52985b959"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-05-import-chooser.xml",
+        "size": 5195,
+        "sha256": "e6c3647cd1fb63571ee86bba92698ab7a480f3da1d3aeac13c658ff3bb1ac55b"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-06-file-picker-dump.log",
+        "size": 81,
+        "sha256": "bb901063def567e326af0e77b0a73643ddad0d0783811fce79a0164607e613e6"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-06-file-picker.xml",
+        "size": 31249,
+        "sha256": "90e1ad2e90420d305699402dd5a4804710d749edf0029c7ba46021e49dbd5fca"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-07-imported-profile-dump.log",
+        "size": 81,
+        "sha256": "d4ea744f5f698d217f9d62863318ac97bd90c08bf89f5777490fe8e75ec87d74"
+      },
+      {
+        "path": "runtime-final-all-udp/release-ui-07-imported-profile.xml",
+        "size": 14909,
+        "sha256": "1474e965fe3eae18399fc40142ab7e43c10716931e443e6ab1bfdf851aa1c92b"
+      },
+      {
+        "path": "runtime-final-all-udp/result.json",
+        "size": 239653,
+        "sha256": "b8d35c29a2ea47684092d68cbeba3a5ef1938712071158cc1215835d02dcd2a6"
+      },
+      {
+        "path": "runtime-final-all-udp/revoked-consent.txt",
+        "size": 40,
+        "sha256": "4293d043b66a8f46f9f62ea731d9a693524882366247ad932c01a141739812fb"
+      },
+      {
+        "path": "runtime-final-all-udp/revoked-prefs.xml",
+        "size": 243,
+        "sha256": "9517023b70049b82383d3a66d2b5a8f3c590cd00bd3a09a580f1738c12de579f"
+      },
+      {
+        "path": "runtime-final-all-udp/server-public-keys.txt",
+        "size": 278,
+        "sha256": "12a0487df35cf49d24f464686105689d421a923181bcbd3f040ef7b17f1d36fc"
+      },
+      {
+        "path": "runtime-final-all-udp/server.log",
+        "size": 9983,
+        "sha256": "c7b340c8bace1a8301f499c2bf96ad31a52630b0eee17e3d37ee82775083bc01"
+      },
+      {
+        "path": "runtime-final-all-udp/system-lifecycle-logcat.log",
+        "size": 8502,
+        "sha256": "644f69af83a90bf377284fc4417ae6029e470ba7b396a8d7954baab6f2c5b109"
+      },
+      {
+        "path": "runtime-final-all-udp/tcp-tun.pcap",
+        "size": 379001,
+        "sha256": "559914a6ea51b3966a213c71fdd1ded7893873f31b78325bde7ec687f98ecdfa"
+      },
+      {
+        "path": "runtime-final-all-udp/tcpdump.log",
+        "size": 165,
+        "sha256": "67c28f66ae187792019a9804566b7224564339be7d3da9b642f19b1f4025a4d8"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-01-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "320040090722c40b73b069cb1396a7736946c19b0659df215ac07006b8a9c76e"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-01-vpn-list.xml",
+        "size": 9221,
+        "sha256": "5d36db7450d94b44c5797bfe938ba0b5db3af378ac1b46bd35ec225141b241e2"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-02-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "ae94c2c68a960ac7fec43951c2898fb2ccdb91c623dbae4bdc885b0b926804d4"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-02-vpn-list.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-03-switch-before-dump.log",
+        "size": 73,
+        "sha256": "da316353033540cfbe0414cdcbf720c6e91954cf22c36c867abdd2d4b78681a8"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-03-switch-before.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-04-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "e79696a0b3fc75b801b7c66e19cbc4a1f32da8002c021134b087dc17b1be7f7b"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-04-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-05-cold-before-lockdown-dump.log",
+        "size": 73,
+        "sha256": "2f6a15f467d30bed55f836b9801a623579d1b8ed1ac879b3363ce14200601e4c"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-05-cold-before-lockdown.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-06-cold-lockdown-confirmation-dump.log",
+        "size": 73,
+        "sha256": "4921343697fea8c408aa3610024caca01011de94c872b5ae5cc57906a94f24de"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-06-cold-lockdown-confirmation.xml",
+        "size": 6568,
+        "sha256": "5b0955dd4c065211dd7c88a1d7b243583cc2241866bf60ab012f5b5233bb4c15"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-07-cold-lockdown-enabled-dump.log",
+        "size": 73,
+        "sha256": "db9823f82f4ee155717c7524abe138bd858af99ba692aab3bb5207830f0b5743"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-07-cold-lockdown-enabled.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-08-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "8b7f640db55e26bf4bf0406645be27c92501e96b4d3177e68790d8ecfe3841bc"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-08-vpn-list.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-09-switch-before-dump.log",
+        "size": 73,
+        "sha256": "7e39dfae81f74e9401d897a520494ec2232583bdbb6c46a2dbb8008cf2f5ab3b"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-09-switch-before.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-10-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "bff12662ee1138b119c03892d2ac266e508e933254f95b9b317a8b8d7779fd69"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-10-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-11-switch-before-dump.log",
+        "size": 73,
+        "sha256": "f038736214cf41b428d4faf256bd1812a0c4c73db75fdccc76ca44804bf3528f"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-11-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-12-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "23b84f403d1e9a577c7c9dbda0c62f9cc3c3fcd96594b96c5fecf1ce674ad0e4"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-12-switch-toggled.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-13-switch-before-dump.log",
+        "size": 73,
+        "sha256": "ef512b3344787082a7b05bc9bb50f5bcb3134b573b86a23bcef5ee578c0c2b26"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-13-switch-before.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-14-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "52643b2aacccea55caecf92db33a5d32d2ba16315da10c01560519fff8476ada"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-14-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-15-switch-before-dump.log",
+        "size": 73,
+        "sha256": "177bbee62242ff26b05903aa89e8e4de3adc815a9c9a00f811eb3f561b1b945e"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-15-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-16-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "06deafb210e7a36ed314cd7b1ad0f2ad60cbfc390e3cefdd0175e5ff3b30ee92"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-16-switch-toggled.xml",
+        "size": 6568,
+        "sha256": "5b0955dd4c065211dd7c88a1d7b243583cc2241866bf60ab012f5b5233bb4c15"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-17-switch-confirmed-dump.log",
+        "size": 73,
+        "sha256": "6cc5607f829d753c19d27b1520e4b54893b6b7d43ec5df01bb8661faa0ca0241"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-17-switch-confirmed.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-18-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "66a3bb847145168823b1f48b16288b4897606b3d77987c9847a61566e9650c03"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-18-vpn-list.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-19-switch-before-dump.log",
+        "size": 73,
+        "sha256": "28deceb265edce7b89ce6e96942a5bb19188793aee68a1be8ec7246323f9b7e1"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-19-switch-before.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-20-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "e8fea9558e1484cdc4880034432d748a839e8981e41cf03cd29ffdbf61f7a59b"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-20-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-21-switch-before-dump.log",
+        "size": 73,
+        "sha256": "9b4becbb9575de2cc9f8d8928ada05851227f7d2fb414a8c5e1518d0ae1a83c3"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-21-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-22-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "c640f25989b450717112f32e57a994ccde0e3cda170fbfc3d38e5d410cf253c0"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-22-switch-toggled.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-23-before-forget-dump.log",
+        "size": 73,
+        "sha256": "0f08065e210adb8bee04c8dfe2e16d30a20cd7cdbacec073396a12d8f4e70e2a"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-23-before-forget.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-24-forget-confirmation-dump.log",
+        "size": 73,
+        "sha256": "a4de18fa49c97fa19281b47f1979d344f168acb7645d3c91c1e48886f06d9841"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-24-forget-confirmation.xml",
+        "size": 6458,
+        "sha256": "9d775d8d451c5496816660b55eb9f0abf31219f5c5ea126797afc91c296fdde2"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-25-after-forget-dump.log",
+        "size": 73,
+        "sha256": "8cf795d925c8cd375504d36d5721fe97df6a2a1b3ff8f0e42c844b52f20b628f"
+      },
+      {
+        "path": "runtime-final-all-udp/ui-25-after-forget.xml",
+        "size": 5699,
+        "sha256": "0b15667330f4ecfad48b878167e0ff2278d1bd814ff781465efa47faaba2911f"
+      },
+      {
+        "path": "runtime-final-all-udp.tgz",
+        "size": 317260,
+        "sha256": "12f2b793e7a65fae308161a36dd70a69fd8241367547524b1ed6b19118ec0a7e"
+      },
+      {
+        "path": "runtime-final-include-tcp/android-links-after.txt",
+        "size": 2409,
+        "sha256": "0135e30845dc204c22b5ca8c0629f5d3d0299fd41a404543e8628378015f8e14"
+      },
+      {
+        "path": "runtime-final-include-tcp/android-runtime.log",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "runtime-final-include-tcp/android-services-after.txt",
+        "size": 66,
+        "sha256": "e9990d2b9ce9e862271712ca1ecd0c280ac8cd7a2fd48fc18fb69623521c33b0"
+      },
+      {
+        "path": "runtime-final-include-tcp/avd-userdata-after.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-final-include-tcp/avd-userdata-before.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-cold-lockdown-start-broadcast.txt",
+        "size": 135,
+        "sha256": "ddb3bc620f00d6c2775a9a39aa3c394c517f3faed8f1531d4f3896fce7fc6e65"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-cold-lockdown-start-logcat.log",
+        "size": 51489,
+        "sha256": "9075c7c975280cc279c0f6463620925437ff012efa01f92c19b329c6f651f2f3"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-connected-steady-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-connected-steady-logcat.log",
+        "size": 84581,
+        "sha256": "ec44b56add5da7410a3010fc474e7b2513e355ce884f27209c9237415b20ce4f"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-force-stop-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-force-stop-logcat.log",
+        "size": 97817,
+        "sha256": "d89e0b698e6b708dba16e199ee61f8c7c2ca5dcea155b70b07fddd60218e5cc2"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-physical-baseline-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-physical-baseline-logcat.log",
+        "size": 9816,
+        "sha256": "b1cf97585b3d79abcddb044694d0f5bf2703495bacc99e469caf7dc5e38d18bd"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-recovery-ipv4-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-recovery-ipv4-tcp-probe.txt",
+        "size": 300,
+        "sha256": "7e0575b704d5babed3becd6ed03a4b84a247ee63ff4417ed847e8057b2e14786"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-recovery-ipv4-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-recovery-ipv4-udp-probe.txt",
+        "size": 298,
+        "sha256": "260f07b19273d94d562cfc5139e33183be21fc27d56816a93fbbe030623d54db"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-recovery-ipv6-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-recovery-ipv6-tcp-probe.txt",
+        "size": 303,
+        "sha256": "ec29d37c0e065c0ba81f4974a2547a6aed3945dbc85014ffe626bc4e53992539"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-recovery-ipv6-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-recovery-ipv6-udp-probe.txt",
+        "size": 301,
+        "sha256": "afb38118cc5fb70494f5206487619895f4dce56a89fab5e10258bcd8ee16dd96"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-startup-followup-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-startup-followup-logcat.log",
+        "size": 67208,
+        "sha256": "57ac741699a089214c60225c25c04dc39a68d4279e643410d8a63053f9fb0c63"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-stopped-lockdown-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/burst-stopped-lockdown-logcat.log",
+        "size": 108832,
+        "sha256": "d6c23048e7303851907669f179d560077472c918ee584f32b496f45959ea940f"
+      },
+      {
+        "path": "runtime-final-include-tcp/cold-start-epoch.log",
+        "size": 67989,
+        "sha256": "b8f5af765601181d1d3896cab7f5cd52174b52d5a4359e6007ec3b7d3474a1e2"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-blocked-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-blocked-raw.log",
+        "size": 108921,
+        "sha256": "b857ca597940a28985f6c10a62d80e68d45d31f94e88d714794f5859f97a69ec"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-blocked-system-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-blocked-system.log",
+        "size": 108771,
+        "sha256": "c137a331cb182f845a2e92a91d85fb3d4ae5349d0726346140d2efe904012b49"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-connected-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-connected-raw.log",
+        "size": 67367,
+        "sha256": "1c461bf8938b2bcfd1cdf66465ceb58c891b4bb83bd8a4ba28e9a06f6aa4cd2d"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-connected-system-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-connected-system.log",
+        "size": 67168,
+        "sha256": "2894cfaf0a3b09f8a43df7e5694ca93b247eeda30cde426daf1a7ed42cbafec6"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-manual-recovery-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-manual-recovery-raw.log",
+        "size": 110291,
+        "sha256": "0f5bd6fee966bfc6741d4956ccbca7e458b9e8e32ab3ca8433589e3e8f84fd0a"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-manual-recovery-system-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-manual-recovery-system.log",
+        "size": 110092,
+        "sha256": "40f9f30f3b876782cce5a014604079096790d3eda24120544151d7b0b31ed035"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-physical-baseline-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-physical-baseline-raw.log",
+        "size": 10272,
+        "sha256": "ad3cc3e06093555ac0b8915346f3b50b7c99656f9c0ffe4cb4f732958b21f3b3"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-probes.json",
+        "size": 2976,
+        "sha256": "704c5d4b4b58ff019fedb8ad791b7bb5297fb3983cad0d49300457d35bab59dc"
+      },
+      {
+        "path": "runtime-final-include-tcp/dns-receipts.json",
+        "size": 812,
+        "sha256": "b4b9fcbf1d20796c97e94c6863fa480b6ea72078b8846c8a766243c8e4b364b1"
+      },
+      {
+        "path": "runtime-final-include-tcp/echo-receipts.json",
+        "size": 44177,
+        "sha256": "73882a453d02b603bec64f457a96d33b6c5b70325f94d113243f2edb4a949340"
+      },
+      {
+        "path": "runtime-final-include-tcp/emulator-command.json",
+        "size": 265,
+        "sha256": "cffb48a76bd40e29d3cd52636869ef9ea08319c9e48497e9d7ef8f2cde308ba1"
+      },
+      {
+        "path": "runtime-final-include-tcp/emulator.log",
+        "size": 8937,
+        "sha256": "a69aad64fa886b122b495247459bb5a7ad9f4a48e717251c48d99e4224725ccd"
+      },
+      {
+        "path": "runtime-final-include-tcp/fixed-app-release-androidTest.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-final-include-tcp/fixed-app-release.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-final-include-tcp/fixed-package.txt",
+        "size": 8583,
+        "sha256": "2a4c2cd26a7cf9c5c31044945325c8c27cafde31dcd51c83afffb5c7986076cf"
+      },
+      {
+        "path": "runtime-final-include-tcp/fixed-run-as.txt",
+        "size": 41,
+        "sha256": "51df9b29e6a68d3a48ee405f4fb073f200476b5b56523c6e307e68b0c8b9753e"
+      },
+      {
+        "path": "runtime-final-include-tcp/leak-any.pcap",
+        "size": 412674,
+        "sha256": "7fed2d06b16f84cc743b3a46bac16a0ad0d598a6511c686f70135632f93a7bc5"
+      },
+      {
+        "path": "runtime-final-include-tcp/leak-bursts.json",
+        "size": 214672,
+        "sha256": "fc31dc8c49e1e086a94d6d01ab6ec7f4b5a7af51df3c922479b0531c8b993024"
+      },
+      {
+        "path": "runtime-final-include-tcp/leak-capture.log",
+        "size": 299,
+        "sha256": "23855c67a2c1508791de2b91a3e04745cc04f42afab865db19bd7b8345af0cab"
+      },
+      {
+        "path": "runtime-final-include-tcp/namespace-identities.json",
+        "size": 90,
+        "sha256": "34ef469437038728a8c4473256998b60aae0381f8ca369729df435b7f53cfba7"
+      },
+      {
+        "path": "runtime-final-include-tcp/namespace-network-after.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-final-include-tcp/namespace-network-before.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-final-include-tcp/published-start.json",
+        "size": 2695,
+        "sha256": "1b5cd71923c6882a64aa4bab0aeba9db4b0e5a921cdc0a9fc70be285f4af6f33"
+      },
+      {
+        "path": "runtime-final-include-tcp/Q29BASELINE-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/Q29BASELINE-probe.txt",
+        "size": 301,
+        "sha256": "cad9ca67707da603aa2bfe1ebfd31196dea3d954cd128fb86130ae031ff2467a"
+      },
+      {
+        "path": "runtime-final-include-tcp/Q29PROTECTED-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/Q29PROTECTED-probe.txt",
+        "size": 303,
+        "sha256": "c2af8be6ca200f323f344a12c05027fdd233c92868a949c3a37503e65ddd5f7c"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-fixture.ini",
+        "size": 465,
+        "sha256": "1b1c768a884445f87ec45a2ca63f87055ba7c5a7ab18fd8146668cab04852f31"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-start-ipv4-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-start-ipv4-tcp-probe.txt",
+        "size": 306,
+        "sha256": "ee9002eef18bac60cb1d9e8d039ec555b94c53a3defbf3f36111d18b44d9e819"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-start-ipv4-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-start-ipv4-udp-probe.txt",
+        "size": 304,
+        "sha256": "31a21477fda28490e51184fa8e70588f39de9bb5d858e26fc707636cdd7d8a03"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-start-ipv6-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-start-ipv6-tcp-probe.txt",
+        "size": 309,
+        "sha256": "9695f1cd39c60aea61b369ed423b4ade6c644315da1be8b3128536c31d5119f5"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-start-ipv6-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-start-ipv6-udp-probe.txt",
+        "size": 307,
+        "sha256": "7d651502b122ffc084d83c10ec9b7f1a3e150edd4cdedefe3727ab850e65193a"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-01-launcher-dump.log",
+        "size": 81,
+        "sha256": "474f9f34c31d2df703e02cbfca9ea3889a8e27c7d49f15312e51be9f140358ab"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-01-launcher.xml",
+        "size": 5782,
+        "sha256": "9a21b6c1363dab457b266262d2fa7c5e7a07ad791818ed6abd98ebd0e681c313"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-02-launcher-dump.log",
+        "size": 81,
+        "sha256": "157882bfc456b2c1655c4182c18b3c7b22174f022c1186f6e61a0fabd59db256"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-02-launcher.xml",
+        "size": 14537,
+        "sha256": "acdcebb5ceb736da8ef551a258929aecac940e9e5159399a721d65b5431e7112"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-03-profiles-dump.log",
+        "size": 81,
+        "sha256": "f8296b27bf894a798757cb4628113242bcc56f81fbb14732f480cda1d0c4a07e"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-03-profiles.xml",
+        "size": 12567,
+        "sha256": "f8241ff5bb17eeec89a57f28fccb9c87f7d4354ead178074d86fc81083d8618c"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-04-import-chooser-dump.log",
+        "size": 81,
+        "sha256": "116fcee9f853b76324320b1fbb13a3e8687a7a6ccb25574a5bd100acfd4ca7fc"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-04-import-chooser.xml",
+        "size": 5195,
+        "sha256": "e6c3647cd1fb63571ee86bba92698ab7a480f3da1d3aeac13c658ff3bb1ac55b"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-05-file-picker-dump.log",
+        "size": 230,
+        "sha256": "f3022c7672e6f71f72060026ee3ee0db2b99a5668e809b52f86cb99c69842c90"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-05-file-picker.xml",
+        "size": 31249,
+        "sha256": "2e58019a87645817d06e4dc79538f6786d2a37c7ae5e1c211059cd0d7ec5a4c4"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-06-imported-profile-dump.log",
+        "size": 81,
+        "sha256": "bb901063def567e326af0e77b0a73643ddad0d0783811fce79a0164607e613e6"
+      },
+      {
+        "path": "runtime-final-include-tcp/release-ui-06-imported-profile.xml",
+        "size": 14909,
+        "sha256": "1474e965fe3eae18399fc40142ab7e43c10716931e443e6ab1bfdf851aa1c92b"
+      },
+      {
+        "path": "runtime-final-include-tcp/result.json",
+        "size": 238101,
+        "sha256": "00138c3a9012b057cc0057a79fee4afcbd11ae4ced319d1b416d814e08454f65"
+      },
+      {
+        "path": "runtime-final-include-tcp/revoked-consent.txt",
+        "size": 41,
+        "sha256": "84fcf444fa4cc70e66d6f23b44b67c33dd20baa021663ae05920249be48457d3"
+      },
+      {
+        "path": "runtime-final-include-tcp/revoked-prefs.xml",
+        "size": 243,
+        "sha256": "f40b933569f48e0684a49a058ac4c928a6b4a4056849f124b670e258b2311fea"
+      },
+      {
+        "path": "runtime-final-include-tcp/server-public-keys.txt",
+        "size": 278,
+        "sha256": "46ffc70aa93a706a7ad8878b3ae752c495f4ca60ed978322b09ece1b54a2364a"
+      },
+      {
+        "path": "runtime-final-include-tcp/server.log",
+        "size": 12076,
+        "sha256": "027625fe015f45766748c51a382adfdf560426391417a9a86c08f1d460fe907d"
+      },
+      {
+        "path": "runtime-final-include-tcp/system-lifecycle-logcat.log",
+        "size": 8352,
+        "sha256": "eb978b7b76be851ae967120a4e76165cf652e16d389c9f2d39ea95a26e9d4373"
+      },
+      {
+        "path": "runtime-final-include-tcp/tcp-tun.pcap",
+        "size": 316100,
+        "sha256": "62e05d3bb0e7a14c21f088846e64fb81d20f509089c0aeeff0d3496675c5071e"
+      },
+      {
+        "path": "runtime-final-include-tcp/tcpdump.log",
+        "size": 165,
+        "sha256": "5415b3f8c8827d49b0b9d0d4e8575d4488f9d987bb0c14fe98a228961f8ac1b1"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-01-vpn-list-dump.log",
+        "size": 214,
+        "sha256": "053e76e850a625226b21c9619939a18df0f6080a9b931d97f71f25a61008a02a"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-01-vpn-list.xml",
+        "size": 9221,
+        "sha256": "5d36db7450d94b44c5797bfe938ba0b5db3af378ac1b46bd35ec225141b241e2"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-02-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "ae94c2c68a960ac7fec43951c2898fb2ccdb91c623dbae4bdc885b0b926804d4"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-02-vpn-list.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-03-switch-before-dump.log",
+        "size": 73,
+        "sha256": "da316353033540cfbe0414cdcbf720c6e91954cf22c36c867abdd2d4b78681a8"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-03-switch-before.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-04-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "e79696a0b3fc75b801b7c66e19cbc4a1f32da8002c021134b087dc17b1be7f7b"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-04-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-05-cold-before-lockdown-dump.log",
+        "size": 73,
+        "sha256": "2f6a15f467d30bed55f836b9801a623579d1b8ed1ac879b3363ce14200601e4c"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-05-cold-before-lockdown.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-06-cold-lockdown-confirmation-dump.log",
+        "size": 73,
+        "sha256": "4921343697fea8c408aa3610024caca01011de94c872b5ae5cc57906a94f24de"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-06-cold-lockdown-confirmation.xml",
+        "size": 6568,
+        "sha256": "5b0955dd4c065211dd7c88a1d7b243583cc2241866bf60ab012f5b5233bb4c15"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-07-cold-lockdown-enabled-dump.log",
+        "size": 73,
+        "sha256": "db9823f82f4ee155717c7524abe138bd858af99ba692aab3bb5207830f0b5743"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-07-cold-lockdown-enabled.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-08-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "8b7f640db55e26bf4bf0406645be27c92501e96b4d3177e68790d8ecfe3841bc"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-08-vpn-list.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-09-switch-before-dump.log",
+        "size": 73,
+        "sha256": "7e39dfae81f74e9401d897a520494ec2232583bdbb6c46a2dbb8008cf2f5ab3b"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-09-switch-before.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-10-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "bff12662ee1138b119c03892d2ac266e508e933254f95b9b317a8b8d7779fd69"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-10-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-11-switch-before-dump.log",
+        "size": 73,
+        "sha256": "f038736214cf41b428d4faf256bd1812a0c4c73db75fdccc76ca44804bf3528f"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-11-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-12-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "23b84f403d1e9a577c7c9dbda0c62f9cc3c3fcd96594b96c5fecf1ce674ad0e4"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-12-switch-toggled.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-13-switch-before-dump.log",
+        "size": 73,
+        "sha256": "ef512b3344787082a7b05bc9bb50f5bcb3134b573b86a23bcef5ee578c0c2b26"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-13-switch-before.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-14-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "52643b2aacccea55caecf92db33a5d32d2ba16315da10c01560519fff8476ada"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-14-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-15-switch-before-dump.log",
+        "size": 73,
+        "sha256": "177bbee62242ff26b05903aa89e8e4de3adc815a9c9a00f811eb3f561b1b945e"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-15-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-16-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "06deafb210e7a36ed314cd7b1ad0f2ad60cbfc390e3cefdd0175e5ff3b30ee92"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-16-switch-toggled.xml",
+        "size": 6568,
+        "sha256": "5b0955dd4c065211dd7c88a1d7b243583cc2241866bf60ab012f5b5233bb4c15"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-17-switch-confirmed-dump.log",
+        "size": 73,
+        "sha256": "6cc5607f829d753c19d27b1520e4b54893b6b7d43ec5df01bb8661faa0ca0241"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-17-switch-confirmed.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-18-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "66a3bb847145168823b1f48b16288b4897606b3d77987c9847a61566e9650c03"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-18-vpn-list.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-19-switch-before-dump.log",
+        "size": 73,
+        "sha256": "28deceb265edce7b89ce6e96942a5bb19188793aee68a1be8ec7246323f9b7e1"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-19-switch-before.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-20-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "e8fea9558e1484cdc4880034432d748a839e8981e41cf03cd29ffdbf61f7a59b"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-20-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-21-switch-before-dump.log",
+        "size": 73,
+        "sha256": "9b4becbb9575de2cc9f8d8928ada05851227f7d2fb414a8c5e1518d0ae1a83c3"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-21-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-22-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "c640f25989b450717112f32e57a994ccde0e3cda170fbfc3d38e5d410cf253c0"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-22-switch-toggled.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-23-before-forget-dump.log",
+        "size": 73,
+        "sha256": "0f08065e210adb8bee04c8dfe2e16d30a20cd7cdbacec073396a12d8f4e70e2a"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-23-before-forget.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-24-forget-confirmation-dump.log",
+        "size": 73,
+        "sha256": "a4de18fa49c97fa19281b47f1979d344f168acb7645d3c91c1e48886f06d9841"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-24-forget-confirmation.xml",
+        "size": 6458,
+        "sha256": "9d775d8d451c5496816660b55eb9f0abf31219f5c5ea126797afc91c296fdde2"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-25-after-forget-dump.log",
+        "size": 73,
+        "sha256": "8cf795d925c8cd375504d36d5721fe97df6a2a1b3ff8f0e42c844b52f20b628f"
+      },
+      {
+        "path": "runtime-final-include-tcp/ui-25-after-forget.xml",
+        "size": 5699,
+        "sha256": "0b15667330f4ecfad48b878167e0ff2278d1bd814ff781465efa47faaba2911f"
+      },
+      {
+        "path": "runtime-final-include-tcp.tgz",
+        "size": 294133,
+        "sha256": "4a164bd9d858aa0cb1d0bdd23b6e223df488bbf470619e7627ac4fe66e2d9c75"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/android-links-after.txt",
+        "size": 2409,
+        "sha256": "a27d73b856431bb0a9656421af611b68138f9756a4a37b3307c22ce872cb99ef"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/android-runtime.log",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/android-services-after.txt",
+        "size": 1436,
+        "sha256": "0c8049448727c90dd643e5f246745c69811e2ed3fa2bc3c937217010f02a46b2"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/avd-userdata-after.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/avd-userdata-before.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-connected-steady-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-connected-steady-logcat.log",
+        "size": 26212,
+        "sha256": "3a390704fe3d632eb40fd2c1160d3d4242e91af4146f2dc30253f20f56f61ee5"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-force-stop-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-force-stop-logcat.log",
+        "size": 71691,
+        "sha256": "056009f688244827ff7bc3af67fd897353cbe2ee884686daf87158b0bfd591c2"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-handover-away-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-handover-away-logcat.log",
+        "size": 41660,
+        "sha256": "6d99515063df1e76dc95f991b70b621d13ca7497c88ac08727fc71c6e0b057fb"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-handover-return-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-handover-return-logcat.log",
+        "size": 58577,
+        "sha256": "0aae88b454e84e5fc8a46992bfd334e206024f87ddb6905b4513e97ae7e54942"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-physical-baseline-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-physical-baseline-logcat.log",
+        "size": 9975,
+        "sha256": "fc477f470e73abcb479b1680f43f0bea716045382c90ffa39cc3240735cdd3b2"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-recovery-ipv4-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-recovery-ipv4-tcp-probe.txt",
+        "size": 300,
+        "sha256": "acdacad80fd6b9c027eb498253666cbee572b78c401821ec0c7d701bd1e2afc7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-recovery-ipv4-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-recovery-ipv4-udp-probe.txt",
+        "size": 298,
+        "sha256": "2ca7c6259eb4cc8bde6ec9b407b78ea3147046a1df2e11eb5ee726bfad55ace8"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-recovery-ipv6-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-recovery-ipv6-tcp-probe.txt",
+        "size": 303,
+        "sha256": "ea6137c8e0b42489bb2bf8592b6ffaaabe4c447054119c939162bdb7e23e3131"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-recovery-ipv6-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-recovery-ipv6-udp-probe.txt",
+        "size": 301,
+        "sha256": "c59bd5901e05d19e167c79cfacb59272da3c66ed0f2433b8d8443c9e8afe0b2e"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-stopped-lockdown-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/burst-stopped-lockdown-logcat.log",
+        "size": 82706,
+        "sha256": "ceae763956edb24be52a45cc3ad0f2d0088b9c0074da1dfb432feafa07b6c434"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/echo-receipts.json",
+        "size": 42134,
+        "sha256": "a78da6e39ba84fd8ee5f892876764c3b5d494898b974025af205953cfb2f7f5b"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/emulator-command.json",
+        "size": 265,
+        "sha256": "cffb48a76bd40e29d3cd52636869ef9ea08319c9e48497e9d7ef8f2cde308ba1"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/emulator.log",
+        "size": 8891,
+        "sha256": "f35416720952e9c0997c61111f795dfd305c2221852e95685ff87225c9fdc23b"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/fixed-app-release-androidTest.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/fixed-app-release.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/fixed-package.txt",
+        "size": 8582,
+        "sha256": "22a3ce326cf39abd895f9397683223e0147da7ea0457dfa29debea6b567b36f2"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/fixed-run-as.txt",
+        "size": 41,
+        "sha256": "51df9b29e6a68d3a48ee405f4fb073f200476b5b56523c6e307e68b0c8b9753e"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-after-addresses.txt",
+        "size": 312,
+        "sha256": "7b6f58c011e54524509a6c591fa38cdb2b8b0cacdd304c1b4756f66962fbfaa7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-after-connectivity.txt",
+        "size": 34104,
+        "sha256": "3b19fd91d6767fa33a9f962da85449a5df4fac451fbfeceb72a020bb8952d45d"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-after-links.txt",
+        "size": 2540,
+        "sha256": "1a813d8b989d67a53bb39dab6061db9cbc7af83d20be0e236172909434ab1ff7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-after-services.txt",
+        "size": 3812,
+        "sha256": "a15841d7f9e84a093b62df772ea76f1de46a6a1f07181d7206bde0e7cfcd81f5"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-after-vpn.txt",
+        "size": 1317,
+        "sha256": "ad4d572f35cbdc47c51a2b1b461d175195ee5c1487f91cf70b1578486fbc5a50"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-before-addresses.txt",
+        "size": 312,
+        "sha256": "7b6f58c011e54524509a6c591fa38cdb2b8b0cacdd304c1b4756f66962fbfaa7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-before-connectivity.txt",
+        "size": 37247,
+        "sha256": "9dfa7c6c010cd068526cd6f5a5703de2796cd030eeb941f2d08a2da1388adf16"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-before-links.txt",
+        "size": 2536,
+        "sha256": "45c537ab0d75aea0cf5f5eabd5074f060d3194322503d1b4b2ac5bd2c6916667"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-before-services.txt",
+        "size": 3808,
+        "sha256": "f2b6ba67d39ac04dfedd1bdbf07b8363205a0dee68fed97ccbb1d4ba7a0f1865"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-before-vpn.txt",
+        "size": 1128,
+        "sha256": "c8fdd3134d372d4fa43132a0edac1b830998134b37b25eec03459ebbddcd9634"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-ipv4-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-ipv4-tcp-probe.txt",
+        "size": 306,
+        "sha256": "10cbe0270205834d07438fb0c27d1d13b467327b3eb7d3047e1c3ad5976454e1"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-ipv4-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-ipv4-udp-probe.txt",
+        "size": 304,
+        "sha256": "7d6094b656779613dc103baa70d73c8a3f77f06ad6444104bff5038e275d9995"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-ipv6-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-ipv6-tcp-probe.txt",
+        "size": 309,
+        "sha256": "1fb60ad768b6bd7e59818cc0d483c181cef82c411ad626435856d865062128be"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-ipv6-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-ipv6-udp-probe.txt",
+        "size": 307,
+        "sha256": "5a7e886452f4d31dc675255958e4b22b48b93759bcbeb848b914f671ec602b0d"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-away-logcat.log",
+        "size": 6437,
+        "sha256": "8bf7c0706f7408a4733c7f4e5a79f78fa35d1f64544a213fccf4a3c8fd02a956"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-final-connectivity.txt",
+        "size": 37714,
+        "sha256": "753266bd560986da49e997c078f477aac1f9dffd891be3481c104edf641de56f"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-final-logcat.log",
+        "size": 9029,
+        "sha256": "b98d57a98e2b60f1cce7aef5fa8dc9bc1606282bd683cfa1d21361fe5dccc28c"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-initial-addresses.txt",
+        "size": 312,
+        "sha256": "7b6f58c011e54524509a6c591fa38cdb2b8b0cacdd304c1b4756f66962fbfaa7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-initial-connectivity.txt",
+        "size": 37247,
+        "sha256": "f950460627d20d63b9bda7d32c3f1f1e199f7398d744bfca7195054fc0d09823"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-initial-links.txt",
+        "size": 2536,
+        "sha256": "45c537ab0d75aea0cf5f5eabd5074f060d3194322503d1b4b2ac5bd2c6916667"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-initial-services.txt",
+        "size": 3808,
+        "sha256": "6cb6d11542dd866b81ec4b5bdff112ea95b0753dc4bfdb6b93c6bd050515c86b"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-initial-vpn.txt",
+        "size": 1128,
+        "sha256": "c8fdd3134d372d4fa43132a0edac1b830998134b37b25eec03459ebbddcd9634"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-phone-help.txt",
+        "size": 14041,
+        "sha256": "55d858618a81516143ca0e67d8187e09a7b0a1a3b983cd979f2a0f062dc59fc4"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-results.json",
+        "size": 6484,
+        "sha256": "f4a9cbfba2294fe4156c228133f7eb83cf7eb3bd8cfda826451679ce8334e410"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-after-addresses.txt",
+        "size": 312,
+        "sha256": "7b6f58c011e54524509a6c591fa38cdb2b8b0cacdd304c1b4756f66962fbfaa7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-after-connectivity.txt",
+        "size": 37714,
+        "sha256": "2e1c52d22a00eeccecb9f1c013b10e8c5f3a3c7a02357784c873b5d9109f1c64"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-after-links.txt",
+        "size": 2536,
+        "sha256": "45c537ab0d75aea0cf5f5eabd5074f060d3194322503d1b4b2ac5bd2c6916667"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-after-services.txt",
+        "size": 3812,
+        "sha256": "e5e5dd0502ed6ad50858bc16fde882cbb07fb3c8581f8b8c41116d94d02b9973"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-after-vpn.txt",
+        "size": 1506,
+        "sha256": "67b1dc8ef6499ae8e10192c1ce9656278c3aa719f7d610c22db87aad3b4f24e4"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-before-addresses.txt",
+        "size": 312,
+        "sha256": "7b6f58c011e54524509a6c591fa38cdb2b8b0cacdd304c1b4756f66962fbfaa7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-before-connectivity.txt",
+        "size": 34104,
+        "sha256": "3b19fd91d6767fa33a9f962da85449a5df4fac451fbfeceb72a020bb8952d45d"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-before-links.txt",
+        "size": 2540,
+        "sha256": "1a813d8b989d67a53bb39dab6061db9cbc7af83d20be0e236172909434ab1ff7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-before-services.txt",
+        "size": 3812,
+        "sha256": "1c8716e81f2da52bb6be5749c8c7d7d0cf770d5bf9392ae3d962653d8d6c0b9c"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-before-vpn.txt",
+        "size": 1317,
+        "sha256": "ad4d572f35cbdc47c51a2b1b461d175195ee5c1487f91cf70b1578486fbc5a50"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-ipv4-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-ipv4-tcp-probe.txt",
+        "size": 300,
+        "sha256": "6275245ff6bc0a595154704a00845ef79b43a2e965cdc3d6b0aa41b17c538d67"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-ipv4-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-ipv4-udp-probe.txt",
+        "size": 298,
+        "sha256": "235480fd8e0192dcc5e74f050b03cb68eeb70fb87fcadd1c8c51570f40408cdf"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-ipv6-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-ipv6-tcp-probe.txt",
+        "size": 303,
+        "sha256": "0ddeb01d78b8fa58ceb07cb25d038a4550ac425b3b89b6121827932c406e5dd4"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-ipv6-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-ipv6-udp-probe.txt",
+        "size": 301,
+        "sha256": "c70743dc55beb732359ebd33bb3cefac315fdf9cf84af62d3a8a7010ef907b46"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-return-logcat.log",
+        "size": 9029,
+        "sha256": "b98d57a98e2b60f1cce7aef5fa8dc9bc1606282bd683cfa1d21361fe5dccc28c"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/handover-wifi-status.txt",
+        "size": 1171,
+        "sha256": "8c1f6fb55f3a1150114893407ee1eb845fcf6d9ab82399000477288584ebee23"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/leak-any.pcap",
+        "size": 470646,
+        "sha256": "44229a2cfd16438fb21942a5fa31cad2fd57620f889d863a52ee3cd9e7ca562b"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/leak-bursts.json",
+        "size": 162303,
+        "sha256": "57c07f0969840ee217e69dd3f2ca91eb0b7670065a1f5a0e21e6b9b96b5b9156"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/leak-capture.log",
+        "size": 299,
+        "sha256": "8a3efa4a30b04c5cf391687939f0081f34a5a84755dad1cfb13e357add232700"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/namespace-identities.json",
+        "size": 90,
+        "sha256": "34ef469437038728a8c4473256998b60aae0381f8ca369729df435b7f53cfba7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/namespace-network-after.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/namespace-network-before.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/Q29BASELINE-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/Q29BASELINE-probe.txt",
+        "size": 301,
+        "sha256": "543de1f2ed1546dca99ebbb0f8d9c2cd5ba364d188f31ca4d7aa87347699a71c"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/Q29PROTECTED-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/Q29PROTECTED-probe.txt",
+        "size": 303,
+        "sha256": "15f6f0bbba50f020987894cf76f0c273f6d5495cbd5be9b33e48252e4e27b229"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-fixture.ini",
+        "size": 436,
+        "sha256": "8c8105020513510f2014c5c2963f999ad0d082e44140d9ff0d3d8c5c22dd53d0"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-01-launcher-dump.log",
+        "size": 81,
+        "sha256": "474f9f34c31d2df703e02cbfca9ea3889a8e27c7d49f15312e51be9f140358ab"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-01-launcher.xml",
+        "size": 4115,
+        "sha256": "389344df28b813c6e6b833da8e1cd8f28d2934a728d302aa4376ea4735c3e9be"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-02-launcher-dump.log",
+        "size": 81,
+        "sha256": "157882bfc456b2c1655c4182c18b3c7b22174f022c1186f6e61a0fabd59db256"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-02-launcher.xml",
+        "size": 5782,
+        "sha256": "9a21b6c1363dab457b266262d2fa7c5e7a07ad791818ed6abd98ebd0e681c313"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-03-launcher-dump.log",
+        "size": 81,
+        "sha256": "f8296b27bf894a798757cb4628113242bcc56f81fbb14732f480cda1d0c4a07e"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-03-launcher.xml",
+        "size": 14537,
+        "sha256": "acdcebb5ceb736da8ef551a258929aecac940e9e5159399a721d65b5431e7112"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-04-profiles-dump.log",
+        "size": 81,
+        "sha256": "116fcee9f853b76324320b1fbb13a3e8687a7a6ccb25574a5bd100acfd4ca7fc"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-04-profiles.xml",
+        "size": 12567,
+        "sha256": "f8241ff5bb17eeec89a57f28fccb9c87f7d4354ead178074d86fc81083d8618c"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-05-import-chooser-dump.log",
+        "size": 81,
+        "sha256": "b2ebfbc774effb2478922ab06f27f03474c60f1adca8a53424dba7a52985b959"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-05-import-chooser.xml",
+        "size": 5195,
+        "sha256": "e6c3647cd1fb63571ee86bba92698ab7a480f3da1d3aeac13c658ff3bb1ac55b"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-06-file-picker-dump.log",
+        "size": 81,
+        "sha256": "bb901063def567e326af0e77b0a73643ddad0d0783811fce79a0164607e613e6"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-06-file-picker.xml",
+        "size": 31958,
+        "sha256": "51391bba1b180f93cce47df84a9cc558e859fc0d21641aa3224acc9ea6860f28"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-07-imported-profile-dump.log",
+        "size": 81,
+        "sha256": "d4ea744f5f698d217f9d62863318ac97bd90c08bf89f5777490fe8e75ec87d74"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/release-ui-07-imported-profile.xml",
+        "size": 14909,
+        "sha256": "1474e965fe3eae18399fc40142ab7e43c10716931e443e6ab1bfdf851aa1c92b"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/result.json",
+        "size": 180529,
+        "sha256": "67b822d430cff5dfb97bee6314b3fb9b9927749beb531de48ab7593099c3167c"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/revoked-consent.txt",
+        "size": 41,
+        "sha256": "c16771b973983e9bf35441f4aa1f3c3f550504724c28371fad3f1195d8a26503"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/revoked-prefs.xml",
+        "size": 243,
+        "sha256": "f8ac3cdb0f3b721ee282377004ea73d703317102f0e96a5c14f57f29e8d66228"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/server-public-keys.txt",
+        "size": 278,
+        "sha256": "2d096f24343ef2f3575f534a8d117724f3dd003530926135091bdd5e22f4c267"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/server.log",
+        "size": 14815,
+        "sha256": "edb7eda88a15438f8d3477ce28645ab3a7e634972c220b695edaa3d6e8304d87"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/system-lifecycle-logcat.log",
+        "size": 13471,
+        "sha256": "893f28dec5cf96300c4ebc9fcf5c45d3314144f9d2ca165987c626bea45076a4"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/tcp-tun.pcap",
+        "size": 439623,
+        "sha256": "223856b6eec87348f320cee12194e0195bcc8eefc93e3596af1813c2cbd5635f"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/tcpdump.log",
+        "size": 165,
+        "sha256": "c7803de414150fdd31727ab0c3236252c5d25a74e302546bd522fc1711022ba7"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-01-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "320040090722c40b73b069cb1396a7736946c19b0659df215ac07006b8a9c76e"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-01-vpn-list.xml",
+        "size": 9221,
+        "sha256": "5d36db7450d94b44c5797bfe938ba0b5db3af378ac1b46bd35ec225141b241e2"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-02-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "ae94c2c68a960ac7fec43951c2898fb2ccdb91c623dbae4bdc885b0b926804d4"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-02-vpn-list.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-03-switch-before-dump.log",
+        "size": 73,
+        "sha256": "da316353033540cfbe0414cdcbf720c6e91954cf22c36c867abdd2d4b78681a8"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-03-switch-before.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-04-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "e79696a0b3fc75b801b7c66e19cbc4a1f32da8002c021134b087dc17b1be7f7b"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-04-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-05-switch-before-dump.log",
+        "size": 73,
+        "sha256": "2f6a15f467d30bed55f836b9801a623579d1b8ed1ac879b3363ce14200601e4c"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-05-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-06-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "4921343697fea8c408aa3610024caca01011de94c872b5ae5cc57906a94f24de"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-06-switch-toggled.xml",
+        "size": 6568,
+        "sha256": "5b0955dd4c065211dd7c88a1d7b243583cc2241866bf60ab012f5b5233bb4c15"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-07-switch-confirmed-dump.log",
+        "size": 73,
+        "sha256": "db9823f82f4ee155717c7524abe138bd858af99ba692aab3bb5207830f0b5743"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-07-switch-confirmed.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-08-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "8b7f640db55e26bf4bf0406645be27c92501e96b4d3177e68790d8ecfe3841bc"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-08-vpn-list.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-09-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "7e39dfae81f74e9401d897a520494ec2232583bdbb6c46a2dbb8008cf2f5ab3b"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-09-vpn-list.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-10-switch-before-dump.log",
+        "size": 73,
+        "sha256": "bff12662ee1138b119c03892d2ac266e508e933254f95b9b317a8b8d7779fd69"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-10-switch-before.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-11-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "f038736214cf41b428d4faf256bd1812a0c4c73db75fdccc76ca44804bf3528f"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-11-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-12-switch-before-dump.log",
+        "size": 73,
+        "sha256": "23b84f403d1e9a577c7c9dbda0c62f9cc3c3fcd96594b96c5fecf1ce674ad0e4"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-12-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-13-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "ef512b3344787082a7b05bc9bb50f5bcb3134b573b86a23bcef5ee578c0c2b26"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-13-switch-toggled.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-14-switch-before-dump.log",
+        "size": 73,
+        "sha256": "52643b2aacccea55caecf92db33a5d32d2ba16315da10c01560519fff8476ada"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-14-switch-before.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-15-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "177bbee62242ff26b05903aa89e8e4de3adc815a9c9a00f811eb3f561b1b945e"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-15-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-16-switch-before-dump.log",
+        "size": 73,
+        "sha256": "06deafb210e7a36ed314cd7b1ad0f2ad60cbfc390e3cefdd0175e5ff3b30ee92"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-16-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-17-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "6cc5607f829d753c19d27b1520e4b54893b6b7d43ec5df01bb8661faa0ca0241"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-17-switch-toggled.xml",
+        "size": 6568,
+        "sha256": "5b0955dd4c065211dd7c88a1d7b243583cc2241866bf60ab012f5b5233bb4c15"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-18-switch-confirmed-dump.log",
+        "size": 73,
+        "sha256": "66a3bb847145168823b1f48b16288b4897606b3d77987c9847a61566e9650c03"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-18-switch-confirmed.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-19-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "28deceb265edce7b89ce6e96942a5bb19188793aee68a1be8ec7246323f9b7e1"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-19-vpn-list.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-20-switch-before-dump.log",
+        "size": 73,
+        "sha256": "e8fea9558e1484cdc4880034432d748a839e8981e41cf03cd29ffdbf61f7a59b"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-20-switch-before.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-21-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "9b4becbb9575de2cc9f8d8928ada05851227f7d2fb414a8c5e1518d0ae1a83c3"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-21-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-22-switch-before-dump.log",
+        "size": 73,
+        "sha256": "c640f25989b450717112f32e57a994ccde0e3cda170fbfc3d38e5d410cf253c0"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-22-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-23-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "0f08065e210adb8bee04c8dfe2e16d30a20cd7cdbacec073396a12d8f4e70e2a"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-23-switch-toggled.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-24-before-forget-dump.log",
+        "size": 73,
+        "sha256": "a4de18fa49c97fa19281b47f1979d344f168acb7645d3c91c1e48886f06d9841"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-24-before-forget.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-25-forget-confirmation-dump.log",
+        "size": 73,
+        "sha256": "8cf795d925c8cd375504d36d5721fe97df6a2a1b3ff8f0e42c844b52f20b628f"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-25-forget-confirmation.xml",
+        "size": 6458,
+        "sha256": "9d775d8d451c5496816660b55eb9f0abf31219f5c5ea126797afc91c296fdde2"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-26-after-forget-dump.log",
+        "size": 73,
+        "sha256": "2708ae75c351fd5671dda7ae6126fb8942a1c1d1e687c095f9808d5e81e0360f"
+      },
+      {
+        "path": "runtime-final-reuse-tcp/ui-26-after-forget.xml",
+        "size": 5699,
+        "sha256": "0b15667330f4ecfad48b878167e0ff2278d1bd814ff781465efa47faaba2911f"
+      },
+      {
+        "path": "runtime-final-reuse-tcp.tgz",
+        "size": 262145,
+        "sha256": "2c4920733452d9435057539e8f8bf3a5aed9b4d8af8d32b16f8f01d542f0bf93"
+      },
+      {
+        "path": "runtime-final.py",
+        "size": 3518,
+        "sha256": "d10fa27b1323478693c07872d21cc89913381509f72febcf498a213417beb6d2"
+      },
+      {
+        "path": "runtime-include-tcp/android-links-after.txt",
+        "size": 2409,
+        "sha256": "b7cff554143e416eb719363327f03a6b81cda339be2c67c3856d03cba9a8dd5c"
+      },
+      {
+        "path": "runtime-include-tcp/android-runtime.log",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "runtime-include-tcp/android-services-after.txt",
+        "size": 1436,
+        "sha256": "214c064f4d8a223de254ea13afe1e15ef859b8dc821b3e3e0992a40b4bd54182"
+      },
+      {
+        "path": "runtime-include-tcp/avd-userdata-after.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-include-tcp/avd-userdata-before.json",
+        "size": 514,
+        "sha256": "37cfecdd5f212665f571a79dec06f62ab93160b93897d186059f19ceea3920ae"
+      },
+      {
+        "path": "runtime-include-tcp/burst-cold-lockdown-start-broadcast.txt",
+        "size": 135,
+        "sha256": "ddb3bc620f00d6c2775a9a39aa3c394c517f3faed8f1531d4f3896fce7fc6e65"
+      },
+      {
+        "path": "runtime-include-tcp/burst-cold-lockdown-start-logcat.log",
+        "size": 52673,
+        "sha256": "0e33fceff41df3adfb7c7a6c9d38764d483963ad90c854eb2f936a58b6299e34"
+      },
+      {
+        "path": "runtime-include-tcp/burst-connected-steady-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/burst-connected-steady-logcat.log",
+        "size": 85765,
+        "sha256": "9ef93f703c7892ad800f165f91dce5a4d17cc688a91e41cad93f7c4828885602"
+      },
+      {
+        "path": "runtime-include-tcp/burst-force-stop-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/burst-force-stop-logcat.log",
+        "size": 99001,
+        "sha256": "548810630590b9b6d1dca805fe3147e5a5eb68a155a24fb4eb387c0596a49f73"
+      },
+      {
+        "path": "runtime-include-tcp/burst-physical-baseline-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/burst-physical-baseline-logcat.log",
+        "size": 10147,
+        "sha256": "cfd6107eafd6d51454eb3755435b2462547028ffee2db90375a4fb53793244a5"
+      },
+      {
+        "path": "runtime-include-tcp/burst-recovery-ipv4-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/burst-recovery-ipv4-tcp-probe.txt",
+        "size": 300,
+        "sha256": "1dff809497b6f4e04fc3702fe2d4f95789b772458272e0317bccf54375971ccf"
+      },
+      {
+        "path": "runtime-include-tcp/burst-recovery-ipv4-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/burst-recovery-ipv4-udp-probe.txt",
+        "size": 298,
+        "sha256": "7274a52625c491c228acea7dfdf562702c3db30db87bfe37a456cb7434cdfd11"
+      },
+      {
+        "path": "runtime-include-tcp/burst-recovery-ipv6-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/burst-recovery-ipv6-tcp-probe.txt",
+        "size": 303,
+        "sha256": "fed2dfcd59d5ec4aaaa4885844bc541109ff526db936ec9e1d0fdbdb4d8e9f2d"
+      },
+      {
+        "path": "runtime-include-tcp/burst-recovery-ipv6-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/burst-recovery-ipv6-udp-probe.txt",
+        "size": 301,
+        "sha256": "c66b70b9fbe8223774a7c05dfff5a966adc38520d3461c96fb5607e083c487d8"
+      },
+      {
+        "path": "runtime-include-tcp/burst-startup-followup-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/burst-startup-followup-logcat.log",
+        "size": 68392,
+        "sha256": "b2284f2f4e1fbadda854103d8d00c547a4953b0644a84048cebb40e2a157024b"
+      },
+      {
+        "path": "runtime-include-tcp/burst-stopped-lockdown-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/burst-stopped-lockdown-logcat.log",
+        "size": 110016,
+        "sha256": "d47ad3b15c6ac8fa5f0e038f3fe09895c69c54959872fc5de6df5ef52d1d2ddc"
+      },
+      {
+        "path": "runtime-include-tcp/cold-start-epoch.log",
+        "size": 69173,
+        "sha256": "821a6c37aaaefbca9802d48a01a9affa8922ce21d3a212135ad6faa650280565"
+      },
+      {
+        "path": "runtime-include-tcp/dns-blocked-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/dns-blocked-raw.log",
+        "size": 110105,
+        "sha256": "910ea55f0f38b1c4af0db9ecb6967e42dcf40f850e250841659f4cc56a481dc5"
+      },
+      {
+        "path": "runtime-include-tcp/dns-blocked-system-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/dns-blocked-system.log",
+        "size": 109955,
+        "sha256": "c7362149d4f19378fcdc19f66f23af3f12051f81367dab0cfcd4bc238f1edd04"
+      },
+      {
+        "path": "runtime-include-tcp/dns-connected-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/dns-connected-raw.log",
+        "size": 68551,
+        "sha256": "0103e07b115c7550a347d70912fc267c49f99ae29b5773cffdc0d8b267ef9331"
+      },
+      {
+        "path": "runtime-include-tcp/dns-connected-system-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/dns-connected-system.log",
+        "size": 68352,
+        "sha256": "e257e614a8510a7289e68bd4718a085ee8e33bfa7bdb17e7c7ec73f3b6a69fdc"
+      },
+      {
+        "path": "runtime-include-tcp/dns-manual-recovery-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/dns-manual-recovery-raw.log",
+        "size": 111475,
+        "sha256": "fb00d2c9ddf85ecebd38be571f578932a0aa4f35449686ad8817e3a6cbcfc5ec"
+      },
+      {
+        "path": "runtime-include-tcp/dns-manual-recovery-system-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/dns-manual-recovery-system.log",
+        "size": 111276,
+        "sha256": "d0201fec96ff66d0930ff63cf9a06d49ea62dc7f38f7e10d52cf46cca3b3e6b6"
+      },
+      {
+        "path": "runtime-include-tcp/dns-physical-baseline-raw-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/dns-physical-baseline-raw.log",
+        "size": 10603,
+        "sha256": "f8f720a3ea72a45328a3098765bf086ecba29fdc4baa60da38e9141bb748bf0e"
+      },
+      {
+        "path": "runtime-include-tcp/dns-probes.json",
+        "size": 2978,
+        "sha256": "7765f34a0ae75c310c4d02d0399ab291e5fca88663ef5b4778351f9cf9511ea7"
+      },
+      {
+        "path": "runtime-include-tcp/dns-receipts.json",
+        "size": 812,
+        "sha256": "589e88960f1dd97b64b4e6015a11ab294ce2fd95da0d3a346245cf222bf8ca87"
+      },
+      {
+        "path": "runtime-include-tcp/echo-receipts.json",
+        "size": 43764,
+        "sha256": "c7ac085818fe7ede462c7a4022fe24790c37fc54d20ffef06534cdb4fa74ac34"
+      },
+      {
+        "path": "runtime-include-tcp/emulator-command.json",
+        "size": 265,
+        "sha256": "cffb48a76bd40e29d3cd52636869ef9ea08319c9e48497e9d7ef8f2cde308ba1"
+      },
+      {
+        "path": "runtime-include-tcp/emulator.log",
+        "size": 8797,
+        "sha256": "130b979f871ebc6a64180acac2003c2b12123a68a8c34614ac038accab1c8142"
+      },
+      {
+        "path": "runtime-include-tcp/fixed-app-release-androidTest.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-include-tcp/fixed-app-release.apk-install.log",
+        "size": 36,
+        "sha256": "781a31c82430c97897af612ece5e0ca2205e301cb5ff121ce2660541ea5182c7"
+      },
+      {
+        "path": "runtime-include-tcp/fixed-package.txt",
+        "size": 8579,
+        "sha256": "18aba853b4b52ec7d72dbf306edbc9b9c98597b9e4ccb09a1e023f65941c5c3d"
+      },
+      {
+        "path": "runtime-include-tcp/fixed-run-as.txt",
+        "size": 41,
+        "sha256": "51df9b29e6a68d3a48ee405f4fb073f200476b5b56523c6e307e68b0c8b9753e"
+      },
+      {
+        "path": "runtime-include-tcp/leak-any.pcap",
+        "size": 408474,
+        "sha256": "e76e7d3ff15bd7d194b739d15339129428a30d2af50e51fb9e2d8843c4d2d205"
+      },
+      {
+        "path": "runtime-include-tcp/leak-bursts.json",
+        "size": 215855,
+        "sha256": "abc5c1b4e37e2b6df387208f14ab5988674202b335d47d0d730c98f358ccce0f"
+      },
+      {
+        "path": "runtime-include-tcp/leak-capture.log",
+        "size": 299,
+        "sha256": "6557727be1f43609cd586138de144b83d3edbe8de58cbf351c216e74c229c678"
+      },
+      {
+        "path": "runtime-include-tcp/namespace-identities.json",
+        "size": 90,
+        "sha256": "34ef469437038728a8c4473256998b60aae0381f8ca369729df435b7f53cfba7"
+      },
+      {
+        "path": "runtime-include-tcp/namespace-network-after.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-include-tcp/namespace-network-before.txt",
+        "size": 53,
+        "sha256": "f97bfb6dd64aa8eb168dccad2aa4ae938ecdb0da61f6bb9e9d5c963b3f667850"
+      },
+      {
+        "path": "runtime-include-tcp/published-start.json",
+        "size": 2695,
+        "sha256": "b614263fcbfe6c7c39ab01dbad1b89ed4f4547c3c9df063122a339bd3fc47deb"
+      },
+      {
+        "path": "runtime-include-tcp/Q29BASELINE-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/Q29BASELINE-probe.txt",
+        "size": 301,
+        "sha256": "d9dd39aa315cc2720d73fd53a685ba6f6cded1b0995ac73b90e7c038675cd69f"
+      },
+      {
+        "path": "runtime-include-tcp/Q29PROTECTED-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/Q29PROTECTED-probe.txt",
+        "size": 303,
+        "sha256": "21f7733acfdca1700ab05c5523f3a31256d57e2b9dd63d8b7437543d9b370ca1"
+      },
+      {
+        "path": "runtime-include-tcp/release-fixture.ini",
+        "size": 465,
+        "sha256": "75ec677b7ba1ba05e1620c1b0f854460ca877f7543b6ea297d80e83b6ddb74aa"
+      },
+      {
+        "path": "runtime-include-tcp/release-start-ipv4-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/release-start-ipv4-tcp-probe.txt",
+        "size": 306,
+        "sha256": "e1a7e2a78ae95751d87944afb85444cacdabd702c02d12184b51a7c7bf9e65ff"
+      },
+      {
+        "path": "runtime-include-tcp/release-start-ipv4-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/release-start-ipv4-udp-probe.txt",
+        "size": 304,
+        "sha256": "f7b2cc64eee38b46c02dc880f9eacb8432797ff9bbefe0e6281e4bfe65addd23"
+      },
+      {
+        "path": "runtime-include-tcp/release-start-ipv6-tcp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/release-start-ipv6-tcp-probe.txt",
+        "size": 309,
+        "sha256": "8b2355bb5f63c727456713d7eac5050fb0d07e30a75a6a2fceeacf2d0ce18b4f"
+      },
+      {
+        "path": "runtime-include-tcp/release-start-ipv6-udp-broadcast.txt",
+        "size": 137,
+        "sha256": "cabf25e870c7d1ea2f6e4971a28e91abc8ac02a50d2ec4a502c1294968064c72"
+      },
+      {
+        "path": "runtime-include-tcp/release-start-ipv6-udp-probe.txt",
+        "size": 307,
+        "sha256": "006ba5170635fbe8b021285dc43da9c4812af1f38d73b58297d9771061068d70"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-01-launcher-dump.log",
+        "size": 81,
+        "sha256": "474f9f34c31d2df703e02cbfca9ea3889a8e27c7d49f15312e51be9f140358ab"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-01-launcher.xml",
+        "size": 4115,
+        "sha256": "042dffe3d54a322e9b76de760b7feeb8f0cd5ec48c130fa41dfa0dafefa41285"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-02-launcher-dump.log",
+        "size": 81,
+        "sha256": "157882bfc456b2c1655c4182c18b3c7b22174f022c1186f6e61a0fabd59db256"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-02-launcher.xml",
+        "size": 5782,
+        "sha256": "9a21b6c1363dab457b266262d2fa7c5e7a07ad791818ed6abd98ebd0e681c313"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-03-launcher-dump.log",
+        "size": 81,
+        "sha256": "f8296b27bf894a798757cb4628113242bcc56f81fbb14732f480cda1d0c4a07e"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-03-launcher.xml",
+        "size": 14537,
+        "sha256": "acdcebb5ceb736da8ef551a258929aecac940e9e5159399a721d65b5431e7112"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-04-profiles-dump.log",
+        "size": 81,
+        "sha256": "116fcee9f853b76324320b1fbb13a3e8687a7a6ccb25574a5bd100acfd4ca7fc"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-04-profiles.xml",
+        "size": 12567,
+        "sha256": "f8241ff5bb17eeec89a57f28fccb9c87f7d4354ead178074d86fc81083d8618c"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-05-import-chooser-dump.log",
+        "size": 81,
+        "sha256": "b2ebfbc774effb2478922ab06f27f03474c60f1adca8a53424dba7a52985b959"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-05-import-chooser.xml",
+        "size": 5195,
+        "sha256": "e6c3647cd1fb63571ee86bba92698ab7a480f3da1d3aeac13c658ff3bb1ac55b"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-06-file-picker-dump.log",
+        "size": 81,
+        "sha256": "bb901063def567e326af0e77b0a73643ddad0d0783811fce79a0164607e613e6"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-06-file-picker.xml",
+        "size": 13959,
+        "sha256": "20122cf487caf758b7976e8ea53baaa1f2071fca499e89e17283c6083d2fa7fb"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-07-file-picker-loaded-dump.log",
+        "size": 81,
+        "sha256": "d4ea744f5f698d217f9d62863318ac97bd90c08bf89f5777490fe8e75ec87d74"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-07-file-picker-loaded.xml",
+        "size": 31249,
+        "sha256": "7d069e19f485607c925066b63fb50afd46da4a0622c8f2b598ab7e64434fa893"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-08-imported-profile-dump.log",
+        "size": 81,
+        "sha256": "2bdd0eaf977532dc85535b134a4f536ea54bb04f32944dc7ec1c1bba5dea9c75"
+      },
+      {
+        "path": "runtime-include-tcp/release-ui-08-imported-profile.xml",
+        "size": 14909,
+        "sha256": "1474e965fe3eae18399fc40142ab7e43c10716931e443e6ab1bfdf851aa1c92b"
+      },
+      {
+        "path": "runtime-include-tcp/result.json",
+        "size": 239388,
+        "sha256": "f98a2eafb1e15da11409b849b153fa22a871da8b6ab40b92bce386cc024ada3a"
+      },
+      {
+        "path": "runtime-include-tcp/revoked-consent.txt",
+        "size": 41,
+        "sha256": "147fe750b7e0bb8b995189f3bab09e045ff04c7df902c4f53547088ec7308471"
+      },
+      {
+        "path": "runtime-include-tcp/revoked-prefs.xml",
+        "size": 243,
+        "sha256": "ef01711bc2fc34469e42bfea235f029a8bbf93ffcccadee10dc29edb1979a9e4"
+      },
+      {
+        "path": "runtime-include-tcp/server-public-keys.txt",
+        "size": 278,
+        "sha256": "db15e8fc2fe11f988e3629c6d77b1ee6dbc66cbe10b4a52f9719258cc049acfe"
+      },
+      {
+        "path": "runtime-include-tcp/server.log",
+        "size": 12040,
+        "sha256": "cca35f949f94a455add068c27df5a02af9fd576244f3913ac2bb5c02054ac72b"
+      },
+      {
+        "path": "runtime-include-tcp/system-lifecycle-logcat.log",
+        "size": 8352,
+        "sha256": "8f0e43aa05c5fc9bb23f1d57464d14b20790016b7ffb154a3f7be0cc2358a145"
+      },
+      {
+        "path": "runtime-include-tcp/tcp-tun.pcap",
+        "size": 316844,
+        "sha256": "3331b3f5d46cf0361d79c20f48cc3cb68b26aac34188c093055b9836574fcad8"
+      },
+      {
+        "path": "runtime-include-tcp/tcpdump.log",
+        "size": 165,
+        "sha256": "227dc019d08482d558582c206b5b925ffc7d20a8c8945e5a8ef91f0e6d004606"
+      },
+      {
+        "path": "runtime-include-tcp/ui-01-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "320040090722c40b73b069cb1396a7736946c19b0659df215ac07006b8a9c76e"
+      },
+      {
+        "path": "runtime-include-tcp/ui-01-vpn-list.xml",
+        "size": 9221,
+        "sha256": "5d36db7450d94b44c5797bfe938ba0b5db3af378ac1b46bd35ec225141b241e2"
+      },
+      {
+        "path": "runtime-include-tcp/ui-02-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "ae94c2c68a960ac7fec43951c2898fb2ccdb91c623dbae4bdc885b0b926804d4"
+      },
+      {
+        "path": "runtime-include-tcp/ui-02-vpn-list.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-include-tcp/ui-03-switch-before-dump.log",
+        "size": 73,
+        "sha256": "da316353033540cfbe0414cdcbf720c6e91954cf22c36c867abdd2d4b78681a8"
+      },
+      {
+        "path": "runtime-include-tcp/ui-03-switch-before.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-include-tcp/ui-04-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "e79696a0b3fc75b801b7c66e19cbc4a1f32da8002c021134b087dc17b1be7f7b"
+      },
+      {
+        "path": "runtime-include-tcp/ui-04-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-include-tcp/ui-05-cold-before-lockdown-dump.log",
+        "size": 73,
+        "sha256": "2f6a15f467d30bed55f836b9801a623579d1b8ed1ac879b3363ce14200601e4c"
+      },
+      {
+        "path": "runtime-include-tcp/ui-05-cold-before-lockdown.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-include-tcp/ui-06-cold-lockdown-confirmation-dump.log",
+        "size": 73,
+        "sha256": "4921343697fea8c408aa3610024caca01011de94c872b5ae5cc57906a94f24de"
+      },
+      {
+        "path": "runtime-include-tcp/ui-06-cold-lockdown-confirmation.xml",
+        "size": 6568,
+        "sha256": "5b0955dd4c065211dd7c88a1d7b243583cc2241866bf60ab012f5b5233bb4c15"
+      },
+      {
+        "path": "runtime-include-tcp/ui-07-cold-lockdown-enabled-dump.log",
+        "size": 73,
+        "sha256": "db9823f82f4ee155717c7524abe138bd858af99ba692aab3bb5207830f0b5743"
+      },
+      {
+        "path": "runtime-include-tcp/ui-07-cold-lockdown-enabled.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-include-tcp/ui-08-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "8b7f640db55e26bf4bf0406645be27c92501e96b4d3177e68790d8ecfe3841bc"
+      },
+      {
+        "path": "runtime-include-tcp/ui-08-vpn-list.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-include-tcp/ui-09-switch-before-dump.log",
+        "size": 73,
+        "sha256": "7e39dfae81f74e9401d897a520494ec2232583bdbb6c46a2dbb8008cf2f5ab3b"
+      },
+      {
+        "path": "runtime-include-tcp/ui-09-switch-before.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-include-tcp/ui-10-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "bff12662ee1138b119c03892d2ac266e508e933254f95b9b317a8b8d7779fd69"
+      },
+      {
+        "path": "runtime-include-tcp/ui-10-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-include-tcp/ui-11-switch-before-dump.log",
+        "size": 73,
+        "sha256": "f038736214cf41b428d4faf256bd1812a0c4c73db75fdccc76ca44804bf3528f"
+      },
+      {
+        "path": "runtime-include-tcp/ui-11-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-include-tcp/ui-12-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "23b84f403d1e9a577c7c9dbda0c62f9cc3c3fcd96594b96c5fecf1ce674ad0e4"
+      },
+      {
+        "path": "runtime-include-tcp/ui-12-switch-toggled.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-include-tcp/ui-13-switch-before-dump.log",
+        "size": 73,
+        "sha256": "ef512b3344787082a7b05bc9bb50f5bcb3134b573b86a23bcef5ee578c0c2b26"
+      },
+      {
+        "path": "runtime-include-tcp/ui-13-switch-before.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-include-tcp/ui-14-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "52643b2aacccea55caecf92db33a5d32d2ba16315da10c01560519fff8476ada"
+      },
+      {
+        "path": "runtime-include-tcp/ui-14-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-include-tcp/ui-15-switch-before-dump.log",
+        "size": 73,
+        "sha256": "177bbee62242ff26b05903aa89e8e4de3adc815a9c9a00f811eb3f561b1b945e"
+      },
+      {
+        "path": "runtime-include-tcp/ui-15-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-include-tcp/ui-16-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "06deafb210e7a36ed314cd7b1ad0f2ad60cbfc390e3cefdd0175e5ff3b30ee92"
+      },
+      {
+        "path": "runtime-include-tcp/ui-16-switch-toggled.xml",
+        "size": 6568,
+        "sha256": "5b0955dd4c065211dd7c88a1d7b243583cc2241866bf60ab012f5b5233bb4c15"
+      },
+      {
+        "path": "runtime-include-tcp/ui-17-switch-confirmed-dump.log",
+        "size": 73,
+        "sha256": "6cc5607f829d753c19d27b1520e4b54893b6b7d43ec5df01bb8661faa0ca0241"
+      },
+      {
+        "path": "runtime-include-tcp/ui-17-switch-confirmed.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-include-tcp/ui-18-vpn-list-dump.log",
+        "size": 73,
+        "sha256": "66a3bb847145168823b1f48b16288b4897606b3d77987c9847a61566e9650c03"
+      },
+      {
+        "path": "runtime-include-tcp/ui-18-vpn-list.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-include-tcp/ui-19-switch-before-dump.log",
+        "size": 73,
+        "sha256": "28deceb265edce7b89ce6e96942a5bb19188793aee68a1be8ec7246323f9b7e1"
+      },
+      {
+        "path": "runtime-include-tcp/ui-19-switch-before.xml",
+        "size": 12296,
+        "sha256": "43c847153e2c309843d5836986a8fed99692097b1f43858037dfe86304bd7bc8"
+      },
+      {
+        "path": "runtime-include-tcp/ui-20-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "e8fea9558e1484cdc4880034432d748a839e8981e41cf03cd29ffdbf61f7a59b"
+      },
+      {
+        "path": "runtime-include-tcp/ui-20-switch-toggled.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-include-tcp/ui-21-switch-before-dump.log",
+        "size": 73,
+        "sha256": "9b4becbb9575de2cc9f8d8928ada05851227f7d2fb414a8c5e1518d0ae1a83c3"
+      },
+      {
+        "path": "runtime-include-tcp/ui-21-switch-before.xml",
+        "size": 12297,
+        "sha256": "ecabdec104b5102fbf41434cca328a68779dd23bcbde0a0d881bd31a0c4efa99"
+      },
+      {
+        "path": "runtime-include-tcp/ui-22-switch-toggled-dump.log",
+        "size": 73,
+        "sha256": "c640f25989b450717112f32e57a994ccde0e3cda170fbfc3d38e5d410cf253c0"
+      },
+      {
+        "path": "runtime-include-tcp/ui-22-switch-toggled.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-include-tcp/ui-23-before-forget-dump.log",
+        "size": 73,
+        "sha256": "0f08065e210adb8bee04c8dfe2e16d30a20cd7cdbacec073396a12d8f4e70e2a"
+      },
+      {
+        "path": "runtime-include-tcp/ui-23-before-forget.xml",
+        "size": 12303,
+        "sha256": "31dc1bb63690affb06f4fb04dcfeb7a86879965ac733668f4cf32e7ca16d384d"
+      },
+      {
+        "path": "runtime-include-tcp/ui-24-forget-confirmation-dump.log",
+        "size": 73,
+        "sha256": "a4de18fa49c97fa19281b47f1979d344f168acb7645d3c91c1e48886f06d9841"
+      },
+      {
+        "path": "runtime-include-tcp/ui-24-forget-confirmation.xml",
+        "size": 6458,
+        "sha256": "9d775d8d451c5496816660b55eb9f0abf31219f5c5ea126797afc91c296fdde2"
+      },
+      {
+        "path": "runtime-include-tcp/ui-25-after-forget-dump.log",
+        "size": 73,
+        "sha256": "8cf795d925c8cd375504d36d5721fe97df6a2a1b3ff8f0e42c844b52f20b628f"
+      },
+      {
+        "path": "runtime-include-tcp/ui-25-after-forget.xml",
+        "size": 5699,
+        "sha256": "0b15667330f4ecfad48b878167e0ff2278d1bd814ff781465efa47faaba2911f"
+      },
+      {
+        "path": "runtime-include-tcp.tgz",
+        "size": 299022,
+        "sha256": "d80884c4160f8da0d56ec4675081290270cb40aca9295999f59651e58c65180e"
+      },
+      {
+        "path": "runtime.py",
+        "size": 3345,
+        "sha256": "ce58ce7d60225181390fecf747392599bbfc7faa3162ef157df0341ca93ffc2e"
+      },
+      {
+        "path": "second-capture-check.log",
+        "size": 752,
+        "sha256": "b9fd913b5951b69414b4941443b326703223ef049fed1b2a6b7359ebd5941bb4"
+      },
+      {
+        "path": "server-final-all-udp.ini",
+        "size": 1610,
+        "sha256": "8142e4b18f51fdbf76aa5ae56e5c4474e04f4bfa1885f141d4bd3f90548917d5"
+      },
+      {
+        "path": "server-final-include-tcp.ini",
+        "size": 1622,
+        "sha256": "0daefea78128c2c608b3923613b4bb231fb312dbe7289fe5a0e8c10205e7fbc2"
+      },
+      {
+        "path": "server-final-reuse-tcp.ini",
+        "size": 1616,
+        "sha256": "d1845a5161a2c229fa61bf81aa4cc0690dc7c9971c951c9013517eafc09e0d64"
+      },
+      {
+        "path": "server-include-tcp.ini",
+        "size": 1604,
+        "sha256": "c22dfe73c79da46f19c487d7bed058a961a504064a08647f9e80527c0e3677bc"
+      },
+      {
+        "path": "source-proof.json",
+        "size": 46531,
+        "sha256": "fdc5abf560147ba1d0a390052813a40559f0170732bba94bac12d3464568f880"
+      },
+      {
+        "path": "source.patch",
+        "size": 47823,
+        "sha256": "3b6af59ca56af93c47adad0a559cc7a3730d3e6d47b2cbc7156681c5d614d507"
+      },
+      {
+        "path": "summary.json",
+        "size": 678,
+        "sha256": "aafcd2920321b0463dc5a365e5f68d20bcd908350708216f1c9566ce1d74e9fe"
+      },
+      {
+        "path": "transfer.py",
+        "size": 3877,
+        "sha256": "5e3c5d5aec5e192ee41e166c336e888b2f75393ab3d99a27985d15aa637a2ddb"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.AndroidKillSwitchPolicyTest.xml",
+        "size": 634,
+        "sha256": "8c72a766b827bb1e19449de5b4bbe6fad7c5e88de80acd073e8c6c5ca1fd1b54"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.AndroidRoamingPolicyTest.xml",
+        "size": 1594,
+        "sha256": "e7335162ad63050c95bee05695e9b379f5b6d086c187e18f3c421dd5a38327c1"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.AndroidSessionContinuityTest.xml",
+        "size": 868,
+        "sha256": "642590e22c993c3f534d8ee524286d3d74f03ad8fd6235a37c72ace5cb1e03f3"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.AndroidVpnPublicationTest.xml",
+        "size": 977,
+        "sha256": "5478dccda31841e6277e9af2dd02ca8f8594cbbcb77a26af041122ae25c4b682"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.ConfigHardeningTest.xml",
+        "size": 2475,
+        "sha256": "3d362940d22bfca626b61518e4e0482c279354cfebc44a8bc0c6557c6e177b34"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.ConfigImportRangesTest.xml",
+        "size": 4716,
+        "sha256": "3dbe6f71dbbaa1745e79b362fcb7ab70741ef7e42fa8cc66cc70df5069763a40"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.ConfigRoundTripCompletenessTest.xml",
+        "size": 579,
+        "sha256": "dfaeed933085ab00ab8df58a47694d6ae4bb93e490ef3b84c25885d3539d5d9b"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.crypto.BackupCryptoTest.xml",
+        "size": 1150,
+        "sha256": "3a2c59d559a0e3eddc7d182f8daf26482f5f9a6578651f737a753bfc7c0fb327"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.DiagnosticLogStoreTest.xml",
+        "size": 1062,
+        "sha256": "1eb4c51b8dc7c8f29b60bdce7db52570c70b50bd14f57d58499ad037d44e4bb2"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.ProfileAppsEditorTest.xml",
+        "size": 676,
+        "sha256": "ae69ad7fd232c138cd4e7861845f7218c3af97b1d0be71602a6a7c90429c99ea"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.ProfileAutoProbePolicyTest.xml",
+        "size": 714,
+        "sha256": "41fe32b58f3dfd019b8e67447ed238d8be3b285fdea245269fdc191668a81063"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.ProfileStoreActiveIndexTest.xml",
+        "size": 812,
+        "sha256": "928f59d5a60e2e7c4d04ba0c3870d0fcbdc1ac0a7dd02cdcd54091e6f2391a75"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.ProfileStoreBoundsTest.xml",
+        "size": 577,
+        "sha256": "a2a528be9597303acc024b5df5526574dbd526c1a6baa8ff01eb3edbad5d4c0e"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.ProfileStoreUtf8Test.xml",
+        "size": 558,
+        "sha256": "f3f432c52075e103fe3ed5be32bb87918d536239df6d3faad6c041467d7c47e2"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.ProtectionSummaryTest.xml",
+        "size": 2163,
+        "sha256": "0fe348fc2b2e96b309e0c02102771405aaf38f1f86aa176ef46f35e3e210f4fd"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.QeliLinkConformanceTest.xml",
+        "size": 693,
+        "sha256": "371aab4dab393c91de11ca4f7b552b08398155015c2d8d767f31258354c64b19"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.ReconnectPolicyTest.xml",
+        "size": 1009,
+        "sha256": "179246ed9f9a7f0e514bf150b42bd9cda308aa6ba8b82a5e11fb360e96118922"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.RouteComplementsTest.xml",
+        "size": 2152,
+        "sha256": "e12b79fc5375463b8dcf111f648710507d0109f647edafc685c51ea024ba0dd9"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.TransportCoreEventDispatcherTest.xml",
+        "size": 1346,
+        "sha256": "c5b29b7691b150fd0bc225d7471c35318e23409f640bf04caad77c94fa75a3d3"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.TransportCoreEventTest.xml",
+        "size": 2623,
+        "sha256": "25902c2d69d1a5bdc89002094e86dbf36af9709e3c1d60c1d9d97c66fea36e0c"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.TrustedWifiPolicyTest.xml",
+        "size": 1384,
+        "sha256": "7f2948e85b290262e924fb674abd0a822203ba9be39624ce5167606723fcc78b"
+      },
+      {
+        "path": "unit-results/TEST-com.qeli.UpdatePrivacyTest.xml",
+        "size": 441,
+        "sha256": "11073b6d7fb0850453bcf7cb62bf7811e61b99b6b07b57dc4383c84a270a7344"
+      },
+      {
+        "path": "write_report.py",
+        "size": 16674,
+        "sha256": "ef802f816be76845e579d61966718cd3f10774922c5e1e90baf33b91cdb48909"
+      }
+    ]
+  },
+  "scope": "Q29 F279 Android CONNECTED publication gate:ACK starts Rust pump immediately,UI waits for generation-owned passive VPN callback matching plan addresses/MTU;fresh observer supports retained TUN and excluded owner. Timeout/cancel source-reviewed;profile timeout1-30s,failed generation retains TUN/lockdown for retry.172unit/5new PASS,ReleaseR8/compatible minSdk28/lint0errors55warnings;API28/29 runtime not run.Three final readonlyAPI34x86_64 Release .11 private NET/MNT/PID runs:includeTCP/allUDP cold and includeTCP retainedTUN WiFiCellular2transitions.960socket samples/660echo receipts,80fresh postCONNECTED/0errors,144poststopblocked,14DNSoperations/14answeredquestions,12manualrecoverypayload/revoke/cleanupPASS.FullSHA/sink/pcap/no new physical protected requests/kernel drops0. Product publication log,Activity receipt not measured;sampled image scope,not universal first-packet/OEM guarantee. Initial API34 exploratory includeTCP36postCONNECTED PASS retained separately;2NewApi lint errors fixed and retained. Local driver/report preparation errors not runtime failures.298source inputs2changed2new,14aux4changed,14native/JNI/7managed unchanged;exactAPKpairs/mappings pinned. Host/service/firewall/routes/userdata unchanged all4runs,.10untouched. Prior APPLIED preCONNECTED errors retained,SIGKILL/auto-nullENONET/runnerTraceFAIL remain;QUIC/split/exclude/PrivateDNS/longpower/flapping further Q29 checks open.IN_PROGRESS28/37,USER_SKIPPED/D06unchanged."
+}

@@ -37,7 +37,7 @@ public static class AutoStartManager
     {
         if (!File.Exists(LegacyPlistPath)) return false;
         Launchctl($"unload -w \"{LegacyPlistPath}\"");
-        try { File.Delete(LegacyPlistPath); } catch { }
+        File.Delete(LegacyPlistPath);
         return true;
     }
 
@@ -56,8 +56,10 @@ public static class AutoStartManager
     public static void Enable()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(PlistPath)!);
-        File.WriteAllText(PlistPath, Plist());
-        Launchctl($"unload \"{PlistPath}\"");          // reload if it existed
+        if (IsEnabled()) Launchctl($"unload \"{PlistPath}\"");
+        string temporary = PlistPath + ".tmp-" + Guid.NewGuid().ToString("N");
+        try { File.WriteAllText(temporary, Plist()); File.Move(temporary, PlistPath, overwrite: true); }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
         Launchctl($"load -w \"{PlistPath}\"");
     }
 
@@ -66,7 +68,7 @@ public static class AutoStartManager
         if (File.Exists(PlistPath))
         {
             Launchctl($"unload -w \"{PlistPath}\"");
-            try { File.Delete(PlistPath); } catch { }
+            File.Delete(PlistPath);
         }
     }
 
@@ -86,7 +88,7 @@ public static class AutoStartManager
             <string>{Label}</string>
             <key>ProgramArguments</key>
             <array>
-                <string>{ExePath}</string>
+                <string>{Service.PlistRegistration.Escape(ExePath)}</string>
                 <string>--autostart</string>
             </array>
             <key>RunAtLoad</key>
@@ -97,22 +99,6 @@ public static class AutoStartManager
         </plist>
         """;
 
-    private static void Launchctl(string args)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo("/bin/launchctl", args)
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-            using var p = Process.Start(psi)!;
-            p.StandardOutput.ReadToEnd();
-            p.StandardError.ReadToEnd();
-            p.WaitForExit();
-        }
-        catch { /* best-effort */ }
-    }
+    private static void Launchctl(string args) => ToolProcess.RequireSuccess(
+        ToolProcess.Run(new ProcessStartInfo("/bin/launchctl", args)), "Login autostart");
 }

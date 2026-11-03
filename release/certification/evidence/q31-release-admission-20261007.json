@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "PASS_SCOPED_RELEASE_CI_ADMISSION",
+  "source_digest": "51978e37e9180e0c4ae78875cdd2417f3fc5e1fdc9f9f5aa57b6a6a442837d8b",
+  "base_worktree_commit": "c762479317081c3aa6c3fb4da508982d7841ffaa",
+  "base_dev_commit": "e569bc364666f669df19dd59b025851ea6f760cc",
+  "finding": "F372",
+  "counts": {
+    "linux_router": 77,
+    "linux_ci_admission": 18,
+    "linux_skipped": 0,
+    "affected_release_gate_recheck": 15,
+    "final_input_files": 24,
+    "docs_checks": 9
+  },
+  "final_inputs": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "size": 43057,
+      "sha256": "b06ff7a7b7384876334c1a992d589c6826dba5587b9ad3e951b7d3d2610ec1d0"
+    },
+    {
+      "path": "qeli-openwrt/build/build_openwrt.py",
+      "size": 6010,
+      "sha256": "b75a018d2a369ccd7419d5a1e2b55dd85e6856cd442d94e69e69b406263b7413"
+    },
+    {
+      "path": "qeli/Cargo.toml",
+      "size": 10585,
+      "sha256": "582a332da1bb181c5c27c7c5b178bb1708084a19d4dc14461e6f3fc905c59c2a"
+    },
+    {
+      "path": "scripts/build_keenetic.py",
+      "size": 6094,
+      "sha256": "77fcf512400b1ea54ae5eea0e1593a0f7ff78787035f42aff016ef3c8cf65001"
+    },
+    {
+      "path": "scripts/keenetic_verify.py",
+      "size": 5481,
+      "sha256": "9b72ea6199f405716a66d7904d7e6f2452635dee5e073b06d30191812653d4b5"
+    },
+    {
+      "path": "scripts/native_lab.py",
+      "size": 9894,
+      "sha256": "da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0"
+    },
+    {
+      "path": "scripts/native_repro.py",
+      "size": 16523,
+      "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+    },
+    {
+      "path": "scripts/release_ci_gate.py",
+      "size": 3850,
+      "sha256": "f9c9a9f9fe88cca52c8cf82835a1d4aa001a363940b22d0ef90432dc75374a3a"
+    },
+    {
+      "path": "scripts/release_preflight.py",
+      "size": 12718,
+      "sha256": "89f1d41a346eb04aba7a4c9344017a2f021c1f8f547ca823bc63535a2a48d307"
+    },
+    {
+      "path": "scripts/router_artifact.py",
+      "size": 4743,
+      "sha256": "076002a68ddfdf397af567982735434be1ca3d9c4584a2e9dee0034b69033c1a"
+    },
+    {
+      "path": "scripts/router_release_gate.py",
+      "size": 4256,
+      "sha256": "33edcf1aff24c28c04a03a97f781073b3af4ad00f93ac5913d8a78d7c11b0fe7"
+    },
+    {
+      "path": "scripts/router_source.py",
+      "size": 3208,
+      "sha256": "a0f34491d0474f98ea5a8f47e8a77a1ab0a88acd68aae73035285b307e422ed2"
+    },
+    {
+      "path": "scripts/router_toolchain.py",
+      "size": 7622,
+      "sha256": "5a07dc41385d405224f91b47cdce47f7987f05e013ca025ce6c19929d641df12"
+    },
+    {
+      "path": "scripts/ssh_command.py",
+      "size": 953,
+      "sha256": "ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b"
+    },
+    {
+      "path": "scripts/ssh_hostkey.py",
+      "size": 1882,
+      "sha256": "c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39"
+    },
+    {
+      "path": "scripts/test_release_ci_gate.py",
+      "size": 10198,
+      "sha256": "bd0335c2c97ece6eeee8f8b2891396a57aa433549a56fe331a6aee3d9af1329f"
+    },
+    {
+      "path": "scripts/test_router_artifact.py",
+      "size": 7893,
+      "sha256": "eb256a79a99b120e21c8f98bbd3da21b50b040574a46a0add3412ae9c42ca7ed"
+    },
+    {
+      "path": "scripts/test_router_build.py",
+      "size": 11342,
+      "sha256": "8ae1ead8babb5f7df73af64b5b9ab5123cd034955ccfc8c593fa1f000f2015b3"
+    },
+    {
+      "path": "scripts/test_router_cargo_runtime.py",
+      "size": 13875,
+      "sha256": "74abca2699897f64191d76a49dec204ed988ba662855df650db6fe827a97d1b8"
+    },
+    {
+      "path": "scripts/test_router_checkout.py",
+      "size": 4382,
+      "sha256": "8a2d32c9e069e46ef0c30106dbaff5bd3c19a050db50ceacb5bab4e14530f7c9"
+    },
+    {
+      "path": "scripts/test_router_release_gate.py",
+      "size": 11104,
+      "sha256": "3c3303317af9d4018384d8b9f92b57a8fe6fa15ffd09d75295596d0a4a4a939f"
+    },
+    {
+      "path": "scripts/test_router_source.py",
+      "size": 7131,
+      "sha256": "808059adb543bc919d8b6c5e945ef5bdc47d5cf3e1867807813a17f82718818c"
+    },
+    {
+      "path": "scripts/test_router_toolchain.py",
+      "size": 8536,
+      "sha256": "7920e18e98bed92a9b1e050b6d07a1e24e66ed9ba16adbd49ab37efd3ecac34c"
+    },
+    {
+      "path": "scripts/lab_common.py",
+      "sha256": "479f689c6fe754887e07cfdf803e7c8d740b911c1708403de650b10a9e5bc59f",
+      "size": 3065
+    }
+  ],
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-release-admission-20261007",
+  "raw_seal_sha256": "37302bef6249694caae68396772ca69347d2cc4953c9a6b924c946bb8b6fbad7",
+  "raw_sealed_files": 41,
+  "native_source_digest": "c2ac10e0f41c826129a7b10918db88e84a77e55109eb4537783b34f99abd2a8b",
+  "native_provenance": "PASS_UNCHANGED_INPUTS",
+  "live_preflight": {
+    "status": "EXPECTED_AGGREGATE_REFUSAL",
+    "cwd": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli",
+    "gate2": "DISABLED_NO_CREDENTIALS_NOT_RUN",
+    "initial_ci": {
+      "sha_prefix": "83c07f5c",
+      "conclusion": "failure",
+      "different_commit": true
+    },
+    "final_ci": {
+      "sha_prefix": "cde130e0",
+      "conclusion": "success",
+      "different_commit": true
+    },
+    "openwrt_pin": "dd0b736276b9ad5b89d117abd1bfe324210f3b26",
+    "openwrt_pin_qeli_tree": "76242033",
+    "current_qeli_tree": "26a0402e",
+    "gate4": "EXPECTED_DIRTY_WORKTREE_REFUSAL_DURING_PRECOMMIT_RUN",
+    "no_release_tag_dispatch_push": true
+  },
+  "scope": "Exact local Git identity and CI headSha before admission, fixed repository cwd, bounded command queries, fail-closed malformed/missing/failed/stale workflow results and retained safe failed-job diagnostics. Two old fail-open paths reproduced on exact baseline. Final77router+18CI methods PASS without skips on .11; final diagnostics-only changes rerun18CI+15affectedreleasegate,24SHA inputs verified. Source replacement/checkout and tiny actual pinned Cargo tests plus SSH/build/artifact models; no fresh full four-target builds, configured live Gate2 or firmware networking. Service active/PID777 preserved; no host firewall/default/toolchain mutation. Current native source/recipe/A-B provenance unchanged/PASS. Original preparation failures retained. Q31 positive/boundary/negative criterion reconciled with earlier scenario evidence;2/5criteria,Q31IN_PROGRESS,28/37full audit. Full SDK Rust bootstrap/source-pin/mirror release-cut, configured live Gate2/Actions, writer/lock/after-final-check/atomic ndm/old-family boundaries remain open; arbitrary environment hermeticity not claimed. Firmware USER_EXCLUDED; Q29/Q30 and acceptedD06 unchanged.41historic cases/acceptance+42prior supplements preserved modulo source_digest. ConfigsINI only; internal JSON evidence/API retained. No push/deploy/release."
+}

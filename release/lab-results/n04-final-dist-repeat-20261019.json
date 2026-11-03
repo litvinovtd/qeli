@@ -1,0 +1,1214 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "scope": "Independent short repeat on exact final Linux dist ELF, not diagnostic rebinding or all-platform certification",
+  "started_utc": "2026-10-19T10:07:52.485669+00:00",
+  "finished_utc": "2026-10-19T10:15:14.850318+00:00",
+  "binary_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+  "tested_both_endpoints": true,
+  "recordizer": "required",
+  "packet_mux_active": true,
+  "recordizer_contract": "Server profile required; client uses authenticated push and PACKET_MUX_V1 active readiness gate, unchanged N04 fixture",
+  "method": {
+    "client_queue": 1000,
+    "server_queue": 1000,
+    "inner_MTU": 1400,
+    "outer_MTU": 1500,
+    "actual_client_TUN_descriptors": 1,
+    "actual_server_TUN_descriptors": 2,
+    "inner_family_UDP": 6,
+    "direction_UDP": "upload",
+    "UDP_payload_bytes": 1200,
+    "requested_iperf_socket_bytes": 4194304,
+    "actual_iperf_socket_bytes": 8388608,
+    "UDP_repeats": 3,
+    "UDP_seconds": 15,
+    "UDP_omit": 3,
+    "TCP_functional_seconds": 3,
+    "TCP_functional_omit": 1,
+    "TCP_functional_streams": 1,
+    "profiler": false,
+    "FULL_RING_histogram": false
+  },
+  "phases": [
+    {
+      "tag": "e4cbverifyudp",
+      "receipt": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\.local-audit\\n04-20261019\\e4cbverifyudp.json",
+      "receipt_sha256": "66f583db4da6cbeda644b14afeae1d3401e488a55ca4436daf765e60a60c55d0",
+      "raw": "/opt/qeli-release-short-gigabit-n04e4cbverifyudp-20261019",
+      "windows": 6,
+      "restoration": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        },
+        "client": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        }
+      }
+    },
+    {
+      "tag": "e4cbverifylong",
+      "receipt": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\.local-audit\\n04-20261019\\e4cbverifylong.json",
+      "receipt_sha256": "332496d972a34b81d9313515577c4bb237b9ed73a3e23953a1faf204ddf47da8",
+      "raw": "/opt/qeli-release-short-gigabit-n04e4cbverifylong-20261019",
+      "windows": 1,
+      "restoration": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        },
+        "client": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        }
+      }
+    },
+    {
+      "tag": "e4cbverifyfunc",
+      "receipt": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\native-audit-worktree\\.local-audit\\n04-20261019\\e4cbverifyfunc.json",
+      "receipt_sha256": "43c52f951454caa8ed7cfedd3dfa538a271c16461537cf5e637728099a9b19d8",
+      "raw": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "windows": 16,
+      "restoration": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        },
+        "client": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true
+        }
+      }
+    }
+  ],
+  "summary": {
+    "udp-faketls": {
+      "median_mbps": 899.5689407896216,
+      "median_loss_percent": 0.005329089009997371,
+      "max_loss_percent": 0.0090254246924249,
+      "TUN_drops": [
+        0,
+        0,
+        0
+      ],
+      "median_client_CPU": 81.68319949137964,
+      "median_context_switches": 240269
+    },
+    "udp-quic": {
+      "median_mbps": 949.4557306668057,
+      "median_loss_percent": 0.0004712747915787234,
+      "max_loss_percent": 0.004981276458824028,
+      "TUN_drops": [
+        0,
+        0,
+        0
+      ],
+      "median_client_CPU": 83.40505659867293,
+      "median_context_switches": 220197
+    }
+  },
+  "windows": [
+    {
+      "mode": "udp-faketls",
+      "protocol": "UDP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "rate_mbps": 900,
+      "mbps": 899.72519707327,
+      "loss_percent": 0.0090254246924249,
+      "retransmits": null,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 81.53984769948059,
+      "client_context_switches": 241141,
+      "client_RSS_KiB_max_endpoint": 19904,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 131
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyudp-20261019",
+      "label": "udp-faketls-q1000-r1-udp900"
+    },
+    {
+      "mode": "udp-faketls",
+      "protocol": "UDP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "rate_mbps": 900,
+      "mbps": 899.5689407896216,
+      "loss_percent": 0,
+      "retransmits": null,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 81.68319949137964,
+      "client_context_switches": 240269,
+      "client_RSS_KiB_max_endpoint": 19952,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyudp-20261019",
+      "label": "udp-faketls-q1000-r2-udp900"
+    },
+    {
+      "mode": "udp-faketls",
+      "protocol": "UDP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "rate_mbps": 900,
+      "mbps": 899.558585361961,
+      "loss_percent": 0.005329089009997371,
+      "retransmits": null,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 81.89007703178174,
+      "client_context_switches": 238345,
+      "client_RSS_KiB_max_endpoint": 22032,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 79
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyudp-20261019",
+      "label": "udp-faketls-q1000-r3-udp900"
+    },
+    {
+      "mode": "udp-quic",
+      "protocol": "UDP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "rate_mbps": 950,
+      "mbps": 949.4500299712638,
+      "loss_percent": 0.004981276458824028,
+      "retransmits": null,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 84.41244557275725,
+      "client_context_switches": 207149,
+      "client_RSS_KiB_max_endpoint": 16456,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 73
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyudp-20261019",
+      "label": "udp-quic-q1000-r1-udp950"
+    },
+    {
+      "mode": "udp-quic",
+      "protocol": "UDP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "rate_mbps": 950,
+      "mbps": 949.773905236039,
+      "loss_percent": 0.0004712747915787234,
+      "retransmits": null,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 83.40505659867293,
+      "client_context_switches": 220197,
+      "client_RSS_KiB_max_endpoint": 22268,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 6
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyudp-20261019",
+      "label": "udp-quic-q1000-r2-udp950"
+    },
+    {
+      "mode": "udp-quic",
+      "protocol": "UDP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 15,
+      "omit": 3,
+      "streams": 1,
+      "rate_mbps": 950,
+      "mbps": 949.4557306668057,
+      "loss_percent": 0,
+      "retransmits": null,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 83.25769576128175,
+      "client_context_switches": 220473,
+      "client_RSS_KiB_max_endpoint": 22380,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyudp-20261019",
+      "label": "udp-quic-q1000-r3-udp950"
+    },
+    {
+      "mode": "udp-quic",
+      "protocol": "UDP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 60,
+      "omit": 3,
+      "streams": 1,
+      "rate_mbps": 950,
+      "mbps": 949.7966386495307,
+      "loss_percent": 0.00959128989724195,
+      "retransmits": null,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 85.64149239911333,
+      "client_context_switches": 727192,
+      "client_RSS_KiB_max_endpoint": 37280,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 594
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifylong-20261019",
+      "label": "udp-quic-q1000-r1-udp950"
+    },
+    {
+      "mode": "tcp-faketls",
+      "protocol": "TCP",
+      "family": 4,
+      "direction": "upload",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1908.5219471939527,
+      "loss_percent": null,
+      "retransmits": 8,
+      "client_TUN_drops": 47,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 98.11713708033392,
+      "client_context_switches": 57923,
+      "client_RSS_KiB_max_endpoint": 36372,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "tcp-faketls-q1000-r1-tcp4-upload"
+    },
+    {
+      "mode": "tcp-faketls",
+      "protocol": "TCP",
+      "family": 4,
+      "direction": "download",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 2251.859573630227,
+      "loss_percent": null,
+      "retransmits": 14,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 287,
+      "client_CPU_one_core_percent": 115.74141499645062,
+      "client_context_switches": 165332,
+      "client_RSS_KiB_max_endpoint": 56396,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "tcp-faketls-q1000-r1-tcp4-download"
+    },
+    {
+      "mode": "tcp-faketls",
+      "protocol": "TCP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1911.3649609350775,
+      "loss_percent": null,
+      "retransmits": 34,
+      "client_TUN_drops": 70,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 92.05205978758144,
+      "client_context_switches": 56797,
+      "client_RSS_KiB_max_endpoint": 56364,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "tcp-faketls-q1000-r1-tcp6-upload"
+    },
+    {
+      "mode": "tcp-faketls",
+      "protocol": "TCP",
+      "family": 6,
+      "direction": "download",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 2096.8712999458617,
+      "loss_percent": null,
+      "retransmits": 7,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 210,
+      "client_CPU_one_core_percent": 111.65602352139545,
+      "client_context_switches": 154885,
+      "client_RSS_KiB_max_endpoint": 56436,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "tcp-faketls-q1000-r1-tcp6-download"
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "protocol": "TCP",
+      "family": 4,
+      "direction": "upload",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1056.1616027746652,
+      "loss_percent": null,
+      "retransmits": 0,
+      "client_TUN_drops": 792,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 70.91123526477577,
+      "client_context_switches": 32165,
+      "client_RSS_KiB_max_endpoint": 36332,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "tcp-reality-tls-q1000-r1-tcp4-upload"
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "protocol": "TCP",
+      "family": 4,
+      "direction": "download",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1111.1454792485836,
+      "loss_percent": null,
+      "retransmits": 0,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 255,
+      "client_CPU_one_core_percent": 73.29507794985015,
+      "client_context_switches": 95620,
+      "client_RSS_KiB_max_endpoint": 53492,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "tcp-reality-tls-q1000-r1-tcp4-download"
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "protocol": "TCP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 970.9094974111713,
+      "loss_percent": null,
+      "retransmits": 0,
+      "client_TUN_drops": 26,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 64.6129562440628,
+      "client_context_switches": 28280,
+      "client_RSS_KiB_max_endpoint": 53712,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "tcp-reality-tls-q1000-r1-tcp6-upload"
+    },
+    {
+      "mode": "tcp-reality-tls",
+      "protocol": "TCP",
+      "family": 6,
+      "direction": "download",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 979.0462518608037,
+      "loss_percent": null,
+      "retransmits": 1,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 92,
+      "client_CPU_one_core_percent": 71.66539929797209,
+      "client_context_switches": 92202,
+      "client_RSS_KiB_max_endpoint": 53712,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          }
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "tcp-reality-tls-q1000-r1-tcp6-download"
+    },
+    {
+      "mode": "udp-faketls",
+      "protocol": "TCP",
+      "family": 4,
+      "direction": "upload",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1302.5144031117154,
+      "loss_percent": null,
+      "retransmits": 209,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 96.58697334114053,
+      "client_context_switches": 3314,
+      "client_RSS_KiB_max_endpoint": 36580,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 411
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "udp-faketls-q1000-r1-tcp4-upload"
+    },
+    {
+      "mode": "udp-faketls",
+      "protocol": "TCP",
+      "family": 4,
+      "direction": "download",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1140.4566356069176,
+      "loss_percent": null,
+      "retransmits": 729,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 729,
+      "client_CPU_one_core_percent": 110.2474086687751,
+      "client_context_switches": 236740,
+      "client_RSS_KiB_max_endpoint": 36580,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "udp-faketls-q1000-r1-tcp4-download"
+    },
+    {
+      "mode": "udp-faketls",
+      "protocol": "TCP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1255.707196553007,
+      "loss_percent": null,
+      "retransmits": 95,
+      "client_TUN_drops": 83,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 95.42295157647467,
+      "client_context_switches": 3795,
+      "client_RSS_KiB_max_endpoint": 36032,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 114
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "udp-faketls-q1000-r1-tcp6-upload"
+    },
+    {
+      "mode": "udp-faketls",
+      "protocol": "TCP",
+      "family": 6,
+      "direction": "download",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1311.225728548381,
+      "loss_percent": null,
+      "retransmits": 466,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 813,
+      "client_CPU_one_core_percent": 118.53396392092633,
+      "client_context_switches": 245693,
+      "client_RSS_KiB_max_endpoint": 36032,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "udp-faketls-q1000-r1-tcp6-download"
+    },
+    {
+      "mode": "udp-quic",
+      "protocol": "TCP",
+      "family": 4,
+      "direction": "upload",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1194.7390277454726,
+      "loss_percent": null,
+      "retransmits": 52,
+      "client_TUN_drops": 613,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 90.00523918425567,
+      "client_context_switches": 6905,
+      "client_RSS_KiB_max_endpoint": 38408,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 125,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 125
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 12
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "udp-quic-q1000-r1-tcp4-upload"
+    },
+    {
+      "mode": "udp-quic",
+      "protocol": "TCP",
+      "family": 4,
+      "direction": "download",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1129.6235184307368,
+      "loss_percent": null,
+      "retransmits": 0,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 476,
+      "client_CPU_one_core_percent": 108.33297350004312,
+      "client_context_switches": 225280,
+      "client_RSS_KiB_max_endpoint": 39260,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "udp-quic-q1000-r1-tcp4-download"
+    },
+    {
+      "mode": "udp-quic",
+      "protocol": "TCP",
+      "family": 6,
+      "direction": "upload",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1232.602593992876,
+      "loss_percent": null,
+      "retransmits": 0,
+      "client_TUN_drops": 122,
+      "server_TUN_drops": 0,
+      "client_CPU_one_core_percent": 93.18755100707989,
+      "client_context_switches": 5452,
+      "client_RSS_KiB_max_endpoint": 39260,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "udp-quic-q1000-r1-tcp6-upload"
+    },
+    {
+      "mode": "udp-quic",
+      "protocol": "TCP",
+      "family": 6,
+      "direction": "download",
+      "seconds": 3,
+      "omit": 1,
+      "streams": 1,
+      "rate_mbps": null,
+      "mbps": 1166.7114752176024,
+      "loss_percent": null,
+      "retransmits": 34,
+      "client_TUN_drops": 0,
+      "server_TUN_drops": 97,
+      "client_CPU_one_core_percent": 109.48484463316144,
+      "client_context_switches": 231155,
+      "client_RSS_KiB_max_endpoint": 41388,
+      "endpoints": {
+        "server": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        },
+        "client": {
+          "udp4": {
+            "RcvbufErrors": 0,
+            "SndbufErrors": 0
+          },
+          "udp6": {
+            "Udp6RcvbufErrors": 0,
+            "Udp6SndbufErrors": 0
+          },
+          "carrier_socket_rx_drops": 0
+        }
+      },
+      "raw_root": "/opt/qeli-release-short-gigabit-n04e4cbverifyfunc-20261019",
+      "label": "udp-quic-q1000-r1-tcp6-download"
+    }
+  ],
+  "final_state": {
+    "server": {
+      "lock_absent": true,
+      "TUN_absent": true,
+      "test_processes_absent": true,
+      "version": "qeli 0.8.2",
+      "guest_cpu_model": "Intel(R) Core(TM) i5-8500 CPU @ 3.00GHz",
+      "MemTotal_KiB": 2020904
+    },
+    "client": {
+      "lock_absent": true,
+      "TUN_absent": true,
+      "test_processes_absent": true,
+      "version": "qeli 0.8.2",
+      "guest_cpu_model": "Intel(R) Core(TM) i5-8500 CPU @ 3.00GHz",
+      "MemTotal_KiB": 2020904
+    }
+  },
+  "dist_unchanged": true,
+  "published": false
+}

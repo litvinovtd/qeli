@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_OPENWRT_GIT_SOURCE_FLAGS_SCOPED",
+  "source_digest": "9c58393f268237c8e1fadad1c0f098efd7b430203541d0a6b1f95c9e4f011f46",
+  "qualification_source_commit": "0a818bcced6ef3b63d11f8294af2adbfb5a07026",
+  "product_source_commit": "0a818bcced6ef3b63d11f8294af2adbfb5a07026",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F482/Q34-F036"
+  ],
+  "verification": {
+    "tests": {
+      "status": "PASS",
+      "baseline_methods": 2,
+      "baseline_false_pass_cells": 10,
+      "source_suite_methods": 28,
+      "source_suite_pass": 25,
+      "source_existing_skips": 3,
+      "preflight_methods": 12,
+      "distinct_methods_pass": 37,
+      "scope": "Actual Git update-index flags hide modified qeli/recipe/verify-script/gate/preflight;oldsourcegate falsely accepted all10,final guard refuses;unrelatedflags preserve existinginputscope. Existing POSIXlink/FIFO+opt-inoldbaseline skips preserved,unchangedarchive APIs;no SDK/lab/network/native/compiler/Actions claims",
+      "suites": [
+        {
+          "suite": "test_openwrt_source_gate.py",
+          "rc": 0,
+          "output": ".......ss...s...............\r\n----------------------------------------------------------------------\r\nRan 28 tests in 12.935s\r\n\r\nOK (skipped=3)\r\n"
+        },
+        {
+          "suite": "test_release_preflight.py",
+          "rc": 0,
+          "output": "............\r\n----------------------------------------------------------------------\r\nRan 12 tests in 3.869s\r\n\r\nOK\r\n"
+        }
+      ]
+    },
+    "production_source_cut": {
+      "status": "OPEN_EXPECTED_REFUSAL",
+      "head": "28292e094516d4317081a524afd2e36c5ab261f5",
+      "pin": "dd0b736276b9ad5b89d117abd1bfe324210f3b26",
+      "mirror_hash": "00036a1c982be4f565108a8b50cf7dbfe9f0892c075ae97464855b37ab150775",
+      "pinned_qeli_tree": "76242033c281d22d4376521d0f4971622905e4e8",
+      "current_qeli_tree": "cdafea0dc7d731b4a8de94fa59672be21e1fb5de",
+      "scope": "Read-only actual Git metadata;production source-cut remains mismatched,SDK archive not generated,pin/hash untouched,no publication"
+    },
+    "qualified_inputs": {
+      "status": "PASS",
+      "paths": [
+        {
+          "path": "docs/eng/index.md",
+          "normalization": "lf",
+          "sha256": "3d02259a79fdbb498f028ac010c78bac8917700b761e721117cc623c52b33007"
+        },
+        {
+          "path": "docs/eng/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "3eefa1a8782f8dbd7124bb15b74935ea393c72191336e210e17f48fb16abdabb"
+        },
+        {
+          "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "8948a19ebfcd0fa68566d0d65a2c008e0fdeb0d05bd35afcd459856d16012317"
+        },
+        {
+          "path": "docs/ru/index.md",
+          "normalization": "lf",
+          "sha256": "668d809c165fb79565c13f15a3fcad56482616933f25349165b2500cc801b03b"
+        },
+        {
+          "path": "docs/ru/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "6ec0a53d8e599f7a23b353eaf092b7e57d1cad1935bcc6b0832bef85f6c1285d"
+        },
+        {
+          "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "1f3c0874db6204bbd2f21e0dd3f54b9dfc547b8cb112aad65588055d09136d1c"
+        },
+        {
+          "path": "qeli-openwrt/Makefile",
+          "normalization": "lf",
+          "sha256": "e43333aab3b5a863040a0a4130a4beab03319a4468c911160b130666c4835700"
+        },
+        {
+          "path": "qeli-openwrt/README.md",
+          "normalization": "lf",
+          "sha256": "24e49506f37944ee5ce3480d0fbfc37cc6b1a05e0edf5ef417b66b8deaf9c570"
+        },
+        {
+          "path": "qeli-openwrt/verify-source.sh",
+          "normalization": "lf",
+          "sha256": "776d5a5ba493d8435af88e278a2667f378439817d26a62ccb4dcadd669773a9d"
+        },
+        {
+          "path": "qeli/Cargo.lock",
+          "normalization": "lf",
+          "sha256": "dbe2e1297402d2b938bcf88f42b567374e6671189dc08472e2be464356692bf7"
+        },
+        {
+          "path": "qeli/Cargo.toml",
+          "normalization": "lf",
+          "sha256": "05b83390369a48f6c183e00989324b03afca4995daa74a6b1da2937d2145cecc"
+        },
+        {
+          "path": "scripts/check_docs.py",
+          "normalization": "lf",
+          "sha256": "e260cb024b56fc6257108801d5dae01607dfadfb6cb5458669b3b2e25e808a10"
+        },
+        {
+          "path": "scripts/native_repro.py",
+          "normalization": "lf",
+          "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+        },
+        {
+          "path": "scripts/openwrt_source_gate.py",
+          "normalization": "lf",
+          "sha256": "d22677508a027df9e2b717dae45553ba235d8e88417d14a0cf4fcb91d2cd8588"
+        },
+        {
+          "path": "scripts/release_certification.py",
+          "normalization": "lf",
+          "sha256": "d3dd7fe497da0df4519835decfadb4cb64abfa9c38f29e301ff4630b7e5885b5"
+        },
+        {
+          "path": "scripts/release_preflight.py",
+          "normalization": "lf",
+          "sha256": "6f3c1879a98cb4a403d68a94684aad878b4f62e63286555e74cebc275ea845dc"
+        },
+        {
+          "path": "scripts/test_openwrt_source_gate.py",
+          "normalization": "lf",
+          "sha256": "9d32d5ec71662c2f37c9bcc8c3afc13cdebeb88a348114169458bab9dfee7422"
+        },
+        {
+          "path": "scripts/test_release_preflight.py",
+          "normalization": "lf",
+          "sha256": "9663504a92b5e4763a4226641caaa2659677d3f2fdfa1d6306d09b1fed86446e"
+        }
+      ],
+      "scope": "Exact final Git guard/regressions/caller/docs;unchangedSDK pin/hash/recipe/native inputs"
+    },
+    "local_checks": {
+      "status": "PASS",
+      "checks": [
+        {
+          "name": "docs",
+          "rc": 0,
+          "output": "checking 714 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "name": "diff",
+          "rc": 0,
+          "output": ""
+        }
+      ],
+      "product_paths": [
+        "docs/eng/index.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-OPENWRT-SOURCE-FLAGS.md",
+        "docs/ru/index.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-OPENWRT-SOURCE-FLAGS.md",
+        "qeli-openwrt/README.md",
+        "scripts/openwrt_source_gate.py",
+        "scripts/test_openwrt_source_gate.py"
+      ],
+      "native_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifact_hashes": 14,
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+        "qeli/src/web/assets/app.css": "c925399cb860bea80fcbc5d66dec7cf3ebb0740fbd8bb7489d211730bdc1d8bd"
+      },
+      "focused_methods_pass": 37,
+      "existing_skips": 3,
+      "baseline_false_pass": 10,
+      "scope": "Git source-admission only;no lab/network/SDK/native/compiler/runtime reexecution;sourcecut mismatch staysOPEN"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-openwrt-source-flags-20261009",
+    "files": 34,
+    "bytes": 1231613,
+    "manifest_sha256": "1bf2fd09bf340d81a75fc334d07ad07188cac0514d15dc34fa9027837385e190",
+    "runtime_status": "PASS_SCOPED_REAL_GIT_SOURCE_FLAG_ADMISSION_NO_SDK_RUNTIME",
+    "path": "audit-debt-20260924/q34-openwrt-source-flags-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F482/Q34-F036 OpenWrt clean-source Git trust flags:exact prior sourcegate falsely accepted10 actualGit hidden-input cells,2flags times qeliRustsource/packageMakefile/verify-source/gate/preflight. gitstatus really hid edits;immutable fixturepin/committedcratetree/mirrorhash stayedvalid. Scoped ls-files-v checks sameINPUTS beforepin/archivehash and refuses lowercase assume-unchanged/Sskip-worktree including currentlyunmodified flaggedinputs;doesnot mutateflags/source,unrelatednotes admitted.37methodsPASS25sourcegate+12wholepreflight,28sourcesuite registered with3existingPOSIXlink/FIFO/oldoptinbaseline skips retained;new3methods actualGit10refusals+2unrelatedpositives. Archive POSIX APIs unchanged/priorLinux evidence not rerun. Actualproductionpin dd0b736276b9ad5b89d117abd1bfe324210f3b26 qelitree differs currenttree;recipe/pin/mirrorhash unchanged,matching SDKsourcecut/archive/currentActions/publication OPEN. Sourcegate/workflow helper change only,not freshSDK/native/compiler/runtime/hostedCI. No network/lab used;714Markdown9checks/nativee3fb14SHA/protected unchanged. Raw34files1231613bytes SEALED,credentialscanPASS,exactqualifiedinputs committed.41cases84supplements preserved modulo source_digest bookkeeping,append85scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;Q29SIGKILLFAIL-ENONET/Q30/Q31/F459braces/D06accepted/USER_EXCLUDED preserved.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

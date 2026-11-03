@@ -38,9 +38,7 @@ public sealed partial class VpnTunnel
             ? NativeRoamingPathCapabilities | NativePathRefreshCapability
             : 0;
 
-    internal static bool AllowsNativePathRoaming(VpnConfig config) =>
-        !config.RoamingPolicy.Equals("off", StringComparison.OrdinalIgnoreCase)
-        && string.IsNullOrWhiteSpace(config.LocalAddress) && config.LocalPort == 0;
+    internal static bool AllowsNativePathRoaming(VpnConfig config) => config.AllowsNativePathRoaming;
 
     internal static void RunRoamingCapabilitySelfTest(Action<string, bool> check)
     {

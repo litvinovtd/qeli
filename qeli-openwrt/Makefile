@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=qeli
-PKG_VERSION:=0.8.1
+PKG_VERSION:=0.8.3
 PKG_RELEASE:=1
 
 # Built from the qeli Rust crate (client-only). Point PKG_SOURCE_URL at the repo,
@@ -19,28 +19,16 @@ PKG_RELEASE:=1
 # cutting a version.
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/litvinovtd/qeli.git
-PKG_SOURCE_VERSION:=dd0b736276b9ad5b89d117abd1bfe324210f3b26
+PKG_SOURCE_VERSION:=9667c1e46b700762efb74db43b229eb363ea8f5a
 PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
-# OpenWrt REQUIRES a hash for a git source: without PKG_MIRROR_HASH the generated
-# tarball is accepted unverified, so the build trusts whatever github.com serves.
-# The value is the sha256 of the tarball OpenWrt itself produces from the checkout
-# above, so it cannot be computed without the SDK.
-#
-# AT TAG TIME, together with PKG_SOURCE_VERSION above: replace the placeholder with the
-# real hash. Both are release-cut steps by nature — the SHA does not exist until the
-# release commit is made, and the hash is of a tarball produced FROM that commit — so a
-# development tree legitimately carries the placeholder and a stale SHA, and
-# `release_preflight.py` failing on this line is the reminder working, not a defect.
-# (This note used to be dated "TODO(release 0.7.13)" while PKG_VERSION already said
-# 0.7.14, which read like a forgotten task rather than a standing procedure.)
-#
-# Produce the hash from the OpenWrt buildroot after adding this package:
-#     make package/qeli/download V=s
-#     sha256sum dl/$(PKG_NAME)-$(PKG_VERSION).tar.xz
-# (or `make package/qeli/check FIXUP=1`, which rewrites the line in place). The
-# placeholder is deliberately a value that CANNOT match, so the build fails loudly
-# rather than proceeding unverified — do NOT replace it with `skip`.
-PKG_MIRROR_HASH:=00036a1c982be4f565108a8b50cf7dbfe9f0892c075ae97464855b37ab150775
+# Hash the SDK-generated source archive. Git fallback may only warn on a
+# mismatch, so prepare AND compile verify it below before unpack/Cargo.
+# At release-cut pin the immutable source commit, run SDK download, then
+# make package/qeli/check FIXUP=1 and verify the actual Source archive filename.
+# Source archive generated twice and hash-verified with SDK24.10.4 (2026-10-26).
+# Publish the pinned commit to PKG_SOURCE_URL before using the public feed.
+# Re-qualify the cut if qeli/ changes; see the OpenWrt README audit section.
+PKG_MIRROR_HASH:=48e6a769d261f0440956a5b3f1db3aa72aaedb2a4f7205b5f9667aa480b4ddcc
 PKG_MAINTAINER:=Alexandr
 PKG_LICENSE:=AGPL-3.0-only
 PKG_LICENSE_FILES:=LICENSE
@@ -66,7 +54,9 @@ define Package/qeli
   SUBMENU:=VPN
   TITLE:=qeli VPN client (REALITY / anti-DPI, post-quantum)
   URL:=https://github.com/litvinovtd/qeli
-  DEPENDS:=$(RUST_ARCH_DEPENDS) +kmod-tun +ip-full +iptables +ip6tables +ca-bundle
+  # ip6tables providers require IPv6; an unconditional virtual dependency
+  # generates a recursive Kconfig expression in the 24.10 SDK.
+  DEPENDS:=$(RUST_ARCH_DEPENDS) +kmod-tun +ip-full +iptables +IPV6:ip6tables +ca-bundle
 endef
 
 define Package/qeli/description
@@ -83,11 +73,30 @@ endef
 # Client-only build: no default features (drops the server, web panel and `ring`).
 # The client-only bin is `qeli-client` (src/client_main.rs); the default `qeli`
 # bin requires the server+client features and is not built here.
+# Project only this private SDK checkout to rlib, as the router helpers do;
+# unused cdylib/staticlib outputs waste build resources and are never installed.
+# Refuse an unknown declaration rather than silently building extra FFI targets.
+# Source overlays are explicit developer SDK modes (USE_SOURCE_DIR/git-src),
+# not mirror-qualified release builds. Default downloaded sources must have a
+# nonempty regular, nonlinked archive matching the declared hash. Do not rely
+# on download.mk warnings: check again even if prepare stamps already exist.
+define Qeli/VerifySourceArchive
+	$(SHELL) $(CURDIR)/verify-source.sh "$(DL_DIR)/$(PKG_SOURCE)" "$(PKG_MIRROR_HASH)" "$(MKHASH)" "$(PKG_SKIP_DOWNLOAD)"
+endef
+Hooks/Prepare/Pre += Qeli/VerifySourceArchive
+
 CARGO_INSTALL:=0
 define Build/Compile
-	+cd $(PKG_BUILD_DIR)/qeli && \
+	+$(Qeli/VerifySourceArchive) && \
+	cd $(PKG_BUILD_DIR)/qeli && \
+	test -f Cargo.lock && \
+	grep -Eqx 'crate-type = (\["rlib"\]|\["rlib", "cdylib", "staticlib"\])' Cargo.toml && \
+	sed -i 's/^crate-type = \["rlib", "cdylib", "staticlib"\]/crate-type = ["rlib"]/' Cargo.toml && \
+	grep -qx 'crate-type = \["rlib"\]' Cargo.toml && \
+	$(CARGO_PKG_VARS) cargo metadata --locked --format-version 1 \
+		--no-default-features --features client-bin > /dev/null && \
 	$(CARGO_PKG_VARS) \
-	cargo install -v \
+	cargo install -v --locked --jobs 1 \
 		--profile release \
 		--no-default-features --features client-bin \
 		--bin qeli-client \
@@ -98,6 +107,11 @@ endef
 define Package/qeli/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/qeli-client $(1)/usr/bin/qeli-client
+
+	$(INSTALL_DIR) $(1)/usr/share/licenses/qeli
+	$(CP) $(PKG_BUILD_DIR)/qeli/third-party-notices/rust $(1)/usr/share/licenses/qeli/
+	find $(1)/usr/share/licenses/qeli/rust -type d -exec chmod 0755 {} +
+	find $(1)/usr/share/licenses/qeli/rust -type f -exec chmod 0644 {} +
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/qeli.init $(1)/etc/init.d/qeli

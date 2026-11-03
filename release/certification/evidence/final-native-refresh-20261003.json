@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "kind": "d15-final-native-source-refresh",
+  "captured_at": "2026-10-02T22:41:41.354930+00:00",
+  "source_commit": "93cb845d6f8d06705165d2981403f79ac31a747c",
+  "native_source_digest": "1bcee8e99b5a365e28821122b19fe190adce0277a6a6cba5fcb1a14c600f48d9",
+  "scope": "Fresh independent native A/B builds and evidence applicability; not final Linux/release certification or D15 closure",
+  "library_bytes_changed": false,
+  "native_AB_evidence": {
+    "desktop": {
+      "path": "native-libs/reproducibility/desktop.json",
+      "sha256": "e04e9313f51ed7d2e52a0f65c8999b22ea68a47f3c0ef76990079ba9199fd8ed",
+      "record": {
+        "artifacts": {
+          "native-libs/macos-universal/libqeli.dylib": {
+            "consumed": {
+              "qeli-mac/QeliMac/native/libqeli.dylib": "61292c140318590e7441ba891d1ca39266a22f3ee72c6f31fb2d6b39ed474e6a"
+            },
+            "final_sha256": "61292c140318590e7441ba891d1ca39266a22f3ee72c6f31fb2d6b39ed474e6a",
+            "pass_a_sha256": "61292c140318590e7441ba891d1ca39266a22f3ee72c6f31fb2d6b39ed474e6a",
+            "pass_b_sha256": "61292c140318590e7441ba891d1ca39266a22f3ee72c6f31fb2d6b39ed474e6a",
+            "reproducible": true
+          },
+          "native-libs/windows-x64/qeli.dll": {
+            "consumed": {
+              "qeli-win/QeliWin/native/qeli.dll": "653522e6bade8fce705a12ec1566c4c119d49b27d55cb7ba088c018b2bd1dd92"
+            },
+            "final_sha256": "653522e6bade8fce705a12ec1566c4c119d49b27d55cb7ba088c018b2bd1dd92",
+            "pass_a_sha256": "653522e6bade8fce705a12ec1566c4c119d49b27d55cb7ba088c018b2bd1dd92",
+            "pass_b_sha256": "653522e6bade8fce705a12ec1566c4c119d49b27d55cb7ba088c018b2bd1dd92",
+            "reproducible": true
+          }
+        },
+        "recipe": "qeli-native-repro-v1",
+        "schema": 1,
+        "source_commit": "93cb845d6f8d06705165d2981403f79ac31a747c",
+        "source_date_epoch": 1790979207,
+        "source_digest": "1bcee8e99b5a365e28821122b19fe190adce0277a6a6cba5fcb1a14c600f48d9",
+        "source_dirty": false,
+        "toolchain": {
+          "build_jobs": "1",
+          "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+          "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+          "cargo_zigbuild_version": "0.23.0",
+          "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+          "rcodesign": "apple-codesign 0.29.0",
+          "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+          "rust_toolchain": "1.97.0",
+          "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+          "source_checkout": "/var/tmp/qeli-d15-desktop-source-20261003",
+          "zig": "0.13.0"
+        }
+      }
+    },
+    "android": {
+      "path": "native-libs/reproducibility/android.json",
+      "sha256": "02a247fc0450b9b419f05b9cc30b1074bed1865fa7424de1b16545c642b7333e",
+      "record": {
+        "artifacts": {
+          "native-libs/android/arm64-v8a/libqeli.so": {
+            "consumed": {
+              "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "0255a5d8f60114301761031331c7fdf3ce7a6d6895790f93ad9b760a445c1522"
+            },
+            "final_sha256": "0255a5d8f60114301761031331c7fdf3ce7a6d6895790f93ad9b760a445c1522",
+            "pass_a_sha256": "0255a5d8f60114301761031331c7fdf3ce7a6d6895790f93ad9b760a445c1522",
+            "pass_b_sha256": "0255a5d8f60114301761031331c7fdf3ce7a6d6895790f93ad9b760a445c1522",
+            "reproducible": true
+          },
+          "native-libs/android/x86_64/libqeli.so": {
+            "consumed": {
+              "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "4ae6eb05b0a498e6fb9aab6014fbc1f0d50552dd48c6f49541c94b90f561ba30"
+            },
+            "final_sha256": "4ae6eb05b0a498e6fb9aab6014fbc1f0d50552dd48c6f49541c94b90f561ba30",
+            "pass_a_sha256": "4ae6eb05b0a498e6fb9aab6014fbc1f0d50552dd48c6f49541c94b90f561ba30",
+            "pass_b_sha256": "4ae6eb05b0a498e6fb9aab6014fbc1f0d50552dd48c6f49541c94b90f561ba30",
+            "reproducible": true
+          }
+        },
+        "recipe": "qeli-native-repro-v1",
+        "schema": 1,
+        "source_commit": "93cb845d6f8d06705165d2981403f79ac31a747c",
+        "source_date_epoch": 1790979207,
+        "source_digest": "1bcee8e99b5a365e28821122b19fe190adce0277a6a6cba5fcb1a14c600f48d9",
+        "source_dirty": false,
+        "toolchain": {
+          "android_ndk": "26.3.11579264",
+          "build_jobs": "1",
+          "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+          "cargo_ndk": "cargo-ndk v4.1.2:",
+          "cargo_ndk_version": "4.1.2",
+          "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+          "rust_toolchain": "1.97.0",
+          "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+          "source_checkout": "/var/tmp/qeli-d15-android-source-20261003"
+        }
+      }
+    }
+  },
+  "windows_read_only_selftest": {
+    "build_exit_code": 0,
+    "selftest_exit_code": 0,
+    "selftest_pass_count": 143,
+    "native_sha256": "653522e6bade8fce705a12ec1566c4c119d49b27d55cb7ba088c018b2bd1dd92",
+    "assembly_sha256": "4b873ab2021094cca02ac8dfdf414d7ac7b6b35fa07328e7b192899840dcc6ae",
+    "scope": "read-only platform selftest; no elevated full tunnel or driver installation"
+  },
+  "same_source_linux_evidence": [
+    {
+      "evidence": "release/certification/evidence/worker-budget-20261002.json",
+      "evidence_sha256": "fcfc0d4fcd336c60cdb45cc861603842fd44dc86977c2220e499cd01b5ee6b24",
+      "compared_sources": 288,
+      "changed_sources": [],
+      "note": "No automatic PASS/closure promotion; exact artifact/runtime limits remain in original evidence."
+    },
+    {
+      "evidence": "release/certification/evidence/config-mixed-20261002.json",
+      "evidence_sha256": "7fdaec31ced5a361b186363d7cd43891e154ea8d31ad6f40d97307de61d33df3",
+      "compared_sources": 288,
+      "changed_sources": [],
+      "note": "No automatic PASS/closure promotion; exact artifact/runtime limits remain in original evidence."
+    },
+    {
+      "evidence": "release/certification/evidence/client-store-20261002.json",
+      "evidence_sha256": "6c3214c5da59b09e61274ad083350fc799b58893b17afeb15abfa977c50b76aa",
+      "compared_sources": 0,
+      "changed_sources": [],
+      "note": "No automatic PASS/closure promotion; exact artifact/runtime limits remain in original evidence."
+    },
+    {
+      "evidence": "release/certification/evidence/firewalld-profiles-20261002.json",
+      "evidence_sha256": "d46bd3323c943f5cbda30bb6af717f2dfc3268bd581f33af3dc95d2fc6949381",
+      "compared_sources": 288,
+      "changed_sources": [],
+      "note": "No automatic PASS/closure promotion; exact artifact/runtime limits remain in original evidence."
+    },
+    {
+      "evidence": "release/certification/evidence/external-context-20261002.json",
+      "evidence_sha256": "97f1a3f0847a9ada416d3dc14d19148c0cd966d828ae21dc2cd12747444053cc",
+      "compared_sources": 288,
+      "changed_sources": [],
+      "note": "No automatic PASS/closure promotion; exact artifact/runtime limits remain in original evidence."
+    },
+    {
+      "evidence": "release/certification/evidence/server-route-policy-20261002.json",
+      "evidence_sha256": "c2e7461cd1e436302aa6baa5ca840ae2022e2304167c1f3059b839f2cb4bb795",
+      "compared_sources": 288,
+      "changed_sources": [],
+      "note": "No automatic PASS/closure promotion; exact artifact/runtime limits remain in original evidence."
+    },
+    {
+      "evidence": "release/certification/evidence/ipv6-multiprofile-20261002.json",
+      "evidence_sha256": "ad82fab1e1a7b27d8c9c438e4c60202fe3f4b361a86deb04d99e44d41f3eb40a",
+      "compared_sources": 288,
+      "changed_sources": [],
+      "note": "No automatic PASS/closure promotion; exact artifact/runtime limits remain in original evidence."
+    },
+    {
+      "evidence": "release/certification/evidence/ndp-packets-20261002.json",
+      "evidence_sha256": "fe1d4a439117082cb8550885e04daec491be04ca7e1c944ea7e3654fc27b97dc",
+      "compared_sources": 288,
+      "changed_sources": [],
+      "note": "No automatic PASS/closure promotion; exact artifact/runtime limits remain in original evidence."
+    },
+    {
+      "evidence": "release/certification/evidence/wan-identity-disposition-20261003.json",
+      "evidence_sha256": "77b6bcb6c55a25e39fea127cde65be7a3ed07b6ff3036b4bd1076aa360fba814",
+      "compared_sources": 0,
+      "changed_sources": [],
+      "note": "No automatic PASS/closure promotion; exact artifact/runtime limits remain in original evidence."
+    }
+  ],
+  "client_store_applicability": {
+    "tested_adapter_input_sha256": {
+      "compared": 164,
+      "changed": []
+    },
+    "unchanged_rust_input_sha256": {
+      "compared": 288,
+      "changed": []
+    }
+  },
+  "raw_artifact_root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\d15-final-20261003",
+  "raw_artifact_sha256": {
+    "android/commands.jsonl": "0966654090d813c8cdfe871bd3f155b69da857ec1643846d74c73af83c80f206",
+    "android/outputs.jsonl": "839e0613fd38a6ab7bc28247277dcc6d39f40d92aa6fb7d8c0068e9d30867c39",
+    "android-build-cache-cleanup.json": "ee6909d29a7f6ee7f4f2761e74c289f8c0d078f215c9f40c9455cf66e6896bff",
+    "android-preflight-r1/commands.jsonl": "2d1a5f4589719865015c68c1b21ec88a629a976f0cd51c2767744ee8b3a1111b",
+    "android-preflight-r1/outputs.jsonl": "756f06e680069807bb9dffcce4460b96423d10151c4e5ee333686ffb011e006a",
+    "baseline.json": "fdc173571ff6226ce0ff272faf7d7323aed64bfe53eeaceca168d7c45e6d0cbe",
+    "cache-cleanup.json": "ccdd5e0ea50d95a0c027256e0eeaa0e0b782cdb9e9e26799c2dfc3cef5b92572",
+    "cache-inventory.json": "7edaaadcdf1c27dc9d9a076988b4d3de37f36e9047aaf283fbe861b17b2babac",
+    "cert-help.log": "1fa12dcfd4f8b081732a42b503b1bc347d714bdacfe5aac64238c1c2b51b89ef",
+    "certification-before.log": "54db87f61d8616d973a09ab7db9c9cc7bcf7f6c5545907bcb4cbb74e3f89b2e4",
+    "certification.log": "7d9e479675e7c4fdf95f8a58b0adb7dca3bbbc7927a1bc49d023a6cab8ea69dd",
+    "client-store-applicability.json": "eebbc53f0eff2ae32855a176dd31a0b5dd4e020bb9d0b69cc03a052204280800",
+    "desktop/commands.jsonl": "e1c6d4bdede986690679101f656590aee33c7faa4a523d05530c1dfde03ea321",
+    "desktop/outputs.jsonl": "3f7c58b9b5c9e65afd5d06d0fe3e41e1b402ab417f284fa3e50fdb7ffe90d5ea",
+    "desktop-host-delta-investigation.json": "cdc9143a2da2307068538a08a36d9aeee1e96962c62f241724c567c890279951",
+    "desktop-host-delta-owner.json": "8d3cdf0aeb89c08ba9b4c237814a2f41bb86a8c81967d283d638dba860df9391",
+    "disk11-details.log": "ad95f997e30036212e5ae3f9f0202ee3ea095be2d82155912e624fd96488bd1c",
+    "disk11.log": "66e1b992b9740c2ea50eda67c2aab0de398da9939fa7c1ae1d5b972b7315bbd5",
+    "evidence-applicability.json": "6435a035dca4771556cf1fdfc52768fdeac5f5985ac88e7521ce233ab7f123c9",
+    "inventory-10.json": "2c660a4adeb8296ad3aa1105a07ac6f7d42c571344beef71308a2bf933e8cbcb",
+    "inventory-11.json": "e5585e9d591df02e97ceed4802512c86b1cbaac8fbd673bb953562b27ea2f7b3",
+    "linux-build.py": "f7d9434c15a8a66ba14e04fbd3f433afbf40d4ffa8322274a5ec105c49edd3a4",
+    "native-build.py": "2887bfda76ad05220c94ca9fc8f877b8814bfb9db39fa82e1bb425d2c641b0e8",
+    "provenance.log": "909a9a04f4bc06a9132e8b8515e636cffdc6b36b88202b1a8d3b8bb44d883bba",
+    "recipe-tests.log": "8aeeccbea7687c6f358bd470f33007cb8d1e04a7dcc8008308ead8f1257b2d9f",
+    "windows-build.log": "7125e7de5a716c869e8ce6ea658f01e562421e9688d49201e3d214d6fbd6a85d",
+    "windows-result.json": "199e261c0556f8731591937c65773a54f78c115a1426472deb921a723b324abb",
+    "windows-selftest.log": "78d718f51639048950f064592a977ca45e18aeaa406da70d502fc45a8ebea67d",
+    "desktop/result.json": "4e7e289995787321c97c4a94c306eb37d4050a5a15a769497f6bd72d7a49c4cb",
+    "android/result.json": "f8c4f7aa4ebbbac8200a604fe6f88e519e8401d8d9da23b86467b6627621c5ee"
+  },
+  "host_qualification": {
+    "desktop_wrapper_status": "FAILED",
+    "desktop_recipe_exit_code": 0,
+    "desktop_host_restored": false,
+    "desktop_service_unchanged": true,
+    "desktop_differences": [
+      "firewall4",
+      "firewall4_legacy"
+    ],
+    "desktop_reason": "Existing vpn-obfuscated.service fails NAMESPACE every ~5s because /etc/vpn-obfuscated is missing. Requires dependency cycles vpn-nat.service; exact start/stop scripts own the three differing iptables-legacy rules. Journal captures add/remove during build; build commands contain no firewall or service mutations. Wrapper FAILED is retained; byte reproducibility and ABI pass independently.",
+    "android_wrapper_status": "PASS",
+    "android_host_restored": true,
+    "no_service_or_privilege_changes": true
+  },
+  "limitations": [
+    "No Mac/Xcode/iOS, Windows VM or router runtime, as excluded by user.",
+    "Android 167 JVM / 12 instrumentation and .NET 511 results are reused only for identical 164 adapter inputs, 288 Rust inputs and identical native bytes; not new test execution.",
+    "Seven Linux source-level evidence records compare all 288 Rust files unchanged; each retains original artifact/platform limits.",
+    "The current release manifest is still stale until fresh Linux release matrix/soak and benchmark finish.",
+    "No BPF integration; Q25-A125 remains accepted P2 limitation."
+  ]
+}

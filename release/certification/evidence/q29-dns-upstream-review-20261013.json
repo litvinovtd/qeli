@@ -1,0 +1,33 @@
+{
+  "status": "NEW_PRIMARY_SOURCE_REVIEW_NO_NEW_DNS_RUNTIME",
+  "observed_unix": 1791901022.7180924,
+  "prior_review_sha256": "46bf86568564892febc73b9b4624cbf287876b9f8dfa7a6277e38fb923d53c6b",
+  "references": [
+    {
+      "url": "https://android.googlesource.com/platform/packages/modules/DnsResolver/+/refs/tags/android-16.0.0_r1/DnsProxyListener.cpp",
+      "blob": "302cfd99e02ca597889da96795f35bf5f43c5e38",
+      "function": "GetDnsNetIdCommand::runCommand",
+      "observation": "Returns app_netid from UID-specific network context, not dns_netid; lines1228-1264 of fetched reference",
+      "exact_AVD_revision": false
+    },
+    {
+      "url": "https://android.googlesource.com/platform/system/netd/+/refs/heads/android10-mainline-release/resolv/DnsProxyListener.cpp",
+      "observation": "Same app_netid selection in inspected earlier primary reference",
+      "exact_AVD_revision": false
+    }
+  ],
+  "conclusion": "Primary Android16 reference still retains the app-network selection implicated by prior API34 direct dnsproxyd UID comparison; cannot infer that only changing Qeli DNS addresses or upgrading Android resolves generic/null pre-query family checks. No newer Android runtime was executed; no claim that all newer images fail.",
+  "candidates_reviewed": [
+    "Reconfigure TUN DNS servers: does not change return field in this entry point",
+    "Change only Qeli process network binding: cannot replace third-party process binding",
+    "Expose VPN as physical/default Network: ordinary VpnService has no supported capability to replace another UID network policy",
+    "Platform resolver/framework change: not a Qeli product workaround"
+  ],
+  "independent_sender_and_platform_TUN_controls_reused": true,
+  "product_FIX_applied": false,
+  "allowBypass_enabled": false,
+  "compatibility_PASS": false,
+  "user_limitations_accepted": false,
+  "Q29_closed": false,
+  "NO_PUSH_DEPLOY_RELEASE": true
+}

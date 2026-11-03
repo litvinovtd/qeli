@@ -22,26 +22,63 @@ case "$ARCH" in
   *) echo "unknown arch '$ARCH' (use arm64 or x86_64)"; exit 1 ;;
 esac
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")" && pwd -P)"
+if [[ -L "$ROOT/dist" ]]; then
+  echo "refusing symlinked dist directory" >&2; exit 1
+fi
+# SDK selection searches from the current directory, even for an absolute --project.
+# Run within the checkout so global.json and the dependency policy apply.
+cd "$ROOT"
 PROJ="$ROOT/QeliMac/QeliMac.csproj"
 OUT="$ROOT/dist/$RID"
 APP="$ROOT/dist/Qeli.app"
 ARCHIVE="$ROOT/dist/Qeli-macos-$ARCH.tar.gz"
 PER_APP_OUT="$ROOT/dist/per-app-$ARCH"
 SIGNED_PER_APP=0
+for output in "$OUT" "$APP" "$ARCHIVE" "$PER_APP_OUT" "$ROOT/dist/Qeli.icns"; do
+  if [[ -L "$output" ]]; then
+    echo "refusing symlinked app output: $output" >&2; exit 1
+  fi
+done
 
-# 1. Native whole-client core (current ABI 1.15, compatibility floor 1.11 + realtls FFI) —
+# An unsigned bundle is not a successful package. Admit a signer before any
+# compiler, publish or output replacement; keep one selected tool for this run.
+if SIGN_TOOL="$(command -v codesign)"; then
+  SIGN_KIND=codesign
+elif SIGN_TOOL="$(command -v rcodesign)"; then
+  SIGN_KIND=rcodesign
+else
+  echo "codesign or rcodesign is required before building an app archive" >&2
+  exit 1
+fi
+
+# 1. Native whole-client core (current ABI 1.16, compatibility floor 1.11 + realtls FFI) —
 #    universal libqeli.dylib. Built once
 #    into QeliMac/native/ by build_dylib.sh (cargo + lipo on Mac, cargo-zigbuild on Linux).
-if [[ ! -f "$ROOT/QeliMac/native/libqeli.dylib" && -d "$ROOT/../qeli" ]]; then
+NATIVE_CORE="${QeliNativeCorePath:-$ROOT/QeliMac/native/libqeli.dylib}"
+if [[ ! -f "$NATIVE_CORE" && -z "${QeliNativeCorePath:-}" && -d "$ROOT/../qeli" ]]; then
   echo "==> Building native whole-client dylib…"
   "$ROOT/build_dylib.sh"
+fi
+if [[ ! -f "$NATIVE_CORE" ]]; then
+  echo "native whole-client dylib is missing: $NATIVE_CORE" >&2; exit 1
 fi
 
 # 2. Publish the self-contained .NET payload for the target RID.
 echo "==> Publishing self-contained ($RID)…"
 dotnet publish "$PROJ" -c Release -r "$RID" --self-contained true \
   -p:PublishSingleFile=false -o "$OUT"
+# A prior publish can contain a newer host-only CI core. MSBuild PreserveNewest
+# compares timestamps, so explicitly install the selected packaging input and
+# verify its bytes before signing (which legitimately changes Mach-O signatures).
+cp "$NATIVE_CORE" "$OUT/libqeli.dylib"
+cmp "$NATIVE_CORE" "$OUT/libqeli.dylib"
+
+# Legal sidecars must survive publish before an app/archive is assembled.
+PYTHON="${PYTHON:-python3}"
+"$PYTHON" "$ROOT/../scripts/native_licenses.py" --repo "$ROOT/.." --bundle "$OUT/Legal/NativeRust"
+"$PYTHON" "$ROOT/../scripts/managed_licenses.py" --repo "$ROOT/.." --bundle "$OUT/Legal/DotNet"
+cmp "$ROOT/LICENSE" "$OUT/Legal/MPL-2.0.txt"
 
 # 3. Render the .icns in-process (works on any build host — no sips/iconutil).
 echo "==> Rendering app icon (.icns)…"
@@ -52,9 +89,13 @@ echo "==> Assembling Qeli.app…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp -R "$OUT/." "$APP/Contents/MacOS/"
+# Legal files are resources, not nested code. In MacOS/, codesign interprets
+# dotted version directories (for example axum-core/0.5.6) as malformed bundles.
+mv "$APP/Contents/MacOS/Legal" "$APP/Contents/Resources/Legal"
 cp "$ROOT/dist/Qeli.icns" "$APP/Contents/Resources/Qeli.icns"
 sed "s/__ARCH__/$ARCH/g" "$ROOT/Info.plist.in" > "$APP/Contents/Info.plist"
 chmod +x "$APP/Contents/MacOS/QeliMac"
+"$PYTHON" "$ROOT/../scripts/check_macos_deployment.py" "$APP"
 
 # 5. A usable Network Extension cannot be ad-hoc signed. When Developer-ID inputs are
 # supplied on a Mac, build/embed the transparent+DNS system extension and sign every nested
@@ -93,15 +134,12 @@ if [[ "$(uname -s)" == "Darwin" && -n "${QELI_MAC_SIGN_IDENTITY:-}" \
   echo "   Developer-ID signed with per-app routing support"
 else
   echo "==> Ad-hoc code-signing (per-app extension unavailable in this build)…"
-  if command -v codesign >/dev/null 2>&1; then
-    codesign --force --deep --sign - "$APP"
+  if [[ "$SIGN_KIND" == codesign ]]; then
+    "$SIGN_TOOL" --force --deep --sign - "$APP"
     echo "   signed with codesign (ad-hoc)"
-  elif command -v rcodesign >/dev/null 2>&1; then
-    rcodesign sign "$APP"
-    echo "   signed with rcodesign (ad-hoc)"
   else
-    echo "   WARNING: no codesign/rcodesign — bundle is UNSIGNED (won't launch on Apple Silicon)."
-    echo "            install one:  cargo install apple-codesign   # provides rcodesign"
+    "$SIGN_TOOL" sign "$APP"
+    echo "   signed with rcodesign (ad-hoc)"
   fi
 fi
 

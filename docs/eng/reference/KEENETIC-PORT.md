@@ -3,7 +3,9 @@
 > **Benchmark scope:** any Reality speed or double-framing estimate in this document comes from
 > the legacy carrier through 0.7.16. The current genuine H2 carrier needs a separate router benchmark.
 
-Status: **Code complete** — the dual-arch client (mipsel + aarch64) builds and is caught
+> **Current audit qualification (6 October):** earlier build/Phase1 results below are historical. Q31 remains IN_PROGRESS; current router cross-build/ABI and hardware behavior have not been rerun. The host verifier now uses an isolated checkout/target and leaves services running. See [Q31](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+
+Historical implementation status (11 June): **Code complete** — the dual-arch client (mipsel + aarch64) builds and is caught
 up to the current release (PR #34/#43 merged, lab-verified); pending only a check on real
 Keenetic hardware. This doc is kept as the design/build reference.
 The goal is to run the existing Linux `qeli` client on Keenetic routers under Entware,

@@ -81,6 +81,9 @@ pub async fn set_limit(
     Path(username): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AuthError> {
+    if let Err(error) = super::require_json_object(&body) {
+        return Ok(Json(super::err_json(error)));
+    }
     // Reject an invalid number instead of coercing it: `as_u64()` returns None for
     // "-5"/"1.5"/"abc" exactly as for a missing key, so `unwrap_or(0)` turned a typo
     // into 0 = UNLIMITED — a fail-open quota reported as success.

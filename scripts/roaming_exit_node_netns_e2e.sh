@@ -274,7 +274,7 @@ exit_rule_set() {
   ip netns exec "$EXIT_NS" iptables -t mangle -C FORWARD -i qrex0 -o "$wan" \
     -j MARK --set-xmark 0x51/0x51 -m comment --comment qeli-exit-node &&
   ip netns exec "$EXIT_NS" iptables -t nat -C POSTROUTING -o "$wan" \
-    -m mark --mark 0x51/0x51 -j MASQUERADE -m comment --comment qeli-exit-node &&
+    -m mark --mark 0x51/0x51 -j MASQUERADE -m comment --comment qeli-exit-node:qrex0 &&
   ip netns exec "$EXIT_NS" iptables -t filter -C FORWARD -i qrex0 -o "$wan" \
     -j ACCEPT -m comment --comment qeli-exit-node &&
   ip netns exec "$EXIT_NS" iptables -t filter -C FORWARD -i "$wan" -o qrex0 \

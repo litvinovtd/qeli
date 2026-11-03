@@ -159,8 +159,8 @@ data class ProtectionSummary(
                 appCount = apps,
                 excludedRouteCount = config.excludeRoutes.size,
                 // Every mode runs the hybrid PQ ClientHello except `plain`, which uses a
-                // raw X25519 exchange (QeliService: performHandshakePlain vs
-                // performHandshake). obfs and reality-tls are transport wrappers around the
+                // raw X25519 exchange in the shared Rust client. obfs and reality-tls are
+                // transport wrappers around the
                 // SAME PQ handshake, so they count as post-quantum.
                 postQuantum = !config.wireMode.equals("plain", ignoreCase = true),
                 // Explicit resolvers are reached through the tunnel; a full tunnel captures

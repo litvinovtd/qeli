@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "status": "DOCUMENTATION_ONLY_SOURCE_APPLICABILITY",
+  "baseline_commit": "3acf33f0af881ecd762fa2c5ec2dc70fc327460c",
+  "documentation_commit": "7aee7033d2107a196f82da50354517a368c56a8f",
+  "previous_source_digest": "88790eb19085efa5e73901066b47009d82984a5baadfafc9d5d2613c1e6275c3",
+  "source_digest": "111db6f33080a3a2daf04a737ed1f5dc5dbbaeae8d0a61ef57a08f06c7793bdc",
+  "prior_exact_CI": "https://github.com/litvinovtd/qeli/actions/runs/39031424452",
+  "binary_candidate_commit": "e90bf0c20e187e18dfee8ac25a69441c922063f1",
+  "actual_runtime_evidence": "release/certification/evidence/embedded-licenses-release-20261017.json",
+  "exact_documentation_delta": {
+    "CHANGELOG.md": {
+      "before": "5d891a6edbd26e1a3957148623ece176724a8af6",
+      "after": "5607e521f2ce14b3f8409235d4ebc6dd72023ba3"
+    },
+    "README.md": {
+      "before": "68f1b7743e995f875c3ede03392eb3ceb8c29334",
+      "after": "f8fcf6e752197b0c23cc71983e33ee4da3f15f84"
+    },
+    "docs/eng/README.md": {
+      "before": "6e3bd176603619cb948e9ce731c729959d5c87b2",
+      "after": "52559b210b235fee5c7be85c4ecdfc5e448c4cad"
+    },
+    "docs/eng/manuals/CONFIG.md": {
+      "before": "27ad370ce6e789e60ec7800c691d5a3a396b411b",
+      "after": "2672cf232fbd1a5a6357f00b8dae3a4d257897be"
+    },
+    "docs/eng/manuals/GETTING-STARTED.md": {
+      "before": "7f2f357253676d5a99567d412c4da009a93ee5de",
+      "after": "1a68b197ce2a5c5e9337157b8024ebb49453f952"
+    },
+    "docs/eng/manuals/OPERATIONS.md": {
+      "before": "751d3ebb0699032c85fe483cf000798965e06064",
+      "after": "c100b294d83c07978907e574f863779ce547f35b"
+    },
+    "docs/eng/manuals/PANEL.md": {
+      "before": "c95293d9f263c93aa5f1d89dbd448289f381a5f5",
+      "after": "92471c2c6a8b448677adbfdb20a20162bba48244"
+    },
+    "docs/eng/manuals/TROUBLESHOOTING.md": {
+      "before": "369b1dc2764016776cf555df997f67afcf967130",
+      "after": "3edbc9a611971652d248678e7b484fc35a99eb49"
+    },
+    "docs/ru/README.md": {
+      "before": "74e9242564f9da6d5173061449a81fb78cfdcd90",
+      "after": "44205ebe582c9dba22902066d9b67c122c4ef929"
+    },
+    "docs/ru/manuals/CONFIG.md": {
+      "before": "a0edef16350ee3ebc90acb1629ac3750eab3cf0a",
+      "after": "664b56ee1326bb7d714127049372c1e38a7e7b36"
+    },
+    "docs/ru/manuals/GETTING-STARTED.md": {
+      "before": "b4774c2fb6f722c8dffad3321db2f9b7766e74fc",
+      "after": "b885e4ebb38316cd2902279ffd9aaa3e242d3ed7"
+    },
+    "docs/ru/manuals/OPERATIONS.md": {
+      "before": "f4e22af97b4beb2352e2aa37a9f07a93c14b4e5d",
+      "after": "00094d42f7c01a8e0cb678bde7e9a6632587fb9e"
+    },
+    "docs/ru/manuals/PANEL.md": {
+      "before": "7e0dd96341391ecc4d094dc361e032cc58aa78ea",
+      "after": "d4911c9ed95e7b0e6d625658f2841f8bf70a04c9"
+    },
+    "docs/ru/manuals/TROUBLESHOOTING.md": {
+      "before": "116cba4fab7df1ac17f0373e91c7b22712eb971a",
+      "after": "d3ab5e94ce069a6e83a716100a83438be7430cf3"
+    },
+    "release/RELEASE_NOTES_0.8.2.md": {
+      "before": "f228ea26ef4f5b27fabed8942db35fcd8ee02137",
+      "after": "e1b3cfdad6c8b1abe519f009c23a74f7d3a5ed72"
+    }
+  },
+  "unchanged_inputs": {
+    "qeli": "eea76ad97e092f5634bedfdb44b77054e509fe29",
+    "qeli-win": "78400d4efb6cd65f8d8086ded789c2caf47416ff",
+    "qeli-android": "31abca000a2ed40da94c40861ec0370204e96154",
+    "qeli-mac": "aeaedbbf3ab847828f67b40941935d758e17bf8e",
+    "qeli-ios": "944e743db589b638625cf623c5d3fd8848f51980",
+    "qeli-shared": "3d8272ea4ac3bad3aca0f16da43788218f6ef5e1",
+    "native-libs": "059746b67288dfccf9ab49a2b73149f72d6c57f0",
+    "scripts": "138c5707e91334934daefe093f6c433159ab798d",
+    ".github": "a722bd81a199b2a591ac40ea1787765629bbeea4",
+    "qeli-openwrt": "42241ed803fc4c3d88a65d706bbaf1980b2d1fb6",
+    "release/keenetic": "1227376d48901a21bcc8b745e141fde80e731e5e",
+    "release/docker": "b917a97a6c31f29da3782b45b03d11d0b609b208",
+    "conformance": "5c6762b2aa404ab96c209a6cf68c265d18a6651a",
+    "test": "f5a1670b79fc458e0e355267c0ed5c483dd760cc",
+    "global.json": "1769bc165d048c16924465fd1f3c67fa4f5f6944",
+    "Directory.Build.props": "2d2d1f845f16b7ae678498f21951c8786d1675f1",
+    "Directory.Build.targets": "ba0269adf5b0a83b6f9dd6e9963bb0183307b3c5"
+  },
+  "scope": "Only 15 Markdown files changed since the exact qualified dev snapshot. All product trees, native artifacts, build policies/recipes/workflows and runtime harnesses are identical. Existing 20 Linux execution timestamps, artifact hashes and original evidence remain unchanged; source_digest denotes applicability to this docs-only tree, not a new execution. Physical rows, accepted API34 limitation, D06 and original host variance remain. All 16 release files retain their previous bytes. GitHub is to remain draft; no tag/main/publication change.",
+  "existing_executions_preserved": 20,
+  "new_runtime_executions": 0,
+  "new_binary_builds": 0,
+  "release_assets": {
+    "install-keenetic.sh": {
+      "sha256": "2c8f695d7509651d49db6986183d5fcb876554a490200f084e12c3068d969429",
+      "bytes": 8426
+    },
+    "qeli-android-0.8.2.apk": {
+      "sha256": "c0c306f0f7ab532ee76d7efe483841a647bb1d13604b91c4d16068f7151fda86",
+      "bytes": 12213284
+    },
+    "qeli-client-keenetic-aarch64": {
+      "sha256": "8c2718b231e267276321a8c210207955431eaa8dd1ad5162f6d187dc710928f0",
+      "bytes": 9329304
+    },
+    "qeli-client-keenetic-mipsel": {
+      "sha256": "22c90b3e1272c99d6e596740ba1dd193c3c6e2a3ed2c05da5faabb37caf4377e",
+      "bytes": 11372984
+    },
+    "qeli-client-openwrt-aarch64": {
+      "sha256": "8c2718b231e267276321a8c210207955431eaa8dd1ad5162f6d187dc710928f0",
+      "bytes": 9329304
+    },
+    "qeli-client-openwrt-armv7": {
+      "sha256": "4c54d6dd7627b17d225602d09cd0f140c1ddfe016cdbf54120e59b3c8dcf1e8f",
+      "bytes": 9482212
+    },
+    "qeli-client-openwrt-mipsel": {
+      "sha256": "22c90b3e1272c99d6e596740ba1dd193c3c6e2a3ed2c05da5faabb37caf4377e",
+      "bytes": 11372984
+    },
+    "qeli-client-openwrt-x86_64": {
+      "sha256": "c5bffea33654762527eda8febc0ce5e469d529299fcb51ce14ead12192134c8e",
+      "bytes": 10089400
+    },
+    "qeli-keenetic-files.tar.gz": {
+      "sha256": "92e4c2c1c001c2ab2ae9bd5afdb2b534782920bfbb04fe391fec6d0bf5522ee1",
+      "bytes": 41573
+    },
+    "qeli-linux-amd64": {
+      "sha256": "05b0084f20cbf327e4ed19bf2f86153d310c4266cb9983347a0aeada79bbd007",
+      "bytes": 18812248
+    },
+    "Qeli-macOS-universal.zip": {
+      "sha256": "e4c0b666d27a4384171bd569b10e1058ed7485e5f97b5d16bd4713960ef51a6a",
+      "bytes": 61451651
+    },
+    "qeli-openwrt-files.tar.gz": {
+      "sha256": "0fc87e1a0689a4bda1a59a62fc6dfb6ffe85962800769844e4293029c0df3fe1",
+      "bytes": 51247
+    },
+    "qeli_0.8.2_amd64.deb": {
+      "sha256": "6426d47b99dbeb8d0fcf1570f526be32623b9f6fe0d746f512d90f53eceba91a",
+      "bytes": 4830680
+    },
+    "QeliWin-net-required.exe": {
+      "sha256": "81bf4c63850fce2b2eca4236b573332d6a8c6d4beb4db511f31eaa3f7f063c3f",
+      "bytes": 20363787
+    },
+    "QeliWin-standalone.exe": {
+      "sha256": "046ec57a41ec01108416316d6182e9d7558cfbabbc0eadf64e65653035b7c39b",
+      "bytes": 74405105
+    },
+    "SHA256SUMS": {
+      "sha256": "4f22854c29cb470285181de9f195ab86a218c97d301c8208e78e52139ad7e396",
+      "bytes": 1362
+    }
+  },
+  "artifact_hashes_are_not_build_attestations": true,
+  "requires_exact_final_CI": true,
+  "published": false,
+  "tag_created": false
+}

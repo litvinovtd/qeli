@@ -1,0 +1,39 @@
+{
+  "status": "ACTUAL_CLANG_SOURCE_LLVM_DISK_FLOOR_FAILURE_ARCHIVE_AND_CLEANUP_VERIFIED",
+  "qualification": {
+    "status": "ACTUAL_CLANG_SOURCE_LLVM_DISK_FLOOR_FAILURE_ARCHIVE_AND_CLEANUP_VERIFIED",
+    "source_compiler_PASS": false,
+    "cold_SDK_graph_PASS": false,
+    "Q31_closed": false,
+    "last_started_ninja_operation": "3340/3710",
+    "guard_metrics": {
+      "stage": "host-compile",
+      "elapsed_seconds": 11471.587194108171,
+      "owned_bytes": 7341742206,
+      "free_bytes": 1051951104,
+      "reason": "disk"
+    },
+    "archive_sha256": "122f4326bfaa9dac3950c6aea1fb704672ecd706a0a365e75f7cd5dc0e65b0d1",
+    "archive_bytes": 142834,
+    "owned_bytes_removed": 7513146208,
+    "host_preserved": true,
+    "owned_root_removed": true,
+    "SDK_not_started": true,
+    "raw_files": {
+      "q31-host-clang-20261014/completion.json": "555ee7ac68a3195cf972bb8e7a52ea9b95698e0be38d84f27a1640dd28ec3e4a",
+      "q31-host-clang-20261014/result.json": "32e2be4e0dc17b8d2db9eda2723737c86a1fc593b32e625b9cd5af98b9bc5bd6",
+      "q31-host-clang-20261014/finished-unit.json": "56e7c59177d1ae6037748d30f0d95531326d86f64f4af87403d1b87babaf8c2b",
+      "q31-host-clang-20261014/cleanup.json": "0ebe0dd77c9427ccf7d14ca654ba6713c38c7acf283f3eaf6d88fc972ca08dae",
+      "q31-host-clang-20261014/archive.json": "63278be50393bdabc35885d65cab9131cd8beba9dfe59350f6b9af63de71bea1",
+      "q31-host-clang-20261014/runtime.tar.gz": "122f4326bfaa9dac3950c6aea1fb704672ecd706a0a365e75f7cd5dc0e65b0d1",
+      "q31-host-clang-20261014/plan.json": "a38d8dcf7d91174fb4934e067079b8d23c8c13fb7a36438afca89125286d8430",
+      "q31-host-clang-20261014/worker.py": "59716c2a86f57a9d1b7532822a8ef1632df5c052ed33715aa4c01c7cbf8d0d8e",
+      "q31-clang-sdk-consumer-20261014/completion.json": "6b10fa098402c8b277340e7f218868b1553e029c8cb9f24cd172e0255d26d648",
+      "q31-clang-sdk-consumer-20261014/qualification.json": "137802bfb81bd0156370e21b33b8c10bee856f57d0b9f93f2d8c6fd349844234",
+      "q31-clang-sdk-consumer-20261014/final-verification.json": "495b7ccbb96ebade6508364b79a84b08b71243d7e180a95497287e2ebc83dd4e"
+    },
+    "no_push_deploy_release": true
+  },
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-clang-sdk-consumer-20261014",
+  "no_push_deploy_release": true
+}

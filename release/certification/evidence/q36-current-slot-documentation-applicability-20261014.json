@@ -1,0 +1,26 @@
+{
+  "status": "FRESH_CURRENT_SLOT_MATRIX_EXACT_FOUR_MARKDOWN_APPLICABILITY_PASS",
+  "previous_source_commit": "55eb810865e290e427f6cd2b5838e4278aa304bf",
+  "source_commit": "04d120a1161f7fe03067ff876d69e2045945d4b9",
+  "source_digest": "46592a16579980a43071810095eb1316514bd50318e19d3a179c005620fb4eb9",
+  "execution_source_digest": "31b5c9db63e403937495e1cc55474c459713702c60a06131d4b568d2320b59f2",
+  "native_source_digest": "0dfac80b50d2bdd1964817dee8ac87f7311cde63bf61efade7a40abd7e32b635",
+  "exact_non_certification_delta": [
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md"
+  ],
+  "files": {
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md": "9b69898df263262f0566cffe6ce6a6462417e6ba34a6de8c35872ace8ecb88d4",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md": "0b9ddd49e063d284e680208e7cd71dba44804819eec367dd2a132a9d0eaa10f2",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "eeb080e2bfe60cf5200e411f909951932aa7405f5ec11189d3463061a209ede4",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "b6a8567080f4389e35977d69b7ad12248afdc289eb23f4cf3b3b4744e31225df"
+  },
+  "fresh_qualification_sha256": "40f00aa2575512cb6c5b64d8fb65e5aca2a271e69c4cb5e935aeb1513fc1d986",
+  "seal_sha256": "25d43786f366b21db70d43fe613778a1076616e6d0c7a81590d92e256de52f3c",
+  "runtime_execution_facts_preserved": true,
+  "new_runtime_execution": false,
+  "scope": "Fresh current-core execution; subsequent exact four Markdown report/plan changes only. All actual source/time/CLI/rows/log/archive facts retained. No additional execution or physical qualification claimed.",
+  "no_push_deploy_release": true
+}

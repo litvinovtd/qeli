@@ -39,29 +39,7 @@ pub async fn login(
     {
         let tracker = state.failed_auth.lock().await;
         if let Err(msg) = tracker.check_ip(client_ip) {
-            log::warn!(
-                "PANEL LOGIN BLOCKED from {} user='{}': {}",
-                client_ip,
-                crate::util::log_identity(username),
-                msg
-            );
-            // Notify (Tier-3) — throttled to once/10 min per source IP.
-            let key = format!("lockout:{}", client_ip);
-            let detail = format!(
-                "panel login blocked from {} (user '{}')",
-                client_ip,
-                crate::util::log_identity(username)
-            );
-            tokio::spawn(async move {
-                crate::server::notify::fire_throttled(
-                    &key,
-                    600,
-                    crate::server::notify::Event::LoginLockout,
-                    &detail,
-                )
-                .await;
-            });
-            return (StatusCode::TOO_MANY_REQUESTS, Json(super::err_json(msg))).into_response();
+            return login_blocked(client_ip, username, msg);
         }
     }
     let tarpit = state.failed_auth.lock().await.user_tarpit(username);
@@ -69,24 +47,30 @@ pub async fn login(
         tokio::time::sleep(tarpit).await;
     }
 
-    if !auth::verify_credentials(username, password, web).await {
-        state
-            .failed_auth
-            .lock()
-            .await
-            .record_failure(username, client_ip);
-        log::warn!(
-            "PANEL LOGIN FAIL from {} user='{}'",
-            client_ip,
-            crate::util::log_identity(username)
-        );
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(super::err_json("Invalid username or password")),
-        )
-            .into_response();
+    match auth::verify_credentials(
+        username,
+        password,
+        web,
+        state.failed_auth.clone(),
+        Some(client_ip),
+    )
+    .await
+    {
+        Ok(true) => {}
+        Err(msg) => return login_blocked(client_ip, username, msg),
+        Ok(false) => {
+            log::warn!(
+                "PANEL LOGIN FAIL from {} user='{}'",
+                client_ip,
+                crate::util::log_identity(username)
+            );
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(super::err_json("Invalid username or password")),
+            )
+                .into_response();
+        }
     }
-    state.failed_auth.lock().await.record_success(username);
 
     // `Secure` when the panel is served over HTTPS — native TLS (web.tls), an explicit
     // opt-in (web.secure_cookie), or auto-detected behind a TLS-terminating proxy that
@@ -164,4 +148,27 @@ fn with_cookie_status(status: StatusCode, body: Value, cookie: &str) -> Response
         resp.headers_mut().insert(header::SET_COOKIE, value);
     }
     resp
+}
+
+fn login_blocked(client_ip: std::net::IpAddr, username: &str, msg: String) -> Response {
+    log::warn!(
+        "PANEL LOGIN BLOCKED from {} user='{}': {}",
+        client_ip,
+        crate::util::log_identity(username),
+        msg
+    );
+    // Notify (Tier-3) — throttled to once/10 min per source IP.
+    let key = format!("lockout:{}", client_ip);
+    let detail = format!(
+        "panel login blocked from {} (user '{}')",
+        client_ip,
+        crate::util::log_identity(username)
+    );
+    crate::server::notify::fire_throttled(
+        &key,
+        600,
+        crate::server::notify::Event::LoginLockout,
+        &detail,
+    );
+    (StatusCode::TOO_MANY_REQUESTS, Json(super::err_json(msg))).into_response()
 }

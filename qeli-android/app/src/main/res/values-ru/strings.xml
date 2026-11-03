@@ -62,6 +62,8 @@
     <string name="log_detail">Подробность журнала</string>
     <string name="log_compact">Краткий</string>
     <string name="log_detailed">Подробная диагностика</string>
+    <string name="clear_log_on_disconnect">Очищать лог после отключения</string>
+    <string name="clear_log_on_disconnect_desc">Очищать вкладку логов и сохранённый журнал после остановки VPN, в том числе при ошибке. Выключите для сохранения диагностики. При переподключении журнал не очищается.</string>
     <string name="log_time_short">Только время (18:10:03.259)</string>
     <string name="log_time_datetime">Дата и время (2026-07-18 18:10:03.259)</string>
     <string name="log_time_rfc3339">RFC 3339, UTC (2026-07-18T18:10:03.259Z)</string>
@@ -129,6 +131,8 @@
     <string name="paste_link_hint">qeli://…</string>
     <string name="duplicate_suffix">%1$s (копия)</string>
     <string name="active_profile_toast">Активен: %1$s</string>
+    <string name="profile_changed_during_edit">Профили изменились, пока окно было открыто. Откройте его снова перед сохранением.</string>
+    <string name="profile_reconnect_required">Профиль сохранён. Отключитесь и подключитесь снова, чтобы применить новые настройки.</string>
     <string name="switch_blocked">Сначала отключитесь, чтобы сменить профиль</string>
     <string name="delete_profile_confirm">Удалить «%1$s»?</string>
     <string name="import_profile_title">Импортировать профиль?</string>
@@ -157,6 +161,10 @@
     <string name="wrong_passphrase">Неверный пароль или повреждённая копия</string>
     <string name="restore_failed">Не удалось восстановить: %1$s</string>
     <string name="restore_confirm">Заменить все текущие профили на %1$d из резервной копии?</string>
+    <string name="profile_store_unavailable_title">Хранилище профилей недоступно</string>
+    <string name="profile_store_unavailable_message">Не удалось прочитать сохранённые профили. Исходные данные не заменены. Перезапустите приложение; если ошибка повторится, восстановите резервную копию.</string>
+    <string name="profile_store_stale">Профили изменились в другом окне приложения. Перезапустите Qeli перед сохранением.</string>
+    <string name="profile_store_write_blocked">Не удалось прочитать сохранённые профили; перезапустите приложение или восстановите резервную копию перед изменениями.</string>
     <string name="restored">Восстановлено профилей: %1$d</string>
 
     <!-- ── Диалог «приложения через VPN» ── -->
@@ -261,4 +269,15 @@
     <string name="kill_switch_enable_lockdown">Kill switch требует «Блокировать соединения без VPN». Откройте системные настройки VPN, выберите Qeli и включите Always-on VPN вместе с блокировкой.</string>
     <string name="kill_switch_active">Kill switch активен: системная блокировка Android проверена</string>
     <string name="kill_switch_split_ignored">ПРИМЕЧАНИЕ: kill_switch не действует в split-tunnel; он защищает только full-tunnel профили</string>
+    <string name="diagnostic_report">Отчёт</string>
+    <string name="diagnostic_report_desc">Экспорт времени сетевых событий, идентификаторов сессий, типов событий и доступных числовых показателей транспорта. Свободный текст сообщений, профили, ключи и сетевые адреса исключены. Показатели отражают локальную запись, а не подтверждённую доставку. Вы сами выбираете файл. Очистка удаляет текущий журнал и сохранённый отчёт о последней ошибке.</string>
+    <string name="retain_error_report">Сохранять отчёт о последней ошибке</string>
+    <string name="retain_error_report_desc">Необязательно. Хранить один ограниченный отчёт после окончательной ошибки соединения, даже если текущий журнал очищается при отключении. Он доступен после перезапуска до замены или удаления. Отключение настройки или кнопка «Очистить» удаляют отчёт. В нём только сведения о событиях и числовые показатели, без свободного текста сообщений и профилей.</string>
+    <string name="report_current">Текущий</string>
+    <string name="report_last_error">Ошибка</string>
+    <string name="report_not_available">Сохранённого отчёта нет. Включите его хранение в настройках до следующей ошибки.</string>
+    <string name="report_saved">Диагностический отчёт сохранён</string>
+    <string name="report_failed">Не удалось сохранить отчёт. Повторите попытку.</string>
+    <string name="report_expired">Отчёт устарел или был очищен. Выполните экспорт снова.</string>
+    <string name="report_clear_failed">Не удалось удалить диагностические данные. Повторите очистку.</string>
 </resources>

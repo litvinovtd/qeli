@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F343_KEENETIC_INTERFACE_ATTACHMENT_GATEWAY_ADMISSION_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T18:46:36.576887+00:00",
+  "base_commit": "625205684133d1a54dbb32e7bc762c57a70c1eb0",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-keenetic-interface-admission-20261006",
+  "raw_seal_sha256": "beabaf085a17e66b79284f913c7e9d2a83237107e741d82d3d8c516c8a57a3a7",
+  "checks": [
+    {
+      "command": "cd /var/tmp/qeli-q31-keenetic-interface-admission-20261006/qeli && sed -i 's/^crate-type = \\[\"rlib\", \"cdylib\", \"staticlib\"\\]$/crate-type = [\"rlib\"]/' Cargo.toml && grep -qxF 'crate-type = [\"rlib\"]' Cargo.toml && CARGO_TARGET_DIR=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 build --locked --offline --jobs 1 --bin qeli-client --no-default-features --features client-bin",
+      "exit_code": 0,
+      "log": "client-build.log"
+    },
+    {
+      "id": "client-units",
+      "command": "cd /var/tmp/qeli-q31-keenetic-interface-admission-20261006/qeli && CARGO_TARGET_DIR=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 test --locked --offline --jobs 1 --bin qeli-client --no-default-features --features client-bin",
+      "exit_code": 0,
+      "log": "client-units.log"
+    },
+    {
+      "id": "client-clippy",
+      "command": "cd /var/tmp/qeli-q31-keenetic-interface-admission-20261006/qeli && CARGO_TARGET_DIR=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 clippy --locked --offline --jobs 1 --bin qeli-client --no-default-features --features client-bin -- -D warnings",
+      "exit_code": 0,
+      "log": "client-clippy.log"
+    },
+    {
+      "id": "client-fmt",
+      "command": "cd /var/tmp/qeli-q31-keenetic-interface-admission-20261006/qeli && /root/.cargo/bin/cargo +1.97.0 fmt -- --check",
+      "exit_code": 0,
+      "log": "client-fmt.log"
+    },
+    {
+      "id": "busybox-suite-initial-timeout",
+      "command": "full-suite with old argc==4 process fixture",
+      "status": "TIMEOUT_UNQUALIFIED",
+      "log": "busybox-suite-initial-timeout.log"
+    },
+    {
+      "id": "helper-build",
+      "command": "cd /var/tmp/qeli-q31-keenetic-interface-admission-20261006 && cc -std=c11 -O2 -Wall -Wextra -Werror process-fixture.c -o process-fixture && sha256sum process-fixture.c process-fixture",
+      "exit_code": 0,
+      "log": "helper-build.log"
+    },
+    {
+      "id": "busybox-suite-qualified",
+      "command": "cd /var/tmp/qeli-q31-keenetic-interface-admission-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v > /var/tmp/qeli-q31-keenetic-interface-admission-20261006/busybox-suite-qualified.log 2>&1",
+      "exit_code": 0,
+      "log": "busybox-suite-qualified.log"
+    },
+    {
+      "id": "dash-suite-qualified",
+      "command": "cd /var/tmp/qeli-q31-keenetic-interface-admission-20261006 && QELI_ROUTER_TEST_SHELL=/bin/dash QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v > /var/tmp/qeli-q31-keenetic-interface-admission-20261006/dash-suite-qualified.log 2>&1",
+      "exit_code": 0,
+      "log": "dash-suite-qualified.log"
+    },
+    {
+      "id": "busybox-baseline",
+      "command": "cd /var/tmp/qeli-q31-keenetic-interface-admission-20261006/baseline-probe && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client Q31_ADMISSION_BASELINE=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/baseline PYTHONPATH=scripts python3 baseline-admission.py",
+      "exit_code": 1,
+      "log": "busybox-baseline.log"
+    },
+    {
+      "id": "dash-baseline",
+      "command": "cd /var/tmp/qeli-q31-keenetic-interface-admission-20261006/baseline-probe && QELI_ROUTER_TEST_SHELL=/bin/dash QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client Q31_ADMISSION_BASELINE=/var/tmp/qeli-q31-keenetic-interface-admission-20261006/baseline PYTHONPATH=scripts python3 baseline-admission.py",
+      "exit_code": 1,
+      "log": "dash-baseline.log"
+    },
+    {
+      "id": "recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "recipes.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    },
+    {
+      "id": "diff-staged",
+      "exit_code": 0,
+      "log": "diff-staged.log"
+    }
+  ],
+  "findings": {
+    "F343": "Canonical core inspection requires wrapper TUN/dev match,device_type=tun,matching dev_attach;attached router disallows gateway_nat/forward/exit_node,checks mandatory even GATEWAY=no;old metadata API retained,paired expectations metadata-only CLI."
+  },
+  "qualification": {
+    "busybox_ash_tests": 184,
+    "dash_tests": 184,
+    "breakdown": {
+      "process": 47,
+      "state": 44,
+      "installer": 14,
+      "hook": 17,
+      "verifier": 19,
+      "gateway_owner": 24,
+      "lifecycle": 8,
+      "rollback": 11
+    },
+    "new_shell_methods": 8,
+    "actual_inspector_cells": 56,
+    "new_actual_inspector_cells": 34,
+    "baseline_mismatches_each_shell": 20,
+    "fresh_gnu_client_bin": "Rust1.97.0 debug --locked --offline --jobs1 client-bin;private rlib-only manifest",
+    "targeted_rust_units": 12,
+    "new_rust_units": 4,
+    "clippy_fmt": "PASS strict",
+    "recipes": 37,
+    "docs": "654 Markdown/9 checks PASS",
+    "bindings_diff": "PASS",
+    "supplied_exact_compiler_git_inputs": 317,
+    "supplied_exact_fixture_git_inputs": 17,
+    "baseline_exact_git_inputs": 5,
+    "artifacts": {
+      "new_inspector": {
+        "path": "/var/tmp/qeli-q31-keenetic-interface-admission-20261006/target/debug/qeli-client",
+        "sha256": "5d0d3189124d7027cc721616c6b11336dd5c1bc396d22879385db6537a1d1eaf"
+      },
+      "old_inspector": {
+        "path": "/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client",
+        "sha256": "afa69da1d5bbcc64599f593856984d203cfec50dd81acbf6a248190ff0ce1b38"
+      },
+      "compile_inputs": 317,
+      "manifest_transform": "Only private build manifest crate-type rlib instead of rlib/cdylib/staticlib; canonical source retained.",
+      "original_native_helper": {
+        "path": "/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture",
+        "sha256": "63523cc606305c3911510591be46222bbbd2e51d0db15f9e87cf5c387a39950a"
+      },
+      "native_helper": {
+        "path": "/var/tmp/qeli-q31-keenetic-interface-admission-20261006/process-fixture",
+        "sha256": "be6187ffb049a2265566a713235dd886e81a987c3c72af87b22ed5ef2e4f9bc6",
+        "source_sha256": "d3a24132dc0e8221eea1d9b196480427b20203af176c4baee640319d88c30ae5",
+        "metadata": "Fixed arity4/8 whitelist; owner is a model reply, lifetime tests actual native process."
+      }
+    },
+    "initial_harness_limitations": "Windows formatter missing; pinned .11 formatter used. Old argc4 metadata helper hung on argc8; initial SSH timeout unqualified,owned helpers/suite/temp cleaned,new arity4/8 helper only,final suites184each PASS."
+  },
+  "limitations": {
+    "runtime": "Actual isolated host compiler/metadata parser/owned native helper/files;network/proc-sys/ndm/opkg models,realrouter USER_EXCLUDED.No packet/data plane qualification.",
+    "build": "Linux client-bin metadata/CLI only;default data plane/configschema/FFI/JNI exports unchanged,prior artifacts retained,no fresh FFI/release/cross/firmware/ABI build.",
+    "ownership": "Preflight snapshot not pinned to launch/reload;generation/ABA/admin edits OPEN.Binary/template upgrade together.",
+    "historical": "41historical fields except source digest unchanged;acceptance/older supplements retained,Q29SIGKILLFAIL/ENONET,Q30drainOPEN/Appleexclusions,D06accepted retained.",
+    "progress": "Q31IN_PROGRESS28/37(75.7%),9remain,no whole checklist row closed.",
+    "operations": ".10untouched,.11ownedfixtures/compiler only;active services/binaries/firewall/network/sysctl unchanged,no deploy/push."
+  }
+}

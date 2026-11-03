@@ -1,0 +1,22 @@
+{
+  "status": "RELEASE_NOTES_DOCS_ONLY_APPLICABILITY",
+  "prior_commit": "f9a000a451f13042ac51e6837eed6101bb7fe9ca",
+  "documentation_commit": "2a072cb88c04aa25e8297d9ca594a7ce51f1428d",
+  "previous_source_digest": "ee418bb8b65243bf343d919c897e14c67f370e7ee198afbf3d353c8ede586948",
+  "source_digest": "070e876e9c0b24c609b55372933d0a349ba9d4c41a494cc0d87e04f385767938",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "scope": "CHANGELOG.md and bilingual draft release notes only; correct removed notify.json migration and rustls0.23.46, summarize existing features, upgrade guidance and accepted API34 limitation. Product/native/build recipes/workflows/runtime inputs unchanged. Preserve all actual Linux20 execution facts and21 physical statuses. No new build, runtime, signing, tag or release publication.",
+  "exact_source_delta": {
+    "CHANGELOG.md": "e7ee7a550c41f22be1e804886287fef63a02daade2178a09139f813cb1683800",
+    "release/RELEASE_NOTES_0.8.2.md": "672f9dff53439eb4452badd5de38e83c94a36a4171a4fca9527b435e3bf4499c"
+  },
+  "prior_exact_CI": "https://github.com/litvinovtd/qeli/actions/runs/38761496582",
+  "prior_exact_CI_required_jobs_passed": 19,
+  "preflight_at_prior_commit": "PASS: exact push CI, SDK OpenWrt archive/hash/tree, runtime manifest; optional lab rebuild skipped",
+  "actual_runtime_evidence": "release/certification/evidence/q34-dev-linux-runtime-20261015.json",
+  "Q29_user_acceptance": "release/certification/evidence/q29-dns-final-review-20261015.json",
+  "original_ENONET_FAIL_preserved": true,
+  "execution_rows_preserved": 20,
+  "physical_rows_unchanged": 21,
+  "release_artifacts_not_built_or_published": true
+}

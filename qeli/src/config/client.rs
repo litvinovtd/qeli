@@ -125,15 +125,18 @@ pub struct ClientTunConfig {
     /// `> 0` is an explicit override that wins over the server-pushed value.
     #[serde(default = "default_mtu")]
     pub mtu: i32,
-    /// Active path-MTU probing on **UDP** transports when `mtu = 0` (auto). The
-    /// client sends DF-marked probe datagrams from the server-pushed ceiling
-    /// downward and sets the tunnel MTU to the largest that traverses the path
-    /// unfragmented — so a narrow LTE/CGNAT path is discovered instead of guessed.
-    /// Default `true`. Set `false` to keep auto = "just adopt the pushed MTU" (no
-    /// probing) — a kill switch if a network mishandles the probes. No effect on
-    /// TCP transports (the kernel does PMTUD there) or when `mtu > 0` (explicit).
+    /// Active outer path-MTU probing on **UDP**, independently of `mtu`. An
+    /// explicit inner MTU is preserved; DATA_FRAG records stay within the certified
+    /// outer budget. Automatic MTU can still shrink for a legacy peer. Default
+    /// `true`; `false` disables startup and live probes and retains the safe family
+    /// budget. No effect on TCP transports, where the kernel performs PMTUD.
     #[serde(default = "default_true")]
     pub mtu_probe: bool,
+    /// Linux-owned TUN/TAP TX queue length in packets. Omitted = 1000, not an
+    /// adaptive mode. Explicit values round-trip; external attach-mode devices
+    /// remain under their owner's control. Other platforms preserve but ignore it.
+    #[serde(default)]
+    pub tx_queue_len: Option<u32>,
     #[serde(default = "default_device_type")]
     pub device_type: String,
     /// Attach to a PRE-EXISTING interface (`name`/`dev`) that an external manager
@@ -146,6 +149,21 @@ pub struct ClientTunConfig {
     /// retries. Default false (create and own the interface).
     #[serde(default = "default_false")]
     pub attach_existing: bool,
+}
+
+pub const CLIENT_TUN_TX_QUEUE_LEN_DEFAULT: u32 = 1000;
+/// Match Linux's S16_MAX tx_queue_len cap before attempting platform setup.
+pub const CLIENT_TUN_TX_QUEUE_LEN_MAX: u32 = 32_767;
+
+impl ClientTunConfig {
+    /// Only the Linux adapter applies this policy; borrowed devices are untouched.
+    pub fn owned_linux_tx_queue_len(&self) -> Option<u32> {
+        if self.attach_existing {
+            None
+        } else {
+            Some(self.tx_queue_len.unwrap_or(CLIENT_TUN_TX_QUEUE_LEN_DEFAULT))
+        }
+    }
 }
 
 /// Client policy for accepting an inner IPv6 plan from the server.
@@ -226,7 +244,7 @@ impl std::str::FromStr for ClientRoamingPolicy {
     }
 }
 
-#[derive(Debug, Default, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ClientRoutingConfig {
     /// Inner IPv6 acceptance policy (`auto|required|off`).
     #[serde(default)]
@@ -234,10 +252,13 @@ pub struct ClientRoutingConfig {
     #[serde(default = "default_routing_mode")]
     pub mode: String,
     /// Route ALL client traffic through the tunnel (install a default route via
-    /// the tun). Use this to make the client a full-tunnel VPN. Default false:
-    /// only the tunnel subnet + explicit `include` routes go through the tunnel.
+    /// the tun). The shared client baseline defaults this to true. Set
+    /// `gateway = false` to capture only the tunnel subnet and `include` routes.
     #[serde(default = "default_false")]
     pub add_default_gateway: bool,
+    /// Accept server-pushed routes. Does not disable local routing or tunnel DNS.
+    #[serde(default = "default_true")]
+    pub pull_routes: bool,
     #[serde(default)]
     pub include: Vec<String>,
     #[serde(default)]
@@ -307,17 +328,26 @@ pub struct ClientRoutingConfig {
     /// only. Default false.
     #[serde(default = "default_false")]
     pub exit_node: bool,
-    /// Command run once after the first authenticated NetworkPlan has created the TUN
-    /// and installed its active-family gateway/exit firewall (Linux only, runs as the
-    /// client's user — typically root). Use
-    /// for custom routing/firewall. SECURITY: honoured ONLY from a trusted local
-    /// config file (root-owned, not world-writable); the panel/API never writes it.
+    /// Command run once after the first authenticated NetworkPlan has created the TUN,
+    /// installed routes/DNS and applied active-family gateway/exit firewall state (Linux
+    /// only, as the client's user). The shell receives `$1 = ifname`, `$2 = primary tunnel
+    /// gateway`, a versioned `QELI_*` environment and a temporary JSON context file. Use for
+    /// custom routing/firewall. SECURITY: honoured ONLY from a trusted local config file;
+    /// the panel/API never writes it.
     #[serde(default)]
     pub post_up: String,
-    /// Command run on a clean stop (SIGINT/SIGTERM / reconnect disabled), mirroring
-    /// `post_up`. Same security rules. A crash does NOT run it.
+    /// Command run on a clean terminal stop (SIGINT/SIGTERM, reconnect disabled, terminal
+    /// server kick or retry exhaustion), with the latest committed NetworkPlan snapshot and
+    /// stop reason. Same security rules. A crash/SIGKILL does NOT run it.
     #[serde(default)]
     pub post_down: String,
+}
+
+impl Default for ClientRoutingConfig {
+    fn default() -> Self {
+        // Match serde's per-field defaults even for direct Rust construction.
+        serde_json::from_str("{}").expect("routing defaults")
+    }
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -340,7 +370,8 @@ pub struct ClientDnsConfig {
 pub struct ClientObfuscationConfig {
     #[serde(default = "default_cipher")]
     pub cipher: String,
-    /// Wire mode: "fake-tls" (default) or "obfs". Must match the server.
+    /// Wire mode: fake-tls (default), obfs, plain or reality-tls. Must match the server.
+    /// plain and reality-tls require TCP; UDP supports fake-tls and obfs.
     #[serde(default = "default_wire_mode")]
     pub mode: String,
     /// Pre-shared key for "obfs" mode. Must match the server.
@@ -523,8 +554,14 @@ fn baseline() -> ClientConfig {
         "performance":{},
         "logging":{}
     }"#;
-    serde_json::from_str(SKELETON).expect("baseline client config skeleton is valid")
+    let mut cfg = serde_json::from_str(SKELETON).expect("baseline client config skeleton is valid");
+    super::editor::apply_client_defaults(&mut cfg);
+    cfg
 }
+
+#[cfg(test)]
+#[path = "client_boundary_tests.rs"]
+mod boundary_tests;
 
 impl ClientConfig {
     /// Build a minimal client config from the new flat-INI `[qeli]` section.
@@ -542,8 +579,8 @@ impl ClientConfig {
     /// pass   = p@ss
     /// key    = 0a33..23a           ; pinned server pubkey (REQUIRED unless bind_static=false)
     /// bind_static = true           ; H-1, on by default; false = unpinned/TOFU client
-    /// mode   = fake-tls            ; fake-tls | obfs
-    /// sni    = www.cloudflare.com  ; optional, fake-tls only
+    /// mode   = fake-tls            ; fake-tls | obfs | plain | reality-tls
+    /// sni    = www.cloudflare.com  ; optional TLS SNI or TCP WebSocket Host
     /// obfs_key = shared-secret     ; optional, obfs only
     /// mtu    = 0                   ; optional; 0 = auto (use server-pushed MTU)
     ///
@@ -568,6 +605,14 @@ impl ClientConfig {
         // Rust. They must cross the native boundary now rather than becoming GUI ghost keys.
         cfg.server.connection_timeout_secs =
             q.parse_or("timeout", cfg.server.connection_timeout_secs);
+        // The same policy fields drive the headless reconnect loop and GUI adapters.
+        cfg.server.reconnect.enabled = q.bool_or("reconnect", cfg.server.reconnect.enabled);
+        cfg.server.reconnect.max_retries =
+            q.parse_or("reconnect_retries", cfg.server.reconnect.max_retries);
+        cfg.server.reconnect.base_delay_secs =
+            q.parse_or("reconnect_base_delay", cfg.server.reconnect.base_delay_secs);
+        cfg.server.reconnect.max_delay_secs =
+            q.parse_or("reconnect_max_delay", cfg.server.reconnect.max_delay_secs);
         cfg.server.local_address = q
             .get("local")
             .map(str::trim)
@@ -602,16 +647,11 @@ impl ClientConfig {
             .get("password_command")
             .filter(|p| !p.is_empty())
             .map(str::to_string);
-        // An ALL-ZERO key means TOFU, exactly as the shipped `client.conf` documents it
-        // ("Empty / all-zero = TOFU"). Only the empty string was filtered here, so the zeros
-        // became a real pin and `verify_server_key` compared the server's actual key against
-        // them — every copy of the shipped example failed its first connect with
-        // "SERVER KEY MISMATCH — possible MITM attack!", which is both wrong and the most
-        // alarming way to be wrong. The C# port has always read it this way.
-        // (Audit 2026-08-03, P2.)
+        // Only the documented 32-byte all-zero placeholder means TOFU. A short or
+        // oversized zero string is a malformed pin and must reach validation intact.
         cfg.auth.server_public_key = q
             .get("key")
-            .filter(|k| !k.is_empty() && k.chars().any(|c| c != '0'))
+            .filter(|k| !k.is_empty() && !(k.len() == 64 && k.bytes().all(|b| b == b'0')))
             .map(str::to_string);
         // H-1: bind the session keys to the server's static identity. ON by default
         // (baseline already true); requires a pinned `key`. Set `bind_static = false`
@@ -706,6 +746,14 @@ impl ClientConfig {
         // Attach to an existing, externally-owned interface named `dev` instead of
         // creating our own. See ClientTunConfig::attach_existing.
         cfg.tun.attach_existing = q.bool_or("dev_attach", cfg.tun.attach_existing);
+        if let Some(raw) = q.get("tun.tx_queue_len") {
+            cfg.tun.tx_queue_len = Some(raw.trim().parse::<u32>().map_err(|_| {
+                anyhow::anyhow!(
+                    "invalid 'tun.tx_queue_len': expected an integer in 1..={}",
+                    CLIENT_TUN_TX_QUEUE_LEN_MAX
+                )
+            })?);
+        }
 
         // TUN MTU. Omitted or 0 = auto (adopt the server-pushed MTU); a positive
         // value is an explicit override.
@@ -734,7 +782,7 @@ impl ClientConfig {
             }
             cfg.tun.mtu = m;
         }
-        // Active UDP path-MTU probing when mtu=0. Default ON — fall back to `true`
+        // Active outer UDP path probing, independently of mtu. Default ON — use `true`
         // explicitly (not cfg.tun.mtu_probe, which is derive-Default `false` here).
         cfg.tun.mtu_probe = q.bool_or("mtu_probe", true);
 
@@ -753,18 +801,19 @@ impl ClientConfig {
         // она для телефонов):
         //   gateway = true → full-tunnel: весь трафик в VPN (клиент ставит default
         //     через tun; в паре с NAT на роутере это заворачивает весь LAN). Дефолт
-        //     off (split-tunnel — только подсеть туннеля).
+        //     true; для split-tunnel явно задайте gateway = false.
         //   dns = off → НЕ управлять резолвером хоста: на роутере /etc/resolv.conf
         //     принадлежит прошивке (ndnsproxy/dnsmasq). dns.rs делает early-return
         //     при mode != "tunnel". Дефолт "tunnel" и требует активный per-link
         //     systemd-resolved; постоянная подмена resolv.conf больше не допускается.
         cfg.routing.add_default_gateway = q.bool_or("gateway", cfg.routing.add_default_gateway);
+        cfg.routing.pull_routes = q.bool_or("pull_routes", cfg.routing.pull_routes);
         if let Some(d) = q.get("dns").filter(|s| !s.is_empty()) {
             cfg.dns.mode = d.to_string();
         }
-        // dns_servers = <ip>[, <ip>…] → resolver(s) to install when `dns = tunnel` and the
-        // server pushes none. Without this key the flat INI could set the MODE but never a
-        // SERVER, so the "configure a resolver" advice was impossible to follow from an INI.
+        // dns_servers = <ip>[, <ip>…] selects explicit resolvers for `dns = tunnel`.
+        // A nonempty client list overrides typed and legacy server DNS pushes;
+        // planned_dns_servers validates the list against the negotiated families.
         if let Some(s) = q.get("dns_servers").filter(|s| !s.trim().is_empty()) {
             cfg.dns.servers = s
                 .split(',')
@@ -838,7 +887,13 @@ impl ClientConfig {
             proto: self.server.protocol.clone(),
             mode: self.obfuscation.mode.clone(),
             server_key: self.auth.server_public_key.clone().unwrap_or_default(),
-            sni: self.obfuscation.sni.clone(),
+            sni: self.obfuscation.sni.clone().filter(|_| {
+                super::share::uses_server_name(
+                    &self.server.protocol,
+                    &self.obfuscation.mode,
+                    &self.obfuscation.fronting,
+                )
+            }),
             reality_sid: self.obfuscation.reality_short_id.clone(),
             obfs_key: Some(self.obfuscation.obfs_key.clone()).filter(|s| !s.is_empty()),
             // Only emit `front` when it diverges from the default, keeping links compact.
@@ -851,6 +906,7 @@ impl ClientConfig {
             jmax: self.obfuscation.awg.jmax,
             mtu: self.tun.mtu,
             roaming: self.roaming.to_string(),
+            pull_routes: self.routing.pull_routes,
             label,
         }
     }
@@ -886,6 +942,7 @@ impl ClientConfig {
             .unwrap_or_else(|| "websocket".into());
         cfg.obfuscation.quic.enabled = link.quic;
         cfg.obfuscation.sni = link.sni.clone();
+        cfg.routing.pull_routes = link.pull_routes;
         cfg.obfuscation.reality_short_id = link.reality_sid.clone();
         // AmneziaWG junk (F2) from the link; clamp defensively.
         cfg.obfuscation.awg.enabled = link.awg;
@@ -913,26 +970,6 @@ impl ClientConfig {
         cfg
     }
 
-    /// Render this config's `[qeli]` section back to INI text (the inverse of
-    /// [`from_ini`], emitting only the minimal keys).
-    /// Reject unknown values for the string-enum fields, the same way `validate_profiles`
-    /// does on the server.
-    ///
-    /// Every one of these is compared verbatim against ONE literal at its use site, so an
-    /// unrecognised value does not error — it silently selects the other branch:
-    ///
-    ///   * `proto` — anything but exactly `udp` connects over TCP, so `proto = UDP` or a typo
-    ///     quietly uses a different transport than the config says.
-    ///   * `mode` — falls through the obfs / reality-tls / plain branches to fake-tls, so
-    ///     `mode = realty-tls` runs fake-tls and the peer disagrees about the wire.
-    ///   * `front` — compared against `websocket`, so `front = webscoket` drops the WebSocket
-    ///     framing the profile was configured for.
-    ///   * `dns` — DNS setup early-returns unless the mode is exactly `tunnel`, so `dns = of`
-    ///     leaves the host resolver in place: in a full tunnel that is a DNS leak.
-    ///   * `device_type` / routing `mode` — same shape, quieter consequences.
-    ///
-    /// The server got this treatment in #23; the client parser was left accepting anything.
-    /// (Audit 2026-07-30, #7.)
     /// True when `dns` asks us NOT to touch the host resolver.
     ///
     /// Both `off` and `system` mean that; `tunnel` (the default) is the only mode that
@@ -1060,6 +1097,10 @@ impl ClientConfig {
             }
         }
 
+        if !super::share::supported_endpoint_host(&self.server.address) {
+            anyhow::bail!("'server' host must be an IP address or ASCII DNS hostname");
+        }
+
         // Parsed as u16, so 0 slipped through: a port nothing can ever connect to. The panel
         // rejected it; a file-based start did not. (Audit 2026-07-31, §9.)
         if self.server.port == 0 {
@@ -1128,15 +1169,20 @@ impl ClientConfig {
         }
         if let Some(raw) = self.obfuscation.sni.as_deref() {
             let value = raw.trim();
-            if value != raw || value.chars().any(char::is_control) {
-                anyhow::bail!("'sni' contains surrounding whitespace or control characters");
+            if raw.len() > 253 || value != raw || value.chars().any(char::is_control) {
+                anyhow::bail!("'sni' exceeds 253 bytes or contains surrounding whitespace or control characters");
             }
             match self.obfuscation.mode.as_str() {
                 "fake-tls" if !matches!(value, "!" | "~" | "@") && !valid_dns_hostname(value) => {
                     anyhow::bail!("'sni' must be a DNS hostname or one of !, ~, @ for fake-tls");
                 }
                 "obfs"
-                    if !valid_dns_hostname(value) && value.parse::<std::net::IpAddr>().is_err() =>
+                    if super::share::uses_server_name(
+                        &self.server.protocol,
+                        &self.obfuscation.mode,
+                        &self.obfuscation.fronting,
+                    ) && !valid_dns_hostname(value)
+                        && value.parse::<std::net::IpAddr>().is_err() =>
                 {
                     anyhow::bail!("'sni' must be a DNS hostname or IP address for WebSocket obfs");
                 }
@@ -1320,6 +1366,22 @@ impl ClientConfig {
             &self.tun.device_type.to_ascii_lowercase(),
             &["tun", "tap"],
         )?;
+        if let Some(queue_len) = self.tun.tx_queue_len {
+            if queue_len == 0 || queue_len > CLIENT_TUN_TX_QUEUE_LEN_MAX {
+                anyhow::bail!(
+                    "invalid 'tun.tx_queue_len' {}: expected 1..={} packets (no auto mode)",
+                    queue_len,
+                    CLIENT_TUN_TX_QUEUE_LEN_MAX
+                );
+            }
+            #[cfg(target_os = "linux")]
+            if self.tun.attach_existing {
+                anyhow::bail!(
+                    "'tun.tx_queue_len' cannot be set with 'dev_attach = true': \
+                     the external interface owner controls its queue length"
+                );
+            }
+        }
         #[cfg(not(target_os = "linux"))]
         if self.tun.device_type.eq_ignore_ascii_case("tap") {
             anyhow::bail!(
@@ -1373,6 +1435,16 @@ impl ClientConfig {
                 "'exit_node = true' requires split-tunnel routing (`gateway = false` and `routing = split-tunnel`) so the physical WAN remains available"
             );
         }
+        if self.routing.exit_node && self.tun.attach_existing {
+            anyhow::bail!(
+                "'exit_node = true' requires an owned TUN (`dev_attach = false`) so its firewall guard is installed before the interface comes up"
+            );
+        }
+        if self.routing.exit_node && (self.routing.gateway_nat || self.routing.forward) {
+            anyhow::bail!(
+                "'exit_node = true' cannot share its TUN with 'gateway_nat' or 'forward': unmarked off-WAN forwarding is blocked to prevent source-address leaks"
+            );
+        }
         if !self.routing.lan_subnet.trim().is_empty()
             && self
                 .routing
@@ -1417,15 +1489,15 @@ impl ClientConfig {
             anyhow::bail!("'heartbeat_interval' must be at least 1 ms");
         }
         let shaping = &self.obfuscation.traffic_shaping;
+        shaping.validate("shaping")?;
         if shaping.idle_gap_mean_ms == 0
             || shaping.idle_gap_min_ms == 0
             || shaping.idle_gap_max_ms == 0
             || shaping.budget_bytes_per_sec == 0
             || shaping.min_size == 0
             || shaping.max_size == 0
-            || shaping.stealth_rate_mbps == 0
         {
-            anyhow::bail!("shaping durations, sizes, budget and stealth rate must be positive");
+            anyhow::bail!("shaping durations, sizes and budget must be positive");
         }
         if shaping.idle_gap_min_ms > shaping.idle_gap_max_ms || shaping.min_size > shaping.max_size
         {
@@ -1482,6 +1554,27 @@ impl ClientConfig {
         }
         if self.server.connection_timeout_secs != default_conn_timeout() {
             q.set("timeout", self.server.connection_timeout_secs.to_string());
+        }
+        if !self.server.reconnect.enabled {
+            q.set("reconnect", "false");
+        }
+        if self.server.reconnect.max_retries != default_max_retries_inf() {
+            q.set(
+                "reconnect_retries",
+                self.server.reconnect.max_retries.to_string(),
+            );
+        }
+        if self.server.reconnect.base_delay_secs != default_reconnect_base() {
+            q.set(
+                "reconnect_base_delay",
+                self.server.reconnect.base_delay_secs.to_string(),
+            );
+        }
+        if self.server.reconnect.max_delay_secs != default_reconnect_max() {
+            q.set(
+                "reconnect_max_delay",
+                self.server.reconnect.max_delay_secs.to_string(),
+            );
         }
         if let Some(address) = self.server.local_address.as_deref() {
             q.set("local", address);
@@ -1633,8 +1726,18 @@ impl ClientConfig {
         if self.routing.allow_ipv4_leak {
             q.set("allow_ipv4_leak", "true");
         }
-        if self.routing.add_default_gateway {
-            q.set("gateway", "true");
+        // Omission means true in the portable baseline. Preserve explicit split-tunnel
+        // policy rather than silently converting it to a default route on reload.
+        q.set(
+            "gateway",
+            if self.routing.add_default_gateway {
+                "true"
+            } else {
+                "false"
+            },
+        );
+        if !self.routing.pull_routes {
+            q.set("pull_routes", "false");
         }
         if self.routing.gateway_nat {
             q.set("gateway_nat", "true");
@@ -1674,6 +1777,9 @@ impl ClientConfig {
         // Emit only when enabled (default false = own the interface).
         if self.tun.attach_existing {
             q.set("dev_attach", "true");
+        }
+        if let Some(queue_len) = self.tun.tx_queue_len {
+            q.set("tun.tx_queue_len", queue_len.to_string());
         }
         // Emit mtu only when explicitly overridden (>0). 0/absent = auto = adopt
         // the server-pushed MTU.
@@ -1719,7 +1825,7 @@ impl ClientConfig {
 
 /// Split `host:port` (IPv4 / hostname, or a bracketed IPv6 literal `[2001:db8::1]:443`).
 /// Returns an error if the port is missing or not a `u16`.
-fn split_host_port(s: &str) -> anyhow::Result<(String, u16)> {
+pub(crate) fn split_host_port(s: &str) -> anyhow::Result<(String, u16)> {
     // A bracketed IPv6 authority must be split on `]:`, not the last `:`, or the address's
     // own colons break the parse. And a BARE IPv6 (`2001:db8::1`, no brackets, no port)
     // used to silently misparse as host=`2001:db8:`, port=`1` — reject it with a clear
@@ -1751,6 +1857,9 @@ fn split_host_port(s: &str) -> anyhow::Result<(String, u16)> {
             "'server' looks like a bare IPv6 address — wrap it as [host]:port: '{}'",
             s
         );
+    }
+    if !super::share::supported_endpoint_host(host) {
+        anyhow::bail!("'server' host must be an IP address or ASCII DNS hostname");
     }
     let port: u16 = port
         .parse()
@@ -1980,6 +2089,31 @@ sni    = www.cloudflare.com
     }
 
     #[test]
+    fn exit_node_rejects_simultaneous_lan_forwarding() {
+        for key in ["gateway_nat", "forward"] {
+            let ini =
+                format!("[qeli]\nserver = vpn.example.com:443\nexit_node = true\ngateway = false\n{key} = true\n");
+            let config = ClientConfig::from_ini(&IniDoc::parse(&ini).unwrap()).unwrap();
+            let error = config.validate().unwrap_err().to_string();
+            assert!(error.contains("cannot share its TUN"), "{key}: {error}");
+        }
+    }
+
+    #[test]
+    fn exit_node_rejects_attached_live_tun() {
+        let ini = IniDoc::parse(
+            "[qeli]\nserver = vpn.example.com:443\nexit_node = true\ngateway = false\ndev_attach = true\n",
+        )
+        .unwrap();
+        let config = ClientConfig::from_ini(&ini).unwrap();
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("requires an owned TUN"));
+    }
+
+    #[test]
     fn reality_tls_rejects_disabled_static_session_binding() {
         let src = concat!(
             "[qeli]
@@ -2009,6 +2143,75 @@ sni    = www.cloudflare.com
             "unexpected error: {error}"
         );
     }
+    #[test]
+    fn pull_routes_policy_round_trips_and_rejects_invalid_boolean() {
+        let base = "[qeli]\nserver = vpn.example:443\n";
+        let default = ClientConfig::from_ini(&IniDoc::parse(base).unwrap()).unwrap();
+        assert!(default.routing.pull_routes);
+        assert!(ClientRoutingConfig::default().pull_routes);
+        let c =
+            ClientConfig::from_ini(&IniDoc::parse(&format!("{base}pull_routes=false\n")).unwrap())
+                .unwrap();
+        assert!(!c.routing.pull_routes);
+        let mut c = c;
+        c.routing.add_default_gateway = false;
+        let saved = ClientConfig::from_ini(&IniDoc::parse(&c.to_ini_string()).unwrap()).unwrap();
+        assert!(!saved.routing.pull_routes);
+        assert!(!saved.routing.add_default_gateway);
+        let link = ClientLink::from_uri(&c.to_link(None).to_uri()).unwrap();
+        assert!(!ClientConfig::from_link(&link).routing.pull_routes);
+        assert!(ClientLink::from_uri("qeli://vpn.example:443?pull_routes=maybe").is_err());
+        assert!(
+            ClientLink::from_uri("qeli://vpn.example:443?pull_routes=1&pull_routes=0").is_err()
+        );
+        assert!(
+            super::super::editor::parse_runtime(&format!("{base}pull_routes=maybe\n")).is_err()
+        );
+    }
+
+    #[test]
+    fn server_name_applicability_survives_ini_and_link_round_trips() {
+        let base = "[qeli]\nserver = vpn.example:443\npass = secret\nobfs_key = secret\n";
+        for (proto, mode, front, sni, accepted, exported) in [
+            ("udp", "obfs", "websocket", "!", true, false),
+            ("udp", "obfs", "websocket", "old.example", true, false),
+            ("tcp", "obfs", "none", "!", true, false),
+            ("tcp", "plain", "websocket", "unused.example", true, false),
+            ("tcp", "obfs", "websocket", "host.example", true, true),
+            ("tcp", "obfs", "websocket", "2001:db8::1", true, true),
+            ("tcp", "obfs", "websocket", "!", false, true),
+            ("tcp", "fake-tls", "websocket", "!", true, true),
+            ("udp", "fake-tls", "websocket", "~", true, true),
+            ("udp", "fake-tls", "websocket", "@", true, true),
+            ("tcp", "reality-tls", "websocket", "!", false, true),
+        ] {
+            let ini =
+                format!("{base}proto = {proto}\nmode = {mode}\nfront = {front}\nsni = {sni}\n");
+            let c = ClientConfig::from_ini(&IniDoc::parse(&ini).unwrap()).unwrap();
+            assert_eq!(c.validate().is_ok(), accepted, "{ini}");
+            let saved =
+                ClientConfig::from_ini(&IniDoc::parse(&c.to_ini_string()).unwrap()).unwrap();
+            assert_eq!(saved.obfuscation.sni.as_deref(), Some(sni));
+            let link = ClientLink::from_uri(&c.to_link(None).to_uri()).unwrap();
+            assert_eq!(link.sni.is_some(), exported, "{ini}");
+            if accepted {
+                ClientConfig::from_link(&link).validate().unwrap();
+            }
+        }
+        let mut c = ClientConfig::from_ini(
+            &IniDoc::parse(&(base.to_owned() + "proto=udp\nmode=obfs\n")).unwrap(),
+        )
+        .unwrap();
+        for bad in [
+            "x\r\nHeader: value".to_string(),
+            "x".repeat(254),
+            " !".to_string(),
+        ] {
+            c.obfuscation.sni = Some(bad);
+            assert!(c.validate().is_err());
+        }
+    }
+
     #[test]
     fn camouflage_names_are_stable_and_fail_closed() {
         let bare_ip = ClientConfig::from_ini(
@@ -2213,6 +2416,78 @@ sni    = www.cloudflare.com
         assert_eq!(back.tun.name, "vpn7");
     }
 
+    #[test]
+    fn client_tun_tx_queue_len_defaults_and_explicit_values_round_trip() {
+        let base = "[qeli]\nserver = h:443\nuser = u\npass = p\nbind_static = false\n";
+        let defaults = ClientConfig::from_ini(&IniDoc::parse(base).unwrap()).unwrap();
+        assert_eq!(defaults.tun.tx_queue_len, None);
+        assert_eq!(defaults.tun.owned_linux_tx_queue_len(), Some(1000));
+        assert!(!defaults.to_ini_string().contains("tun.tx_queue_len"));
+        let derived = ClientTunConfig::default();
+        let deserialized: ClientTunConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(derived.owned_linux_tx_queue_len(), Some(1000));
+        assert_eq!(deserialized.owned_linux_tx_queue_len(), Some(1000));
+        for value in [1, 500, 1000, 2000, CLIENT_TUN_TX_QUEUE_LEN_MAX] {
+            let source = format!("{base}tun.tx_queue_len = {value}\n");
+            let config = ClientConfig::from_ini(&IniDoc::parse(&source).unwrap()).unwrap();
+            config.validate().unwrap();
+            assert_eq!(config.tun.owned_linux_tx_queue_len(), Some(value));
+            let reparsed =
+                ClientConfig::from_ini(&IniDoc::parse(&config.to_ini_string()).unwrap()).unwrap();
+            assert_eq!(reparsed.tun.tx_queue_len, Some(value));
+            // Queue policy is local to this machine, never exported to share links.
+            assert_eq!(
+                ClientConfig::from_link(&config.to_link(None))
+                    .tun
+                    .tx_queue_len,
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn client_tun_tx_queue_len_rejects_auto_zero_overflow_and_bad_values() {
+        let base = "[qeli]\nserver = h:443\nuser = u\npass = p\nbind_static = false\n";
+        for value in [
+            "auto",
+            "-1",
+            "0",
+            "1.5",
+            "32768",
+            "65535",
+            "65536",
+            "4294967296",
+            "abc",
+            "",
+        ] {
+            let source = format!("{base}tun.tx_queue_len = {value}\n");
+            let result = ClientConfig::from_ini(&IniDoc::parse(&source).unwrap())
+                .and_then(|config| config.validate());
+            assert!(result.is_err(), "{value} must not silently use the default");
+            assert!(result.unwrap_err().to_string().contains("tun.tx_queue_len"));
+        }
+    }
+
+    #[test]
+    fn client_tun_tx_queue_len_does_not_take_over_external_interfaces() {
+        let base = "[qeli]\nserver = h:443\nuser = u\npass = p\nbind_static = false\ndev = ext0\ndev_attach = true\n";
+        let inherited = ClientConfig::from_ini(&IniDoc::parse(base).unwrap()).unwrap();
+        assert_eq!(inherited.tun.owned_linux_tx_queue_len(), None);
+        #[cfg(target_os = "linux")]
+        inherited.validate().unwrap();
+        let explicit = ClientConfig::from_ini(
+            &IniDoc::parse(&format!("{base}tun.tx_queue_len = 1000\n")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(explicit.tun.owned_linux_tx_queue_len(), None);
+        #[cfg(target_os = "linux")]
+        assert!(explicit
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("external interface owner"));
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_dev_name_validation_prevents_tunsetiff_truncation_and_path_names() {
@@ -2360,7 +2635,7 @@ sni    = www.cloudflare.com
             &IniDoc::parse("[qeli]\nserver = h:443\nuser = u\npass = p\n").unwrap(),
         )
         .unwrap();
-        assert!(!d.routing.add_default_gateway);
+        assert!(d.routing.add_default_gateway);
         assert_eq!(d.dns.mode, "tunnel");
     }
 
@@ -2473,8 +2748,10 @@ sni    = www.cloudflare.com
 
         for pin in ["local = 192.0.2.10", "lport = 41000"] {
             let text = format!("[qeli]\nserver = h:443\nroaming = required\n{pin}\n");
-            let parsed = crate::config::parse_client_config_strict(&text).unwrap();
-            let error = parsed.validate().unwrap_err().to_string();
+            let error = crate::config::parse_client_config_strict(&text)
+                .and_then(|cfg| cfg.validate())
+                .unwrap_err()
+                .to_string();
             assert!(error.contains("pin the carrier socket"), "{error}");
         }
     }
@@ -2686,6 +2963,10 @@ password_command = echo pw
 keepalive = 45
 tcp_nodelay = false
 timeout = 47
+reconnect = false
+reconnect_retries = 7
+reconnect_base_delay = 3
+reconnect_max_delay = 25
 local = 192.0.2.10
 lport = 34567
 recv_buffer_size = 8388608
@@ -2727,6 +3008,7 @@ kill_switch = true
 allow_ipv6_leak = true
 allow_ipv4_leak = true
 gateway = true
+pull_routes = false
 gateway_nat = true
 forward = true
 exit_node = true
@@ -2739,6 +3021,7 @@ dns_servers = 9.9.9.9, 149.112.112.112
 dev = mytun0
 device_type = tap
 dev_attach = true
+tun.tx_queue_len = 2000
 mtu = 1380
 mtu_probe = false
 autostart = true
@@ -2764,6 +3047,10 @@ file = /tmp/client.log
             "keepalive = 45",
             "tcp_nodelay = false",
             "timeout = 47",
+            "reconnect = false",
+            "reconnect_retries = 7",
+            "reconnect_base_delay = 3",
+            "reconnect_max_delay = 25",
             "local = 192.0.2.10",
             "lport = 34567",
             "recv_buffer_size = 8388608",
@@ -2805,6 +3092,7 @@ file = /tmp/client.log
             "allow_ipv6_leak = true",
             "allow_ipv4_leak = true",
             "gateway = true",
+            "pull_routes = false",
             "gateway_nat = true",
             "forward = true",
             "exit_node = true",
@@ -2817,6 +3105,7 @@ file = /tmp/client.log
             "dev = mytun0",
             "device_type = tap",
             "dev_attach = true",
+            "tun.tx_queue_len = 2000",
             "mtu = 1380",
             "mtu_probe = false",
             "autostart = true",
@@ -2852,5 +3141,85 @@ file = /tmp/client.log
                 out
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod panel_ini_conformance {
+    #[test]
+    fn browser_corpus_matches_the_canonical_codec() {
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../../../conformance/panel-client-ini.json"))
+                .unwrap();
+        for case in cases.as_array().unwrap() {
+            let raw = case["raw"].as_str().unwrap();
+            let config = crate::config::parse_client_config_strict(raw).unwrap();
+            assert_eq!(config.auth.password.as_deref(), case["password"].as_str());
+            let serialized = config.to_ini_string();
+            assert_eq!(
+                serialized.lines().find(|line| line.starts_with("pass = ")),
+                raw.lines().find(|line| line.starts_with("pass = "))
+            );
+        }
+    }
+    #[test]
+    fn automatic_device_edits_use_the_canonical_section_grammar() {
+        for header in ["[qeli]", "[ qeli ]", "[qeli ]", "[QeLi]", "\u{feff}[QELI]"] {
+            for dev in ["", "dev=\n", "dev=\"\"\n", "DEV=\n"] {
+                let raw = format!("{header}\n# retain comment\nserver=fixture.invalid:443\n{dev}[logging]\nlevel=info\n");
+                let changed =
+                    crate::config::set_section_keys(&raw, "qeli", &[("dev", "vpn42".into())]);
+                let config = crate::config::parse_client_config_strict(&changed).unwrap();
+                assert_eq!(config.tun.name, "vpn42");
+                assert!(changed.contains("# retain comment"));
+                assert_eq!(
+                    crate::config::format::IniDoc::parse(changed.trim_start_matches('\u{feff}'))
+                        .unwrap()
+                        .sections
+                        .iter()
+                        .filter(|s| s.kind.eq_ignore_ascii_case("qeli"))
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod q13_shaping_validation_tests {
+    use super::*;
+    fn parse(lines: &str) -> ClientConfig {
+        ClientConfig::from_ini(
+            &IniDoc::parse(&format!("[qeli]\nserver = h:443\n{lines}\n")).unwrap(),
+        )
+        .unwrap()
+    }
+    #[test]
+    fn q13_inactive_stealth_rate_is_preserved_without_blocking_client() {
+        for lines in [
+            "shaping = false\nshaping_stealth = true\nshaping_stealth_mbps = 0",
+            "shaping = true\nshaping_stealth = false\nshaping_stealth_mbps = 0",
+        ] {
+            let cfg = parse(lines);
+            cfg.validate().expect("inactive stealth rate is dormant");
+            let back =
+                ClientConfig::from_ini(&IniDoc::parse(&cfg.to_ini_string()).unwrap()).unwrap();
+            assert_eq!(back.obfuscation.traffic_shaping.stealth_rate_mbps, 0);
+        }
+        assert!(
+            parse("shaping = true\nshaping_stealth = true\nshaping_stealth_mbps = 0")
+                .validate()
+                .is_err()
+        );
+    }
+    #[test]
+    fn q13_active_shaping_cannot_request_unencodable_cover() {
+        let cfg = parse("shaping = true\nshaping_budget = 65536\nshaping_max_size = 65535");
+        let err = cfg
+            .validate()
+            .expect_err("cover must fit a shared AEAD record")
+            .to_string();
+        assert!(err.contains("shaping"), "{err}");
     }
 }

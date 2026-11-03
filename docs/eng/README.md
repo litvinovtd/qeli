@@ -1,11 +1,13 @@
 # Qeli — an obfuscated VPN
 
+> **0.8.2 Beta** documentation. Publication status and available downloads are shown in [GitHub Releases](https://github.com/litvinovtd/qeli/releases). [0.8.2 release notes](../../release/RELEASE_NOTES_0.8.2.md) · [Audit status and qualification limits](plans/FULL-SYSTEM-AUDIT.md).
+
 **Qeli** (Quick Easy Link IP) is a self-hosted VPN with its own L4 protocol and
 built-in obfuscation, running over TCP or UDP. The goal is resilience against
 passive/signature-based DPI while keeping the convenience of classic TUN/TAP
 VPNs, with a built-in web admin panel.
 
-- **Language**: Rust 2021, version 0.8.1 (beta)
+- **Language**: Rust 2021, version 0.8.3 (beta)
 - **Crypto stack**: `x25519-dalek`, `ml-kem` (PQ hybrid X25519MLKEM768), `chacha20poly1305`, `chacha20`, `aes-gcm`, `hkdf`, `sha2`, `argon2`, `zeroize`; `rustls`/`ring` — server-side termination of real TLS 1.3 in `reality-tls`
 - **Transport**: TCP or UDP; multiple profiles (interfaces) in a single daemon
 - **Wire modes**: `plain` · `fake-tls` · `obfs` · `reality` · `reality-tls` (REALITY TLS 1.3 + a genuine HTTP/2 carrier; `handrolled` borrows the target certificate) · QUIC-shaped UDP compatibility masking, not real QUIC/HTTP3
@@ -33,7 +35,7 @@ probing tells. It is not a universal indistinguishability or censorship-bypass g
 REALITY/real TLS 1.3 are written **from scratch in Rust**: this is **NOT** the use
 of off-the-shelf REALITY libraries and **NOT** a wrapper over Xray/sing-box. Our
 own fake-TLS, our own hand-rolled TLS 1.3 (`realtls`) with cert-borrowing (the target's certificate and JA3S shape,
-without claiming full Xray/browser parity), our own crypto channel (X25519 + ML-KEM-768 PQ hybrid,
+without claiming full Xray/browser parity), our own crypto channel (X25519, ML-KEM-768 in legacy camouflage,
 ChaCha20-Poly1305, channel-binding, key-pinning, PRP-nonce). Full control and
 auditability of the code, with no dependency on third-party proxy cores.
 
@@ -68,8 +70,10 @@ are written in this repository from scratch:
 - **Genuine HTTP/2 carrier** — authenticated `reality-tls` uses ALPN `h2`, one long-lived
   bidirectional `POST /v1/events/stream`, real SETTINGS/HEADERS/DATA/flow-control and randomized
   2–8 ms batching. There is no user-facing H2 switch and no second inner fake-TLS handshake.
-- **Crypto channel** — X25519 + **ML-KEM-768** (PQ hybrid X25519MLKEM768),
-  HKDF-SHA256, ChaCha20-Poly1305 / AES-GCM, Argon2id for passwords.
+- **Crypto channel** — X25519; inner X25519MLKEM768 is mandatory in legacy camouflage,
+  while `plain` and inner `reality-tls` use classical X25519. Outer TLS PQ depends on
+  the negotiated group. PacketCodec uses ChaCha20-Poly1305; outer TLS uses AES-GCM.
+  HKDF derives keys; Argon2id verifies passwords.
 - **Channel-binding authentication** — the server's proof is bound to the
   handshake transcript + key-pinning: a MITM cannot intercept the password before
   it is even sent.
@@ -107,7 +111,8 @@ qeli_vpn/
 ├── qeli-mac/             — macOS client (C#/Avalonia, .NET 10 + libqeli.dylib)
 ├── qeli-shared/          — shared C# code for win+mac (crypto/protocol/model, VpnTunnel core, RealTls, Loc; .NET 10)
 ├── native-libs/          — built native realtls libs (.so/.dll/.dylib)
-├── release/              — built binary + benchmark_results.json + reality-tls/ configs
+├── release/              — release notes, distributions and packaging
+├── docs/data/            — shared benchmark, audit and validation data
 ├── scripts/              — paramiko: deploy, benchmark, debugging, cross-building libs
 └── docs/                 — this documentation
 ```
@@ -126,17 +131,15 @@ qeli_vpn/
 4. **Data.** PacketCodec remains end-to-end ChaCha20-Poly1305 with PRP-masked nonces. Legacy
    camouflage modes retain their own framing; current `reality-tls` carries raw private qeli
    records inside H2. This is still outer TLS AEAD plus inner qeli AEAD, but no nested fake-TLS.
-Security details — [AUDIT.md](reports/AUDIT.md). Against **active** probing, REALITY does
-the work: `reality` bridges foreign parties to a real site, while `reality-tls`
-carries the tunnel inside real TLS 1.3 (with `handrolled` — the target's borrowed
-real certificate). The X25519MLKEM768 PQ hybrid is now also in the **inner** qeli
-tunnel: the data keys = X25519 ⊕ ML-KEM-768 (`derive_keys_hybrid`) in all modes
-except `plain` (`fake-tls`/`obfs`/`reality-tls`/UDP), so protection against
-harvest-now-decrypt-later does not depend on the wrapper. The server REQUIRES the
-PQ share for non-`plain` modes (no silent downgrade). Managed clients (C#/Kotlin)
-take ML-KEM from the shared Rust core via FFI/JNI. In `fake-tls`/`obfs` modes the
-outer TLS itself is not real (a stub certificate) — they are designed for
-passive/entropy-based DPI.
+Security details — [AUDIT.md](reports/AUDIT.md). Against active probing, REALITY bridges
+foreign parties to a real site; `reality-tls` carries the tunnel in real TLS 1.3/H2.
+Legacy camouflage (`fake-tls`/`obfs`/`reality`/UDP) requires X25519MLKEM768 in the
+inner tunnel: keys depend on both X25519 and ML-KEM-768, with no classic fallback.
+Current `reality-tls` instead uses a classic, identity-bound private inner exchange.
+Its outer TLS can negotiate X25519MLKEM768 or classic X25519; PQ protection depends
+on the negotiated outer group. `plain` is classic. The shared Rust core implements
+ML-KEM for native clients. `fake-tls`/`obfs` have a stub outer certificate and target
+passive/entropy-based DPI. See [THREAT-MODEL.md](reference/THREAT-MODEL.md).
 
 ## Quick start
 
@@ -201,11 +204,14 @@ The full set of CLI subcommands (`qeli <command> --help` for all options).
 **Full documentation map → [index.md](index.md)** — every document grouped by audience
 (users · operators · routers · security · design · internals · archive).
 
+The [Technologies and measurements](reference/TECHNOLOGIES.md) section explains
+Qeli mechanisms and connects them to configuration and dated engineering reports.
+
 Most used:
 
 - **[GETTING-STARTED.md](manuals/GETTING-STARTED.md)** — install and first run, step by step.
 - **[CONFIG.md](manuals/CONFIG.md)** — configuration (flat-INI), every parameter.
-- **[IPV6.md](manuals/IPV6.md)** — complete dual-stack/IPv6-only, NAT66/route setup and troubleshooting.
+- **[IPV6.md](manuals/IPV6.md)** — complete dual-stack/IPv6-only, `off/manual/route/nat66`, NDP proxy setup and troubleshooting.
 - **[CLIENT-CONFIG-MATRIX.md](reference/CLIENT-CONFIG-MATRIX.md)** — the current 80 client keys and refactor history.
 - **[TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md)** — diagnostics and error reference.
 - **[PANEL.md](manuals/PANEL.md)** — web panel: installation and usage.

@@ -28,7 +28,7 @@
     </template>
   </div>
 
-  <div x-show="error" class="card p-4 mb-4" style="border-color:rgba(255,93,108,.45);color:var(--red)" x-text="error"></div>
+  <div x-show="error" role="alert" class="card p-4 mb-4" style="border-color:rgba(255,93,108,.45);color:var(--red)" x-text="error"></div>
   <div x-show="!workerOk && !error" class="card p-4 mb-4" style="border-color:rgba(255,93,108,.45)">
     <div class="font-semibold" style="color:var(--red)">Data-plane worker unavailable</div>
     <div class="text-xs mt-1" style="color:var(--txt-mut)">Configured profiles are shown, but their listeners and sessions cannot be verified.</div>
@@ -148,18 +148,29 @@
 function transportHealthPage() {
   return {
     profiles: [], summary: {}, workerOk: false, loading: false, error: '',
+    loadSequence: 0, pendingLoads: 0, destroyed: false,
     query: '', statusFilter: 'all', selectedName: null, updatedAt: '', timer: null,
     fmt(value) { return window.fmt ? window.fmt(value) : String(value); },
     qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
     init() {
       this.refresh();
-      this.timer = setInterval(() => { if (!document.hidden) this.refresh(true); }, 5000);
+      this.timer = qeliPoll(async () => { await this.refresh(true); return !this.error; }, 5000);
     },
-    destroy() { if (this.timer) clearInterval(this.timer); },
-    async refresh(background) {
+    destroy() {
+      this.destroyed = true;
+      this.loadSequence++;
+      this.loading = false;
+      qeliStopPoll(this.timer);
+      this.timer = null;
+    },
+    async refresh(background = false) {
+      if (this.destroyed || (background && this.pendingLoads)) return;
+      const sequence = ++this.loadSequence;
+      this.pendingLoads++;
       if (!background) this.loading = true;
       try {
         const response = await apiFetch('api/transport/health');
+        if (this.destroyed || sequence !== this.loadSequence) return;
         if (!response.ok) throw new Error(response.error || qeliT('Transport health is unavailable'));
         this.profiles = response.profiles || [];
         if (this.selectedName && !this.profiles.some(profile => profile.name === this.selectedName)) this.closeDetails();
@@ -168,8 +179,11 @@ function transportHealthPage() {
         this.updatedAt = response.generated_at_ms ? new Date(response.generated_at_ms).toLocaleTimeString() : '';
         this.error = '';
       } catch (error) {
-        this.error = qeliT('Failed to load transport health: ') + error.message;
-      } finally { this.loading = false; }
+        if (!this.destroyed && sequence === this.loadSequence) this.error = qeliT('Failed to load transport health: ') + error.message;
+      } finally {
+        this.pendingLoads--;
+        if (sequence === this.loadSequence) this.loading = false;
+      }
     },
     get visibleProfiles() {
       const query = this.query.trim().toLowerCase();

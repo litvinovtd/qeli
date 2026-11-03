@@ -18,7 +18,8 @@
     <AssemblyName>QeliMac</AssemblyName>
     <RootNamespace>QeliMac</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>0.8.1</Version>
+    <Version>0.8.3</Version>
+    <QeliNativeCorePath Condition="'$(QeliNativeCorePath)' == ''">$(MSBuildProjectDirectory)/native/libqeli.dylib</QeliNativeCorePath>
     <!-- The runtime identifier is supplied on publish (osx-arm64 / osx-x64). -->
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <!-- Avalonia's compiled-XAML + trimming-friendly settings. -->
@@ -43,6 +44,9 @@
   <ItemGroup>
     <!-- Cross-platform XAML UI (the macOS analogue of WPF). 11.3.x for current-macOS
          (Tahoe / macOS 26) Cocoa-backend compatibility. -->
+    <!-- 0.11.2 preserves the consumed API and records its exact source commit.
+         Later 0.11.x removes protected API; review compatibility before updating. -->
+    <PackageReference Include="MicroCom.Runtime" Version="0.11.2" />
     <PackageReference Include="Avalonia" Version="11.3.20" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.20" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.20" />
@@ -63,16 +67,44 @@
                       Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
   </ItemGroup>
 
-  <!-- Native whole-client Rust core (current ABI 1.15 with compatibility floor 1.11,
+  <!-- Native whole-client Rust core (configuration + transport ABI 1.16,
        plus realtls C ABI). A
        universal (arm64+x86_64) dylib cross-built by build_dylib.sh, copied next
        to QeliMac so DllImport("qeli") resolves it inside the .app bundle. The
        Condition lets the project build for dev before the dylib is produced. -->
-  <ItemGroup Condition="Exists('native/libqeli.dylib')">
-    <Content Include="native/libqeli.dylib">
+  <ItemGroup Condition="Exists('$(QeliNativeCorePath)')">
+    <Content Include="$(QeliNativeCorePath)">
       <Link>libqeli.dylib</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The common Cargo.lock superset travels with every published client. -->
+    <Content Include="..\..\qeli\third-party-notices\rust\**\*">
+      <Link>Legal\NativeRust\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+    <!-- Full reviewed NuGet graphs, runtime pack notices and embedded font licenses. -->
+    <Content Include="..\..\qeli-shared\third-party-notices\dotnet\**\*">
+      <Link>Legal\DotNet\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+    <Content Include="..\LICENSE">
+      <Link>Legal\MPL-2.0.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+  </ItemGroup>
+  <Target Name="RequireManagedLegalBundle" BeforeTargets="PrepareForBuild;ComputeFilesToPublish">
+    <Error Condition="!Exists('..\..\qeli-shared\third-party-notices\dotnet\INDEX.tsv')" Text="Missing managed legal bundle; run scripts/managed_licenses.py and review its output." />
+  </Target>
+  <Target Name="RequireNativeLegalBundle" BeforeTargets="PrepareForBuild;ComputeFilesToPublish">
+    <Error Condition="!Exists('..\..\qeli\third-party-notices\rust\INDEX.tsv')" Text="Missing native legal bundle; run scripts/native_licenses.py and review its output." />
+  </Target>
 </Project>

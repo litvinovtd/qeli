@@ -104,13 +104,27 @@ or reject it before packet flow starts.
 
 ## 4. IPv6 egress from the server
 
-`routing.ipv6.mode` has three values.
+`routing.ipv6.mode` has four values.
+
+| Mode | Qeli responsibility | `routing.ipv6.ndp_proxy` |
+|---|---|---|
+| `off` | Blocks IPv6 transit between the profile TUN and other interfaces in both directions | `off` only |
+| `manual` | Leaves external routing, firewall and forwarding to the administrator; still manages the tunnel and client routes | `off`, `auto`, `required` |
+| `route` | Configures forwarding while preserving clients' source IPv6 addresses | `off`, `auto`, `required` |
+| `nat66` | Configures forwarding and NAT66 (MASQUERADE) through the IPv6 uplink | `off` only |
+
+`manual` was added in the **0.8.2** development tree; **0.8.1** binaries do not recognize
+this value. Omitting the key defaults to `off`; templates and Quick Start may explicitly
+select `nat66`. An IPv4-only profile requires `off` for both keys.
 
 ### `nat66`
 
 qeli enables verified forwarding and MASQUERADE through `ip6tables`. It is the portable
 choice for a ULA pool on a normal VPS where the provider does not route a dedicated GUA
 prefix to VPN clients. The WAN needs a public IPv6 address and an IPv6 default route.
+Qeli blocks TUN transit through every other interface before host permits: with a
+`FORWARD ACCEPT` policy, the client's address would otherwise leave without MASQUERADE.
+Use `route` or `manual` for LAN and site-to-site routing.
 
 ```ini
 routing.ipv6.mode = nat66
@@ -118,7 +132,68 @@ routing.ipv6.interface =
 ```
 
 An empty interface means automatic IPv6 uplink detection. Set, for example,
-`routing.ipv6.interface = ens18` if detection is ambiguous.
+`routing.ipv6.interface = ens18` if detection is ambiguous. For managed `route` and
+`nat66`, the selected uplink must exist in the worker network namespace at setup.
+Auto selection rejects a best default route spread over different WANs (ECMP).
+`nat66` also refuses an unreadable or unusable complete default-route listing:
+one `route get` answer cannot prove a unique WAN. Set an explicit interface only
+when the administrator controls that routing.
+In `nat66`, a route change to another interface blocks packets but may interrupt
+connectivity. The administrator must still control active WAN deletion and name reuse.
+
+### `manual`
+
+Use this mode when firewalld, native nftables, or another administrator-managed setup
+owns IPv6 routing and firewall policy. Qeli creates the tunnel, configures its addresses
+and connected/authenticated client routes, and can run the NDP responder. It does not
+install IPv6 FORWARD, NAT66, MSS, DNS INPUT or DNS REDIRECT rules, and does not acquire
+forwarding/`accept_ra` sysctl leases. `ip6tables` is not required for this IPv6 mode.
+IPv4 NAT, routing and DNS settings remain independent in a dual-stack profile.
+
+Fragment of an existing `[profile:<name>]` with `tun.ip_mode = dual` or `ipv6`, and
+`tun.ipv6_address` and `pool.ipv6.cidr` already configured:
+
+```ini
+routing.ipv6.mode = manual
+routing.ipv6.interface = ens3
+routing.ipv6.ndp_proxy = required
+routing.ipv6.ndp_proxy_interface = ens3
+```
+
+The administrator must provide IPv6 forwarding, the return path, firewall policy
+(including profile isolation and ICMPv6), and any RA settings required by the uplink.
+For the built-in DNS resolver, permit UDP and TCP INPUT to its tunnel address. With
+`dns.port != 53`, also arrange IPv6 port-53 redirection yourself, or use port 53.
+Existing address/MTU/collision checks and authenticated session restrictions still apply.
+
+A restart removes rules tagged for the previous Qeli profile and releases its old sysctl
+leases before starting `manual`; administrator rules are not removed. Configure host
+sysctls independently rather than relying on another managed profile to keep forwarding
+on. NDP `required` still refuses startup if the responder cannot bind; it does not verify
+that the administrator's routing/firewall setup can deliver packets. A routed prefix
+that needs no Neighbor Discovery can use `ndp_proxy = off` with `manual` too.
+A required-NDP failure rejects this profile: the worker stays alive and retries it
+while other profiles continue running. Forwarding and RA belong to the network
+namespace; a sibling `route`/`nat66` may change them for its own operation, while
+`manual` acquires no IPv6 sysctl lease.
+
+#### Switching to administrator-managed IPv6
+
+1. Check `qeli --version`: use a 0.8.2 build that supports `manual`.
+2. Prepare persistent IPv6 forwarding, return routes, firewall, ICMPv6 and DNS policy in
+   the host's configuration manager. Preserve uplink RA reception when using RA/SLAAC.
+3. Change the profile's INI `routing.ipv6.mode` to `manual`. If the upstream uses NDP for
+   client addresses, set `ndp_proxy = required` and its interface; for an ordinary routed
+   prefix, leave `ndp_proxy = off`.
+4. Run `qeli check-config --config /etc/qeli/server.conf`, then apply the configuration
+   with a restart. In the panel, use `Apply & Restart`.
+5. After restart, check host forwarding/RA settings, client access to the intended IPv6
+   networks and DNS over UDP/TCP. For NDP, verify an uplink response for a connected
+   client's address; a successfully bound responder alone does not prove packet delivery.
+
+Switching `route` ↔ `manual` preserves NDP settings. Selecting `off` or `nat66` in the
+form disables NDP and clears its interface. When editing INI, set
+`routing.ipv6.ndp_proxy = off` yourself: incompatible combinations are rejected.
 
 ### `route`
 
@@ -163,7 +238,7 @@ routing.ipv6.ndp_proxy_interface = ens3
 An empty `routing.ipv6.ndp_proxy_interface` reuses the effective uplink from
 `routing.ipv6.interface`/the IPv6 default route. The link must be Ethernet-compatible and the
 Linux server normally already runs as root. NDP proxy is valid only with source-preserving
-`route`, never with `off` or NAT66. While active, the responder joins `PACKET_MR_ALLMULTI` on
+`route` or administrator-managed `manual`, not with `off` or NAT66. While active, the responder joins `PACKET_MR_ALLMULTI` on
 its packet socket so that the NIC accepts solicited-node multicast for client `/128`s which are
 not assigned to the WAN interface. This does not set persistent `IFF_ALLMULTI` on the interface
 or relay multicast into the VPN.
@@ -175,8 +250,16 @@ MAC only when the target currently belongs to a live session:
 - an address inside a non-default IPv6 `client_subnet` registered by a connected router or
   site-to-site client.
 
-The answer stops immediately on revoke/disconnect. `/0`, link-local, multicast, invalid
-checksum/hop-limit, and unrelated targets are ignored. To expose a network behind one client:
+After registry removal on revoke/disconnect, the proxy no longer authorizes new answers.
+An already kernel-queued answer may still leave the socket; 0.8.3 rechecks owner generation after readiness before submitting a new frame. `/0`, link-local,
+multicast, invalid checksum/hop-limit, and unrelated targets are ignored. DAD with source `::`
+requires the target solicited-node multicast destination; a unicast DAD is discarded.
+
+Responses are limited to 256 per source MAC and 4096 globally per one-second window.
+An unowned target does not consume these response budgets. Rate-limit warnings appear
+at most once per window; responses resume in the next window.
+
+To expose a network behind one client:
 
 ```ini
 [user:branch-router]
@@ -298,7 +381,11 @@ assigned by the provider.
      carrying its own MAC, and an external `ping -6 2001:db8:1200:10::100` must reach the
      client. If the client OS blocks inbound ICMPv6, allow Echo Request or test a TCP/UDP
      service which is already listening.
-   - Disconnect, revoke, or session replacement removes ownership immediately. Flush the entry
+   - Server registry removal, revoke, or session replacement removes ownership immediately.
+     Stopping a client process, especially UDP, may first leave its session alive until
+     idle/liveness timeout and the next cleanup pass; roaming may also retain a grace
+     period. Before checking for absent NAs, confirm that the server no longer lists
+     this session. Flush the entry
      on an accessible upstream router or wait for its neighbor cache to expire, then retry: a
      new NS receives no proxy NA and traffic without a live session is dropped. A stale upstream
      entry may continue to show the server MAC for a while; that is upstream caching, not
@@ -523,14 +610,16 @@ Quick Start offers `auto`, `ipv4`, `dual`, and `ipv6`.
   manual settings; an explicit mode selection intentionally switches and normalizes the
   complete egress contract.
 
-Quick Start promises Internet IPv6. Use Config/Raw INI and manual infrastructure for routed
-GUA or an isolated `off` deployment.
+Quick Start creates Internet IPv6 through `nat66`. Configure `route`, `manual` or isolated
+`off` through Config (Form or INI), and prepare the corresponding infrastructure. Select
+`manual` in Config, not in Quick Start.
 
 ## 10. Host prerequisites and preflight
 
 ```bash
 ip -6 addr show scope global
 ip -6 route show default
+# Managed off/route/nat66 only; manual uses the administrator-managed firewall.
 command -v ip6tables
 sudo ip6tables -S
 ```
@@ -614,7 +703,10 @@ exceptions, not general connectivity switches.
 | Symptom | Likely cause | Check |
 |---|---|---|
 | Quick Start `auto` created IPv4 | no public GUA/default route or no `ip6tables` | `ip -6 addr`, `ip -6 route`, `command -v ip6tables` |
-| explicit dual/IPv6 was refused | Quick Start cannot promise Internet IPv6 | preflight message; repair WAN/firewall or configure `route/off` manually |
+| explicit dual/IPv6 was refused | Quick Start cannot promise Internet IPv6 | preflight message; repair WAN/firewall or configure `route/manual/off` manually |
+| `manual` is not recognized | installed binary does not support the new mode | `qeli --version`; use a 0.8.2 build that supports `manual` |
+| NDP responds in `manual`, but traffic fails | manual routing or firewall is incomplete | forwarding/RA, return routes, FORWARD and ICMPv6; `required` checks responder startup |
+| DNS works on a custom port in `manual`, but clients get no answer | clients query port 53 | UDP/TCP INPUT and administrator-provided 53-to-`dns.port` redirection, or `dns.port = 53` |
 | `ipv6=required` cannot connect | IPv4-only profile, legacy server, MTU <1280, or incomplete adapter | versions, capability log, MTU |
 | address exists but Internet does not | missing NAT66 or return route | `routing.ipv6.mode`, WAN interface, upstream route |
 | routed mode works one way | upstream lacks the VPN `/64` route | add a return route for `pool.ipv6.cidr` |
@@ -636,3 +728,42 @@ To roll back, set server `tun.ip_mode = ipv4`, clear the IPv6 pool/listener, and
 `routing.ipv6.mode = off`; explicit IPv4 in Quick Start performs that normalization
 automatically. Return clients to `ipv6 = auto` or `off`. Restart the profile/service after a
 server data-plane change.
+
+
+#### NDP responder changes in 0.8.3
+
+The NA source is a usable IPv6 address assigned to the uplink, preferably
+link-local, otherwise another usable assigned unicast address. Target remains the client's address.
+Tentative, optimistic, deprecated and DAD-failed addresses are excluded in the
+worker network namespace. `required` now also requires a usable source;
+`auto` reports startup failure and continues without proxying. Runtime address
+loss pauses advertisements; source changes are refreshed once per second.
+A replaced interface index or MAC stops the responder instead of using stale
+link identity.
+
+Ownership includes completed admission: kernel routes and primary AuthOK must
+commit before an address is eligible. Exact leases precede non-default delegated
+prefixes; revoked, closing, removed or superseded owners cannot authorize new NA.
+After writable readiness, the exact owner generation is checked again immediately
+before nonblocking send. A frame already accepted by the kernel cannot be recalled.
+
+Known concrete leases join their solicited-node IPv6 multicast groups on a
+socket-owned membership, so MLD can inform a snooping network. Groups are refreshed
+once per second, bounded to 1024 concrete targets, and released on close.
+PACKET_MR_ALLMULTI still covers the local NIC receive filter. Neither mechanism
+guarantees delivery through arbitrary upstream multicast policy. A delegated
+prefix is never enumerated: NS for unknown addresses in it still requires the
+upstream network to deliver that multicast to the server (for example, an
+appropriate router/switch multicast policy).
+
+One unsolicited all-nodes NA is attempted for a newly admitted known address or
+changed owner/source binding: at most 16 per second per profile, sharing the
+4096/s response budget. Pending work is bounded by the target limit. There is
+no periodic reannouncement option. Solicited proxy replies use S=1,O=0; DAD and
+appearance announcements use S=0,O=0. R=0 describes the advertised client-host
+role, rather than blindly advertising the proxy host as a router. Arbitrary
+R/S/O overrides are not exposed. Unsolicited NA is an optimization, not a
+reachability guarantee or replacement for normal Neighbor Discovery.
+See [RFC 4861 §4.4](https://www.rfc-editor.org/rfc/rfc4861.html#section-4.4) and
+[§7.2.8](https://www.rfc-editor.org/rfc/rfc4861.html#section-7.2.8).
+The `manual` mode still leaves routing, firewall and forwarding to the administrator.

@@ -9,9 +9,9 @@
       <h3 class="text-sm font-semibold text-white">Lockout policy</h3>
       <span class="text-xs text-slate-500">— panel login and VPN auth are limited independently</span>
     </div>
-    <p class="text-xs text-slate-500 mb-4">Applied live (no restart); saving resets that surface's failure counters. Turn a switch off to disable rate-limiting for that surface entirely.</p>
+    <p class="text-xs text-slate-500 mb-4">Policies are saved to INI and applied live when reload succeeds; applying changed thresholds resets that surface's failure counters. Turn a switch off to disable rate-limiting for that surface entirely.</p>
 
-    <div class="grid grid-cols-2 gap-4">
+    <fieldset :disabled="!policyLoaded || policyLoading || savingPolicy" class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <!-- VPN authentication policy -->
       <div class="rounded-lg border border-[#21314e] p-3.5">
         <label class="flex items-center gap-2.5 cursor-pointer mb-3">
@@ -55,13 +55,14 @@
           </div>
         </div>
       </div>
-    </div>
+    </fieldset>
 
     <div class="flex items-center gap-2 mt-4">
-      <button class="btn btn-primary btn-sm" @click="savePolicy()" :disabled="savingPolicy">
+      <button class="btn btn-primary btn-sm" @click="savePolicy()" :disabled="!policyLoaded || policyLoading || savingPolicy">
         <div x-show="savingPolicy" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
         Save policy
       </button>
+      <button class="btn btn-ghost btn-sm" @click="loadPolicy()" x-show="!policyLoaded" :disabled="policyLoading || savingPolicy">Reload</button>
       <span x-show="policyMsg" class="text-xs" :class="policyOk ? 'text-green-400' : 'text-red-400'" x-text="policyMsg"></span>
     </div>
   </div>
@@ -76,13 +77,15 @@
     </button>
   </div>
 
+  <div x-show="error" role="alert" class="text-xs text-red-400 mb-3" x-text="error"></div>
+
   <!-- VPN auth journal -->
   <div class="mb-6">
     <div class="flex items-center justify-between mb-2">
       <h3 class="text-sm font-semibold text-white">VPN authentication <span class="text-xs font-normal text-slate-500" x-text="'(' + blocked.vpn.length + ')'"></span></h3>
       <button class="btn btn-danger btn-sm" @click="clearAll('vpn')" x-show="blocked.vpn.length > 0">Clear all</button>
     </div>
-    <div x-show="!loading && blocked.vpn.length === 0" class="card text-center text-slate-600 text-sm py-10">
+    <div x-show="loaded && !loading && !error && blocked.vpn.length === 0" class="card text-center text-slate-600 text-sm py-10">
       No blocked IPs.
     </div>
     <div class="card overflow-hidden" x-show="blocked.vpn.length > 0">
@@ -120,7 +123,7 @@
       <h3 class="text-sm font-semibold text-white">Panel login <span class="text-xs font-normal text-slate-500" x-text="'(' + blocked.panel.length + ')'"></span></h3>
       <button class="btn btn-danger btn-sm" @click="clearAll('panel')" x-show="blocked.panel.length > 0">Clear all</button>
     </div>
-    <div x-show="!loading && blocked.panel.length === 0" class="card text-center text-slate-600 text-sm py-10">
+    <div x-show="loaded && !loading && !error && blocked.panel.length === 0" class="card text-center text-slate-600 text-sm py-10">
       No blocked IPs.
     </div>
     <div class="card overflow-hidden" x-show="blocked.panel.length > 0">
@@ -160,8 +163,18 @@ function blockedPage() {
   return {
     blocked: { vpn: [], panel: [] },
     loading: false,
+    loaded: false,
+    error: '',
+    loadSequence: 0,
+    pendingLoads: 0,
+    destroyed: false,
+    refreshTimer: null,
+    countdownTimer: null,
     saving: null,
     policy: { vpn: defPolicy(), panel: defPolicy() },
+    policyRevision: '',
+    policyLoaded: false,
+    policyLoading: false,
     savingPolicy: false,
     policyMsg: '',
     policyOk: false,
@@ -178,29 +191,47 @@ function blockedPage() {
     // Background polls pass silent=true so the refresh spinner / empty-state
     // don't flicker every 5s; the manual Refresh button still shows progress.
     async load(silent = false) {
+      if (this.destroyed || (silent && this.pendingLoads)) return;
+      const sequence = ++this.loadSequence;
+      this.pendingLoads++;
       if (!silent) this.loading = true;
       try {
         const d = await apiFetch('api/blocked');
-        const b = (d.ok && d.blocked) ? d.blocked : {};
-        this.blocked = { vpn: b.vpn || [], panel: b.panel || [] };
+        if (this.destroyed || sequence !== this.loadSequence) return;
+        if (!d.ok || !d.blocked) throw new Error(d.error || this.t('Request failed'));
+        this.blocked = { vpn: d.blocked.vpn || [], panel: d.blocked.panel || [] };
+        this.loaded = true;
+        this.error = '';
       } catch (e) {
-        if (!silent) this.blocked = { vpn: [], panel: [] };
+        if (!this.destroyed && sequence === this.loadSequence) this.error = e.message;
+      } finally {
+        this.pendingLoads--;
+        if (sequence === this.loadSequence) this.loading = false;
       }
-      if (!silent) this.loading = false;
     },
 
-    // Auto-refresh so a live (transient) lockout is actually visible: re-poll the
-    // server every 5s (authoritative), and tick the countdown down every 1s in
-    // between so "Unblock in" ticks and expired rows drop off without waiting.
     startAuto() {
-      setInterval(() => { if (!document.hidden) this.load(true); }, 5000);
-      setInterval(() => this.tick(), 1000);
+      if (this.destroyed) return;
+      qeliStopPoll(this.refreshTimer);
+      clearInterval(this.countdownTimer);
+      this.refreshTimer = qeliPoll(async () => { await this.load(true); return !this.error; }, 5000);
+      this.countdownTimer = setInterval(() => this.tick(), 1000);
+    },
+
+    destroy() {
+      this.destroyed = true;
+      this.loadSequence++;
+      this.loading = false;
+      qeliStopPoll(this.refreshTimer);
+      clearInterval(this.countdownTimer);
+      this.refreshTimer = this.countdownTimer = null;
     },
 
     tick() {
-      const dec = (arr) => (arr || [])
-        .map(b => ({ ...b, unblock_in_secs: (b.unblock_in_secs || 0) - 1 }))
-        .filter(b => b.unblock_in_secs > 0);
+      if (this.destroyed || this.error || document.hidden) return;
+      // Countdown is an estimate. Only an authoritative GET may remove a row;
+      // a delayed/failed poll must not turn an old snapshot into an empty journal.
+      const dec = arr => arr.map(b => ({ ...b, unblock_in_secs: Math.max(0, (b.unblock_in_secs || 0) - 1) }));
       this.blocked = { vpn: dec(this.blocked.vpn), panel: dec(this.blocked.panel) };
     },
 
@@ -210,27 +241,49 @@ function blockedPage() {
     },
 
     async loadPolicy() {
+      if (this.destroyed || this.policyLoading || this.savingPolicy) return;
+      this.policyLoading = true;
+      this.policyLoaded = false;
+      this.policyRevision = '';
+      this.policyMsg = '';
       try {
         const d = await apiFetch('api/blocked/settings');
-        if (d.ok && d.settings) {
+        if (this.destroyed) return;
+        if (d.ok && d.settings && d.revision) {
+          this.policyRevision = d.revision;
+          this.policyLoaded = true;
           this.policy = {
             vpn: Object.assign(defPolicy(), d.settings.vpn || {}),
             panel: Object.assign(defPolicy(), d.settings.panel || {}),
           };
+          this.policyOk = d.panel_applied !== false;
+          this.policyMsg = this.policyOk ? '' : this.t('Saved panel policy is not active; check INI and logs before restart');
+        } else {
+          this.policyOk = false;
+          this.policyMsg = d.error || this.t('Request failed');
         }
-      } catch (e) {}
+      } catch (e) { this.policyOk = false; this.policyMsg = this.t('Request failed'); }
+      finally { this.policyLoading = false; }
     },
 
     async savePolicy() {
+      if (!this.policyLoaded || this.policyLoading || this.savingPolicy || !this.policyRevision) return;
       this.savingPolicy = true; this.policyMsg = '';
       try {
         const r = await apiFetch('api/blocked/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ vpn: this.policy.vpn, panel: this.policy.panel }),
+          body: JSON.stringify({ vpn: this.policy.vpn, panel: this.policy.panel, expected_revision: this.policyRevision }),
         });
-        this.policyOk = !!r.ok;
-        this.policyMsg = r.ok ? this.t('Saved — applied live') : (r.error || this.t('Save failed'));
+        if (r.ok) this.policyRevision = r.revision || this.policyRevision;
+        this.policyOk = !!r.ok && r.panel_applied !== false && r.vpn_reload_requested !== false;
+        this.policyMsg = !r.ok ? (r.error || this.t('Save failed'))
+          : r.panel_applied === false && r.vpn_reload_requested === false
+            ? this.t('Saved — panel reload failed; VPN policy awaits worker restart')
+          : r.panel_applied === false ? this.t('Saved — panel settings reload failed; check INI and logs')
+          : r.vpn_reload_requested === false ? this.t('Saved — VPN policy awaits worker restart')
+          : r.vpn_reload_requested === true ? this.t('Saved — VPN reload requested')
+          : this.t('Saved — applied live');
       } catch (e) { this.policyOk = false; this.policyMsg = this.t('Request failed'); }
       this.savingPolicy = false;
     },

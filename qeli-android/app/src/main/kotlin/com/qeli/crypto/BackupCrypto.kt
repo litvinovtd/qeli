@@ -1,5 +1,7 @@
 package com.qeli.crypto
 
+import com.qeli.ProfileLimits
+import com.qeli.decodeUtf8Strict
 import java.security.SecureRandom
 import java.util.Base64
 import javax.crypto.Cipher
@@ -17,10 +19,11 @@ import javax.crypto.spec.SecretKeySpec
  * an encrypted backup apart from a legacy plaintext one. The key is derived with
  * PBKDF2-HMAC-SHA256 and the payload sealed with AES-256-GCM (authenticated), so a wrong
  * passphrase fails cleanly (GCM tag mismatch) rather than yielding garbage. Deliberately
- * uses only `java.*`/`javax.crypto` (no `android.*`) so it is unit-testable on the JVM.
+ * uses JDK crypto and pure Kotlin helpers (no `android.*`) so it is unit-testable on the JVM.
  */
 object BackupCrypto {
     const val MAGIC = "QELI-ENC-1"
+    const val MAX_BACKUP_BYTES = ProfileLimits.MAX_BACKUP_BYTES
     private const val ITER = 210_000
     internal const val MAX_ACCEPTED_ITER = 1_000_000
     private const val KEY_BITS = 256
@@ -31,15 +34,24 @@ object BackupCrypto {
     /** Seal [plaintext] under [passphrase] into the line-based envelope. */
     fun encrypt(plaintext: String, passphrase: String): ByteArray {
         require(passphrase.isNotEmpty()) { "passphrase required" }
-        val rng = SecureRandom()
-        val salt = ByteArray(SALT_LEN).also { rng.nextBytes(it) }
-        val iv = ByteArray(IV_LEN).also { rng.nextBytes(it) }
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key(passphrase, salt, ITER), GCMParameterSpec(TAG_BITS, iv))
-        val ct = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-        return listOf(MAGIC, ITER.toString(), b64(salt), b64(iv), b64(ct))
-            .joinToString("\n")
-            .toByteArray(Charsets.UTF_8)
+        val clear = plaintext.toByteArray(Charsets.UTF_8)
+        try {
+            require(clear.size <= ProfileLimits.MAX_ARCHIVE_BYTES) {
+                "backup plaintext exceeds 8 MiB"
+            }
+            val rng = SecureRandom()
+            val salt = ByteArray(SALT_LEN).also { rng.nextBytes(it) }
+            val iv = ByteArray(IV_LEN).also { rng.nextBytes(it) }
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, key(passphrase, salt, ITER), GCMParameterSpec(TAG_BITS, iv))
+            val ct = cipher.doFinal(clear)
+            return listOf(MAGIC, ITER.toString(), b64(salt), b64(iv), b64(ct))
+                .joinToString("\n")
+                .toByteArray(Charsets.UTF_8)
+                .also { require(it.size <= MAX_BACKUP_BYTES) { "encrypted backup exceeds 12 MiB" } }
+        } finally {
+            clear.fill(0)
+        }
     }
 
     /** True if [bytes] is an encrypted envelope (vs a legacy plaintext backup). */
@@ -50,7 +62,8 @@ object BackupCrypto {
 
     /** Open an encrypted envelope; throws on a wrong passphrase (GCM tag mismatch). */
     fun decrypt(bytes: ByteArray, passphrase: String): String {
-        val lines = String(bytes, Charsets.UTF_8).split("\n")
+        require(bytes.size <= MAX_BACKUP_BYTES) { "encrypted backup exceeds 12 MiB" }
+        val lines = decodeUtf8Strict(bytes).split("\n")
         require(lines.size >= 5 && lines[0] == MAGIC) { "not an encrypted qeli backup" }
         val iter = lines[1].toIntOrNull()
             ?: throw IllegalArgumentException("invalid PBKDF2 iteration count")
@@ -58,12 +71,21 @@ object BackupCrypto {
         val salt = unb64(lines[2])
         val iv = unb64(lines[3])
         val ct = unb64(lines[4])
-        require(salt.size == SALT_LEN && iv.size == IV_LEN && ct.size >= TAG_BITS / 8) {
+        require(salt.size == SALT_LEN && iv.size == IV_LEN &&
+            ct.size in (TAG_BITS / 8)..(ProfileLimits.MAX_ARCHIVE_BYTES + TAG_BITS / 8)) {
             "invalid encrypted qeli backup envelope"
         }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(passphrase, salt, iter), GCMParameterSpec(TAG_BITS, iv))
-        return String(cipher.doFinal(ct), Charsets.UTF_8)
+        val clear = cipher.doFinal(ct)
+        try {
+            require(clear.size <= ProfileLimits.MAX_ARCHIVE_BYTES) {
+                "backup plaintext exceeds 8 MiB"
+            }
+            return decodeUtf8Strict(clear)
+        } finally {
+            clear.fill(0)
+        }
     }
 
     private fun key(passphrase: String, salt: ByteArray, iter: Int): SecretKeySpec {

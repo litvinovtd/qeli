@@ -1,0 +1,333 @@
+{
+  "schema_version": 1,
+  "release_version": "0.8.3",
+  "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+  "cases": [
+    {
+      "id": "linux.outer4.inner4.tcp.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer4.inner6.tcp.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer6.inner4.tcp.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer6.inner6.tcp.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-fake-tls.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-quic.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-quic.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-quic.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-quic.full",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.dual.tcp.split",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.dual.udp.split",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.dns.ipv4-ipv6",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.mtu.1280-pmtu-ptb",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.leak.ipv4-ipv6",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.tap.ndp-ra",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.legacy-peer",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "linux.roaming-flap-soak",
+      "kind": "automated",
+      "status": "passed",
+      "source_digest": "623b71810013566efab29b32db9589eb82b574095afddca73602f47b3cc61139",
+      "artifact_sha256": "9cc1dfb84ccdee3bc0fb23aa3b0745882b0d520a325134112be2575512b62a1d",
+      "executed_at": "2026-10-26T14:37:37.184681+00:00",
+      "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
+      "evidence": "release/certification/evidence/ipv6-linux-083-release-text-final-20261026.json"
+    },
+    {
+      "id": "android.wifi-to-cellular",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "android.cellular-to-wifi",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "android.carrier-gap-background",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "android.sleep-wake-nat-rebind",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "android.ipv6-dns-leak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "android.roaming-race-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "ios.wifi-cellular-nat64",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "ios.sleep-wake-rollback",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "ios.per-app-mdm",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "ios.roaming-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "windows.ethernet-wifi",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "windows.sleep-wake",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "windows.ipv6-per-app-leak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "windows.roaming-race-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "macos.wifi-ethernet",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "macos.sleep-wake",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "macos.ipv6-pf-per-app-leak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "macos.networkextension-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "openwrt.ipv6-roaming-flap-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "keenetic.ipv6-roaming-flap-soak",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    },
+    {
+      "id": "rollout.canary-legacy-peer",
+      "kind": "physical",
+      "status": "not_available",
+      "reason": "Physical platform excluded by the user; CI/emulator tests do not qualify physical-device behavior."
+    }
+  ]
+}

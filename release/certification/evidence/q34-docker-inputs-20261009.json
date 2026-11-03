@@ -1,0 +1,387 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_IMMUTABLE_DOCKER_FRONTEND_APT_SNAPSHOT_SCOPED",
+  "source_digest": "b97f7650012f788024e6bf76728e812edc42266723b1f2024355d46f17ae92ee",
+  "qualification_source_commit": "05a52a75cb845e6514a55a6caa6df2fc567bce60",
+  "product_source_commit": "05a52a75cb845e6514a55a6caa6df2fc567bce60",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F481/Q34-F035"
+  ],
+  "verification": {
+    "upstream": {
+      "status": "PASS",
+      "requests": [
+        {
+          "name": "bookworm-InRelease",
+          "url": "https://snapshot.debian.org/archive/debian/20261008T000000Z/dists/bookworm/InRelease",
+          "final_url": "https://snapshot.debian.org/file/736a99b8b096598d48c438eb356bd074fecfbf23/InRelease",
+          "status": 200,
+          "size": 151075,
+          "sha256": "77737fa4b34f2693e982cc9ee35736816c35a7778fc2d326cc1bbf5b301fe1aa"
+        },
+        {
+          "name": "bookworm-updates-InRelease",
+          "url": "https://snapshot.debian.org/archive/debian/20261008T000000Z/dists/bookworm-updates/InRelease",
+          "final_url": "https://snapshot.debian.org/file/564a5c7603d431599d6638f20ed4b2766a511b59/InRelease",
+          "status": 200,
+          "size": 55403,
+          "sha256": "06c6077cec20354132a9d201625dd9f0a5196d3d4f80738d6a153ed547051c85"
+        },
+        {
+          "name": "bookworm-security-InRelease",
+          "url": "https://snapshot.debian.org/archive/debian-security/20261008T000000Z/dists/bookworm-security/InRelease",
+          "final_url": "https://snapshot.debian.org/file/0987ee99c62e45966653f043eac822ac50fcddaa/InRelease",
+          "status": 200,
+          "size": 34770,
+          "sha256": "c04f6c6ba0712d7ab5c953ee90e73d591746406b79e82b0e5d92274312a04d2c"
+        },
+        {
+          "name": "frontend-index.json",
+          "url": "https://registry-1.docker.io/v2/docker/dockerfile/manifests/sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e",
+          "final_url": "https://registry-1.docker.io/v2/docker/dockerfile/manifests/sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e",
+          "status": 200,
+          "size": 9078,
+          "sha256": "4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e"
+        },
+        {
+          "name": "frontend-amd64.json",
+          "url": "https://registry-1.docker.io/v2/docker/dockerfile/manifests/sha256:7b32114e84ca21aeb2d6f871a0b62b3a0762193f75d9afd048ee4cbe889f3148",
+          "final_url": "https://registry-1.docker.io/v2/docker/dockerfile/manifests/sha256:7b32114e84ca21aeb2d6f871a0b62b3a0762193f75d9afd048ee4cbe889f3148",
+          "status": 200,
+          "size": 1134,
+          "sha256": "7b32114e84ca21aeb2d6f871a0b62b3a0762193f75d9afd048ee4cbe889f3148"
+        }
+      ]
+    },
+    "base": {
+      "status": "PASS",
+      "objects": [
+        {
+          "repo": "docker/dockerfile",
+          "path": "blobs/sha256:528c92d70d7e39dbb3dd1c6681f6750c565c7e45b70527cda47c1a61495c1b6a",
+          "file": "frontend-config.json",
+          "size": 1406,
+          "sha256": "528c92d70d7e39dbb3dd1c6681f6750c565c7e45b70527cda47c1a61495c1b6a"
+        },
+        {
+          "repo": "library/debian",
+          "path": "manifests/sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587",
+          "file": "debian-index.json",
+          "size": 5651,
+          "sha256": "7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587"
+        },
+        {
+          "repo": "library/debian",
+          "path": "manifests/sha256:a4672c0cb26fbdde88e38fa2dfb6c681942306680e41e4378b28770b6e79ee91",
+          "file": "debian-amd64.json",
+          "size": 1021,
+          "sha256": "a4672c0cb26fbdde88e38fa2dfb6c681942306680e41e4378b28770b6e79ee91"
+        },
+        {
+          "repo": "library/debian",
+          "path": "blobs/sha256:d4c45f66efc59f89b0597d343a9bd72808493c0eacecde5285961743252cee23",
+          "file": "debian-config.json",
+          "size": 453,
+          "sha256": "d4c45f66efc59f89b0597d343a9bd72808493c0eacecde5285961743252cee23"
+        },
+        {
+          "repo": "library/debian",
+          "path": "blobs/sha256:7fd1ebe418b5079d4aa36f416af9b143d127bc75b0155d71cb5fd559b5e04d39",
+          "file": "debian-amd64-layer.tar.gz",
+          "size": 28249323,
+          "sha256": "7fd1ebe418b5079d4aa36f416af9b143d127bc75b0155d71cb5fd559b5e04d39"
+        }
+      ]
+    },
+    "apt": {
+      "status": "PASS",
+      "signature_negative_checks": [
+        {
+          "case": "bookworm-modified-signed-body",
+          "rc": 1
+        },
+        {
+          "case": "bookworm-updates-modified-signed-body",
+          "rc": 1
+        },
+        {
+          "case": "bookworm-security-modified-signed-body",
+          "rc": 1
+        },
+        {
+          "case": "actual-APT-modified-signed-body",
+          "rc": 100
+        }
+      ],
+      "installed_packages": 150,
+      "exact_signed_lists": 3,
+      "scope": "Actual apt2.6.1 in SHA-pinned Debian amd64 base:three original signatures,full snapshot update/runtime package installation/13commands/aptcheck/repeated simulation;three corrupt gpgv and one actualAPT BADSIG refusal;no newDockercompiler/imagebuild,ARM or hostedActions"
+    },
+    "tests": {
+      "status": "PASS",
+      "distinct_methods": 66,
+      "baseline_refusals": 2,
+      "suites": [
+        {
+          "suite": "test_release_tag.py",
+          "methods": 21,
+          "rc": 0
+        },
+        {
+          "suite": "test_docker_publish_ref.py",
+          "methods": 7,
+          "rc": 0
+        },
+        {
+          "suite": "test_native_recipes.py",
+          "methods": 38,
+          "rc": 0
+        }
+      ],
+      "scope": "Two regressions fail against exact prior recipe and pass finalsource;no hosted workflow or newcompiler run"
+    },
+    "host_restoration": {
+      "status": "PASS",
+      "before": {
+        "snapshot": {
+          "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+          "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+          "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+          "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+          "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+          "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+          "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+          "firewall6_legacy": "",
+          "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}",
+          "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=845,fd=11))",
+          "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+          "named_namespaces": ""
+        },
+        "service": "MainPID=777\nActiveState=active\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+        "apparmor": "wpcom (unconfined)\nwike (unconfined)\nvpnns (unconfined)\nvivaldi-bin (unconfined)\nvirtiofsd (unconfined)\nvdens (unconfined)\nuwsgi-core (unconfined)\n/usr/sbin/charon-systemd (complain)\n/usr/sbin/swanctl (enforce)\n/usr/lib/ipsec/lookip (enforce)\ntcpdump (enforce)\nman_groff (enforce)\nman_filter (enforce)\n/usr/bin/man (enforce)\ntransmission-qt (complain)\ntransmission-gtk (complain)\ntransmission-daemon (complain)\ntransmission-cli (complain)\nuserbindmount (unconfined)\nunprivileged_userns (complain)\nunix-chkpwd (complain)\ntuxedo-control-center (unconfined)\ntup (unconfined)\ntrinity (unconfined)\ntoybox (unconfined)\nsystemd-coredump (unconfined)\nsurfshark (unconfined)\nstress-ng (unconfined)\nsteam (unconfined)\nslirp4netns (unconfined)\nslack (unconfined)\nsignal-desktop (unconfined)\nscide (unconfined)\nsbuild-upgrade (complain)\nsbuild-update (complain)\nsbuild-unhold (complain)\nsbuild-shell (complain)\nsbuild-hold (complain)\nsbuild-distupgrade (complain)\nsbuild-destroychroot (complain)\nsbuild-createchroot (complain)\nsbuild-clean (complain)\nsbuild-checkpackages (complain)\nsbuild-apt (complain)\nsbuild-adduser (complain)\nsbuild-abort (complain)\nsbuild (complain)\nrunc (unconfined)\nrssguard (unconfined)\nrpm (unconfined)\nrootlesskit (unconfined)\nqutebrowser (unconfined)\nqmapshack (unconfined)\nqcam (unconfined)\nprivacybrowser (unconfined)\npolypane (unconfined)\nplasmashell (complain)\nplasmashell//QtWebEngineProcess (complain)\npageedit (unconfined)\nopera (unconfined)\nopam (unconfined)\nnvidia_modprobe (enforce)\nnvidia_modprobe//kmod (enforce)\nobsidian (unconfined)\nnotepadqq (unconfined)\nnautilus (unconfined)\nmsedge (unconfined)\nmmdebstrap (unconfined)\nlxc-usernsexec (unconfined)\nlxc-unshare (unconfined)\nlxc-stop (unconfined)\nlxc-execute (unconfined)\nlxc-destroy (unconfined)\nlxc-create (unconfined)\nlsb_release (enforce)\nlxc-attach (unconfined)\nloupe (unconfined)\nlinux-sandbox (unconfined)\nlibcamerify (unconfined)\nlc-compliance (unconfined)\nkeybase (unconfined)\nkchmviewer (unconfined)\nipa_verify (unconfined)\ngoldendict (unconfined)\ngithub-desktop (unconfined)\nfoliate (unconfined)\ngeary (unconfined)\nfirefox (unconfined)\nflatpak (unconfined)\nevolution (unconfined)\nepiphany (unconfined)\nelement-desktop (unconfined)\ndevhelp (unconfined)\ncrun (unconfined)\nvscode (unconfined)\nchromium (unconfined)\nchrome (unconfined)\nch-run (unconfined)\nch-checkns (unconfined)\ncam (unconfined)\nXorg (complain)\nbusybox (unconfined)\nbuildah (unconfined)\nbrave (unconfined)\nbalena-etcher (unconfined)\nQtWebEngineProcess (unconfined)\nMongoDB Compass (unconfined)\nDiscord (unconfined)\n1password (unconfined)",
+        "resources": "total        used        free      shared  buff/cache   available\nMem:            1973         271        1590           0         250        1702\nSwap:           2044         196        1848\n\u0424\u0430\u0439\u043b\u043e\u0432\u0430\u044f \u0441\u0438\u0441\u0442\u0435\u043c\u0430 1024-\u0431\u043b\u043e\u043a\u043e\u0432 \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u043e \u0414\u043e\u0441\u0442\u0443\u043f\u043d\u043e \u0412\u043c\u0435\u0441\u0442\u0438\u043c\u043e\u0441\u0442\u044c C\u043c\u043e\u043d\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432\n/dev/sda1           49226388     37373812  9319612         81% /"
+      },
+      "after": {
+        "snapshot": {
+          "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+          "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+          "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+          "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+          "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+          "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+          "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+          "firewall6_legacy": "",
+          "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}",
+          "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=845,fd=11))",
+          "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+          "named_namespaces": ""
+        },
+        "service": "MainPID=777\nActiveState=active\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+        "apparmor": "wpcom (unconfined)\nwike (unconfined)\nvpnns (unconfined)\nvivaldi-bin (unconfined)\nvirtiofsd (unconfined)\nvdens (unconfined)\nuwsgi-core (unconfined)\n/usr/sbin/charon-systemd (complain)\n/usr/sbin/swanctl (enforce)\n/usr/lib/ipsec/lookip (enforce)\ntcpdump (enforce)\nman_groff (enforce)\nman_filter (enforce)\n/usr/bin/man (enforce)\ntransmission-qt (complain)\ntransmission-gtk (complain)\ntransmission-daemon (complain)\ntransmission-cli (complain)\nuserbindmount (unconfined)\nunprivileged_userns (complain)\nunix-chkpwd (complain)\ntuxedo-control-center (unconfined)\ntup (unconfined)\ntrinity (unconfined)\ntoybox (unconfined)\nsystemd-coredump (unconfined)\nsurfshark (unconfined)\nstress-ng (unconfined)\nsteam (unconfined)\nslirp4netns (unconfined)\nslack (unconfined)\nsignal-desktop (unconfined)\nscide (unconfined)\nsbuild-upgrade (complain)\nsbuild-update (complain)\nsbuild-unhold (complain)\nsbuild-shell (complain)\nsbuild-hold (complain)\nsbuild-distupgrade (complain)\nsbuild-destroychroot (complain)\nsbuild-createchroot (complain)\nsbuild-clean (complain)\nsbuild-checkpackages (complain)\nsbuild-apt (complain)\nsbuild-adduser (complain)\nsbuild-abort (complain)\nsbuild (complain)\nrunc (unconfined)\nrssguard (unconfined)\nrpm (unconfined)\nrootlesskit (unconfined)\nqutebrowser (unconfined)\nqmapshack (unconfined)\nqcam (unconfined)\nprivacybrowser (unconfined)\npolypane (unconfined)\nplasmashell (complain)\nplasmashell//QtWebEngineProcess (complain)\npageedit (unconfined)\nopera (unconfined)\nopam (unconfined)\nnvidia_modprobe (enforce)\nnvidia_modprobe//kmod (enforce)\nobsidian (unconfined)\nnotepadqq (unconfined)\nnautilus (unconfined)\nmsedge (unconfined)\nmmdebstrap (unconfined)\nlxc-usernsexec (unconfined)\nlxc-unshare (unconfined)\nlxc-stop (unconfined)\nlxc-execute (unconfined)\nlxc-destroy (unconfined)\nlxc-create (unconfined)\nlsb_release (enforce)\nlxc-attach (unconfined)\nloupe (unconfined)\nlinux-sandbox (unconfined)\nlibcamerify (unconfined)\nlc-compliance (unconfined)\nkeybase (unconfined)\nkchmviewer (unconfined)\nipa_verify (unconfined)\ngoldendict (unconfined)\ngithub-desktop (unconfined)\nfoliate (unconfined)\ngeary (unconfined)\nfirefox (unconfined)\nflatpak (unconfined)\nevolution (unconfined)\nepiphany (unconfined)\nelement-desktop (unconfined)\ndevhelp (unconfined)\ncrun (unconfined)\nvscode (unconfined)\nchromium (unconfined)\nchrome (unconfined)\nch-run (unconfined)\nch-checkns (unconfined)\ncam (unconfined)\nXorg (complain)\nbusybox (unconfined)\nbuildah (unconfined)\nbrave (unconfined)\nbalena-etcher (unconfined)\nQtWebEngineProcess (unconfined)\nMongoDB Compass (unconfined)\nDiscord (unconfined)\n1password (unconfined)"
+      },
+      "scope": "Original777845/CLI75bc/network/firewall/resolver/AppArmor exact;own oneshot stopped,no Docker profile loaded"
+    },
+    "backup": {
+      "status": "PASS",
+      "critical_sha256": {
+        "rootfs/etc/apt/sources.list.d/qeli-snapshot.sources": "2270468cd3c4e18c0ea6a3f41a3f98545fbcc7920c6a73ff07943b5a6e703fc2",
+        "rootfs/usr/bin/curl": "27125f0331490b7fbf4da11f2bd913ce1b94e071367b2fa8e535ce8c5526e29c",
+        "rootfs/usr/bin/apt-get": "c2117516d26cc559ccbd16252778d8ab8cee1ceac4be60e9c975e5c4bbbb47fe",
+        "rootfs/usr/bin/ip": "aa39a2d90d051a8dc3cdcb85f933b1306c399abaaa53c5310a0cfc819a4ac9a7",
+        "rootfs/usr/share/keyrings/debian-archive-keyring.gpg": "506b815cbb32d9b6066b4a2aa524071e071761e7e7f68c3ac74f3061ba852017",
+        "packages.tsv": "3d763ee5f353fcb9d593c86b331157ee8eb9f6288a36038d15941f0e90ab1d8f",
+        "apt.log": "f92a1385f7b24f96fadd6c5e950b0dbc53affa9c73f9e837562c318c38a65cf0",
+        "apt-proof.json": "9d635daabb288f7e10f2ad62f2266463182c4ba82040a17c51f27ea2c2512c58"
+      },
+      "size": 71551832,
+      "sha256": "acc00d830fa0d24c4d64a289004fe03478551e86aa76a443a0839438b2d2b75b",
+      "regular_files": 4167,
+      "excluded": [
+        "debian-amd64-layer.tar.gz",
+        "rootfs/proc",
+        "rootfs/dev"
+      ],
+      "local_archive_sha_and_critical_payload": "PASS",
+      "ip_symlink_and_actual_target_verified": true,
+      "retained_initial_verifier_failure": "Regular-file-only dictionary refused symlink/usr/sbin/ip;actual target/usr/bin/ip and link chain verified,no archive reconstruction",
+      "scope": "Full installed rootfs/source/fixtures/logs;public base retained separately;volatile namespace dev/proc excluded"
+    },
+    "cleanup": {
+      "status": "PASS",
+      "root": "/var/tmp/qeli-q34-docker-inputs-20261008221921749400",
+      "remote_archive": "/var/tmp/qeli-q34-docker-inputs-20261008221921749400.recoverable.tar.gz",
+      "backup_sha256": "acc00d830fa0d24c4d64a289004fe03478551e86aa76a443a0839438b2d2b75b",
+      "proc_mount_guards": true,
+      "original_host_unchanged": true,
+      "log": "PASS own root/archive removed after local recovery qualification"
+    },
+    "qualified_inputs": {
+      "status": "PASS",
+      "paths": [
+        {
+          "path": "LICENSE",
+          "normalization": "lf",
+          "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+        },
+        {
+          "path": "LICENSING.md",
+          "normalization": "lf",
+          "sha256": "654be5df02628b605819a3fe85feaaafb8653bf8588a67f8045cece7c3a462c7"
+        },
+        {
+          "path": "docs/eng/index.md",
+          "normalization": "lf",
+          "sha256": "98d54449dc3fa09cb8ef8a939f1f92ce8351556ef7100b5f5985181357405274"
+        },
+        {
+          "path": "docs/eng/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "de5d707eeeead906cc6f800fccfb58722b5ef77a63f8109b43b7d4c58ac7750a"
+        },
+        {
+          "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "8ff95a261a30eeed28830222591a61590bd0fd40bab6ae1835b4a3201d9d2e40"
+        },
+        {
+          "path": "docs/ru/index.md",
+          "normalization": "lf",
+          "sha256": "7f02d99288c5c973e3e28f273283d7ce84578b1d525f6d363e7f03056ab60466"
+        },
+        {
+          "path": "docs/ru/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "a8617cc5bcbc5695a5d0081c6daf8afe4da9f6c2216216fe85684c7259c3cd14"
+        },
+        {
+          "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "91cfd87cd2e7cb024c3b823725650aa56c9e28514066a7a7f9a003e1bb5e1779"
+        },
+        {
+          "path": "qeli/Cargo.lock",
+          "normalization": "lf",
+          "sha256": "dbe2e1297402d2b938bcf88f42b567374e6671189dc08472e2be464356692bf7"
+        },
+        {
+          "path": "qeli/Cargo.toml",
+          "normalization": "lf",
+          "sha256": "05b83390369a48f6c183e00989324b03afca4995daa74a6b1da2937d2145cecc"
+        },
+        {
+          "path": "release/docker/Dockerfile",
+          "normalization": "lf",
+          "sha256": "19700ed6841956691d7379a08fd057833caed1b4819914d71312cbb16c20328e"
+        },
+        {
+          "path": "release/docker/Dockerfile.dockerignore",
+          "normalization": "lf",
+          "sha256": "6ff29fbd3c26f80a6a88891901ee35e179a879781cd9df26c24080f78a44c8d4"
+        },
+        {
+          "path": "release/docker/README.md",
+          "normalization": "lf",
+          "sha256": "aad35f1ff6578d8ff735fe41df88beb56f2cd4bfa980ed0312018b5b56bb24d4"
+        },
+        {
+          "path": "release/docker/debian.sources",
+          "normalization": "lf",
+          "sha256": "2270468cd3c4e18c0ea6a3f41a3f98545fbcc7920c6a73ff07943b5a6e703fc2"
+        },
+        {
+          "path": "release/docker/entrypoint.sh",
+          "normalization": "lf",
+          "sha256": "48f8607ef55b732890a3240f70da2127b52228038abf60a78a278879d488b568"
+        },
+        {
+          "path": "scripts/check_docs.py",
+          "normalization": "lf",
+          "sha256": "e260cb024b56fc6257108801d5dae01607dfadfb6cb5458669b3b2e25e808a10"
+        },
+        {
+          "path": "scripts/native_licenses.py",
+          "normalization": "lf",
+          "sha256": "711bb8040b940f194248b1dee52e02b8b298e5b59dab49bf89d88b1de00f684b"
+        },
+        {
+          "path": "scripts/native_repro.py",
+          "normalization": "lf",
+          "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+        },
+        {
+          "path": "scripts/release_certification.py",
+          "normalization": "lf",
+          "sha256": "d3dd7fe497da0df4519835decfadb4cb64abfa9c38f29e301ff4630b7e5885b5"
+        },
+        {
+          "path": "scripts/release_tag.py",
+          "normalization": "lf",
+          "sha256": "da62f7c1454b41d3e79a9dcaba9400007d22790e139d61d505e277180d7c382f"
+        },
+        {
+          "path": "scripts/test_docker_publish_ref.py",
+          "normalization": "lf",
+          "sha256": "4e46af395f96c6e722ae9ed47bcc97235dbe84d1e269c060c806fdefe7087960"
+        },
+        {
+          "path": "scripts/test_native_recipes.py",
+          "normalization": "lf",
+          "sha256": "b82cf0ef4909d27a81f401c5061a65dbf8a080d3f43d53e23e98fb027faf9bd1"
+        },
+        {
+          "path": "scripts/test_release_tag.py",
+          "normalization": "lf",
+          "sha256": "77f3cc7ccd6417cf7528c1cccb95b63080fd79a5060c938adb6f02bd7b2719ee"
+        }
+      ],
+      "scope": "Final recipe/policy/contracts/docs exact;native source/artifacts unchanged;actualAPT scope separate,no freshDockercompiler"
+    },
+    "local_checks": {
+      "status": "PASS",
+      "product_paths": [
+        "LICENSING.md",
+        "docs/eng/index.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-DOCKER-INPUTS.md",
+        "docs/ru/index.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-DOCKER-INPUTS.md",
+        "release/docker/Dockerfile",
+        "release/docker/README.md",
+        "release/docker/debian.sources",
+        "scripts/test_release_tag.py"
+      ],
+      "native_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifact_hashes": 14,
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+        "qeli/src/web/assets/app.css": "c925399cb860bea80fcbc5d66dec7cf3ebb0740fbd8bb7489d211730bdc1d8bd"
+      },
+      "focused_methods": 66,
+      "baseline_refusals": 2,
+      "docs": "712Markdown/9checks",
+      "scope": "Exact immutable frontend/snapshot patch;realamd64APT signature/install/check/repeat/negatives;no wholeimage/compiler or ARM/hosted qualification"
+    }
+  },
+  "inherited_frontend_execution": {
+    "evidence": "release/certification/evidence/q34-docker-build-20261009.json",
+    "frontend_sha256": "4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e",
+    "scope": "Same actual frontend digest in preceding compiler metadata;not reexecuted for newrecipe"
+  },
+  "raw_packet": {
+    "name": "q34-docker-inputs-20261009",
+    "files": 92,
+    "bytes": 101517131,
+    "manifest_sha256": "52fc5c0767d1b726f2127eb18c491eb2de3fe48d97b62748a7bab1cf8e9d0e9e",
+    "runtime_status": "PASS_EXACT_AMD64_APT_SNAPSHOT_SIGNATURE_INSTALL_NEGATIVES_NO_NEW_IMAGE_BUILD",
+    "path": "audit-debt-20260924/q34-docker-inputs-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F481/Q34-F035 immutable Docker inputs: two regression methods refuse exact prior recipe,66 focused finalsource methods PASS (21release-tag/workflow,7Docker-ref,38native-recipes). Frontend4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e bound to preceding actual fullamd64 build, fresh official index/amd64manifest/config SHA verified;index includes amd64/arm64/armv7,not newfrontend execution. Sole signed Debian/security snapshot20261008T000000Z;inherited active sources cleared before COPY;one shared date/three suites,Debian archive keyring,source-scoped expiry exception only,authentication/packagehashes mandatory;security date updates explicit. Exact pinned Debian index/amd64manifest/config/solelayer SHA verified;actual own chroot/mount/PID on.11,512MiB/oneCPU,no daemon/no hostAPT. apt2.6.1 verified3independent signedInRelease,actualupdate/install13runtimepackages62new150total/13commands/aptcheck/repeatnochanges PASS;3actualdownloadedInRelease byteequal independentHTTPS. Three modified signed bodies gpgv refused and one actualfile-repositoryAPT BADSIG exit100,no networkserver dependency. One inherited base package not upgraded:runtimeinstall scope,not fullupgrade/vulnerability audit. Original777845/CLI75bc/network-firewall-resolver/AppArmor snapshots exact;ownunit stopped;fullinstalledrootfs/source/fixtures/logs71551832byte backup acc00d830fa0d24c4d64a289004fe03478551e86aa76a443a0839438b2d2b75b,4167regularfiles,localSHA/criticalpayload/iplinkchain verified before /proc/mount-guarded ownroot/archive deletion. Exactpublicbase layer retained separately,volatiledev/proc excluded. InitialCRLF/collectedunit/missingdevnull/repeateddirectory/regularfile-onlyiplink verifier failures retained,owned harness corrected,no productfailure relabelled.712Markdown9checks/nativee3fb14SHA/protectedPASS. No freshwholeDockercompiler/image,ARM install,VPN,ABreproducibility,hostedActions/signing/publication;priorcompiler evidence remains originalsource/date. Matching thirdparty source/OpenWrtimmutableSDKcut/MicroComexactsource/F459braces/otherpriorlimits OPEN;41cases83supplements preserved modulo sourcedigest bookkeeping,append84scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;Q29SIGKILLFAIL-ENONET/Q30/Q31/D06accepted/USER_EXCLUDED retained.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

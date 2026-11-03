@@ -1,5 +1,5 @@
-# Build context is the repo ROOT, but the Dockerfile only COPYs qeli/{Cargo.*,src},
-# qeli/config/*.conf and release/docker/entrypoint.sh. Exclude everything heavy so
+# Build context is the repo ROOT. Include source/config/entrypoint plus root
+# license texts and qeli/third-party-notices/rust legal resources. Exclude everything heavy so
 # the context transfer (and `docker save` for routers) stays small.
 **/target
 .git

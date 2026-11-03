@@ -1,0 +1,33 @@
+{
+  "status": "EXACT_DOCUMENTATION_DELTA_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_commit": "697e5147347253ecae643be3e2240b910f2caf24",
+  "source_digest": "d53f0bd9013f751d072a2fb99abac920f96a855f1ec5ef49275a92068176f1ab",
+  "previous_source_commit": "faf0b8dbe5447d566e5749ad2f84d98b1c098f0b",
+  "document_files": {
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "9d4a8f189494022e3a96cc5d1f2de594a4027ef3cf77248eeedd35bfc8bd85ca",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md": "875dae7213be05657e5ef56790d9e9544be09e9991b29aef6c3506d5b76240e7",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "64c82226d56ef6f54df7da2e2fdbbb6bacdd19e76de57e1f3057f248c4d1a394",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md": "34af2945cf33c1028b4b7bb1bc6441c652eef66f7d79460c5f9f190db9d769f5"
+  },
+  "exact_non_certification_delta": [
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md"
+  ],
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "runtime_qualification_sha256": {
+    "q36-bonded-slot-runtime-20261013": "e2ad7cbdcd090cde5eb6b774b9271375f8607bc70ea527bd7c0361f8b0065afa"
+  },
+  "current_Q36_sessions": 6,
+  "current_Q36_windows": 18,
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "new_certification_matrix_execution": false,
+  "scope": "Exact four-Markdown-only delta plus three excluded evidence files; executable/native/helper/INI/Cargo inputs unchanged. External candidate only: frozen factory916 plus one normalized clientmod delta, known7 differences from current source disclosed. Actual4 strict featureprofiles/15 unit tests/factory CLI. Six fresh sessions18eight-second TCPraw P1 fixed2carrier baseline/candidate pairs, exact baseline server heldconstant. Native uplink/downlink drops0 all9 candidate windows vs QueueFull all9baseline; median upload24.34 to1278.97Mbps. Kernel TUN losses persist; one bidirsum pair regresses. Legacy and1carrier runtime/nativeconsumer refresh/source adoption pending. Allhost/service/swap/ownedcache/root/archive cleanup PASS. Original20 Linux certification execution facts and21 physicalstatuses preserved; no publicrelease/hostedCI/moduleclosure.",
+  "no_push_deploy_release": true,
+  "driver_sha256": "84e1d76f689516f2467f6517c40dbc99e8237b5ab1e751f3b09d0dd57a2826ce"
+}

@@ -1,74 +1,16 @@
 # qeli load testing
 
-This document keeps the historical narrative measurements in the "Version 0.7.x" sections
-below (through the 0.7.11 candidate); the detailed per-mode tables at the bottom are the
-**0.6.0 reference base** (2026-06-11; 2-VM lab, release binary LTO=fat/strip/panic=abort).
-The canonical [release/benchmark_results.json](../../../release/benchmark_results.json) always
-holds the **latest structured run** — **qeli 0.8.0**, 2026-08-26, full binary SHA-256
-`2f69b48f102571518e2582de64a51d48442baf22b80b8f1586ba369d164d0b49`.
-The dated copy is `benchmark_v0.8.0_2026-08-26_combined_12modes.json`; older files remain
-historical snapshots. The orchestrator — [scripts/benchmark.py](../../../scripts/benchmark.py).
+The [short laboratory test](../manuals/RELEASE-SHORT-TEST.md) provides a fixed
+routine transport/performance method; its pilot is not a release qualification.
 
-> **Latest 0.8.0 cross-protocol run:** the
-> [full 34-mode report](benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md)
-> covers three passes for 25 masked modes, IPv4/IPv6, TCP/UDP, CPU/RSS and the limits of
-> DPI-related interpretation. Average four-stream TCP throughput across Qeli's 12 profiles
-> was **1220 Mbit/s**, and **1767 Mbit/s** across its five fast TCP profiles.
+[New Linux 0.8.2 snapshot: TCP and UDP, SHA 1d94d4c4, lab and queue settings](LINUX-LAB-0.8.2-2026-10-17.md).
+It covers only two native UDP profiles and does not replace full release qualification.
+Previously withdrawn development measurements remain locally available for internal audit;
+they must not be mixed into the new snapshot or presented as current-artifact results.
 
-**Reality throughput scope.** Values through 0.7.16 measured the former inner fake-TLS
-carrier. The current 12-mode run measures genuine HTTP/2: `reality-tls` reached 827.9 Mbps
-upload and 647.8 Mbps download with zero server drops. This is a clean full-speed baseline
-from one rebooted lab, but not yet a repeatable 5× result for the final release SHA.
+The current published comparative report is [qeli 0.8.0 — 1 September 2026](benchmarks/vpn_protocol_benchmark_repeat_2026-09-01.md).
 
-> Release **0.6.0** is a refactoring (the shared C# layer, .NET 10, cleanup); the
-> protocol, crypto, and data plane were **unchanged**. A direct measurement of 0.6.0
-> confirmed this: on a clean lab it runs at/above the 0.5.6 reference (the 2026-06-07
-> run) in all modes — there's no regression (TCP +3…+10%, UDP loss at 500 Mbps half as
-> much). The 0.5.6 reference is kept alongside in
-> `release/benchmark_results_2026-06-07_v0.5.6.json`.
-
-> 🆕 **Version 0.7.0** (2026-06-12) — a large core refactor (PQ-derive/ml-kem, the
-> hand-rolled realtls server, the kill-switch, reality-hardening). The measurements and
-> the delta to 0.6.0 — in the section **"Version 0.7.0 — the delta to 0.6.0"** right
-> below (before the baseline). The detailed per-mode 0.6.0 tables remain the reference
-> base.
->
-> **0.7.0** (the post-quantum tunnel + the audit 2026-06-11): the X25519+ML-KEM hybrid
-> affects only the handshake (a one-time cost on connect), throughput is unchanged — a
-> live `sanity_e2e` run gave the same 570–700 Mbps TCP and 0% UDP loss on the non-`plain`
-> modes.
-
-> 🆕 **Version 0.7.1** (2026-06-12) — more core changes + a new wire-breaking **H-1**
-> (`bind_static_to_session`, default true, requires pinning) + a functionality run of every
-> default config. The section **"Version 0.7.1 — the delta to 0.7.0"** below: no regression,
-> reality-tls upload stabilized (σ 99→19).
-
-> 🆕 **Version 0.7.2** (2026-06-20) — anti-DPI traffic shaping (idle-cover), server-side NAT,
-> the 2026-06-18 audit fixes, the web client-manager panel. All changes are **off the bench
-> data path** (the bench config enables no shaping/NAT). The measurement ran on a host under
-> hypervisor CPU steal → this session's absolutes are depressed, so verification is a
-> **host-neutral A/B** (0.7.1 vs 0.7.2 interleaved). The section **"Version 0.7.2 — the delta
-> to 0.7.1 (A/B)"** below: **no regression**.
-
-> 🆕 **Version 0.7.4** (2026-06-28) — UDP handshake fragmentation (dodges dropped IP fragments
-> on LTE/CGNAT) + UDP session fixes (keepalive for idle/download-only tunnels, inbound-byte
-> accounting). Measured on a **clean** host (steal 2.1%, baseline 21 Gbps) → direct absolutes,
-> comparable to the clean 0.7.1 day. The section **"Version 0.7.4 — the delta to 0.7.1"** below:
-> **no regression**, the UDP data plane is untouched by the `udp_handler` refactor.
-
-> 🆕 **Version 0.7.10** (candidate, 2026-07-10) — the Rust core is at **0.7.9** level (the 0.7.10
-> WIP is Android/desktop clients only; the data plane is untouched). Cumulative data-plane changes
-> 0.7.5→0.7.9: the oversized-record fix (0.7.7), the reality-tls aes-gcm→0.10 revert (0.7.7), server
-> udp-quic autodetect + RFC-9001 (0.7.9), jemalloc in server builds. This session's host was moderately
-> contended → verified with a **host-neutral A/B to 0.7.4**: **no regression, 0.7.9 is equal-or-faster
-> than 0.7.4**.
-
-> 🆕 **Version 0.7.11** (candidate, 2026-07-12) — a large dev batch (RCE→P3 audit, exclude/include
-> CIDR routing under full tunnel, per-user static_ip + disconnect notifications, sleep/resume recovery,
-> panel) + dep bumps **x25519-dalek 3** / jemallocator 0.7. The binary reports `qeli 0.7.10` (Cargo not
-> yet 0.7.11). This session's host was moderately contended → **host-neutral A/B to 0.7.9**: **no
-> regression, 0.7.11 is equal-or-faster than 0.7.9 everywhere, including reality-tls (+5.9%/+2.8%)**;
-> the major x25519-dalek 3 bump did not touch throughput.
+The historical methodology and earlier-version results below do not describe 0.8.2 performance.
 
 ## The rig
 
@@ -118,7 +60,7 @@ A large core refactor (`+1484/−327` lines: the PQ `crypto/derive`+`mlkem`, the
 hand-rolled realtls server `protocol/tls`, `server/{handler,mod,dns,reality}`,
 `client/killswitch`). The binary `qeli 0.7.0` sha `5e40e697`, a freshly rebooted lab,
 the gate PASS (build + **191 tests** + clippy). The raw data —
-[release/benchmark_results_2026-06-12_v0.7.0.json](../../../release/benchmark_results_2026-06-12_v0.7.0.json),
+[docs/data/benchmarks/benchmark_results_2026-06-12_v0.7.0.json](../../../docs/data/benchmarks/benchmark_results_2026-06-12_v0.7.0.json),
 the 0.6.0 reference alongside in `benchmark_results_2026-06-11_v0.6.0.json`.
 
 ### ⚠️ Two breaking config changes (accounted for in [benchmark.py](../../../scripts/benchmark.py))
@@ -160,7 +102,7 @@ the 0.6.0 reference alongside in `benchmark_results_2026-06-11_v0.6.0.json`.
 - **↑ up:** 0.6.0 median 488 (σ37) → 0.7.0 **482** (σ99, spread 437–688) — the same, a higher spread.
 - **↓ down:** 0.6.0 **321** (σ2.4) → 0.7.0 **417** (σ3.4) — **+30%, both stable → a real gain**
   (the hand-rolled TLS server in the new default is faster than rustls + the `protocol/tls` refactor).
-  The raw data — [release/reality_tls_5x_v0.7.0_2026-06-12.json](../../../release/reality_tls_5x_v0.7.0_2026-06-12.json).
+  The raw data — [docs/data/benchmarks/reality_tls_5x_v0.7.0_2026-06-12.json](../../../docs/data/benchmarks/reality_tls_5x_v0.7.0_2026-06-12.json).
 
 ### The precise data-plane CPU (the /proc delta, both binaries back-to-back)
 
@@ -191,7 +133,7 @@ per-mode 0.6.0 numbers below — the reference base.
 More core changes on top of 0.7.0 (`protocol/packet.rs`, `client/dns`, `crypto/derive`,
 **H-1** — below) + the default configs were rewritten. The binary `qeli 0.7.1` sha `6f997202`,
 a freshly rebooted lab, the gate PASS (build + **194 tests** + clippy). Raw data —
-[release/benchmark_results_2026-06-12_v0.7.1.json](../../../release/benchmark_results_2026-06-12_v0.7.1.json).
+[docs/data/benchmarks/benchmark_results_2026-06-12_v0.7.1.json](../../../docs/data/benchmarks/benchmark_results_2026-06-12_v0.7.1.json).
 
 ### ⚠️ New wire-breaking: H-1 (`bind_static_to_session`, default true)
 
@@ -244,7 +186,7 @@ at an external server (parse only).
 - **↑ up:** 0.7.0 median 482 (**σ 99**, spread 437–688) → 0.7.1 median **518** (**σ 19**, 498–551):
   upload is both faster (+7%) and **much more stable** — the "jumpy" 0.7.0 upload is cured.
 - **↓ down:** 417 → **418** (σ 5.5) — stable. Raw data —
-  [release/reality_tls_5x_v0.7.1_2026-06-12.json](../../../release/reality_tls_5x_v0.7.1_2026-06-12.json).
+  [docs/data/benchmarks/reality_tls_5x_v0.7.1_2026-06-12.json](../../../docs/data/benchmarks/reality_tls_5x_v0.7.1_2026-06-12.json).
 
 ### The 0.7.1 conclusion
 
@@ -259,8 +201,8 @@ stabilization** (σ 99→19). Both default server configs are functional end-to-
 (iptables), the 2026-06-18 audit fixes, the web client-manager panel. The binary
 `qeli 0.7.2` sha `98c6b05a`, a freshly rebooted lab, the gate PASS (build + **213 tests**
 (210 lib + 3 bin) + clippy). The A/B raw data —
-[release/ab_071_vs_072_2026-06-20.json](../../../release/ab_071_vs_072_2026-06-20.json),
-the full 0.7.2 run — [release/benchmark_results_2026-06-20_v0.7.2.json](../../../release/benchmark_results_2026-06-20_v0.7.2.json).
+[docs/data/benchmarks/ab_071_vs_072_2026-06-20.json](../../../docs/data/benchmarks/ab_071_vs_072_2026-06-20.json),
+the full 0.7.2 run — [docs/data/benchmarks/benchmark_results_2026-06-20_v0.7.2.json](../../../docs/data/benchmarks/benchmark_results_2026-06-20_v0.7.2.json).
 
 > 🟡 **Why A/B, not direct absolutes.** This session the hypervisor host was under a noisy
 > neighbor — under load **CPU steal 7–9%** (server), and the emulator on .11 restarted
@@ -305,7 +247,7 @@ steal+emulator), 0.7.2 ≈ 0.7.1 (on fake-tls even lower) — host noise, not th
   0.7.1 day (418)**: reality-tls download is bound by the client-decrypt on .11 and is barely
   hit by the server-side steal, whereas upload (459 vs 518 on the clean day) sags with the
   host. On this same host the A/B measured 0.7.1 at 464/420 ≈ 0.7.2 459/416 → parity.
-  Raw data — [release/reality_tls_5x_v0.7.2_2026-06-20.json](../../../release/reality_tls_5x_v0.7.2_2026-06-20.json).
+  Raw data — [docs/data/benchmarks/reality_tls_5x_v0.7.2_2026-06-20.json](../../../docs/data/benchmarks/reality_tls_5x_v0.7.2_2026-06-20.json).
 
 ### The 0.7.2 conclusion
 
@@ -325,7 +267,7 @@ the handshake**, off the data plane) + UDP session fixes (`server/udp_handler.rs
 idle/download-only tunnels without false reconnects, inbound-byte accounting). The binary
 `qeli 0.7.4` sha `1c36f802`, a freshly rebooted lab, the gate PASS (build + **225 tests**
 (222 lib + 3 bin) + clippy). Raw data —
-[release/benchmark_results_2026-06-28_v0.7.4.json](../../../release/benchmark_results_2026-06-28_v0.7.4.json).
+[docs/data/benchmarks/benchmark_results_2026-06-28_v0.7.4.json](../../../docs/data/benchmarks/benchmark_results_2026-06-28_v0.7.4.json).
 
 > 🟢 **The host is clean** (unlike the 0.7.2 session): under load steal **2.1%** (server) /
 > 0.9% (client), the no-VPN baseline TCP **21,020 Mbps** ≈ the 21 Gbps reference → no A/B was
@@ -365,7 +307,7 @@ the handshake UDP-frag did not hurt UDP throughput/loss** — which was the main
 
 - **↑ up:** median **548.8** (σ 24.2, range 521–579) — vs 518 (σ19) on the clean 0.7.1 day.
 - **↓ down:** median **430.6** (σ 6.3, range 425–441) — vs 418 (σ5.5). Both stable and slightly higher
-  — not a regression. Raw data — [release/reality_tls_5x_v0.7.4_2026-06-28.json](../../../release/reality_tls_5x_v0.7.4_2026-06-28.json).
+  — not a regression. Raw data — [docs/data/benchmarks/reality_tls_5x_v0.7.4_2026-06-28.json](../../../docs/data/benchmarks/reality_tls_5x_v0.7.4_2026-06-28.json).
 
 ### The 0.7.4 conclusion
 
@@ -382,7 +324,7 @@ What's in 0.7.6: **AmneziaWG-style masking for obfs (F2)** — pre-handshake jun
 `jc` must match on both ends — plus web-panel work. The binary `qeli 0.7.5` (version not yet bumped),
 sha `b4ae0897`, a freshly rebooted lab (.11 with no stray qeli service), the gate PASS
 (build + **265 tests** (262 lib + 3 bin) + clippy). Raw data —
-[release/benchmark_results_v0.7.6_pristine.json](../../../release/benchmark_results_v0.7.6_pristine.json).
+[docs/data/benchmarks/benchmark_results_v0.7.6_pristine.json](../../../docs/data/benchmarks/benchmark_results_v0.7.6_pristine.json).
 
 ### TCP, Mbps (↑up / ↓down)
 
@@ -414,7 +356,7 @@ UDP is clean up to 400M (<1.1% on all), the 500M knee is the usual saturation no
 
 - **↑ up:** median **500.3** (σ4.2) — a variable metric (0.7.4 = 549); within the range of past runs.
 - **↓ down:** median **443.1** (σ4.4) — stable, the **best result** (418 → 431 → 443). Raw data —
-  [release/reality_tls_5x_v0.7.6.json](../../../release/reality_tls_5x_v0.7.6.json).
+  [docs/data/benchmarks/reality_tls_5x_v0.7.6.json](../../../docs/data/benchmarks/reality_tls_5x_v0.7.6.json).
 
 ### AmneziaWG obfs masking (F2) — functional + overhead
 
@@ -446,7 +388,7 @@ churn — a ~180 MB glibc arena plateau → a ~60 MB ceiling, throughput unchang
 audit + `qeli://` share-link fixes. The binary `qeli 0.7.6` (version not yet bumped) sha `11f05305`,
 built `--features jemalloc`, a freshly rebooted lab (.11 with no stray qeli service, CPU-steal 0%), the
 gate PASS. Raw data —
-[release/benchmark_results_v0.7.7_jemalloc.json](../../../release/benchmark_results_v0.7.7_jemalloc.json).
+[docs/data/benchmarks/benchmark_results_v0.7.7_jemalloc.json](../../../docs/data/benchmarks/benchmark_results_v0.7.7_jemalloc.json).
 
 ### ⚠️ The AES-GCM regression and its revert
 
@@ -488,7 +430,7 @@ UDP is clean up to 400M (<1.1% on all). The 500M knee looks lower here only beca
 
 - **↑ up:** median **513.4** (σ4.0) — the tightest spread yet (0.7.6 = 500, 0.7.4 = 549).
 - **↓ down:** median **451.2** (σ5.5) — stable, the **best result** (418 → 431 → 443 → 451). Raw data —
-  [release/reality_tls_5x_v0.7.7_jemalloc.json](../../../release/reality_tls_5x_v0.7.7_jemalloc.json).
+  [docs/data/benchmarks/reality_tls_5x_v0.7.7_jemalloc.json](../../../docs/data/benchmarks/reality_tls_5x_v0.7.7_jemalloc.json).
 
 ### UDP AWG junk masking — functional on every UDP profile
 
@@ -515,8 +457,8 @@ changes. The measured binary is `qeli 0.7.9` sha `7e15d50e`, gate PASS (build `-
 **290 tests** (287 lib + 3 bin) + clippy), a freshly rebooted lab. Since the last lab run (0.7.4) the
 data plane accumulated: the oversized-record-drop fix (0.7.7), the reality-tls aes-gcm→0.10 revert after
 a regression (0.7.7), server udp-quic autodetect + QUIC RFC-9001 (0.7.9). A/B raw data —
-[release/ab_074_vs_079_2026-07-10.json](../../../release/ab_074_vs_079_2026-07-10.json), the full run —
-[release/benchmark_results_2026-07-10_v0.7.10.json](../../../release/benchmark_results_2026-07-10_v0.7.10.json).
+[docs/data/benchmarks/ab_074_vs_079_2026-07-10.json](../../../docs/data/benchmarks/ab_074_vs_079_2026-07-10.json), the full run —
+[docs/data/benchmarks/benchmark_results_2026-07-10_v0.7.10.json](../../../docs/data/benchmarks/benchmark_results_2026-07-10_v0.7.10.json).
 
 > 🟡 **Why A/B.** This session's host was moderately contended: steal ~2.8%, but the no-VPN baseline was
 > 19.2 Gbps (clean ~21) with **high retransmits** (thousands). A direct sweep gave false dips on the
@@ -559,7 +501,7 @@ average (fake-tls/quic noticeably cleaner). The spread is the host, not the data
 - **↓ down:** median **429.2** (σ 10.9, 409–439) — **parity with the clean 0.7.4 day (431)** and with the
   0.7.7 re-measure after the aes-gcm revert (443). reality-tls download is deterministic (client-decrypt
   bound) so it matches regardless of contention; up is variable and sags with the host's retransmits.
-  Raw data — [release/reality_tls_5x_v0.7.10_2026-07-10.json](../../../release/reality_tls_5x_v0.7.10_2026-07-10.json).
+  Raw data — [docs/data/benchmarks/reality_tls_5x_v0.7.10_2026-07-10.json](../../../docs/data/benchmarks/reality_tls_5x_v0.7.10_2026-07-10.json).
 
 ### jemalloc: RSS
 
@@ -584,8 +526,8 @@ exclude/include CIDR routing under a full tunnel, per-user static_ip + disconnec
 recovery from sleep/resume + network change, panel fixes, and **dep bumps `51490bf`: x25519-dalek 3
 (major), tikv-jemallocator 0.7, rand 0.10, bytes**. The binary reports `qeli 0.7.10` sha `eff3fcb3`
 (Cargo not yet 0.7.11), gate PASS (build `--features jemalloc` + **291 tests** + clippy). A/B raw data —
-[release/ab_079_vs_0711_2026-07-12.json](../../../release/ab_079_vs_0711_2026-07-12.json), the full run —
-[release/benchmark_results_2026-07-12_v0.7.11.json](../../../release/benchmark_results_2026-07-12_v0.7.11.json).
+[docs/data/benchmarks/ab_079_vs_0711_2026-07-12.json](../../../docs/data/benchmarks/ab_079_vs_0711_2026-07-12.json), the full run —
+[docs/data/benchmarks/benchmark_results_2026-07-12_v0.7.11.json](../../../docs/data/benchmarks/benchmark_results_2026-07-12_v0.7.11.json).
 
 > 🟡 **Why A/B.** The host was moderately contended (steal ~2.7%, no-VPN baseline 18.5 Gbps vs clean 21,
 > **high retransmits** in the thousands). The direct sweep gave one snag — reality-tls-down 398 (below
@@ -627,7 +569,7 @@ average (udp-padding cleaner). The spread is the host.
 - **↑ up:** median **484.9** (σ 7.9, 470–493).
 - **↓ down:** median **397.8** (σ 7.4, 395–415) — below the clean-day 429 floor, BUT on this same host the
   A/B measured 0.7.9 at 381 down → 0.7.11 (392–398) is **higher**. The dip is contention (client-decrypt
-  throttled), not code. Raw data — [release/reality_tls_5x_v0.7.11_2026-07-12.json](../../../release/reality_tls_5x_v0.7.11_2026-07-12.json).
+  throttled), not code. Raw data — [docs/data/benchmarks/reality_tls_5x_v0.7.11_2026-07-12.json](../../../docs/data/benchmarks/reality_tls_5x_v0.7.11_2026-07-12.json).
 
 ### The 0.7.11 conclusion
 
@@ -668,7 +610,7 @@ core, average/peak over the up run). `RSS` — the resident memory of the worker
 > ¹ `reality-tls` ↑ is highly variable (5 runs: average **470 ± 37** Mbps, median
 > **488**, range 421–511) — the heaviest mode, a spread on a single 12-sec run;
 > ↓ is **stable 321 ± 2.4**. The row shows the median run (see
-> [release/reality_tls_5x_2026-06-11.json](../../../release/reality_tls_5x_2026-06-11.json),
+> [docs/data/benchmarks/reality_tls_5x_2026-06-11.json](../../../docs/data/benchmarks/reality_tls_5x_2026-06-11.json),
 > [scripts/reality_tls_repeat.py](../../../scripts/reality_tls_repeat.py)).
 
 **Reading:**
@@ -826,7 +768,7 @@ work"); `.11` has no `/opt/qeli-src` → copy the binary to the client; apply ne
 on `ens18` or the loss hits the control SSH; clear netem + `systemctl restart qeli-server.service`
 in finally.
 
-## Final summary
+## Historical summary
 
 | | TCP | UDP |
 |---|---|---|
@@ -843,25 +785,28 @@ For the measured legacy set, `plain`/`fake-tls` were the fastest and cheapest on
 `obfs` paid a moderate cost and legacy `reality-tls` a noticeable download cost. Current H2
 requires a separate clean throughput result.
 
-## Reproduction
+## Historical reproduction
+
+The commands below assume a dedicated lab with authorized service resets.
+Use the isolated runner above for an active lab.
 
 ```bash
 # from a local machine (paramiko); flat-INI configs, write to /etc/qeli/bench-*.conf.
 # H-1 (0.7.1): benchmark.py pins the server key in every mode.
 python scripts/reboot_vms.py         # clean lab: kills emulator/qeli/netem → reboots both VMs → cleans AGAIN (autostart)
 python scripts/lab_reset.py          # same without a reboot (emulator, qeli units, iperf3, orphan TUNs, tc/netem)
-python scripts/stability_gate.py     # MANDATORY before a sweep: 5 raw no-tunnel runs in BOTH directions;
-                                     # spread >8% either way → the host is noisy and the numbers are fiction (exit 1)
-python scripts/benchmark.py          # baseline + 12 modes × {ping, iperf, CPU/RSS} ≈ 10 min
-                                     # → release/benchmark_<version>_<date>.json (+ a benchmark_results.json copy)
-python scripts/reality_tls_repeat.py # reality-tls ×5 → median/σ (release/reality_tls_5x_<version>_<date>.json)
+python scripts/stability_gate.py     # Requires a prepared idle lab and an operator-started iperf3 server;
+                                     # All5 samples/direction required; failure, busy lab or spread>8% → exit1
+python scripts/benchmark.py --allow-host-wide-benchmark # baseline + 12 modes × {ping, iperf, CPU/RSS} ≈ 10 min
+                                     # → docs/data/benchmarks/benchmark_<version>_<date>.json (+ a benchmark_results.json copy)
+python scripts/reality_tls_repeat.py # reality-tls ×5 → median/σ (docs/data/benchmarks/reality_tls_5x_<version>_<date>.json)
 python scripts/ab_071_072.py         # host-neutral A/B (0.7.1 from tag vs 0.7.2 interleaved) — when the host is under steal/contention
 python scripts/ab_074_079.py         # same for 0.7.4->0.7.9 (0.7.10 candidate); A/B template for any tag<->current pair
 python scripts/ab_079_0711.py        # 0.7.9->0.7.11 (dev batch, x25519-dalek 3 bump)
-python scripts/e2e_android_faketls.py # Android e2e: rebuild the APK (rebuild_apk.py) -> inject a fake-tls profile -> Connect -> ping through the tunnel
+python scripts/e2e_android_faketls.py --apk-receipt "qeli-android/dist/COMMIT-RUN/BUILD.json" # Android e2e: rebuild the APK (rebuild_apk.py) -> inject a fake-tls profile -> Connect -> ping through the tunnel
 # GOTCHA: a foreign qeli.service may auto-start on .11 (a server on vpn0 10.9.0.1) — it loads the client; `systemctl stop qeli.service` before benchmarking
 python scripts/config_functest.py    # default-config functionality: e2e server.conf + server-maxobf.conf + parse all
 python scripts/multicore_probe.py    # the precise data-plane CPU (/proc delta: idle/up/down/bidir)
 python scripts/probe_060_ab.py       # the CPU A/B vs the previous version (isolated build from git HEAD)
 ```
-The results → `release/benchmark_results.json` and `release/*_v0.7.11_*.json`.
+The results → `docs/data/benchmarks/benchmark_results.json` and `docs/data/benchmarks/*_v0.7.11_*.json`.

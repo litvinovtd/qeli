@@ -1,0 +1,65 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>HarfBuzzSharp</id>
+    <version>8.3.1.1</version>
+    <authors>Microsoft</authors>
+    <requireLicenseAcceptance>true</requireLicenseAcceptance>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <icon>icon.png</icon>
+    <readme>README.md</readme>
+    <projectUrl>https://go.microsoft.com/fwlink/?linkid=868515</projectUrl>
+    <description>HarfBuzzSharp is a cross-platform OpenType text shaping engine for .NET platforms.</description>
+    <releaseNotes>Please visit https://go.microsoft.com/fwlink/?linkid=868517 to view the release notes.</releaseNotes>
+    <copyright>© Microsoft Corporation. All rights reserved.</copyright>
+    <tags>graphics text cross-platform harfbuzzsharp harfbuzz ios android linux windows tvos macos tizen</tags>
+    <repository type="git" url="https://go.microsoft.com/fwlink/?linkid=868515" branch="release/3.119.0" commit="64f24b1cddb68d30ec0ac6b661964178fc21d5ec" />
+    <dependencies>
+      <group targetFramework=".NETFramework4.6.2">
+        <dependency id="HarfBuzzSharp.NativeAssets.macOS" version="8.3.1.1" exclude="Build,Analyzers" />
+        <dependency id="HarfBuzzSharp.NativeAssets.Win32" version="8.3.1.1" exclude="Build,Analyzers" />
+        <dependency id="System.Memory" version="4.5.5" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net6.0">
+        <dependency id="HarfBuzzSharp.NativeAssets.macOS" version="8.3.1.1" exclude="Build,Analyzers" />
+        <dependency id="HarfBuzzSharp.NativeAssets.Win32" version="8.3.1.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0">
+        <dependency id="HarfBuzzSharp.NativeAssets.macOS" version="8.3.1.1" exclude="Build,Analyzers" />
+        <dependency id="HarfBuzzSharp.NativeAssets.Win32" version="8.3.1.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0-android34.0">
+        <dependency id="HarfBuzzSharp.NativeAssets.Android" version="8.3.1.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0-ios17.0">
+        <dependency id="HarfBuzzSharp.NativeAssets.iOS" version="8.3.1.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0-maccatalyst17.0">
+        <dependency id="HarfBuzzSharp.NativeAssets.MacCatalyst" version="8.3.1.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0-macos14.0">
+        <dependency id="HarfBuzzSharp.NativeAssets.macOS" version="8.3.1.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0-tizen7.0">
+        <dependency id="HarfBuzzSharp.NativeAssets.Tizen" version="8.3.1.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0-tvos17.0">
+        <dependency id="HarfBuzzSharp.NativeAssets.tvOS" version="8.3.1.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0-windows10.0.19041">
+        <dependency id="HarfBuzzSharp.NativeAssets.Win32" version="8.3.1.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework=".NETStandard2.0">
+        <dependency id="HarfBuzzSharp.NativeAssets.macOS" version="8.3.1.1" exclude="Build,Analyzers" />
+        <dependency id="HarfBuzzSharp.NativeAssets.Win32" version="8.3.1.1" exclude="Build,Analyzers" />
+        <dependency id="System.Memory" version="4.5.5" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework=".NETStandard2.1">
+        <dependency id="HarfBuzzSharp.NativeAssets.macOS" version="8.3.1.1" exclude="Build,Analyzers" />
+        <dependency id="HarfBuzzSharp.NativeAssets.Win32" version="8.3.1.1" exclude="Build,Analyzers" />
+        <dependency id="System.Runtime.CompilerServices.Unsafe" version="4.5.3" exclude="Build,Analyzers" />
+      </group>
+    </dependencies>
+  </metadata>
+</package>

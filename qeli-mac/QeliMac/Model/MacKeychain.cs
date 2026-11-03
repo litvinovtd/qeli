@@ -13,43 +13,44 @@ internal static class MacKeychain
     private const int Utf8 = 0x08000100;
     private const int Success = 0;
     private const int DuplicateItem = -25299;
+    private const int ItemNotFound = -25300;
 
-    private static IntPtr _securityHandle;
-    private static IntPtr _coreHandle;
+    private static readonly Lazy<IntPtr> SecurityLibrary = new(() => NativeLibrary.Load(Security));
+    private static readonly Lazy<IntPtr> CoreLibrary = new(() => NativeLibrary.Load(CoreFoundation));
 
     public static byte[]? Find(string service, string account)
     {
         if (!OperatingSystem.IsMacOS()) return null;
+        var owned = new List<IntPtr>();
+        IntPtr query = Dictionary(
+            owned,
+            (Sec("kSecClass"), Sec("kSecClassGenericPassword")),
+            (Sec("kSecAttrService"), String(service, owned)),
+            (Sec("kSecAttrAccount"), String(account, owned)),
+            (Sec("kSecReturnData"), Core("kCFBooleanTrue")),
+            (Sec("kSecMatchLimit"), Sec("kSecMatchLimitOne")));
         try
         {
-            var owned = new List<IntPtr>();
-            IntPtr query = Dictionary(
-                owned,
-                (Sec("kSecClass"), Sec("kSecClassGenericPassword")),
-                (Sec("kSecAttrService"), String(service, owned)),
-                (Sec("kSecAttrAccount"), String(account, owned)),
-                (Sec("kSecReturnData"), Core("kCFBooleanTrue")),
-                (Sec("kSecMatchLimit"), Sec("kSecMatchLimitOne")));
+            int status = SecItemCopyMatching(query, out IntPtr result);
+            if (status == ItemNotFound) return null;
+            if (status != Success || result == IntPtr.Zero)
+                throw new InvalidOperationException($"Keychain lookup failed (OSStatus {status})");
             try
             {
-                int status = SecItemCopyMatching(query, out IntPtr result);
-                if (status != Success || result == IntPtr.Zero) return null;
-                try
-                {
-                    nint length = CFDataGetLength(result);
-                    if (length <= 0 || length > 4096) return null;
-                    var bytes = new byte[(int)length];
-                    Marshal.Copy(CFDataGetBytePtr(result), bytes, 0, bytes.Length);
-                    return bytes;
-                }
-                finally { CFRelease(result); }
+                nint length = CFDataGetLength(result);
+                if (length <= 0 || length > 4096)
+                    throw new InvalidOperationException("Keychain profile key has invalid length");
+                var bytes = new byte[(int)length];
+                Marshal.Copy(CFDataGetBytePtr(result), bytes, 0, bytes.Length);
+                return bytes;
             }
-            finally { ReleaseDictionary(query, owned); }
+            finally { CFRelease(result); }
         }
-        catch { return null; }
+        finally { ReleaseDictionary(query, owned); }
     }
 
-    public static bool Store(string service, string account, byte[] secret)
+
+    public static bool Store(string service, string account, byte[] secret, bool allowUpdate = true)
     {
         if (!OperatingSystem.IsMacOS() || secret.Length == 0) return false;
         try
@@ -70,7 +71,7 @@ internal static class MacKeychain
                 try { status = SecItemAdd(add, IntPtr.Zero); }
                 finally { ReleaseDictionary(add, addOwned); }
                 if (status == Success) return true;
-                if (status != DuplicateItem) return false;
+                if (status != DuplicateItem || !allowUpdate) return false;
 
                 // Idempotent update for an item already created by this signed app.
                 var queryOwned = new List<IntPtr>();
@@ -170,14 +171,8 @@ internal static class MacKeychain
         Marshal.ReadIntPtr(Export(CoreHandle(), name));
     private static IntPtr Export(IntPtr library, string name) =>
         NativeLibrary.GetExport(library, name);
-    private static IntPtr SecurityHandle() =>
-        _securityHandle != IntPtr.Zero
-            ? _securityHandle
-            : _securityHandle = NativeLibrary.Load(Security);
-    private static IntPtr CoreHandle() =>
-        _coreHandle != IntPtr.Zero
-            ? _coreHandle
-            : _coreHandle = NativeLibrary.Load(CoreFoundation);
+    private static IntPtr SecurityHandle() => SecurityLibrary.Value;
+    private static IntPtr CoreHandle() => CoreLibrary.Value;
 
     [DllImport(Security)]
     private static extern int SecItemCopyMatching(IntPtr query, out IntPtr result);

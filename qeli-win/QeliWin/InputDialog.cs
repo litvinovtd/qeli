@@ -8,7 +8,7 @@ namespace QeliWin;
 /// <summary>Minimal modal text-input dialog built in code (no separate XAML).</summary>
 public static class InputDialog
 {
-    public static string? Show(Window owner, string title, string prompt, string initial, bool multiline = false)
+    public static string? Show(Window owner, string title, string prompt, string initial, bool multiline = false, string? geometryKey = null)
     {
         var bg = (Brush)Application.Current.FindResource("Bg");
         var panel = (Brush)Application.Current.FindResource("Panel");
@@ -26,6 +26,11 @@ public static class InputDialog
             FontFamily = (FontFamily)Application.Current.FindResource("UiFont"),
         };
 
+        if (multiline && geometryKey is not null)
+        {
+            win.MinWidth = 360; win.MinHeight = 260;
+            EditorGeometry.Attach(win, geometryKey);
+        }
         var grid = new Grid { Margin = new Thickness(16) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });

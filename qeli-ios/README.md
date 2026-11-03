@@ -26,14 +26,28 @@ every other client, not because a build of it was released.
 ## Current implementation
 
 - SwiftUI application shell with connection, profile and live-log tabs.
+- **Settings → Appearance → Clear log after disconnect** is on by default, including
+  after upgrades. Changes save immediately and apply to the current session's next stop;
+  toggling does not erase existing entries. Turn it off before reproducing a problem to
+  retain diagnostic history across disconnects and app launches. The packet extension
+  clears the shared journal after a terminal stop or start failure, even when the app UI
+  is closed; the error status remains available. Old-session callbacks cannot refill it.
+  In-process reconnects/settings reloads retain history. Provider stops for network loss,
+  network change, sleep or an app update also retain it, as do unspecified On Demand
+  stops while the desired connection remains armed (including trusted-Wi-Fi waiting).
+  Manual **Clear** remains independent. A forced process kill may prevent cleanup.
 - Encrypted profile storage shared with the tunnel extension (App Group + Keychain).
-- INI and `qeli://` profile import/export.
+  An encrypted archive with no profiles is rejected before legacy ID normalization;
+  existing bytes remain available for recovery.
+- INI and `qeli://` profile import/export (256 KiB per configuration, matching the native core).
 - QR scanning/generation, profile editing, duplication, ordering and sharing.
-- Android-compatible encrypted backups (`QELI-ENC-1`, PBKDF2-SHA256, AES-256-GCM).
+  Editing the active profile while connected saves it, then asks for a manual disconnect
+  and reconnect so the running tunnel takes the new settings.
+  An editor or delete confirmation opened before that profile changes is refused on save/delete.
+- Android-compatible encrypted backups (`QELI-ENC-1`, PBKDF2-SHA256, AES-256-GCM): 8 MiB plaintext JSON and 12 MiB encrypted-file limits.
 - Opt-in release checks that run only with a fail-closed full-tunnel route.
 - `NETunnelProviderManager` lifecycle, VPN On Demand and status/statistics bridge.
-- `NEPacketTunnelProvider` target over the current ABI 1.15 core, with a compatible ABI 1.11
-  base, optional ABI 1.12-1.14 path transactions and ABI 1.15 management events. Swift applies
+- `NEPacketTunnelProvider` target over the current ABI 1.16 core, requiring ABI 1.16 for the configuration service, optional ABI 1.12-1.14 path transactions and ABI 1.15 management events. Swift applies
   authenticated `NetworkPlan` values, persists Keychain identity/trust and moves bounded
   packet batches between `NEPacketTunnelFlow` and Rust.
 - The common Rust whole-client core owns each plain/fake-TLS/obfs/REALITY TCP/UDP/QUIC
@@ -54,7 +68,7 @@ every other client, not because a build of it was released.
   precedence and an App-Group policy gate for managed WidgetKit controls.
 
 The production Packet Tunnel uses the same versioned Rust transport ABI as Linux, Android,
-Windows and macOS. The current core is ABI 1.15; ABI 1.11 remains the compatible base,
+Windows and macOS. The current adapter requires ABI 1.16 for the shared configuration service;
 ABI 1.12-1.14 activates the optional path-command/path-refresh contracts, and ABI 1.15 adds
 NOTICE/KICK management events. Ordinary TCP and every UDP camouflage mode
 use that one Rust roaming policy. Explicit `local`/non-zero `lport`, a default or older core,
@@ -206,3 +220,9 @@ Extension process, and must be re-measured on a physical device before release.
 Managed Per-App VPN and Apple's IKEv2-only Always On behavior are documented in
 [`MDM/README.md`](MDM/README.md). The examples don't claim consumer or custom-provider
 capabilities that iOS doesn't expose.
+
+Configuration parsing, validation, defaults and portable policies use the same Rust library.
+Rebuild the XCFramework with `sh build_native.sh` after updating source; no Swift parser fallback exists.
+See [shared configuration](../docs/eng/plans/CLIENT-CONFIG-CORE.md) for migration and pending release gates.
+
+Profile archive publication belongs to the single app AppModel. PacketTunnel reads without initializing missing profiles or creating a missing master key; widgets do not access profile secrets. A missing archive/key fails until the app creates a profile or restores a backup. Arbitrary external writers are unsupported. Reconnect after editing an active INI; see [Q25-F210 and platform exclusions](../docs/eng/plans/AUDIT-DEBT.md).

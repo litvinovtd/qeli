@@ -1,5 +1,6 @@
 # qeli vs другие VPN-решения
 
+
 Не маркетинг. Цифры qeli — измеренные в нашей лабе ([BENCHMARK.md](BENCHMARK.md)),
 цифры зрелых решений — типовые опубликованные на сопоставимом железе (2 vCPU,
 gigabit-class link).
@@ -110,7 +111,7 @@ REALITY (qeli имеет cert-borrowing и PQ-гибрид, но его TLS/H2 b
 | Пиннинг + обязательность | peer key | CA/cert | ✅ | ✅ (`require_client_key_proof`) |
 | Авторизация по интерфейсам | ✘ | ✘ | частично | ✅ |
 | Анти-амплификация UDP | n/a | — | — | ✅ |
-| PQ-крипто (X25519MLKEM768) | ✘ | ✘ | ◐ опц. | ✅ (внутр. туннель, все режимы кроме plain) |
+| PQ-крипто (X25519MLKEM768) | ✘ | ✘ | ◐ опц. | ✅ legacy inner; REALITY TLS условно |
 | Аудит / CVE history | ★★★ | ★★★ | ★★★ | ✘ |
 | Текстовый конфиг | ✅ (ini-like) | ✘ (ini) | ✘ (JSON) | ✅ (flat-INI) + REST |
 | In-kernel | ✅ Linux | ✘ | ✘ | ✘ |

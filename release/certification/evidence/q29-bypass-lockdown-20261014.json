@@ -1,0 +1,144 @@
+{
+  "status": "ACTUAL_BYPASS_PLUS_LOCKDOWN_CANDIDATE_REJECTED_ENONET_BEFORE_DNS",
+  "qualification": {
+    "status": "ACTUAL_BYPASS_PLUS_LOCKDOWN_CANDIDATE_REJECTED_ENONET_BEFORE_DNS",
+    "actual_environment": {
+      "ro.build.version.sdk": "34",
+      "ro.build.fingerprint": "Android/sdk_phone64_x86_64/emu64x:14/UE1A.230829.036.A1/11228894:userdebug/test-keys",
+      "ro.build.id": "UE1A.230829.036.A1",
+      "ro.build.version.incremental": "11228894"
+    },
+    "cell": {
+      "stage": "control-bypass-lockdown",
+      "uid": 10144,
+      "pid": 2572,
+      "started_ms": 1792010418111,
+      "active": "102",
+      "bound": "null",
+      "capabilities": "[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null]",
+      "links": "{InterfaceName: tun0 LinkAddresses: [ 10.88.29.2/32,fd88:29::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,10.88.29.2/32 -> 0.0.0.0 tun0 mtu 0,fd88:29::2/128 -> :: tun0 mtu 0 ]}",
+      "proxy_code": "222\\0",
+      "selected_netid": 100,
+      "selected": "100",
+      "selected_capabilities": "[ Transports: CELLULAR Capabilities: MMS&SUPL&DUN&FOTA&IMS&CBS&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps Specifier: <TelephonyNetworkSpecifier [mSubId = 1]> UnderlyingNetworks: Null]",
+      "selected_links": "{InterfaceName: eth0 LinkAddresses: [ 10.0.2.15/24 ] DnsAddresses: [ /10.0.2.3 ] Domains: null MTU: 1500 TcpBufferSizes: 2097152,6291456,16777216,512000,2097152,8388608 Routes: [ 0.0.0.0/0 -> 10.0.2.2 eth0 mtu 1500,10.0.2.0/24 -> 0.0.0.0 eth0 mtu 0 ]}",
+      "family_checks": [
+        {
+          "network": "default",
+          "target": "8.8.8.8",
+          "phase": "connect",
+          "success": true,
+          "source": "/10.88.29.2:52948"
+        },
+        {
+          "network": "default",
+          "target": "2000::",
+          "phase": "connect",
+          "success": true,
+          "source": "/[fd88:29::2]:37988"
+        },
+        {
+          "network": "active",
+          "target": "8.8.8.8",
+          "phase": "connect",
+          "success": true,
+          "source": "/10.88.29.2:45740"
+        },
+        {
+          "network": "active",
+          "target": "2000::",
+          "phase": "connect",
+          "success": true,
+          "source": "/[fd88:29::2]:46683"
+        },
+        {
+          "network": "selected",
+          "target": "8.8.8.8",
+          "phase": "bind",
+          "success": false,
+          "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+        },
+        {
+          "network": "selected",
+          "target": "2000::",
+          "phase": "bind",
+          "success": false,
+          "error": "java.net.SocketException: Binding socket to network 100 failed: EPERM (Operation not permitted)"
+        }
+      ],
+      "queries": [
+        {
+          "mode": "auto",
+          "name": "q29-146667991116.test",
+          "started_ms": 1792010418118,
+          "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+          "done_ms": 1792010418121
+        },
+        {
+          "mode": "a",
+          "name": "q29-146670226094.test",
+          "started_ms": 1792010418121,
+          "answers": [
+            "198.19.0.1"
+          ],
+          "done_ms": 1792010418144
+        },
+        {
+          "mode": "aaaa",
+          "name": "q29-146693550368.test",
+          "started_ms": 1792010418144,
+          "answers": [
+            "2001:db8:29::1"
+          ],
+          "done_ms": 1792010418152
+        },
+        {
+          "mode": "auto-active",
+          "name": "q29-146702063730.test",
+          "started_ms": 1792010418152,
+          "answers": [
+            "198.19.0.1",
+            "2001:db8:29::1"
+          ],
+          "done_ms": 1792010418164
+        },
+        {
+          "mode": "auto-selected",
+          "name": "q29-146713700043.test",
+          "started_ms": 1792010418164,
+          "error": "java.util.concurrent.ExecutionException: android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)",
+          "done_ms": 1792010418166
+        }
+      ],
+      "done_ms": 1792010418166
+    },
+    "policy": {
+      "always_on_vpn_app": "com.qeli.audit.dnstun",
+      "always_on_vpn_lockdown": "1"
+    },
+    "runtime_status": "ONE_CELL_RUNTIME_COMPLETE",
+    "whole_runtime_pass": true,
+    "guest_control_cleanup": true,
+    "generic_null_DNS_PASS": false,
+    "AVD_config_and_userdata_unchanged": true,
+    "independent_UIDs": true,
+    "all_original_six_cells_not_replayed": true,
+    "new_Qeli_builds": 0,
+    "product_modified": false,
+    "Q29_closed": false,
+    "host_preserved": true,
+    "owned_root_removed": true,
+    "archive_sha256": "ec5080a055047ad977c47472b764f4aeced7bfd0fce4bd3fce7e5f243068665d",
+    "no_push_deploy_release": true,
+    "observed_unix": 1792010543.0776663,
+    "raw_files": {
+      "completion.json": "89a1ebe95cffb81c445fd8e4417c71f9a0a548359727c86ab8a3495b293f87f2",
+      "archive.json": "959d82b432f76a1752d20100bccc96f76476b103efe9c8a254abbf853e97e031",
+      "cleanup.json": "1b3c61c457f52426802105db1680448b513ae98eb968d3921571d1fb39e42686",
+      "finished-unit.json": "e300a19fdb02fc7811032b845c5650848656caa2118b7ac98326ed73c68ee795"
+    }
+  },
+  "qualification_sha256": "8e01d64be40f8d000c2ebe1cdc2f2e4287810f05097d7eb5123bf19e2d0352aa",
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q29-bypass-lockdown-r3-20261014",
+  "NO_PUSH_DEPLOY_RELEASE": true
+}

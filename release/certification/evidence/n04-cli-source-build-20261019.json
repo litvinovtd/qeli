@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "status": "SOURCE_NATIVE_AB_SDK_AND_ACTUAL_DISTRIBUTION_PASS",
+  "source_commit": "dc44a6123af269c5797a14d475abdb2a0be47dc1",
+  "native_source_digest": "33ade3ef594bb06179a37a93edcfefe3b1f340a64dfab4aa84c1600caeb634f0",
+  "native_AB": {
+    "desktop": {
+      "artifacts": {
+        "native-libs/macos-universal/libqeli.dylib": {
+          "consumed": {
+            "qeli-mac/QeliMac/native/libqeli.dylib": "0948c7d2c4b484d4eeb1c89446b3b24f076a58967feffffd30c642c0b5d729fe"
+          },
+          "final_sha256": "0948c7d2c4b484d4eeb1c89446b3b24f076a58967feffffd30c642c0b5d729fe",
+          "pass_a_sha256": "0948c7d2c4b484d4eeb1c89446b3b24f076a58967feffffd30c642c0b5d729fe",
+          "pass_b_sha256": "0948c7d2c4b484d4eeb1c89446b3b24f076a58967feffffd30c642c0b5d729fe",
+          "reproducible": true
+        },
+        "native-libs/windows-x64/qeli.dll": {
+          "consumed": {
+            "qeli-win/QeliWin/native/qeli.dll": "3053079f33fb003e154182c316a023df46b1223c6d64bf924be60ca56aba8474"
+          },
+          "final_sha256": "3053079f33fb003e154182c316a023df46b1223c6d64bf924be60ca56aba8474",
+          "pass_a_sha256": "3053079f33fb003e154182c316a023df46b1223c6d64bf924be60ca56aba8474",
+          "pass_b_sha256": "3053079f33fb003e154182c316a023df46b1223c6d64bf924be60ca56aba8474",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "dc44a6123af269c5797a14d475abdb2a0be47dc1",
+      "source_date_epoch": 1792398647,
+      "source_digest": "33ade3ef594bb06179a37a93edcfefe3b1f340a64dfab4aa84c1600caeb634f0",
+      "source_dirty": false,
+      "toolchain": {
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+        "cargo_zigbuild_version": "0.23.0",
+        "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+        "rcodesign": "apple-codesign 0.29.0",
+        "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+        "zig": "0.13.0"
+      }
+    },
+    "android": {
+      "artifacts": {
+        "native-libs/android/arm64-v8a/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "e76605e699e0950eeb3115138bc495ab35ea216b9e1f3f97342a7c95bc69b0ea"
+          },
+          "final_sha256": "e76605e699e0950eeb3115138bc495ab35ea216b9e1f3f97342a7c95bc69b0ea",
+          "pass_a_sha256": "e76605e699e0950eeb3115138bc495ab35ea216b9e1f3f97342a7c95bc69b0ea",
+          "pass_b_sha256": "e76605e699e0950eeb3115138bc495ab35ea216b9e1f3f97342a7c95bc69b0ea",
+          "reproducible": true
+        },
+        "native-libs/android/x86_64/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "c2ab5affed241e80f4b9f0dfa0aa83fb59696b9f8d323cbd3ca576364a294ff8"
+          },
+          "final_sha256": "c2ab5affed241e80f4b9f0dfa0aa83fb59696b9f8d323cbd3ca576364a294ff8",
+          "pass_a_sha256": "c2ab5affed241e80f4b9f0dfa0aa83fb59696b9f8d323cbd3ca576364a294ff8",
+          "pass_b_sha256": "c2ab5affed241e80f4b9f0dfa0aa83fb59696b9f8d323cbd3ca576364a294ff8",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "dc44a6123af269c5797a14d475abdb2a0be47dc1",
+      "source_date_epoch": 1792398647,
+      "source_digest": "33ade3ef594bb06179a37a93edcfefe3b1f340a64dfab4aa84c1600caeb634f0",
+      "source_dirty": false,
+      "toolchain": {
+        "android_ndk": "26.3.11579264",
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_ndk": "cargo-ndk v4.1.2:",
+        "cargo_ndk_version": "4.1.2",
+        "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+      }
+    }
+  },
+  "sdk_source": {
+    "commit": "dc44a6123af269c5797a14d475abdb2a0be47dc1",
+    "mirror_sha256": "459348affe96341275058e0f1eb458ddf87edd4218500709fd835531f5676192",
+    "actual_SDK_download_prepare": true
+  },
+  "N04_diagnostic": "release/lab-results/n04-quic-locality-20261019.json",
+  "diagnostic_scope": "Identified Linux test ELF only; its performance measurements are not rebound to future packaged binaries.",
+  "product_scope": "Linux CLI transport and I/O driver share current_thread runtime; server/_worker retain multi_thread. Native FFI runtime policy, wire format, bounded pools and default tx_queue_len=1000 remain unchanged.",
+  "future_application_qualification": "Pending exact green candidate CI, collected distributions, fresh actual CLI runtime, final certification and preflight.",
+  "checks": [
+    {
+      "name": "native-hashes",
+      "exit_code": 0
+    },
+    {
+      "name": "native-provenance",
+      "exit_code": 0
+    },
+    {
+      "name": "native-verify",
+      "exit_code": 0
+    },
+    {
+      "name": "native-provenance-check",
+      "exit_code": 0
+    },
+    {
+      "name": "native-legal",
+      "exit_code": 0
+    },
+    {
+      "name": "embedded-legal",
+      "exit_code": 0
+    },
+    {
+      "name": "portable-harness",
+      "exit_code": 0
+    },
+    {
+      "name": "docs",
+      "exit_code": 0
+    },
+    {
+      "name": "actionlint",
+      "exit_code": 0
+    }
+  ],
+  "accepted_API34_ENONET_D06_and_physical_scope_unchanged": true,
+  "published": false,
+  "original_stage_status": "SOURCE_NATIVE_AB_SDK_PASS_DISTRIBUTION_PENDING",
+  "application_qualification": {
+    "runtime": "release/certification/evidence/n04-cli-runtime-20261019.json",
+    "assets": "release/certification/evidence/n04-cli-assets-20261019.json",
+    "packaged_UDP": "release/certification/evidence/n04-cli-packaged-udp-20261019.json",
+    "final_CI_preflight": "Required independently before updating private draft; no future success claimed."
+  }
+}

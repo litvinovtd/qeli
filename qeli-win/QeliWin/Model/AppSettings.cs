@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using Qeli.Shared.Model;
 
 namespace QeliWin.Model;
 
@@ -7,6 +8,9 @@ namespace QeliWin.Model;
 public sealed class AppSettings
 {
     public string Language { get; set; } = "en";       // "en" | "ru" (default English)
+    public WindowDimensions ConfigEditorSize { get; set; } = new(720, 680);
+    public WindowDimensions IniEditorSize { get; set; } = new(560, 440);
+    public WindowDimensions ImportEditorSize { get; set; } = new(560, 440);
     public string Theme { get; set; } = "system";      // "system" | "light" | "dark"
     // Timestamp shape in the log view. Same values as the server's
     // [logging] time_format; anything unknown renders as "datetime".
@@ -31,71 +35,13 @@ public sealed class AppSettings
     private static AppSettings? _current;
     public static AppSettings Current => _current ??= Load();
 
-    public static AppSettings Load()
-    {
-        if (!File.Exists(FilePath))
-            return ReadBackupOrDefault();
-        try
-        {
-            return Read(FilePath);
-        }
-        catch (Exception error)
-        {
-            System.Diagnostics.Debug.WriteLine($"AppSettings: settings.json unreadable ({error.Message})");
-            try
-            {
-                File.Move(
-                    FilePath,
-                    FilePath + ".corrupt-" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            }
-            catch { /* preserve best-effort; never overwrite it here */ }
-            return ReadBackupOrDefault();
-        }
-    }
+    public static AppSettings Load() => AppSettingsStore.Load<AppSettings>(FilePath, Options);
+
+    internal AppSettings Snapshot() => (AppSettings)MemberwiseClone();
 
     public void Save()
     {
-        Directory.CreateDirectory(Dir);
-        var temp = FilePath + $".tmp-{Environment.ProcessId}-{Guid.NewGuid():N}";
-        try
-        {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(this, Options);
-            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write,
-                       FileShare.None, 16 * 1024, FileOptions.WriteThrough))
-            {
-                stream.Write(bytes);
-                stream.Flush(flushToDisk: true);
-            }
-            if (File.Exists(FilePath))
-                File.Replace(temp, FilePath, FilePath + ".bak");
-            else
-                File.Move(temp, FilePath);
-        }
-        finally
-        {
-            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
-        }
+        AppSettingsStore.Save(this, FilePath, Options);
         _current = this;
-    }
-
-    private static AppSettings Read(string path) =>
-        JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), Options)
-        ?? throw new JsonException("settings root is null");
-
-    private static AppSettings ReadBackupOrDefault()
-    {
-        try
-        {
-            var backup = FilePath + ".bak";
-            if (!File.Exists(backup)) return new AppSettings();
-            var settings = Read(backup);
-            System.Diagnostics.Debug.WriteLine("AppSettings: recovered settings.json from .bak");
-            return settings;
-        }
-        catch (Exception error)
-        {
-            System.Diagnostics.Debug.WriteLine($"AppSettings: .bak recovery failed ({error.Message})");
-            return new AppSettings();
-        }
     }
 }

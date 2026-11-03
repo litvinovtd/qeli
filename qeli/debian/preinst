@@ -1,0 +1,18 @@
+#!/bin/bash
+set -e
+
+case "${1:-}" in
+    install|upgrade)
+        # Reject unsafe package state before any pathname-based writes/chown.
+        for state in /etc/qeli /var/log/qeli /var/lib/qeli; do
+            if [ -L "$state" ] || { [ -e "$state" ] && [ ! -d "$state" ]; }; then
+                echo "qeli: refusing linked/non-directory state path: $state" >&2
+                exit 1
+            fi
+        done
+        if [ -L /etc/qeli/users.conf ] || { [ -e /etc/qeli/users.conf ] && [ ! -f /etc/qeli/users.conf ]; }; then
+            echo 'qeli: refusing linked/nonregular /etc/qeli/users.conf' >&2
+            exit 1
+        fi
+        ;;
+esac

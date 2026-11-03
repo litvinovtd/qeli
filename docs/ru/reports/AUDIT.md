@@ -1,4 +1,5 @@
 # qeli — модель безопасности и состояние
+
 <!-- normative-sync: security-ipv6-v1 -->
 
 Документ описывает **текущую** криптографию, аутентификацию и обфускацию qeli, а
@@ -18,7 +19,7 @@
 
 | Элемент | Реализация |
 |---|---|
-| Обмен ключами | X25519 (эфемерный per-session), `x25519-dalek`; во всех режимах кроме `plain` — PQ-гибрид **X25519MLKEM768** (ML-KEM-768, `ml-kem`, ключи данных = `HKDF(x25519 ‖ mlkem)`, `derive_keys_hybrid`). `plain` — классический X25519. Секреты с `zeroize` |
+| Обмен ключами | Эфемерный X25519; legacy camouflage требует внутренний X25519MLKEM768. `plain` и внутренний `reality-tls` используют классический X25519; PQ во внешнем REALITY TLS зависит от согласованной группы. Retained X25519/ML-KEM keys используют zeroize. |
 | AEAD | ChaCha20-Poly1305 (`chacha20poly1305`) на дата-плоскости qeli; в `reality-tls` внешний TLS 1.3 — AES-128/256-GCM (`aes-gcm`/rustls-ring) |
 | Вывод ключей | HKDF-SHA256, раздельные ключи `server→client` / `client→server` (в `reality-tls` для `TLS_AES_256_GCM` — SHA-384) |
 | Пароли | Argon2id (`argon2` 0.6), профиль **зафиксирован в коде** — `crypto::password_hasher()` строит `Params::new(19456, 2, 1, None)` (m=19456 KiB, t=2, p=1 — рекомендация OWASP), поэтому обновление крейта не изменит его молча. ПРОВЕРКА намеренно использует `Argon2::default()`: параметры существующего хеша берутся из его собственной PHC-строки, а не из наших — именно это позволяет старым хешам проверяться после смены параметров |
@@ -108,13 +109,11 @@
   и с **cert-borrowing** (`handrolled=true`) отдаёт клиенту захваченную цепочку
   серта target'а и зеркалит форму JA3S (не полный паритет с Xray/браузером; см. CONFIG.md/DPI-AUDIT.md). Без
   REALITY `fake-tls`/`obfs` рассчитаны на пассивный DPI.
-- **Post-quantum** — гибрид **X25519MLKEM768** теперь рабочий KEX **внутреннего**
-  qeli-туннеля во ВСЕХ режимах кроме `plain` (`fake-tls`/`obfs`/`reality-tls`/UDP):
-  настоящий ML-KEM-768 encaps/decaps, ключи данных = `HKDF(x25519_shared ‖ mlkem_shared)`
-  (`derive_keys_hybrid`). Сервер ТРЕБУЕТ X25519MLKEM768-долю для не-`plain` (нет тихого
-  даунгрейда; домен-сепарация солью). Managed-клиенты (C#/Kotlin) берут ML-KEM из ядра
-  через C-ABI/JNI (BouncyCastle ML-KEM не содержит). Защита от harvest-now-decrypt-later
-  независимо от обёртки.
+- **Post-quantum** — legacy camouflage (`fake-tls`/`obfs`/`reality`/UDP) требует
+  внутренний гибрид X25519MLKEM768. Текущий `reality-tls` использует классический
+  X25519 с привязкой static identity внутри H2. Внешний TLS допускает hybrid и
+  классический X25519; PQ-защита зависит от внешней группы. `plain` — классический.
+  [Q08](audit-0.8.2/AUDIT-Q08-CRYPTO-KEYS.md) фиксирует исправленный объём защиты и primitive vectors.
 - **`obfs`-keystream** ограничен 256 ГиБ на направление на сессию — при
   превышении соединение fail-safe реконнектится (без повторного использования
   keystream).

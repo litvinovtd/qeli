@@ -1,0 +1,464 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS_Q34_PUSH_CI_ADMISSION_SCOPED",
+  "source_digest": "2f36a6098578e9b36d6e6fcfc38dd809be92b577731772c8e26907c9f3c267a1",
+  "qualification_source_commit": "ef63fcdf661e2c7cc47214f5064a021574411890",
+  "product_source_commit": "ef63fcdf661e2c7cc47214f5064a021574411890",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F502/Q34-F056",
+    "F503/Q34-F057"
+  ],
+  "verification": {
+    "baseline_event": {
+      "status": "CONFIRMED_PR_SUCCESS_ACCEPTED",
+      "head": "8ecbfecedc71811d300db731fb1b7b3198d8d126",
+      "head_tree": "4fed6f34d9ccc251e7a9a7538f6bba4ac820b9e6",
+      "synthetic_merge": "ed5324ee0c3562a4cd8968afec924b8bdd73b69c",
+      "merge_tree": "a5f990a70acf2b131fb347b0316ad0484bd0d841",
+      "real_git": true,
+      "gh_response": "Controlled successful pull_request headSha; actual GH PR compilation not claimed",
+      "queries": [
+        [
+          "git",
+          "rev-parse",
+          "HEAD^{commit}"
+        ],
+        [
+          "gh",
+          "run",
+          "list",
+          "--commit",
+          "8ecbfecedc71811d300db731fb1b7b3198d8d126",
+          "--workflow",
+          "CI",
+          "--limit",
+          "1",
+          "--json",
+          "conclusion,status,headSha,databaseId"
+        ]
+      ],
+      "baseline_failures": []
+    },
+    "baseline_paths": {
+      "status": "CONFIRMED_7_ROOT_INPUTS_MISSING_BOTH_FILTERS",
+      "coverage": {
+        "push": {
+          "global.json": false,
+          "NuGet.Config": false,
+          "Directory.Build.props": false,
+          "Directory.Build.targets": false,
+          "LICENSE": false,
+          ".gitattributes": false,
+          ".gitignore": false
+        },
+        "pull_request": {
+          "global.json": false,
+          "NuGet.Config": false,
+          "Directory.Build.props": false,
+          "Directory.Build.targets": false,
+          "LICENSE": false,
+          ".gitattributes": false,
+          ".gitignore": false
+        }
+      },
+      "parser_archive_sha256": "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f",
+      "scope": "Single-component root names versus actual simple glob patterns; no hosted trigger dispatch"
+    },
+    "windows": {
+      "status": "PASS",
+      "methods": 132,
+      "checks": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_release_ci_gate.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 21
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_release_tag.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 31
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_release_preflight.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 15
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_native_recipes.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 38
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_check_workflows.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 11
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_docker_publish_ref.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 16
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/check_workflows.py",
+            "--actionlint",
+            "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-fuzz-context-20261009\\actionlint.exe"
+          ],
+          "returncode": 0,
+          "output": "actionlint 1.7.12: 4 workflows PASS (Actions semantics only)\r\n"
+        }
+      ]
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "CONTRIBUTING.md",
+        "docs/eng/manuals/GETTING-STARTED.md",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "docs/ru/manuals/GETTING-STARTED.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "scripts/release_ci_gate.py",
+        "scripts/test_release_ci_gate.py",
+        "scripts/test_release_tag.py"
+      ],
+      "removed_paths": [],
+      "qualified_paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "6bcf638e8c9ea6f6d90daedd8b6c9541f7ab18244abdf63b3568db534019cf16",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/release_ci_gate.py",
+          "sha256": "5adad001b81ffcb7f62dda5a625d36268729d1af01d2326450d327fd2583570b",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_release_ci_gate.py",
+          "sha256": "ddb174227958fb65a0d7967534cb67a0d2d180ad62f807018d1acd36c738f323",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_release_tag.py",
+          "sha256": "e2bd0a26f809455d89725cdae4de93e5ab36529f4495684b73f949b65aad24de",
+          "normalization": "LF"
+        }
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    },
+    "linux": {
+      "status": "PASS_67_LINUX_METHODS",
+      "tests": 67,
+      "producer_commit": "da5fea37f45430086508da1379028e46f5b2bc5e",
+      "qualified_files_sha256": {
+        ".github/workflows/ci.yml": "6bcf638e8c9ea6f6d90daedd8b6c9541f7ab18244abdf63b3568db534019cf16",
+        ".github/workflows/docker-publish.yml": "d75715c9e79b26bbc84228a4f10446347e0a4a21d3b50c76aceb1c4af90c6014",
+        ".github/workflows/release-attest.yml": "e2aec60bd0b9e85475d0f6eb417388abacb24d8b8dae4673428347b9554074e9",
+        "release/docker/Dockerfile": "19700ed6841956691d7379a08fd057833caed1b4819914d71312cbb16c20328e",
+        "release/docker/debian.sources": "2270468cd3c4e18c0ea6a3f41a3f98545fbcc7920c6a73ff07943b5a6e703fc2",
+        "scripts/docker_publish_ref.py": "e054081c3717c365e3a86f2aa54cf78c8344faa8d001a547d3cc1e21a9e4b76f",
+        "scripts/native_lab.py": "da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0",
+        "scripts/native_repro.py": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c",
+        "scripts/openwrt_source_gate.py": "d22677508a027df9e2b717dae45553ba235d8e88417d14a0cf4fcb91d2cd8588",
+        "scripts/release_certification.py": "5d25131f0860d305890f9aca304948c9643e42503f69d4fa7427ae7ad8778381",
+        "scripts/release_ci_gate.py": "5adad001b81ffcb7f62dda5a625d36268729d1af01d2326450d327fd2583570b",
+        "scripts/release_preflight.py": "2a7781032c9885910ac8e912726f8962bd84523a4517b65d4ee7662abbf87e19",
+        "scripts/release_source.py": "822f80e48a13728ee097a188d61660d44170cb1267d0496be5c0222d5992bcb5",
+        "scripts/release_tag.py": "b8620d8ac21cf2bff457b85c3bbc2e0b404c92d56bde8b4c2d2e18690b4fd6d8",
+        "scripts/router_artifact.py": "076002a68ddfdf397af567982735434be1ca3d9c4584a2e9dee0034b69033c1a",
+        "scripts/router_release_gate.py": "33edcf1aff24c28c04a03a97f781073b3af4ad00f93ac5913d8a78d7c11b0fe7",
+        "scripts/router_source.py": "a0f34491d0474f98ea5a8f47e8a77a1ab0a88acd68aae73035285b307e422ed2",
+        "scripts/router_toolchain.py": "5a07dc41385d405224f91b47cdce47f7987f05e013ca025ce6c19929d641df12",
+        "scripts/ssh_command.py": "ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b",
+        "scripts/ssh_hostkey.py": "c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39",
+        "scripts/test_release_certification.py": "a899ab2f5c6a04b779bf5c49b65b7d1b07a4fb93b44344ff465c35dca145cc26",
+        "scripts/test_release_ci_gate.py": "ddb174227958fb65a0d7967534cb67a0d2d180ad62f807018d1acd36c738f323",
+        "scripts/test_release_preflight.py": "836c2f7d33515da32819c509269471cd8107a135f32484ddcc9d50883b8a5c3e",
+        "scripts/test_release_tag.py": "e2bd0a26f809455d89725cdae4de93e5ab36529f4495684b73f949b65aad24de"
+      },
+      "source_archive_sha256": "ea621386c02d3bb60baadfbc2a13c28798c3009aafc6376f59874098a5d4f1b6",
+      "original_service_unchanged": true,
+      "original_service": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+      "cleanup": {
+        "status": "PASS_SHA_BACKED_KNOWN_FILES_CLEANUP",
+        "files": 25
+      },
+      "commands": [
+        {
+          "command": "systemctl show qeli -p MainPID --value; pgrep -x qeli | sort -n; sha256sum /usr/bin/qeli",
+          "label": "original service",
+          "output": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+          "status": 0
+        },
+        {
+          "command": "sha256sum /var/tmp/qeli-ci-admission.O3gUjRge/source.tar",
+          "label": "initial owned archive hash",
+          "output": "43da762c729c67f8db2701435c357ff7ec049d2148c61a6af054fb9a45df7a79  /var/tmp/qeli-ci-admission.O3gUjRge/source.tar",
+          "status": 0
+        },
+        {
+          "command": "sha256sum /var/tmp/qeli-ci-admission.O3gUjRge/source.tar",
+          "label": "archive hash",
+          "output": "ea621386c02d3bb60baadfbc2a13c28798c3009aafc6376f59874098a5d4f1b6  /var/tmp/qeli-ci-admission.O3gUjRge/source.tar",
+          "status": 0
+        },
+        {
+          "command": "cd /var/tmp/qeli-ci-admission.O3gUjRge && tar -xf source.tar",
+          "label": "extract private inputs",
+          "output": "",
+          "status": 0
+        },
+        {
+          "command": "cd /var/tmp/qeli-ci-admission.O3gUjRge && PYTHONPATH=scripts python3 -B -m unittest -v test_release_ci_gate test_release_tag test_release_preflight",
+          "label": "Linux release admission methods",
+          "output": "test_empty_missing_invalid_ci_commit_is_fatal (test_release_ci_gate.AdmissionTests.test_empty_missing_invalid_ci_commit_is_fatal) ... ok\ntest_empty_or_invalid_local_commit_is_fatal (test_release_ci_gate.AdmissionTests.test_empty_or_invalid_local_commit_is_fatal) ... ok\ntest_exact_commit_selector_does_not_need_a_branch (test_release_ci_gate.AdmissionTests.test_exact_commit_selector_does_not_need_a_branch) ... ok\ntest_exact_green_commit_passes (test_release_ci_gate.AdmissionTests.test_exact_green_commit_passes) ... ok\ntest_failed_job_details_are_retained_as_diagnostics (test_release_ci_gate.AdmissionTests.test_failed_job_details_are_retained_as_diagnostics) ... ok\ntest_git_error_cannot_accept_green_ci_or_query_github (test_release_ci_gate.AdmissionTests.test_git_error_cannot_accept_green_ci_or_query_github) ... ok\ntest_github_query_failure_is_fatal (test_release_ci_gate.AdmissionTests.test_github_query_failure_is_fatal) ... ok\ntest_green_pull_request_with_exact_head_refuses_release (test_release_ci_gate.AdmissionTests.test_green_pull_request_with_exact_head_refuses_release) ... ok\ntest_job_diagnostic_error_cannot_hide_failure_or_abort_gate (test_release_ci_gate.AdmissionTests.test_job_diagnostic_error_cannot_hide_failure_or_abort_gate) ... ok\ntest_missing_or_detached_branch_is_fatal_before_commands (test_release_ci_gate.AdmissionTests.test_missing_or_detached_branch_is_fatal_before_commands) ... ok\ntest_missing_tools_or_command_timeout_is_fatal (test_release_ci_gate.AdmissionTests.test_missing_tools_or_command_timeout_is_fatal) ... ok\ntest_missing_unknown_manual_and_scheduled_events_refuse_release (test_release_ci_gate.AdmissionTests.test_missing_unknown_manual_and_scheduled_events_refuse_release) ... ok\ntest_no_run_malformed_json_or_response_is_fatal (test_release_ci_gate.AdmissionTests.test_no_run_malformed_json_or_response_is_fatal) ... ok\ntest_old_green_commit_is_fatal (test_release_ci_gate.AdmissionTests.test_old_green_commit_is_fatal) ... ok\ntest_pending_or_failed_run_is_fatal (test_release_ci_gate.AdmissionTests.test_pending_or_failed_run_is_fatal) ... ok\ntest_real_git_identity_uses_release_root_from_another_directory (test_release_ci_gate.AdmissionTests.test_real_git_identity_uses_release_root_from_another_directory) ... ok\ntest_sha256_git_identity_can_be_compared (test_release_ci_gate.AdmissionTests.test_sha256_git_identity_can_be_compared) ... ok\ntest_stale_and_failed_run_report_both_reasons (test_release_ci_gate.AdmissionTests.test_stale_and_failed_run_report_both_reasons) ... ok\ntest_unknown_ci_status_is_fatal (test_release_ci_gate.AdmissionTests.test_unknown_ci_status_is_fatal) ... ok\ntest_default_branch_lookup_uses_repository_root (test_release_ci_gate.CallerTests.test_default_branch_lookup_uses_repository_root) ... ok\ntest_preflight_accumulates_gate_failure_and_can_continue (test_release_ci_gate.CallerTests.test_preflight_accumulates_gate_failure_and_can_continue) ... ok\ntest_actual_cli_certification_success_and_failed_case_refusal (test_release_tag.PublisherCertificationTests.test_actual_cli_certification_success_and_failed_case_refusal) ... ok\ntest_failed_automated_case_refuses_before_ci_and_outputs (test_release_tag.PublisherCertificationTests.test_failed_automated_case_refuses_before_ci_and_outputs) ... ok\ntest_manifest_or_head_change_during_validation_refuses (test_release_tag.PublisherCertificationTests.test_manifest_or_head_change_during_validation_refuses) ... ok\ntest_missing_stale_and_malformed_manifests_refuse (test_release_tag.PublisherCertificationTests.test_missing_stale_and_malformed_manifests_refuse) ... ok\ntest_physical_failure_blocks_but_unavailable_remains_advisory (test_release_tag.PublisherCertificationTests.test_physical_failure_blocks_but_unavailable_remains_advisory) ... ok\ntest_tag_admission_precedes_certification_and_ci (test_release_tag.PublisherCertificationTests.test_tag_admission_precedes_certification_and_ci) ... ok\ntest_valid_evidence_and_ci_write_metadata_only_after_admission (test_release_tag.PublisherCertificationTests.test_valid_evidence_and_ci_write_metadata_only_after_admission) ... ok\ntest_validator_io_and_identity_failure_are_refusals (test_release_tag.PublisherCertificationTests.test_validator_io_and_identity_failure_are_refusals) ... ok\ntest_annotated_tag_peeled_to_source_commit (test_release_tag.TagTests.test_annotated_tag_peeled_to_source_commit) ... ok\ntest_branch_only_is_not_a_release_tag (test_release_tag.TagTests.test_branch_only_is_not_a_release_tag) ... ok\ntest_ci_failure_creates_no_output (test_release_tag.TagTests.test_ci_failure_creates_no_output) ... ok\ntest_dirty_tracked_source_refused (test_release_tag.TagTests.test_dirty_tracked_source_refused) ... ok\ntest_exact_commit_ci_selector_and_outputs (test_release_tag.TagTests.test_exact_commit_ci_selector_and_outputs) ... ok\ntest_git_trust_flags_cannot_hide_modified_source (test_release_tag.TagTests.test_git_trust_flags_cannot_hide_modified_source) ... ok\ntest_green_pr_cannot_publish_tag_outputs (test_release_tag.TagTests.test_green_pr_cannot_publish_tag_outputs) ... ok\ntest_lightweight_tag_matches_exact_source_and_pin (test_release_tag.TagTests.test_lightweight_tag_matches_exact_source_and_pin) ... ok\ntest_missing_git_or_timeout_returns_refusal (test_release_tag.TagTests.test_missing_git_or_timeout_returns_refusal) ... ok\ntest_missing_tag (test_release_tag.TagTests.test_missing_tag) ... ok\ntest_same_name_branch_cannot_replace_other_tag_commit (test_release_tag.TagTests.test_same_name_branch_cannot_replace_other_tag_commit) ... ok\ntest_skip_worktree_source_refused (test_release_tag.TagTests.test_skip_worktree_source_refused) ... ok\ntest_source_change_during_ci_admission_refused (test_release_tag.TagTests.test_source_change_during_ci_admission_refused) ... ok\ntest_unsafe_tag_refused_before_git (test_release_tag.TagTests.test_unsafe_tag_refused_before_git) ... ok\ntest_untracked_input_refused (test_release_tag.TagTests.test_untracked_input_refused) ... ok\ntest_version_mismatch (test_release_tag.TagTests.test_version_mismatch) ... ok\ntest_build_attestation_covers_only_the_locally_built_package (test_release_tag.WorkflowTests.test_build_attestation_covers_only_the_locally_built_package) ... ok\ntest_ci_covers_every_workflow_change (test_release_tag.WorkflowTests.test_ci_covers_every_workflow_change) ... ok\ntest_docker_apt_uses_only_one_signed_snapshot_cut (test_release_tag.WorkflowTests.test_docker_apt_uses_only_one_signed_snapshot_cut) ... ok\ntest_docker_frontend_is_digest_pinned (test_release_tag.WorkflowTests.test_docker_frontend_is_digest_pinned) ... ok\ntest_docker_release_uses_exact_tag_version_ci_admission_before_login (test_release_tag.WorkflowTests.test_docker_release_uses_exact_tag_version_ci_admission_before_login) ... ok\ntest_publishers_require_runtime_certification_before_build_and_login (test_release_tag.WorkflowTests.test_publishers_require_runtime_certification_before_build_and_login) ... ok\ntest_release_and_docker_bind_pin_and_legal_gates (test_release_tag.WorkflowTests.test_release_and_docker_bind_pin_and_legal_gates) ... ok\ntest_certification_timeout_or_missing_interpreter_is_failed_verdict (test_release_preflight.PreflightTests.test_certification_timeout_or_missing_interpreter_is_failed_verdict) ... ok\ntest_commit_change_after_ci_refuses_before_other_gates (test_release_preflight.PreflightTests.test_commit_change_after_ci_refuses_before_other_gates) ... ok\ntest_commit_change_during_certification_cannot_pass (test_release_preflight.PreflightTests.test_commit_change_during_certification_cannot_pass) ... ok\ntest_commit_change_during_lab_closes_and_refuses (test_release_preflight.PreflightTests.test_commit_change_during_lab_closes_and_refuses) ... ok\ntest_configured_lab_and_close_failure_remain_release_blocking (test_release_preflight.PreflightTests.test_configured_lab_and_close_failure_remain_release_blocking) ... ok\ntest_flags_added_during_certification_prevent_pass (test_release_preflight.PreflightTests.test_flags_added_during_certification_prevent_pass) ... ok\ntest_flags_added_during_ci_refuse_before_other_gates (test_release_preflight.PreflightTests.test_flags_added_during_ci_refuse_before_other_gates) ... ok\ntest_hidden_flags_refuse_before_external_queries (test_release_preflight.PreflightTests.test_hidden_flags_refuse_before_external_queries) ... ok\ntest_ignored_cache_does_not_dirty_source (test_release_preflight.PreflightTests.test_ignored_cache_does_not_dirty_source) ... ok\ntest_independent_gate_failures_accumulate (test_release_preflight.PreflightTests.test_independent_gate_failures_accumulate) ... ok\ntest_initial_dirty_or_untracked_input_refuses_before_external_queries (test_release_preflight.PreflightTests.test_initial_dirty_or_untracked_input_refuses_before_external_queries) ... ok\ntest_report_mismatch_closes_and_fails (test_release_preflight.PreflightTests.test_report_mismatch_closes_and_fails) ... ok\ntest_snapshot_mismatch_refuses_before_connecting (test_release_preflight.PreflightTests.test_snapshot_mismatch_refuses_before_connecting) ... ok\ntest_tracked_edit_after_source_gate_refuses_before_certification (test_release_preflight.PreflightTests.test_tracked_edit_after_source_gate_refuses_before_certification) ... ok\ntest_unchanged_clean_source_and_optional_lab_skip_pass (test_release_preflight.PreflightTests.test_unchanged_clean_source_and_optional_lab_skip_pass) ... ok\n\n----------------------------------------------------------------------\nRan 67 tests in 1.740s\n\nOK",
+          "status": 0
+        },
+        {
+          "command": "python3 -B -c 'from pathlib import Path;import hashlib,json;root=Path('\"'\"'/var/tmp/qeli-ci-admission.O3gUjRge'\"'\"');items=list(root.rglob('\"'\"'*'\"'\"'));assert not any(f.is_symlink() for f in items);print(json.dumps(dict(files={f.relative_to(root).as_posix():hashlib.sha256(f.read_bytes()).hexdigest() for f in items if f.is_file()},dirs=[f.relative_to(root).as_posix() for f in items if f.is_dir()])))'",
+          "label": "exact source inventory",
+          "output": "{\"files\": {\"source.tar\": \"ea621386c02d3bb60baadfbc2a13c28798c3009aafc6376f59874098a5d4f1b6\", \"scripts/ssh_hostkey.py\": \"c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39\", \"scripts/release_tag.py\": \"b8620d8ac21cf2bff457b85c3bbc2e0b404c92d56bde8b4c2d2e18690b4fd6d8\", \"scripts/release_certification.py\": \"5d25131f0860d305890f9aca304948c9643e42503f69d4fa7427ae7ad8778381\", \"scripts/test_release_preflight.py\": \"836c2f7d33515da32819c509269471cd8107a135f32484ddcc9d50883b8a5c3e\", \"scripts/router_artifact.py\": \"076002a68ddfdf397af567982735434be1ca3d9c4584a2e9dee0034b69033c1a\", \"scripts/release_preflight.py\": \"2a7781032c9885910ac8e912726f8962bd84523a4517b65d4ee7662abbf87e19\", \"scripts/native_repro.py\": \"23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c\", \"scripts/openwrt_source_gate.py\": \"d22677508a027df9e2b717dae45553ba235d8e88417d14a0cf4fcb91d2cd8588\", \"scripts/docker_publish_ref.py\": \"e054081c3717c365e3a86f2aa54cf78c8344faa8d001a547d3cc1e21a9e4b76f\", \"scripts/router_release_gate.py\": \"33edcf1aff24c28c04a03a97f781073b3af4ad00f93ac5913d8a78d7c11b0fe7\", \"scripts/test_release_tag.py\": \"e2bd0a26f809455d89725cdae4de93e5ab36529f4495684b73f949b65aad24de\", \"scripts/router_toolchain.py\": \"5a07dc41385d405224f91b47cdce47f7987f05e013ca025ce6c19929d641df12\", \"scripts/native_lab.py\": \"da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0\", \"scripts/release_ci_gate.py\": \"5adad001b81ffcb7f62dda5a625d36268729d1af01d2326450d327fd2583570b\", \"scripts/test_release_ci_gate.py\": \"ddb174227958fb65a0d7967534cb67a0d2d180ad62f807018d1acd36c738f323\", \"scripts/ssh_command.py\": \"ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b\", \"scripts/test_release_certification.py\": \"a899ab2f5c6a04b779bf5c49b65b7d1b07a4fb93b44344ff465c35dca145cc26\", \"scripts/router_source.py\": \"a0f34491d0474f98ea5a8f47e8a77a1ab0a88acd68aae73035285b307e422ed2\", \"scripts/release_source.py\": \"822f80e48a13728ee097a188d61660d44170cb1267d0496be5c0222d5992bcb5\", \"release/docker/Dockerfile\": \"19700ed6841956691d7379a08fd057833caed1b4819914d71312cbb16c20328e\", \"release/docker/debian.sources\": \"2270468cd3c4e18c0ea6a3f41a3f98545fbcc7920c6a73ff07943b5a6e703fc2\", \".github/workflows/docker-publish.yml\": \"d75715c9e79b26bbc84228a4f10446347e0a4a21d3b50c76aceb1c4af90c6014\", \".github/workflows/ci.yml\": \"6bcf638e8c9ea6f6d90daedd8b6c9541f7ab18244abdf63b3568db534019cf16\", \".github/workflows/release-attest.yml\": \"e2aec60bd0b9e85475d0f6eb417388abacb24d8b8dae4673428347b9554074e9\"}, \"dirs\": [\"scripts\", \".github\", \"release\", \".github/workflows\", \"release/docker\"]}",
+          "status": 0
+        },
+        {
+          "command": "python3 -B - <<'CLEANUP'\nfrom pathlib import Path\nimport os,re,hashlib,json\nroot=Path('/var/tmp/qeli-ci-admission.O3gUjRge');inv={'files': {'source.tar': 'ea621386c02d3bb60baadfbc2a13c28798c3009aafc6376f59874098a5d4f1b6', 'scripts/ssh_hostkey.py': 'c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39', 'scripts/release_tag.py': 'b8620d8ac21cf2bff457b85c3bbc2e0b404c92d56bde8b4c2d2e18690b4fd6d8', 'scripts/release_certification.py': '5d25131f0860d305890f9aca304948c9643e42503f69d4fa7427ae7ad8778381', 'scripts/test_release_preflight.py': '836c2f7d33515da32819c509269471cd8107a135f32484ddcc9d50883b8a5c3e', 'scripts/router_artifact.py': '076002a68ddfdf397af567982735434be1ca3d9c4584a2e9dee0034b69033c1a', 'scripts/release_preflight.py': '2a7781032c9885910ac8e912726f8962bd84523a4517b65d4ee7662abbf87e19', 'scripts/native_repro.py': '23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c', 'scripts/openwrt_source_gate.py': 'd22677508a027df9e2b717dae45553ba235d8e88417d14a0cf4fcb91d2cd8588', 'scripts/docker_publish_ref.py': 'e054081c3717c365e3a86f2aa54cf78c8344faa8d001a547d3cc1e21a9e4b76f', 'scripts/router_release_gate.py': '33edcf1aff24c28c04a03a97f781073b3af4ad00f93ac5913d8a78d7c11b0fe7', 'scripts/test_release_tag.py': 'e2bd0a26f809455d89725cdae4de93e5ab36529f4495684b73f949b65aad24de', 'scripts/router_toolchain.py': '5a07dc41385d405224f91b47cdce47f7987f05e013ca025ce6c19929d641df12', 'scripts/native_lab.py': 'da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0', 'scripts/release_ci_gate.py': '5adad001b81ffcb7f62dda5a625d36268729d1af01d2326450d327fd2583570b', 'scripts/test_release_ci_gate.py': 'ddb174227958fb65a0d7967534cb67a0d2d180ad62f807018d1acd36c738f323', 'scripts/ssh_command.py': 'ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b', 'scripts/test_release_certification.py': 'a899ab2f5c6a04b779bf5c49b65b7d1b07a4fb93b44344ff465c35dca145cc26', 'scripts/router_source.py': 'a0f34491d0474f98ea5a8f47e8a77a1ab0a88acd68aae73035285b307e422ed2', 'scripts/release_source.py': '822f80e48a13728ee097a188d61660d44170cb1267d0496be5c0222d5992bcb5', 'release/docker/Dockerfile': '19700ed6841956691d7379a08fd057833caed1b4819914d71312cbb16c20328e', 'release/docker/debian.sources': '2270468cd3c4e18c0ea6a3f41a3f98545fbcc7920c6a73ff07943b5a6e703fc2', '.github/workflows/docker-publish.yml': 'd75715c9e79b26bbc84228a4f10446347e0a4a21d3b50c76aceb1c4af90c6014', '.github/workflows/ci.yml': '6bcf638e8c9ea6f6d90daedd8b6c9541f7ab18244abdf63b3568db534019cf16', '.github/workflows/release-attest.yml': 'e2aec60bd0b9e85475d0f6eb417388abacb24d8b8dae4673428347b9554074e9'}, 'dirs': ['scripts', '.github', 'release', '.github/workflows', 'release/docker']}\nassert root.resolve()==root and root.parent==Path('/var/tmp') and re.fullmatch(r'qeli-ci-admission\\.[A-Za-z0-9]{8}',root.name)\nitems=list(root.rglob('*'));assert not any(f.is_symlink() for f in items)\nassert {f.relative_to(root).as_posix() for f in items if f.is_file()}==set(inv['files'])\nassert {f.relative_to(root).as_posix() for f in items if f.is_dir()}==set(inv['dirs'])\nfor name,digest in inv['files'].items():assert hashlib.sha256((root/name).read_bytes()).hexdigest()==digest\nfor proc in Path('/proc').iterdir():\n if not proc.name.isdigit() or proc.name==str(os.getpid()):continue\n targets=[proc/'cwd',proc/'exe',proc/'root']\n try:targets+=list((proc/'fd').iterdir())\n except (FileNotFoundError,PermissionError):pass\n for link in targets:\n  try:value=os.readlink(link)\n  except OSError:continue\n  assert value!=str(root) and not value.startswith(str(root)+'/'),(proc,link)\nassert str(root) not in Path('/proc/self/mountinfo').read_text()\nfor name in inv['files']:(root/name).unlink()\nfor name in sorted(inv['dirs'],key=lambda x:len(Path(x).parts),reverse=True):(root/name).rmdir()\nroot.rmdir()\nprint(json.dumps(dict(status='PASS_SHA_BACKED_KNOWN_FILES_CLEANUP',files=len(inv['files']))))\n\nCLEANUP",
+          "label": "guarded own cleanup",
+          "output": "{\"status\": \"PASS_SHA_BACKED_KNOWN_FILES_CLEANUP\", \"files\": 25}",
+          "status": 0
+        },
+        {
+          "command": "systemctl show qeli -p MainPID --value; pgrep -x qeli | sort -n; sha256sum /usr/bin/qeli",
+          "label": "original service after",
+          "output": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+          "status": 0
+        }
+      ],
+      "scope": "Actual Python/Git/filesystem execution; GH/API/build/router/certification seams controlled where documented by tests. No hosted Actions/build/deployment. .10 unused."
+    },
+    "trigger_coverage": {
+      "status": "PASS_ALL_CHANGES_COVERED",
+      "root_inputs": [
+        "global.json",
+        "NuGet.Config",
+        "Directory.Build.props",
+        "Directory.Build.targets",
+        "LICENSE",
+        ".gitattributes",
+        ".gitignore"
+      ],
+      "push_paths_filter_removed": true,
+      "pull_request_paths_filter_removed": true,
+      "other_yaml_semantically_unchanged": true,
+      "scope": "Actual YAML and actionlint validation; GitHub event scheduling not executed"
+    },
+    "qualified_source": {
+      "status": "PASS",
+      "producer_commit": "da5fea37f45430086508da1379028e46f5b2bc5e",
+      "paths": [
+        ".github/workflows/ci.yml",
+        "scripts/release_ci_gate.py",
+        "scripts/test_release_ci_gate.py",
+        "scripts/test_release_tag.py"
+      ],
+      "qualified_files_sha256": {
+        ".github/workflows/ci.yml": "6bcf638e8c9ea6f6d90daedd8b6c9541f7ab18244abdf63b3568db534019cf16",
+        "scripts/release_ci_gate.py": "5adad001b81ffcb7f62dda5a625d36268729d1af01d2326450d327fd2583570b",
+        "scripts/test_release_ci_gate.py": "ddb174227958fb65a0d7967534cb67a0d2d180ad62f807018d1acd36c738f323",
+        "scripts/test_release_tag.py": "e2bd0a26f809455d89725cdae4de93e5ab36529f4495684b73f949b65aad24de"
+      }
+    },
+    "retained_harness_failures": {
+      "status": "RETAINED_HARNESS_FAILURES",
+      "windows": "Initial21methods failed1 because an old multi-line controlled gh fixture omitted new event field. Initial log retained; fixture fixed to event=push and final132Windows pass.",
+      "linux": "Initial67methods had22 FileNotFoundError errors because AST import inventory missed dynamically read release_preflight.py. Initial archive retained; console traceback in chat is truncated, no complete initial log was saved. Reuse same owned root after archive SHA check; add exact committed preflight input. Product source unchanged.",
+      "scope": "Test fixture/input packaging errors, not product regressions; no PASS claimed for initial runs."
+    },
+    "read_only_gh": {
+      "status": "READ_ONLY_RESPONSES_RETAINED",
+      "checks": [
+        {
+          "command": [
+            "gh",
+            "api",
+            "repos/litvinovtd/qeli/actions/runs/37184654438",
+            "--jq",
+            "{event,head_sha,pull_requests: [.pull_requests[] | {number,head:.head.sha,base:.base.sha}],status,conclusion,html_url}"
+          ],
+          "returncode": 0,
+          "response": {
+            "conclusion": "failure",
+            "event": "pull_request",
+            "head_sha": "9d365d9193ad30da52014aea740ad9270545e3f9",
+            "html_url": "https://github.com/litvinovtd/qeli/actions/runs/37184654438",
+            "pull_requests": [
+              {
+                "base": "fba546798a2af2c4b6ceeac6618433004226b7b1",
+                "head": "9d365d9193ad30da52014aea740ad9270545e3f9",
+                "number": 185
+              }
+            ],
+            "status": "completed"
+          }
+        },
+        {
+          "command": [
+            "gh",
+            "run",
+            "list",
+            "--workflow",
+            "CI",
+            "--commit",
+            "bbc2bc3e24a13d827e825e57638fb485be1fd3c9",
+            "--event",
+            "push",
+            "--limit",
+            "1",
+            "--json",
+            "event,headSha,status,conclusion,databaseId"
+          ],
+          "returncode": 0,
+          "response": []
+        }
+      ],
+      "scope": "Historical PR run metadata and push CI lookup for starting main dev commit only; no current-source successful hosted Actions claimed; no dispatch/push"
+    },
+    "braces_refresh": {
+      "status": "F459_REMAINS_OPEN",
+      "date": "2026-10-10",
+      "latest": "3.0.3",
+      "affected": "<= 3.0.3",
+      "first_patched_version": null,
+      "sources": {
+        "braces-latest.json": "https://registry.npmjs.org/braces/latest",
+        "braces-advisory.json": "https://api.github.com/advisories/GHSA-vfj7-8cjw-p6xm"
+      },
+      "scope": "Live official npm registry/GitHub advisory metadata; no advisory suppression or dependency change"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-ci-admission-20261010",
+    "files": 51,
+    "bytes": 2003222,
+    "manifest_sha256": "e07eb37c184f19b94fb28c807befb0f1afc22b309f3e254d378c0550770f9713",
+    "runtime_status": "PASS_Q34_PUSH_CI_ADMISSION_SCOPED",
+    "path": "audit-debt-20260924/q34-ci-admission-20261010",
+    "status": "SEALED"
+  },
+  "scope": "F502/Q34-F056 release CI event confusion andF503/Q34-F057 root-source trigger gaps closed. Exact oldCIgate on actual private Git head/merge trees admitscontrolledgreenPRsamehead. Historical actualQeliPR185run37184654438metadata has head_sha=PRhead,eventpull_request; thatrunfailed,nohistoricalfalsegreen/buildclaim. Newghquery filters--eventpush andrequests event, responseindependentlyrequiresexactpush; PR/missing/unknown/manual/scheduled refuse evenexactheadsuccess. Branch/exactcommit callers sharelastpushstatus/SHA/query/diagnostics; noskippinglatestfailedpushforoldgreen. ActualYAMLoldpush/PRfilters miss7existingrootinputs global.json/NuGet.Config/Directory.Build.props/targets/LICENSE/.gitattributes/.gitignore. Bothpathsfilters removed, allpush/PRchanges covered; otherjobs/matrices/nightly/dispatch/compilerpins semanticallyunchanged.132Windows21CI34tag12preflight38recipe11workflow16Docker methodsPASS and67Linux exactCI/tag/preflightPASS, actualGit/filesystems withcontrolledGH/externalgates. Real tagcaller refusesgreenPR preservingoldGITHUB_OUTPUT. OfficialSHAactionlint1.7.12all4PASS. Contributor/manuals updated1.97lockedcommands andmandatorypushCI.724Markdown9checksPASS. InitialWindows1oldmultilineGHfixturemissingevent logretained; initialLinux67methods22FileNotFoundErrors fromASTpackageromittingdynamicallyreadpreflightsource, incompletearchive retained; initialfullLinuxlognotsaved/chatpartial, noinitialPASSclaim. ResumesameownedrootafterinitialarchiveSHA, addexactcommittedinput;24committedinputs/TARreadbackidentical,25knownfilesremovedafterSHA/exactset/process/fd/mountguards; TARisrecovery,noadditionalZIP. service777/845CLI75bc unchanged,.10unused,noSDK/native/APKrebuild. Actualread-onlystartingmainpushexactCIqueryempty, nofinalhostedCI/dispatch/push. Officialnpm/GitHubbracesrefresh10Octoberlatest3.0.3/nofirstpatched remainsF459OPEN,noadvisorysuppression/CSS/dependencychange. Nativee3fb14SHA/qelitree/protected/OpenWrtcutunchanged, priorexecutioninherited.41cases101priorsupplements preservedmodulosourcedigestbookkeeping;append102. Q34IN_PROGRESS30/37DONE81.1percent7remain; previousopen/accepted/USER_EXCLUDED retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE",
+  "inherited_prior_post_seal_note": {
+    "path": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-mac-universal-post-seal-note.json",
+    "sha256": "33b984d7eb151435a557fd2274689a7c694da7923e45f1bb5d9f38417f611580",
+    "scope": "Current immutable seal retained after docs pathspec/ENOSPC refusals; exact archive-backed own scratch recovery and resumed docs commit"
+  }
+}

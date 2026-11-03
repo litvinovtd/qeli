@@ -22,6 +22,7 @@ use super::record::RecordCrypto;
 use super::stream::RealTlsStream;
 use crate::crypto::{mlkem, Keypair, PublicKey};
 use crate::protocol::obfs::SplitStream;
+use crate::protocol::stream_io::{StallGuard, WriteProgress};
 use crate::protocol::FakeTlsHandshake;
 use rustls::ServerConfig;
 use std::io;
@@ -38,6 +39,7 @@ pub struct PrefixedStream<S> {
     prefix: Vec<u8>,
     pos: usize,
     inner: S,
+    write_progress: Option<WriteProgress>,
 }
 
 impl<S> PrefixedStream<S> {
@@ -46,6 +48,20 @@ impl<S> PrefixedStream<S> {
             prefix,
             pos: 0,
             inner,
+            write_progress: None,
+        }
+    }
+
+    pub(crate) fn with_write_progress(
+        prefix: Vec<u8>,
+        inner: S,
+        progress: Option<WriteProgress>,
+    ) -> Self {
+        Self {
+            prefix,
+            pos: 0,
+            inner,
+            write_progress: progress,
         }
     }
 }
@@ -85,10 +101,16 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     type R = ReadHalf<Self>;
-    type W = WriteHalf<Self>;
+    type W = StallGuard<WriteHalf<Self>>;
+
+    fn write_progress(&self) -> Option<WriteProgress> {
+        self.write_progress.clone()
+    }
 
     fn split_io(self) -> (Self::R, Self::W) {
-        tokio::io::split(self)
+        let progress = self.write_progress.clone();
+        let (read, write) = tokio::io::split(self);
+        (read, StallGuard::observing(write, progress))
     }
 }
 
@@ -136,13 +158,16 @@ pub async fn terminate<S>(
     client_hello: Vec<u8>,
     stream: S,
     config: Arc<ServerConfig>,
-) -> io::Result<TlsStream<PrefixedStream<S>>>
+) -> io::Result<StallGuard<TlsStream<PrefixedStream<StallGuard<S>>>>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    TlsAcceptor::from(config)
+    let stream = StallGuard::new(stream);
+    let progress = stream.progress();
+    let tls = TlsAcceptor::from(config)
         .accept(PrefixedStream::new(client_hello, stream))
-        .await
+        .await?;
+    Ok(StallGuard::observing(tls, Some(progress)))
 }
 
 /// Owned read/write halves so `handler::handle_client` can run the tunnel inside
@@ -312,6 +337,9 @@ pub async fn probe_borrow_profile(
             _ => return Err(ierr("unexpected record from target")),
         }
     };
+    if super::client::decode_server_hello(&sh[5..])?.session_id != sid {
+        return Err(ierr("target ServerHello session ID echo mismatch"));
+    }
     let profile = parse_borrow_profile(&sh[5..])?;
     let cert = capture_target_cert(&mut stream, &ch, &sh, &eph, &mlkem_dk)
         .await
@@ -408,52 +436,11 @@ async fn capture_target_cert<S: AsyncRead + Unpin>(
 
 /// Parse a ServerHello handshake message into a [`BorrowProfile`].
 fn parse_borrow_profile(sh_msg: &[u8]) -> io::Result<BorrowProfile> {
-    if sh_msg.len() < 39 || sh_msg[0] != 0x02 {
-        return Err(ierr("not a ServerHello"));
-    }
-    let sid_len = sh_msg[38] as usize;
-    let mut o = 39 + sid_len;
-    if o + 3 > sh_msg.len() {
-        return Err(ierr("ServerHello truncated"));
-    }
-    let cipher = u16::from_be_bytes([sh_msg[o], sh_msg[o + 1]]);
-    let suite = Suite::from_code(cipher)
-        .ok_or_else(|| ierr("target cipher suite not implemented by the realtls stack"))?;
-    o += 3; // cipher_suite(2) + legacy_compression(1)
-    if o + 2 > sh_msg.len() {
-        return Err(ierr("ServerHello missing extensions"));
-    }
-    let ext_len = u16::from_be_bytes([sh_msg[o], sh_msg[o + 1]]) as usize;
-    o += 2;
-    let end = (o + ext_len).min(sh_msg.len());
-    let (mut prefer_pq, mut key_share_first, mut seen_sv) = (false, false, false);
-    while o + 4 <= end {
-        let et = u16::from_be_bytes([sh_msg[o], sh_msg[o + 1]]);
-        let el = u16::from_be_bytes([sh_msg[o + 2], sh_msg[o + 3]]) as usize;
-        o += 4;
-        if o + el > end {
-            break;
-        }
-        let data = &sh_msg[o..o + el];
-        match et {
-            0x002b => seen_sv = true,
-            0x0033 => {
-                if !seen_sv {
-                    key_share_first = true;
-                }
-                if data.len() >= 2 {
-                    let group = u16::from_be_bytes([data[0], data[1]]);
-                    prefer_pq = group == mlkem::X25519MLKEM768;
-                }
-            }
-            _ => {}
-        }
-        o += el;
-    }
+    let parsed = super::client::decode_server_hello(sh_msg)?;
     Ok(BorrowProfile {
-        suite,
-        prefer_pq,
-        key_share_first,
+        suite: parsed.suite,
+        prefer_pq: parsed.group == mlkem::X25519MLKEM768,
+        key_share_first: parsed.key_share_first,
     })
 }
 
@@ -609,7 +596,7 @@ pub async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream
         .write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01])
         .await?; // dummy CCS
-    let flight_record = s_rec.encrypt(0x16, &flight);
+    let flight_record = s_rec.encrypt(0x16, &flight)?;
     stream.write_all(&flight_record).await?;
 
     // 5. Client CCS (skip) + encrypted client Finished.
@@ -653,7 +640,7 @@ pub async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     // (RealTlsStream skips post-handshake handshake records), so these are
     // transparent; the send-sequence advances and stays in sync with the client.
     for _ in 0..2 {
-        let rec = send.encrypt(0x16, &build_new_session_ticket());
+        let rec = send.encrypt(0x16, &build_new_session_ticket())?;
         stream.write_all(&rec).await?;
     }
 
@@ -727,7 +714,7 @@ mod tests {
             .await
             .expect("client completes handshake against the replayed ClientHello");
 
-        let ping = tls.send.encrypt(0x17, b"ping");
+        let ping = tls.send.encrypt(0x17, b"ping").unwrap();
         client_io.write_all(&ping).await.unwrap();
         client_io.flush().await.unwrap();
 
@@ -784,7 +771,7 @@ mod tests {
             let (_, rec) = read_record(&mut server_io).await.unwrap();
             let (inner, ping) = tls.recv.decrypt(&rec).expect("decrypt ping");
             assert_eq!(inner, 0x17);
-            let pong = tls.send.encrypt(0x17, b"pong");
+            let pong = tls.send.encrypt(0x17, b"pong").unwrap();
             server_io.write_all(&pong).await.unwrap();
             server_io.flush().await.unwrap();
             ping
@@ -801,7 +788,7 @@ mod tests {
             .await
             .unwrap_or_else(|e| panic!("client handshake ({suite:?}): {e}"));
 
-        let ping = tls.send.encrypt(0x17, b"ping");
+        let ping = tls.send.encrypt(0x17, b"ping").unwrap();
         client_io.write_all(&ping).await.unwrap();
         client_io.flush().await.unwrap();
 
@@ -889,9 +876,12 @@ mod tests {
         let sv: [u8; 6] = [0x00, 0x2b, 0x00, 0x02, 0x03, 0x04]; // supported_versions
         let mut ks_x = vec![0x00u8, 0x33, 0x00, 0x24, 0x00, 0x1d, 0x00, 0x20]; // key_share x25519
         ks_x.extend_from_slice(&[0u8; 32]);
-        let ks_pq: [u8; 12] = [
-            0x00, 0x33, 0x00, 0x08, 0x11, 0xec, 0x00, 0x04, 0xaa, 0xbb, 0xcc, 0xdd,
-        ];
+        let pq_len = mlkem::MLKEM768_CT_LEN + 32;
+        let mut ks_pq = vec![0, 0x33];
+        ks_pq.extend_from_slice(&((pq_len + 4) as u16).to_be_bytes());
+        ks_pq.extend_from_slice(&mlkem::X25519MLKEM768.to_be_bytes());
+        ks_pq.extend_from_slice(&(pq_len as u16).to_be_bytes());
+        ks_pq.extend_from_slice(&vec![0xaa; pq_len]);
 
         // microsoft shape: 0x1302, [supported_versions, key_share x25519].
         let mut e = sv.to_vec();

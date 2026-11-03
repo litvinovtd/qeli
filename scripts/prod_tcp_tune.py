@@ -5,8 +5,9 @@
   C) outer-port MSS clamp on the TCP listening ports (443/8443/8444/8445) so the
      large post-quantum reality/fake-tls ClientHello fits LTE (no PMTU black hole on
      the OUTER handshake — the in-tunnel vpn+ clamp does not cover it)
-Backs up the config + writes /etc/sysctl.d/99-qeli-perf.conf so everything is
-revertible. Prints before/after."""
+Historical one-off operator helper, not the general installer. Backs up the
+profile only; keep your own previous sysctl/module files and runtime values
+before running. Deleting a sysctl file does not restore previous values."""
 import os, sys, io, re, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
@@ -16,19 +17,20 @@ CONF = "/etc/qeli/server-maxobf.conf"
 BAK = "/etc/qeli/server-maxobf.conf.pretune"
 SYSCTL = "/etc/sysctl.d/99-qeli-perf.conf"
 
-SYSCTL_BODY = """# qeli throughput tuning (reversible; delete this file + reboot/sysctl --system to revert)
+SYSCTL_BODY = """# qeli throughput tuning; runtime/file rollback requires a pre-change snapshot
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.core.rmem_max=16777216
 net.core.wmem_max=16777216
 net.ipv4.tcp_rmem=4096 131072 16777216
 net.ipv4.tcp_wmem=4096 65536 16777216
+net.ipv4.tcp_moderate_rcvbuf=1
+# Leave the system-wide tcp_mem page budget unchanged.
 net.ipv4.tcp_mtu_probing=1
-# UDP has NO receive-buffer autotuning. Current qeli explicitly requests 4 MiB per UDP
-# listener, so rmem_max must permit it; the defaults below also protect older qeli builds
-# and other UDP sockets. At 208 KB one scheduling stall drops datagrams, and each lost
-# datagram costs a TCP segment INSIDE the tunnel (the inner connection then halves its
-# window). qeli logs the effective SO_RCVBUF and warns when the kernel clamps it.
+# UDP has no kernel receive autotuning. In automatic mode qeli requests 4 MiB
+# per listener and may grow within its RAM budget and rmem_max. System defaults
+# also affect older builds and other sockets. Buffer overflows may cause inner
+# TCP retransmissions; qeli logs the effective SO_RCVBUF and kernel clamping.
 # NOTE: qeli must be restarted after changing these — SO_RCVBUF is set at socket creation.
 net.core.rmem_default=4194304
 net.core.wmem_default=4194304
@@ -134,8 +136,8 @@ print("[server pushed mtu in log]", r("grep -iE 'mtu|push' /var/log/qeli/server.
 print("[default cc for new conns]", r("sysctl -n net.ipv4.tcp_congestion_control"))
 c.close()
 print("\n[done] Revert:")
-print("  A/B: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system ;",
-      "cp", BAK, CONF, "&& systemctl restart qeli.service")
+print("  A: restore your previous sysctl/module files AND saved runtime values; deleting files + sysctl --system is insufficient.")
+print("  B: cp", BAK, CONF, "&& systemctl restart qeli.service")
 print("  C:   for p in 443 8443 8444 8445; do iptables -t mangle -D OUTPUT -p tcp --sport $p",
       "--tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240; done &&",
       "tmp=$(mktemp /etc/iptables/rules.v4.qeli.XXXXXX) && if iptables-save >\"$tmp\" &&",

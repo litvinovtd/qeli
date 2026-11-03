@@ -1,0 +1,23 @@
+{
+  "status": "MACOS_PACKAGING_ONLY_LINUX_FACTS_RETAINED_HOSTED_MAC_PENDING",
+  "previous_commit": "ad24bb1f78741a52074bc4f0ee33b1629b0a6172",
+  "fix_commit": "d4d4fb0f9e181076a322e9e5804e7704ec223f9d",
+  "source_digest": "2227b6aed6f4d9effcb15fd93d3b7682efcfa09e7fc19bf31098d6d8949deb7a",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "scope": "macOS Legal resource placement and build-only asset verb startup dispatch; Mac CI rendering gate, controlled TAR regression and legal path documentation. Linux executable, harness and native recipe/source unchanged; all20 actual Linux execution facts and21physical statuses retained. Actual Mac package/render qualification pending hosted CI.",
+  "exact_changed_paths": [
+    ".github/workflows/ci.yml",
+    "LICENSING.md",
+    "qeli-mac/QeliMac/Program.cs",
+    "qeli-mac/README.md",
+    "qeli-mac/build_app.sh",
+    "qeli-win/README.md",
+    "release/certification/evidence/candidate-macos-resource-fix-20261015.json",
+    "scripts/test_macos_app_signer.py"
+  ],
+  "new_Linux_runtime_runs": 0,
+  "original_CI_failures_preserved": true,
+  "macos_resource_fix_evidence": "release/certification/evidence/candidate-macos-resource-fix-20261015.json",
+  "Android_payload_source_tree_unchanged": true,
+  "accepted_API34_limitation_unchanged": true
+}

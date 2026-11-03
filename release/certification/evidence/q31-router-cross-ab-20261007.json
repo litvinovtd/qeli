@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_PASS_Q31_V006_F366_F367_Q31_IN_PROGRESS",
+  "source_digest": "aa9d56b464a5a8fa9667c7fa18ace16dcd4e9ce0737b2d68fcfb8bfb219fbb16",
+  "scope": "Q31-V006/F366-F367: six fresh full offline one-job sequential Qeli builds, two per AArch64/ARMv7/MIPS, common pinned standalone recipe. Separate owned source/HOME/Cargo/target/Zig/XDG/TMP caches and identical verified registry copies;364 crate inputs restored/unchanged. All three A/B pairs byte-identical;shared static ELF/profile/remap/fresh-build admission PASS. Prior F365 x86 A/B reused after74sealed files and380current compilation inputs matched:all four standalone targets scoped PASS. Private official Debian security QEMU10.0.2 SHA-verified before extraction;12actual help/version calls and72actual INI owner/interface metadata cases PASS,no skips/no connection;no binfmt/package/global tool install. First stale-main package URL404 retained. F366 actual old fingerprint AST proves binary-CR collision;old dirty source gate only warned. F367 actual old gate AST models show unlocked/unpinned/rolling-nightly shared-root commands,configured missing-dependency silent skip and missing close on error. New gate freezes exact committed Git archive,refuses dirty participating inputs before SSH,uses common owned source/pinned locked jobs1/remap/release/rlib/strict SHA+ELF helpers,records configured failures,closes SSH finally. QELI_LAB_SRC obsolete;optional if QELI_LAB_PASS unset,no publication,private gate checkout retained by normal helper behavior.15unique real-Git/transport-ELF model gate methods and72related Linux methods PASS;750final model inputs match staged Git. Exact new CI test command/local15,37recipes,docs9,bindings,diff PASS;no live full preflight/GHA dispatch. Fixture escaping/duplicate-method preparation corrected beforefinal models. Six compiler roots absent,no owned process/mount;global registry/tools/nightly-source unchanged. Warnings retained;no new cross-Clippy/performance or firmware qualification. Rust/core/ABI/manifests/lock/publishedbinaries unchanged. Full SDK bootstrap/sourcepin-mirror releasecut/full Cargo-env-linker-PATH-cache hermeticity/remaining Q31 source-dead-code review OPEN;firmware USER_EXCLUDED. Q31IN_PROGRESS28/37(75.7%),9remain;Q29SIGKILL FAIL/auto-null ENONET,Q30callback-drain OPEN/Apple exclusions,D06ACCEPTED retained.41historic cases/acceptance and37prior supplements preserved except source_digest. No push/deploy.",
+  "checks": {
+    "verified_at": "2026-10-07T15:16:27.544696+00:00",
+    "compiled_inputs_match_index": 380,
+    "model_inputs_match_index": 750,
+    "prior_x86_seal_files_verified": 74,
+    "new_ELFs_verified": 6,
+    "actual_qemu_metadata_cases": 72,
+    "linux_gate_methods": 15,
+    "linux_related_methods": 72,
+    "local_recipes": 37,
+    "docs_checks": 9,
+    "bindings": "PASS",
+    "skips": 0,
+    "published_binaries_unchanged": true
+  },
+  "artifacts": [
+    {
+      "arch": "aarch64",
+      "phase": "a",
+      "sha256": "6a0ae5622a9dd4ce58289e2ab0066d0d1600e1b6dec0269cf1199209452ea62a",
+      "size": 4820920,
+      "status": "PASS"
+    },
+    {
+      "arch": "aarch64",
+      "phase": "b",
+      "sha256": "6a0ae5622a9dd4ce58289e2ab0066d0d1600e1b6dec0269cf1199209452ea62a",
+      "size": 4820920,
+      "status": "PASS"
+    },
+    {
+      "arch": "armv7",
+      "phase": "a",
+      "sha256": "2a445c055db3ffc23f26e3adb59c8ecb8e9fe89ae6f74f251c8437530b3fe812",
+      "size": 4984836,
+      "status": "PASS"
+    },
+    {
+      "arch": "armv7",
+      "phase": "b",
+      "sha256": "2a445c055db3ffc23f26e3adb59c8ecb8e9fe89ae6f74f251c8437530b3fe812",
+      "size": 4984836,
+      "status": "PASS"
+    },
+    {
+      "arch": "mipsel",
+      "phase": "a",
+      "sha256": "591f593741b167832aa2bc7b06f9e3476ea336e8195246920915b0367ef4deb9",
+      "size": 6849048,
+      "status": "PASS"
+    },
+    {
+      "arch": "mipsel",
+      "phase": "b",
+      "sha256": "591f593741b167832aa2bc7b06f9e3476ea336e8195246920915b0367ef4deb9",
+      "size": 6849048,
+      "status": "PASS"
+    }
+  ],
+  "independent_ab": [
+    {
+      "arch": "aarch64",
+      "byte_identical": true,
+      "pair_status": [
+        "PASS",
+        "PASS"
+      ]
+    },
+    {
+      "arch": "armv7",
+      "byte_identical": true,
+      "pair_status": [
+        "PASS",
+        "PASS"
+      ]
+    },
+    {
+      "arch": "mipsel",
+      "byte_identical": true,
+      "pair_status": [
+        "PASS",
+        "PASS"
+      ]
+    }
+  ],
+  "x86_reference": {
+    "evidence": "release/certification/evidence/q31-router-clean-ab-20261007.json",
+    "raw_seal_sha256": "4f7699a259c2356a0a8a41e8c91bc8a29cda1dfc5c41871d21ae3d8ca06edf89",
+    "files_verified": 74,
+    "matching_inputs": 380
+  },
+  "primary_reference": "https://www.qemu.org/docs/master/user/main.html",
+  "base_worktree_commit": "8f59585fb9be4aaebb4b7197e1a82c659044cf21",
+  "base_dev_commit": "e2c65dbbc9afb69bc5b5d33be22d95f2d4756c75",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-router-cross-ab-20261007",
+  "raw_seal_sha256": "73641a8ce75829a9f674f9b3eccc1dee4a04b77182ca083a1282356903aceea3",
+  "raw_sealed_files": 75,
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "q31": "IN_PROGRESS"
+  }
+}

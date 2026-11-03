@@ -60,7 +60,7 @@ pub struct DhcpServer {
     start_time: std::time::Instant,
     /// Shared IP pool — DHCP allocates through it to prevent overlap with VPN sessions
     shared_pool: Arc<Mutex<IpPool>>,
-    /// Per-source-IP rate limit on inbound DHCP packets. DHCP is unauthenticated,
+    /// Per-client-MAC rate limit on inbound DHCP packets. DHCP is unauthenticated,
     /// so a single source spraying DISCOVERs could otherwise churn the shared pool
     /// or drown the recv loop. Excess packets from one source are dropped silently.
     recv_limiter: Mutex<crate::server::RateLimiter>,
@@ -106,28 +106,23 @@ impl DhcpServer {
             declined: RwLock::new(HashMap::new()),
             start_time: std::time::Instant::now(),
             shared_pool,
-            // 60 packets per 10s window per source IP: comfortably above a
+            // 60 packets per 10s window per complete client MAC: comfortably above a
             // legitimate DISCOVER/REQUEST handshake (a few packets) while capping
             // an unauthenticated flood from any single address.
             recv_limiter: Mutex::new(crate::server::RateLimiter::new(60, 10)),
         }
     }
 
-    /// A rate-limiter key derived from the BOOTP client hardware address (`chaddr`, offset 28),
-    /// packed into an IPv4 address because that is what the shared limiter is keyed on.
-    ///
-    /// The first four MAC bytes are the OUI plus one — enough to separate machines on a LAN,
-    /// and the limiter is a flood guard rather than an access control. `None` for a packet too
-    /// short to contain a `chaddr` or with an all-zero one, so the caller falls back to the
-    /// source IP.
+    /// Preserve all six hardware-address bytes; IPv6 keys avoid prefix collisions
+    /// between clients whose NIC addresses differ only in their final bytes.
     fn client_mac_key(data: &[u8]) -> Option<std::net::IpAddr> {
         let mac = data.get(28..34)?;
         if mac.iter().all(|&b| b == 0) {
             return None;
         }
-        Some(std::net::IpAddr::V4(std::net::Ipv4Addr::new(
-            mac[0], mac[1], mac[2], mac[3],
-        )))
+        let mut key = [0u8; 16];
+        key[10..].copy_from_slice(mac);
+        Some(std::net::IpAddr::V6(std::net::Ipv6Addr::from(key)))
     }
 
     /// Bind the DHCP socket, separately from serving on it.
@@ -192,7 +187,8 @@ impl DhcpServer {
     pub async fn run(self: Arc<Self>, bind_addr: &str, socket: UdpSocket) -> anyhow::Result<()> {
         log::info!("DHCP server bound to {}, starting recv loop", bind_addr);
 
-        let mut buf = vec![0u8; 1500];
+        // Receive the complete UDP datagram so a valid prefix cannot hide a malformed tail.
+        let mut buf = vec![0u8; 65_535];
         let mut reaper = time::interval(Duration::from_secs(Self::OFFER_RESERVATION_SECS));
         reaper.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -214,7 +210,7 @@ impl DhcpServer {
                             continue;
                         }
                     };
-                    log::info!("DHCP received {} bytes from {}", n, src);
+                    log::debug!("DHCP received {} bytes from {}", n, src);
                     if let Err(e) = self.handle_packet(&buf[..n], &socket, &src).await {
                         log::debug!("DHCP error from {}: {}", src, e);
                     }
@@ -229,6 +225,7 @@ impl DhcpServer {
         socket: &UdpSocket,
         _src: &std::net::SocketAddr,
     ) -> anyhow::Result<()> {
+        Self::validate_request(data)?;
         // Per-CLIENT rate limit: DHCP is unauthenticated, so cap how fast any one client can
         // drive the recv/allocate path. Excess packets are dropped silently (no reply, no pool
         // churn) rather than erroring.
@@ -245,22 +242,13 @@ impl DhcpServer {
             let key = Self::client_mac_key(data).unwrap_or_else(|| _src.ip());
             let mut rl = self.recv_limiter.lock().await;
             if !rl.check_and_record(key) {
-                log::warn!("DHCP: rate limit exceeded for {}, dropping packet", _src);
+                log::debug!("DHCP: rate limit exceeded for {}, dropping packet", _src);
                 return Ok(());
             }
         }
-        if data.len() < 240 {
-            log::warn!("DHCP: packet too short ({} bytes)", data.len());
-            return Err(anyhow::anyhow!("packet too short"));
-        }
-        if data[0] != 1 {
-            log::warn!("DHCP: not BOOTREQUEST (op={})", data[0]);
-            return Err(anyhow::anyhow!("not a BOOTREQUEST"));
-        }
-
         let msg_type =
             Self::find_dhcp_option(data, DHCP_OPTION_MSG_TYPE).and_then(|opt| opt.get(2).copied());
-        log::info!("DHCP: received message type {:?}", msg_type);
+        log::debug!("DHCP: received message type {:?}", msg_type);
 
         match msg_type {
             Some(1) => self.handle_discover(data, socket).await,
@@ -771,6 +759,10 @@ impl DhcpServer {
         offered_ip: Ipv4Addr,
         msg_type: u8,
     ) -> anyhow::Result<Vec<u8>> {
+        anyhow::ensure!(
+            self.dns_servers.len() <= 63,
+            "DHCP supports at most 63 IPv4 DNS servers"
+        );
         let mut reply = vec![0u8; 240];
 
         reply[0] = BOOTP_REPLY;
@@ -812,9 +804,8 @@ impl DhcpServer {
         options.extend_from_slice(&[DHCP_OPTION_RENEWAL_TIME, 4]);
         options.extend_from_slice(&t1.to_be_bytes());
 
-        // saturating_mul: `lease * 3` overflows u32 for a lease > ~1.43e9 s (wraps in
-        // release, panics in debug) on a pathological config value.
-        let t2 = self.lease_time_secs.saturating_mul(3) / 4;
+        // Widen before multiplying: saturation would place T2 before T1 on long leases.
+        let t2 = (u64::from(self.lease_time_secs) * 3 / 4) as u32;
         options.extend_from_slice(&[DHCP_OPTION_REBINDING_TIME, 4]);
         options.extend_from_slice(&t2.to_be_bytes());
 
@@ -838,40 +829,106 @@ impl DhcpServer {
         Self::find_dhcp_option(data, option_code)
     }
 
-    fn find_dhcp_option(data: &[u8], option_code: u8) -> Option<&[u8]> {
-        if data.len() < 240 {
-            return None;
+    /// Visit complete TLVs in wire order, including RFC 2132 option overload.
+    /// Only fields explicitly selected by option 52 are interpreted as options.
+    fn visit_dhcp_options<'a>(
+        data: &'a [u8],
+        mut visitor: impl FnMut(&'a [u8]) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(data.len() >= 240, "DHCP packet too short");
+        anyhow::ensure!(data[236..240] == [99, 130, 83, 99], "invalid DHCP cookie");
+        fn walk<'a>(
+            region: &'a [u8],
+            visitor: &mut impl FnMut(&'a [u8]) -> anyhow::Result<()>,
+        ) -> anyhow::Result<()> {
+            let mut pos = 0;
+            while pos < region.len() {
+                match region[pos] {
+                    0 => {
+                        pos += 1;
+                        continue;
+                    }
+                    DHCP_OPTION_END => return Ok(()),
+                    _ => {}
+                }
+                let len = *region
+                    .get(pos + 1)
+                    .ok_or_else(|| anyhow::anyhow!("truncated DHCP option length"))?
+                    as usize;
+                let end = pos + 2 + len;
+                let option = region
+                    .get(pos..end)
+                    .ok_or_else(|| anyhow::anyhow!("truncated DHCP option value"))?;
+                visitor(option)?;
+                pos = end;
+            }
+            anyhow::bail!("DHCP options missing END")
         }
-        if data[236..240] != [99, 130, 83, 99] {
-            return None;
+        let mut overload = None;
+        walk(&data[240..], &mut |option: &'a [u8]| {
+            if option[0] == 52 {
+                anyhow::ensure!(
+                    option.len() == 3 && (1..=3).contains(&option[2]),
+                    "invalid DHCP option overload"
+                );
+                anyhow::ensure!(
+                    overload.replace(option[2]).is_none(),
+                    "duplicate DHCP option overload"
+                );
+            }
+            visitor(option)
+        })?;
+        let overload = overload.unwrap_or(0);
+        for (mask, region) in [(1, &data[108..236]), (2, &data[44..108])] {
+            if overload & mask != 0 {
+                walk(region, &mut |option: &'a [u8]| {
+                    anyhow::ensure!(option[0] != 52, "nested DHCP option overload");
+                    visitor(option)
+                })?;
+            }
         }
+        Ok(())
+    }
 
-        let mut pos = 240;
-        while pos + 1 < data.len() {
-            let code = data[pos];
-            if code == 255 {
-                return None;
+    /// Validate before rate accounting or allocation, including options after message type.
+    fn validate_request(data: &[u8]) -> anyhow::Result<()> {
+        anyhow::ensure!(data.len() >= 240, "DHCP packet too short");
+        anyhow::ensure!(
+            data[..3] == [1, 1, 6],
+            "DHCP requires Ethernet BOOTREQUEST with six-byte address"
+        );
+        let mac = &data[28..34];
+        anyhow::ensure!(
+            mac[0] & 1 == 0 && mac.iter().any(|&b| b != 0),
+            "invalid DHCP client MAC"
+        );
+        let mut seen = [false; 3];
+        Self::visit_dhcp_options(data, |option| {
+            let (slot, len) = match option[0] {
+                DHCP_OPTION_MSG_TYPE => (0, 1),
+                50 => (1, 4),
+                DHCP_OPTION_SERVER_ID => (2, 4),
+                _ => return Ok(()),
+            };
+            anyhow::ensure!(option[1] == len, "invalid DHCP control option length");
+            anyhow::ensure!(!seen[slot], "duplicate DHCP control option");
+            seen[slot] = true;
+            Ok(())
+        })?;
+        anyhow::ensure!(seen[0], "DHCP message type missing");
+        Ok(())
+    }
+
+    fn find_dhcp_option(data: &[u8], option_code: u8) -> Option<&[u8]> {
+        let mut found = None;
+        Self::visit_dhcp_options(data, |option| {
+            if option[0] == option_code && found.is_none() {
+                found = Some(option);
             }
-            if code == 0 {
-                pos += 1;
-                continue;
-            }
-            if pos + 2 > data.len() {
-                return None;
-            }
-            let len = data[pos + 1] as usize;
-            // Bound-check the declared option length before slicing — a crafted
-            // DHCP packet with len past the buffer would otherwise panic
-            // (index out of bounds), which under panic=abort crashes the server.
-            if pos + 2 + len > data.len() {
-                return None;
-            }
-            if code == option_code {
-                return Some(&data[pos..pos + 2 + len]);
-            }
-            pos += 2 + len;
-        }
-        None
+            Ok(())
+        })
+        .ok()?;
+        found
     }
 }
 
@@ -1164,5 +1221,180 @@ mod tests {
             DhcpServer::nak_destination(&request),
             std::net::SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::BROADCAST), DHCP_CLIENT_PORT,)
         );
+    }
+    fn ethernet_request(options: &[u8]) -> Vec<u8> {
+        let mut data = dhcp_base();
+        data[..3].copy_from_slice(&[1, 1, 6]);
+        data[28..34].copy_from_slice(&[0x02, 0, 0, 0, 0, 1]);
+        data.extend_from_slice(options);
+        data
+    }
+
+    #[test]
+    fn rate_limit_distinguishes_the_complete_client_mac() {
+        let first = ethernet_request(&[53, 1, 1, 255]);
+        let mut second = first.clone();
+        second[33] = 2;
+        let first_key = DhcpServer::client_mac_key(&first).unwrap();
+        let second_key = DhcpServer::client_mac_key(&second).unwrap();
+        assert_ne!(first_key, second_key);
+        let mut limiter = crate::server::RateLimiter::new(60, 10);
+        for _ in 0..60 {
+            assert!(limiter.check_and_record(first_key));
+        }
+        assert!(!limiter.check_and_record(first_key));
+        assert!(limiter.check_and_record(second_key));
+    }
+
+    #[tokio::test]
+    async fn malformed_requests_cannot_reserve_addresses() {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let src = "127.0.0.1:68".parse().unwrap();
+        let mut packets = vec![
+            ethernet_request(&[53, 2, 1, 0, 255]),
+            ethernet_request(&[53, 1, 1, 50, 3, 10, 9, 0, 255]),
+            ethernet_request(&[53, 1, 1, 54, 5, 10, 9, 0, 1, 0, 255]),
+            ethernet_request(&[53, 1, 1, 53, 1, 3, 255]),
+            ethernet_request(&[53, 1, 1, 200, 10, 1]),
+            ethernet_request(&[53, 1, 1]),
+        ];
+        for (offset, value) in [(1, 2), (2, 0), (2, 16), (28, 3)] {
+            let mut data = ethernet_request(&[53, 1, 1, 255]);
+            data[offset] = value;
+            packets.push(data);
+        }
+        let mut zero_mac = ethernet_request(&[53, 1, 1, 255]);
+        zero_mac[28..34].fill(0);
+        packets.push(zero_mac);
+        for (index, data) in packets.iter().enumerate() {
+            let server = test_server(3600);
+            assert!(
+                server.handle_packet(data, &socket, &src).await.is_err(),
+                "case {index}"
+            );
+            assert!(
+                server.leases.read().await.iter().all(Option::is_none),
+                "case {index}"
+            );
+            let mac = MacAddr::from_bytes(&data[28..34]);
+            assert!(server
+                .shared_pool
+                .lock()
+                .await
+                .get_ip_by_username(&DhcpServer::lease_key(&mac))
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn rebinding_timer_preserves_large_lease_arithmetic() {
+        for lease in [3600, u32::MAX / 3 + 1, u32::MAX - 1, u32::MAX] {
+            let server = test_server(lease);
+            let reply = server
+                .build_reply(
+                    &dhcp_base(),
+                    Ipv4Addr::new(10, 9, 0, 100),
+                    DHCP_MSG_TYPE_ACK,
+                )
+                .unwrap();
+            let t1 = u32::from_be_bytes(
+                DhcpServer::find_dhcp_option(&reply, 58).unwrap()[2..6]
+                    .try_into()
+                    .unwrap(),
+            );
+            let t2 = u32::from_be_bytes(
+                DhcpServer::find_dhcp_option(&reply, 59).unwrap()[2..6]
+                    .try_into()
+                    .unwrap(),
+            );
+            assert_eq!(u64::from(t2), u64::from(lease) * 3 / 4);
+            assert!(t1 < t2 && t2 < lease);
+        }
+    }
+
+    #[test]
+    fn dns_option_length_never_wraps() {
+        let mut server = test_server(3600);
+        server.dns_servers = vec![Ipv4Addr::new(10, 9, 0, 1); 63];
+        let reply = server
+            .build_reply(
+                &dhcp_base(),
+                Ipv4Addr::new(10, 9, 0, 100),
+                DHCP_MSG_TYPE_ACK,
+            )
+            .unwrap();
+        assert_eq!(DhcpServer::find_dhcp_option(&reply, 6).unwrap().len(), 254);
+        assert!(DhcpServer::find_dhcp_option(&reply, 51).is_some());
+        server.dns_servers.push(Ipv4Addr::new(10, 9, 0, 2));
+        assert!(server
+            .build_reply(
+                &dhcp_base(),
+                Ipv4Addr::new(10, 9, 0, 100),
+                DHCP_MSG_TYPE_ACK
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn overload_fields_are_validated_and_used_in_wire_order() {
+        let mut data = ethernet_request(&[53, 1, 3, 52, 1, 3, 255]);
+        data[108..115].copy_from_slice(&[50, 4, 10, 9, 0, 100, 255]);
+        data[44..51].copy_from_slice(&[54, 4, 10, 9, 0, 1, 255]);
+        DhcpServer::validate_request(&data).unwrap();
+        assert_eq!(
+            DhcpServer::find_dhcp_option(&data, 50).unwrap(),
+            &[50, 4, 10, 9, 0, 100]
+        );
+        assert_eq!(
+            DhcpServer::find_dhcp_option(&data, 54).unwrap(),
+            &[54, 4, 10, 9, 0, 1]
+        );
+        data[44..48].copy_from_slice(&[53, 1, 3, 255]);
+        assert!(DhcpServer::validate_request(&data).is_err());
+        data[44..48].copy_from_slice(&[200, 100, 0, 255]);
+        assert!(DhcpServer::validate_request(&data).is_err());
+        assert!(DhcpServer::find_dhcp_option(&data, 50).is_none());
+    }
+
+    #[tokio::test]
+    async fn exhausted_and_empty_pools_do_not_evict_vpn_or_underflow() {
+        let server = test_server(3600);
+        let reserved = Ipv4Addr::new(10, 9, 0, 100);
+        assert_eq!(
+            server
+                .shared_pool
+                .lock()
+                .await
+                .allocate_fixed_unclaimed("vpn-session", reserved),
+            Some(reserved)
+        );
+        for suffix in 1..=10 {
+            let mac = MacAddr([2, 0, 0, 0, 0, suffix]);
+            assert!(server.allocate_ip(&mac, None, true, true).await.is_some());
+        }
+        assert!(server
+            .allocate_ip(&MacAddr([2, 0, 0, 0, 0, 11]), None, true, true)
+            .await
+            .is_none());
+        assert_eq!(
+            server
+                .shared_pool
+                .lock()
+                .await
+                .get_ip_by_username("vpn-session"),
+            Some(reserved)
+        );
+        assert_eq!(server.reap_expired_at(30).await, 10);
+        assert!(server
+            .allocate_ip(&MacAddr([2, 0, 0, 0, 0, 11]), None, true, true)
+            .await
+            .is_some());
+        let mut empty = test_server(3600);
+        empty.pool_end = empty.pool_start - 1;
+        *empty.leases.get_mut() = Vec::new();
+        assert!(empty
+            .allocate_ip(&MacAddr([2, 0, 0, 0, 0, 12]), None, true, true)
+            .await
+            .is_none());
     }
 }

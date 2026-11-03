@@ -1,0 +1,866 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F324_F325_LINUX_PROCESS_FIXTURES_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T15:22:52.485041+00:00",
+  "base_commit": "bd86cac62d434cb6a5496ef2cf5b3b0b43cddda6",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-keenetic-process-lifecycle-20261006",
+  "raw_seal_sha256": "1123f8a8351699dc2a784d3e497a7e345badd1333b5da38c051abcb17ca8d34c",
+  "checks": [
+    {
+      "id": "native-recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "native-recipes.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "diff.log"
+    },
+    {
+      "id": "busybox-shell",
+      "command": "cd /var/tmp/qeli-q31-keenetic-process-lifecycle-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "busybox-initial.log"
+    },
+    {
+      "id": "busybox-reproduction",
+      "command": "cd /var/tmp/qeli-q31-keenetic-process-lifecycle-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 reproduce.py",
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "busybox-reproduction.log"
+    },
+    {
+      "id": "dash-shell",
+      "command": "cd /var/tmp/qeli-q31-keenetic-process-lifecycle-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "dash-shell.log"
+    },
+    {
+      "id": "dash-reproduction",
+      "command": "cd /var/tmp/qeli-q31-keenetic-process-lifecycle-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture python3 reproduce.py",
+      "exit_code": 0,
+      "status": "PASS",
+      "log": "dash-reproduction.log"
+    }
+  ],
+  "source_review": {
+    "findings": [
+      "F324 best-effort PID/start-tick/executable verification, checked private publication and upgrade gate",
+      "F325 TERM exit precedes compatibility cleanup, retained failures/retries, startup checks, status codes and no blind TUN deletion"
+    ],
+    "shell_tests_per_interpreter": 108,
+    "shell_breakdown": {
+      "base_process": 21,
+      "opkgtun_process": 22,
+      "base_state": 22,
+      "opkgtun_state": 22,
+      "installer": 12,
+      "hook": 9
+    },
+    "new_shell_cases": 44,
+    "interpreters": [
+      "BusyBox ash",
+      "dash"
+    ],
+    "native_recipe_checks": 37,
+    "baseline_reproductions": {
+      "busybox": [
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "foreign-exe",
+          "exit_code": 0,
+          "events": [
+            "CLEANUP"
+          ],
+          "alive": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "delayed-exit",
+          "exit_code": 0,
+          "events": [
+            "READY 2016156 plan=1 pid=1",
+            "CLEANUP",
+            "TERM 2016156 plan=0 pid=0",
+            "EXIT 2016156 plan=0 pid=0"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "instant-exit",
+          "exit_code": 0,
+          "events": [],
+          "pid_exists": true,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "term-timeout",
+          "exit_code": 0,
+          "events": [
+            "READY 2016177 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "abort-join",
+          "exit_code": 1,
+          "events": [
+            "READY 2016190 plan=1 pid=1",
+            "CLEANUP",
+            "TERM 2016190 plan=0 pid=0",
+            "EXIT 2016190 plan=0 pid=0"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "group-pid",
+          "exit_code": 0,
+          "events": [
+            "CLEANUP",
+            "SIGNAL 0"
+          ],
+          "signal_attempt": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "pid-directory",
+          "exit_code": 0,
+          "events": [
+            "READY 2016206 plan=1 pid=1"
+          ],
+          "pid_exists": true,
+          "plan_exists": true,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "foreign-exe",
+          "exit_code": 1,
+          "events": [],
+          "alive": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "delayed-exit",
+          "exit_code": 0,
+          "events": [
+            "READY 2016228 plan=1 pid=0",
+            "TERM 2016228 plan=1 pid=1",
+            "EXIT 2016228 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "instant-exit",
+          "exit_code": 1,
+          "events": [
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "term-timeout",
+          "exit_code": 1,
+          "events": [
+            "READY 2016319 plan=1 pid=0"
+          ],
+          "pid_exists": true,
+          "plan_exists": true,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "abort-join",
+          "exit_code": 1,
+          "events": [
+            "READY 2016408 plan=1 pid=0",
+            "TERM 2016408 plan=1 pid=1",
+            "EXIT 2016408 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "group-pid",
+          "exit_code": 1,
+          "events": [],
+          "signal_attempt": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "pid-directory",
+          "exit_code": 1,
+          "events": [],
+          "pid_exists": true,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "foreign-exe",
+          "exit_code": 0,
+          "events": [
+            "CLEANUP"
+          ],
+          "alive": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "delayed-exit",
+          "exit_code": 0,
+          "events": [
+            "READY 2016478 plan=1 pid=1",
+            "CLEANUP",
+            "TERM 2016478 plan=0 pid=0",
+            "EXIT 2016478 plan=0 pid=0"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "instant-exit",
+          "exit_code": 0,
+          "events": [],
+          "pid_exists": true,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "term-timeout",
+          "exit_code": 0,
+          "events": [
+            "READY 2016491 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "abort-join",
+          "exit_code": 1,
+          "events": [
+            "READY 2016500 plan=1 pid=1",
+            "CLEANUP",
+            "TERM 2016500 plan=0 pid=0",
+            "EXIT 2016500 plan=0 pid=0"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "group-pid",
+          "exit_code": 0,
+          "events": [
+            "CLEANUP",
+            "SIGNAL 0"
+          ],
+          "signal_attempt": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "pid-directory",
+          "exit_code": 0,
+          "events": [
+            "READY 2016512 plan=1 pid=1"
+          ],
+          "pid_exists": true,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "foreign-exe",
+          "exit_code": 1,
+          "events": [],
+          "alive": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "delayed-exit",
+          "exit_code": 0,
+          "events": [
+            "READY 2016530 plan=1 pid=0",
+            "TERM 2016530 plan=1 pid=1",
+            "EXIT 2016530 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "instant-exit",
+          "exit_code": 1,
+          "events": [
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "term-timeout",
+          "exit_code": 1,
+          "events": [
+            "READY 2016619 plan=1 pid=0"
+          ],
+          "pid_exists": true,
+          "plan_exists": true,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "abort-join",
+          "exit_code": 1,
+          "events": [
+            "READY 2016704 plan=1 pid=0",
+            "TERM 2016704 plan=1 pid=1",
+            "EXIT 2016704 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "group-pid",
+          "exit_code": 1,
+          "events": [],
+          "signal_attempt": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "pid-directory",
+          "exit_code": 1,
+          "events": [],
+          "pid_exists": true,
+          "plan_exists": false,
+          "helpers_running": false
+        }
+      ],
+      "dash": [
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "foreign-exe",
+          "exit_code": 0,
+          "events": [
+            "CLEANUP"
+          ],
+          "alive": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "delayed-exit",
+          "exit_code": 0,
+          "events": [
+            "READY 2023809 plan=1 pid=1",
+            "CLEANUP",
+            "TERM 2023809 plan=0 pid=0",
+            "EXIT 2023809 plan=0 pid=0"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "instant-exit",
+          "exit_code": 0,
+          "events": [],
+          "pid_exists": true,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "term-timeout",
+          "exit_code": 0,
+          "events": [
+            "READY 2023830 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "abort-join",
+          "exit_code": 1,
+          "events": [
+            "READY 2023843 plan=1 pid=1",
+            "CLEANUP",
+            "TERM 2023843 plan=0 pid=0",
+            "EXIT 2023843 plan=0 pid=0"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "group-pid",
+          "exit_code": 0,
+          "events": [
+            "CLEANUP",
+            "SIGNAL 0"
+          ],
+          "signal_attempt": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "baseline",
+          "scenario": "pid-directory",
+          "exit_code": 0,
+          "events": [
+            "READY 2023859 plan=1 pid=1"
+          ],
+          "pid_exists": true,
+          "plan_exists": true,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "foreign-exe",
+          "exit_code": 1,
+          "events": [],
+          "alive": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "delayed-exit",
+          "exit_code": 0,
+          "events": [
+            "READY 2023881 plan=1 pid=0",
+            "TERM 2023881 plan=1 pid=1",
+            "EXIT 2023881 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "instant-exit",
+          "exit_code": 1,
+          "events": [
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "term-timeout",
+          "exit_code": 1,
+          "events": [
+            "READY 2023972 plan=1 pid=0"
+          ],
+          "pid_exists": true,
+          "plan_exists": true,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "abort-join",
+          "exit_code": 1,
+          "events": [
+            "READY 2024061 plan=1 pid=0",
+            "TERM 2024061 plan=1 pid=1",
+            "EXIT 2024061 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "group-pid",
+          "exit_code": 1,
+          "events": [],
+          "signal_attempt": false
+        },
+        {
+          "template": "release/keenetic/S99qeli",
+          "source": "current",
+          "scenario": "pid-directory",
+          "exit_code": 1,
+          "events": [],
+          "pid_exists": true,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "foreign-exe",
+          "exit_code": 0,
+          "events": [
+            "CLEANUP"
+          ],
+          "alive": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "delayed-exit",
+          "exit_code": 0,
+          "events": [
+            "READY 2024131 plan=1 pid=1",
+            "CLEANUP",
+            "TERM 2024131 plan=0 pid=0",
+            "EXIT 2024131 plan=0 pid=0"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "instant-exit",
+          "exit_code": 0,
+          "events": [],
+          "pid_exists": true,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "term-timeout",
+          "exit_code": 0,
+          "events": [
+            "READY 2024144 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "abort-join",
+          "exit_code": 1,
+          "events": [
+            "READY 2024153 plan=1 pid=1",
+            "CLEANUP",
+            "TERM 2024153 plan=0 pid=0",
+            "EXIT 2024153 plan=0 pid=0"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "group-pid",
+          "exit_code": 0,
+          "events": [
+            "CLEANUP",
+            "SIGNAL 0"
+          ],
+          "signal_attempt": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "baseline",
+          "scenario": "pid-directory",
+          "exit_code": 0,
+          "events": [
+            "READY 2024165 plan=1 pid=1"
+          ],
+          "pid_exists": true,
+          "plan_exists": false,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "foreign-exe",
+          "exit_code": 1,
+          "events": [],
+          "alive": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "delayed-exit",
+          "exit_code": 0,
+          "events": [
+            "READY 2024183 plan=1 pid=0",
+            "TERM 2024183 plan=1 pid=1",
+            "EXIT 2024183 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "instant-exit",
+          "exit_code": 1,
+          "events": [
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "term-timeout",
+          "exit_code": 1,
+          "events": [
+            "READY 2024272 plan=1 pid=0"
+          ],
+          "pid_exists": true,
+          "plan_exists": true,
+          "helpers_running": true
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "abort-join",
+          "exit_code": 1,
+          "events": [
+            "READY 2024357 plan=1 pid=0",
+            "TERM 2024357 plan=1 pid=1",
+            "EXIT 2024357 plan=1 pid=1",
+            "CLEANUP"
+          ],
+          "pid_exists": false,
+          "plan_exists": false,
+          "helpers_running": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "group-pid",
+          "exit_code": 1,
+          "events": [],
+          "signal_attempt": false
+        },
+        {
+          "template": "release/keenetic/opkgtun/S99qeli",
+          "source": "current",
+          "scenario": "pid-directory",
+          "exit_code": 1,
+          "events": [],
+          "pid_exists": true,
+          "plan_exists": false,
+          "helpers_running": false
+        }
+      ]
+    },
+    "retained_initial_failure": "Original comparison incorrectly appended current lifecycle from first nat_up occurrence; corrected to last fixture-only callbacks. Initial assertion FAIL retained.",
+    "common_helper_identity": [
+      {
+        "start": "read_pid()",
+        "end": "start()",
+        "sha256": "cbcd265620a15cceb16d79ab8dfd9820e9dce9d0589bde9172e8f3d2bb13c1c3"
+      },
+      {
+        "start": "ipv6_wan_if()",
+        "end": "nat_up()",
+        "sha256": "0b9ec1a87589f9a76b76b2ba7d904dabe1870ddf4a69d91f9023dfe461485847"
+      },
+      {
+        "start": "delete_owned_rule()",
+        "end": "read_pid()",
+        "sha256": "2d2fcaea5734233d55797012cc5f2687c887ce8abe18f92fe5005a1376f3ffc8"
+      }
+    ],
+    "source_proof": {
+      "base_commit": "bd86cac62d434cb6a5496ef2cf5b3b0b43cddda6",
+      "changed_paths": [
+        "docs/eng/manuals/KEENETIC-DEPLOY.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "docs/ru/manuals/KEENETIC-DEPLOY.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "release/keenetic/README.md",
+        "release/keenetic/S99qeli",
+        "release/keenetic/opkgtun/S99qeli",
+        "release/keenetic/opkgtun/README.md",
+        "release/keenetic/install-keenetic.sh",
+        "scripts/test_keenetic_process.py",
+        "scripts/test_keenetic_state.py",
+        "scripts/test_keenetic_templates.py"
+      ],
+      "unchanged_implementation_git_inputs": 852,
+      "scopes": [
+        "native-libs",
+        "qeli",
+        "qeli-android",
+        "qeli-ios",
+        "qeli-mac",
+        "qeli-openwrt",
+        "qeli-win",
+        "qeli-shared",
+        "release/keenetic"
+      ],
+      "scope": "Exact staged allowlist. Rust/native/client/OpenWrt and router build/source/artifact helpers unchanged. Keenetic init/installer and scoped test changes only; wan.d hook unchanged and rerun. Executed remote inputs equal canonical staged blobs. Only owned Linux C test helper compiled, not Qeli or router binary."
+    }
+  },
+  "native_test_helper": {
+    "command": "cc -std=c11 -O0 -Wall -Wextra /var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture.c -o /var/tmp/qeli-q31-keenetic-process-lifecycle-20261006/process-fixture",
+    "exit_code": 0,
+    "sha256": "c10f96c6dcbad66138beb9fe403ff1ee2481b9821f6decd6e6783fda379488e7",
+    "kind": "Linux test helper only; not Qeli artifact"
+  },
+  "fixture_scope": {
+    "actual_owned_Linux_processes": "PASS",
+    "network_callbacks": "MODELS_ONLY",
+    "invalid_group_PID": "SIGNAL_MODEL_ONLY",
+    "shortened_polling": "3*50ms; startup50ms; plan2polls; not production duration"
+  },
+  "real_qualification": {
+    "actual_Qeli_core_network_teardown": "NOT_RUN",
+    "actual_router_proc_readlink_firmware": "NOT_RUN",
+    "atomic_pidfd_interprocess_namespace_reboot": "NOT_RUN",
+    "exact_wallclock_deadline_SIGKILL_powerloss": "NOT_RUN",
+    "cross_build": "NOT_RUN",
+    "real_router_runtime": "USER_EXCLUDED"
+  },
+  "migration": "Old single-PID records/pending publication require manual identity review. Installer refuses existing PID/pending before replacement; stop previous installed template and verify ownership/exit before upgrade. No automatic legacy adoption.",
+  "remaining": [
+    "INI/core semantic parity",
+    "OpkgTun idempotence/generation and concurrent wan.d/service operations",
+    "broader package lifecycle/source/build ABI/provenance"
+  ],
+  "retained_observations": [
+    "Q29 SIGKILL FAIL",
+    "Q29 auto/null DnsResolver ENONET",
+    "Q30 OS callback drain OPEN; Apple runtime excluded",
+    "D06 ACCEPTED_LIMITATION"
+  ],
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "q31": "IN_PROGRESS"
+  }
+}

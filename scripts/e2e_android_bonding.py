@@ -11,16 +11,15 @@ download-only load; then logcat is checked for the ramp lines.
 """
 import os, sys, io, time, re, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-import paramiko
 import ssh_hostkey
 from xml.sax.saxutils import escape
+from android_apk_input import read_cli, install_verified_apk
 
 PW = os.environ.get("QELI_LAB_PASS", "")
 SRV = ("10.66.116.10", "root", PW)
 CLI = ("10.66.116.11", "root", PW)
 ADB = "/root/android-sdk/platform-tools/adb"
 QELI = "/opt/qeli-src/target/release/qeli"
-APK = "/root/android-project/app/build/outputs/apk/debug/app-debug.apk"
 DIR = "/root/bond-test"
 CONF = f"{DIR}/server-bond.conf"
 LOG = f"{DIR}/srv-bond.log"
@@ -36,6 +35,9 @@ def conn(h):
     c.connect(h[0], username=h[1], password=h[2], timeout=20, look_for_keys=False, allow_agent=False)
     return c
 
+
+APK_ARGS = read_cli()
+import paramiko
 
 sc = conn(SRV); cc = conn(CLI)
 def ssh(cmd, t=60):
@@ -108,7 +110,7 @@ def find_tap(labels, dump=None):
 
 # ── 0. install the freshly-built APK ─────────────────────────────────────────
 print("=== 0. install rebuilt APK ===")
-print("  ", a(f"install -r -d {APK}", t=180).strip()[-60:])
+print("  ", install_verified_apk(cc, APK_ARGS.apk, ADB))
 print("  installed:", a("shell dumpsys package com.qeli | grep -E 'versionName|versionCode' | head -2"))
 
 # ── A. fake-tls server on .10 ────────────────────────────────────────────────

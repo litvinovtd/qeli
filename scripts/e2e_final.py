@@ -11,17 +11,19 @@ import re
 import sys
 import time
 from xml.sax.saxutils import escape
+from android_apk_input import read_cli, install_verified_apk
 
-from lab_common import LAB_CLI, LAB_SRV, connect
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+
+APK_ARGS = read_cli()
+from lab_common import LAB_CLI, LAB_SRV, connect
 
 cc = connect(LAB_CLI)
 sc = connect(LAB_SRV)
 ADB = "/root/android-sdk/platform-tools/adb"
 SERVER_IP = "10.66.116.10"
-APK = "/root/android-project/app/build/outputs/apk/debug/app-debug.apk"
 EMULATOR = "/root/android-sdk/emulator/emulator"
 
 
@@ -361,18 +363,21 @@ def identity_key(profile):
     return match.group(1)
 
 
+# Installation failure must not enter canonical server restoration/restart.
+try:
+    ensure_emulator()
+    print("[install]", install_verified_apk(cc, APK_ARGS.apk, ADB))
+except BaseException:
+    cc.close()
+    sc.close()
+    raise
+
 original_server_bytes = read_remote_bytes(sc, "/etc/qeli/server.conf")
 original_users_bytes = read_remote_bytes(sc, "/etc/qeli/users.conf")
 original_server_config = original_server_bytes.decode("utf-8")
 original_users_config = original_users_bytes.decode("utf-8")
 passed = False
 try:
-    ensure_emulator()
-    install = adb(f"install -r -d {APK}", timeout=180)
-    print("[install]", install)
-    if "Success" not in install:
-        raise RuntimeError(f"current lab APK was not installed: {install}")
-
     config = clean_test_config(original_server_config)
     lines = []
     for line in config.splitlines():

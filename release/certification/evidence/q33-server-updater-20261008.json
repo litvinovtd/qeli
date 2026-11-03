@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q33_SERVER_UPDATER_SCOPED",
+  "source_digest": "e6387722056f44282c217c42f8ffbe262eca786ebeb826cdd07fce9c93927b44",
+  "qualification_source_commit": "ce7ff5ae50338c61208a95fd573d512792ee22dd",
+  "baseline_commit": "c3ee6cecd5279aad74a02e6f43272f5a9cc02f24",
+  "base_dev_commit": "3d08645916799f7d1cbc6b6d0db527e29b8d0961",
+  "scenario": "F404-F411 / Q33-F007-F014",
+  "product_changes": [
+    "invalid nonempty QELI_DEB refuses early in installer/updater; local updater without curl/jq",
+    "host architecture asset and genuine package metadata admission",
+    "CRLF checksum and updater-owned temporary cleanup",
+    "root-owned separate lock serializes whole transaction",
+    "configured dpkg status/version/architecture required before success/cache",
+    "restart failure rollback and positive stable MainPID health",
+    "Debian revision lookup and verified package downgrade identity; explicit binary fallback",
+    "legacy service-owned cache ignored and preserved"
+  ],
+  "verification": {
+    "runtime": {
+      "status": "PASS",
+      "rows": [
+        {
+          "phase": "baseline",
+          "rc": 1,
+          "log": "baseline.log",
+          "methods": 14
+        },
+        {
+          "phase": "fixed",
+          "rc": 0,
+          "log": "fixed.log",
+          "methods": 21
+        }
+      ],
+      "fixtures": "genuine six .deb packages and actual dpkg/db/dpkg-query; not production maintainer scripts",
+      "seams": [
+        "apt command admission",
+        "HTTP release/download fixture",
+        "systemctl health/failure/PID sequence",
+        "sleep compressed"
+      ],
+      "updater_invocations": 24,
+      "installer_invocations": 1,
+      "actual_daemon_docker_network": "NOT_RUN"
+    },
+    "ci_command": {
+      "status": "PASS",
+      "methods": 21,
+      "updater_invocations": 24,
+      "installer_invocations": 1,
+      "exact_ci_command_root_sudo_omitted": true,
+      "shellcheck": null
+    },
+    "final_inputs": [
+      {
+        "path": "updater-baseline.sh",
+        "sha256": "f09caeec928e49e459694f1c9bbd5b66696dc1cb0fb5c9d3eaba3c30a7862c41"
+      },
+      {
+        "path": "updater-fixed.sh",
+        "sha256": "326663c5a086e239547fd9e4f1e364dfb670bc69eadf7ab5953668b85e100817"
+      },
+      {
+        "path": "installer-baseline.sh",
+        "sha256": "6276b2cccbb0a391ff9ceb4da81e0aca57155aaae2013ec1f8067f21cf9bb774"
+      },
+      {
+        "path": "installer-fixed.sh",
+        "sha256": "a487cf0daedd658991fc89859a19b165cd8902c7a4937c8c47a2abe284c46a82"
+      },
+      {
+        "path": "test_server_updater.py",
+        "sha256": "ae6d8301b341272f6d439c19aef53cce9605117c46fd1f3d50c1721a279018a1"
+      },
+      {
+        "path": "remote-tests.py",
+        "sha256": "04d48cea32dabc0984d3166643c071dca7511c4f81218270e07758e078b79624"
+      }
+    ],
+    "backup": {
+      "backup": "/var/tmp/qeli-q33-updater-20261008.HBMG3T-backup.tar.gz",
+      "sha256": "aaa3bc7fbaa00ebf7857398ebc35b9dae553bca2cf3f9b736e899a12ed1a36be",
+      "size": 70149,
+      "lab_after": {
+        "service": "MainPID=777\nActiveState=active\n",
+        "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n",
+        "dpkg": "Система управления пакетами Debian «dpkg», версия 1.22.22 (amd64).",
+        "bash": "GNU bash, версия 5.2.37(1)-release (x86_64-pc-linux-gnu)",
+        "free_disk": 9555595264
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "own_root_removed": "/var/tmp/qeli-q33-updater-20261008.HBMG3T",
+      "backup_removed_after_local_sha": "/var/tmp/qeli-q33-updater-20261008.HBMG3T-backup.tar.gz",
+      "service": "MainPID=777\nActiveState=active\n",
+      "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "lint_tool": {
+      "source": "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz",
+      "version": "0.10.0",
+      "sha256": "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87",
+      "gate": "-S warning updater-fixed.sh installer-fixed.sh",
+      "status": "PASS"
+    },
+    "lint_backup": {
+      "backup": "/var/tmp/qeli-q33-lint-20261008.Wtcccm-backup.tar.gz",
+      "sha256": "ae2c51b7044d05b6360743755419efbc71ed7e01e92f20c4c161697c1257a348",
+      "size": 6039565
+    },
+    "lint_cleanup": {
+      "status": "PASS",
+      "own_root_removed": "/var/tmp/qeli-q33-lint-20261008.Wtcccm",
+      "service": "MainPID=777\nActiveState=active\n"
+    },
+    "preparation": {
+      "notes": [
+        "Initial remote driver contained else19 syntax error: no product execution or verdict.",
+        "Initial chroot lacked tar/diff/ldconfig/start-stop-daemon; failures occurred in setUp, are retained separately and excluded from product baseline.",
+        "Next preparation lacked dpkg-split; retained as preparation, baseline guard now rejects any in setUp failure.",
+        "After complete actual dpkg tools were copied, 13 baseline failures and19 fixed PASS; final source adds local-without-curl/CRLF isolation/required-gh case:14 baseline failures and21 fixed methods PASS without skips.",
+        "ShellCheck absent on host; officialv0.10.0 downloaded into own private root, input SHA verified, warning gate PASS; backed up and removed with process/fd/mount/path guards."
+      ],
+      "final_methods": 21,
+      "updater_invocations": 24,
+      "installer_invocations": 1,
+      "actual_ci_command_root_sudo_omitted": true,
+      "seams": [
+        "apt admission",
+        "HTTP fixture",
+        "systemctl PID/health sequence",
+        "compressed sleep",
+        "inert qeli executable"
+      ],
+      "no_production_maintainer_script_or_daemon_claim": true
+    },
+    "syntax": "bash -n both scripts PASS",
+    "documentation": "all9 checks/666 tracked Markdown PASS",
+    "native": "14SHA/provenance PASS; unchanged native/Rust/ABI/coreartifact inputs",
+    "recipe_contract": "38 mocked recipe tests PASS in this batch; no new heavy build"
+  },
+  "raw_packets": {
+    "q33-server-updater-20261008": {
+      "path": "audit-debt-20260924/q33-server-updater-20261008",
+      "status": "SEALED",
+      "files": 47,
+      "bytes": 8797575,
+      "manifest_sha256": "4d7e7b4036fce28841347b562e4969562b8da3fd34c8ac720be10f87b70a49cd"
+    }
+  },
+  "limits": [
+    "real six inert .deb/dpkg database, not production maintainer scripts",
+    "apt admission/HTTP/systemctl/sleep explicit seams, inert qeli version executable; no live daemon/VPN/Docker/network/OIDC",
+    "stable service MainPID is not worker or tunnel readiness; actual timing not qualified",
+    "transaction flock coordinates participating updaters only, not unrelated apt or admin mutations",
+    "local exact CI command PASS does not claim new Actions success",
+    "Q33 production Debian installer/maintainer scripts/remove and Docker build/recreation/health remain OPEN",
+    "Q31 bootstrap capacity-deferred/source-cut/current Actions OPEN, Q29 SIGKILLFAIL/ENONET and Q30Apple/callback OPEN",
+    "Mac/iOS/router/Windows VM USER_EXCLUDED and D06 ACCEPTED retained"
+  ],
+  "progress": {
+    "full_audit": "29/37 DONE78.4%;8remain",
+    "Q33": "IN_PROGRESS scoped updater only",
+    "Q31": "3/5 IN_PROGRESS",
+    "old_debt": "14DONE+D06accepted"
+  },
+  "historical_policy": "41 cases/acceptance+56 prior supplements preserved modulo source_digest; old evidence/date/artifact/execution statuses not rewritten; no full matrix/soak/benchmark/native execution",
+  "actions": "local dev commit; NO_PUSH_DEPLOY_RELEASE"
+}

@@ -1,0 +1,339 @@
+{
+  "schema": 1,
+  "section": "Q19 server/client DNS",
+  "status": "PASS_Q19",
+  "executed_at": "2026-10-04T07:43:44.973730+00:00",
+  "artifact_sha256": "4c70a6595b6f5a9a9b2809c7975f12212895347fdabc9e05d4135f5a69a8a2f3",
+  "source_commit": "7af91a08b48cf6963f631aac73d499105804574a",
+  "production_changed": false,
+  "validation_gap": {
+    "id": "Q19-V001",
+    "status": "CLOSED",
+    "before": "UDP-only downstream queries and UDP-only fixture upstream",
+    "after": "Downstream IPv4/IPv6 TCP; UDP TC to TCP retry; forced TCP IPv6 upstream over a real encrypted VPN"
+  },
+  "runtime": {
+    "case": {
+      "id": "linux.dns.ipv4-ipv6",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 25.562,
+      "checks_passed": 105,
+      "checks_failed": 0,
+      "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261004T074344973730Z/isolated.sh /var/tmp/qeli-release-matrix-20261004T074344973730Z/linux.dns.ipv4-ipv6 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261004T074344973730Z/scripts/ipv6_dns_pair.sh /var/tmp/qeli-q18-release-20261004/qeli",
+      "log": "linux.dns.ipv4-ipv6.log"
+    },
+    "host_restored": true,
+    "upstream_observations": [
+      {
+        "path": "tunnel\\linux.dns.ipv4-ipv6\\tmp\\qeli-ipv6-CquYF2\\dns-upstream.log",
+        "udp": 13,
+        "tcp": 2,
+        "tc": 2,
+        "sha256": "d82da643c2a0eee2b02fd42090b629db6ef6147633e99e7b315cd839ab357cb9"
+      },
+      {
+        "path": "tunnel\\linux.dns.ipv4-ipv6\\tmp\\qeli-ipv6-sudXlE\\dns-upstream.log",
+        "udp": 0,
+        "tcp": 13,
+        "tc": 0,
+        "sha256": "c2b487b5b9892d94a3a211c2fff40f4bfe07388f692780591e4604c10224e23d"
+      },
+      {
+        "path": "tunnel\\linux.dns.ipv4-ipv6\\tmp\\qeli-ipv6-tzPAL6\\dns-upstream.log",
+        "udp": 13,
+        "tcp": 2,
+        "tc": 2,
+        "sha256": "f38ba890baeaced8009df7d639580bb07c6178cd81bf40b3e43c3004f71cedce"
+      }
+    ],
+    "fixtures": {
+      "ipv6_netns_case.sh": {
+        "source": "c0c5b5928cfc58cb1014b77fd4db8d662b5906fb7397bde992d57e04abb19966",
+        "runtime": "c0c5b5928cfc58cb1014b77fd4db8d662b5906fb7397bde992d57e04abb19966"
+      },
+      "ipv6_dns_pair.sh": {
+        "source": "486cfd27b1254b94e92c34ffb2667d53c8b71f5e9f685aeef00411599d5fdcf3",
+        "runtime": "486cfd27b1254b94e92c34ffb2667d53c8b71f5e9f685aeef00411599d5fdcf3"
+      },
+      "ipv6_mtu_pair.sh": {
+        "source": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a",
+        "runtime": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a"
+      },
+      "ipv6_legacy_pair.sh": {
+        "source": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6",
+        "runtime": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6"
+      },
+      "dns_test_server.py": {
+        "source": "2caab1a8b2d98a4ecc76e062cec57f75547466fa257d180c024220d2d55ba537",
+        "runtime": "2caab1a8b2d98a4ecc76e062cec57f75547466fa257d180c024220d2d55ba537"
+      },
+      "tap_ipv6_control_probe.py": {
+        "source": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757",
+        "runtime": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757"
+      }
+    }
+  },
+  "retained_linux": {
+    "source": "q18-ipv6-20261004/linux-build",
+    "unit": 2376,
+    "ignored": 60,
+    "dns_groups": {
+      "engine": 52,
+      "listener": 7,
+      "linux_client": 23,
+      "leases": 37,
+      "legacy": 7,
+      "system_resolver": 16
+    },
+    "unit_log_sha256": "0db7b3b6324706a91d3349b24242292c6ae50212f6f46d2c99a9f14c941b975c",
+    "clippy": "PASS_Q18_REUSED_UNCHANGED_PRODUCTION",
+    "native": "PASS_Q18_AB_REUSED_UNCHANGED_INPUTS"
+  },
+  "reconciliation": {
+    "status": "PASS_SCOPED_RECONCILIATION",
+    "date": "2026-10-04T07:49:34.858189+00:00",
+    "source": "external-context-20261002.json",
+    "source_evidence_sha256": "97f1a3f0847a9ada416d3dc14d19148c0cd966d828ae21dc2cd12747444053cc",
+    "source_matches": {
+      "qeli/src/client/dns/resolver_config.rs": "4ad39f3d91ec10023a2a1adf8784d0b7c70b9d39bc0ff6fee03cf92210a702d5",
+      "qeli/src/client/dns/resolver_context.rs": "ca006ecbd33f583b12a34412bc33f5c75cd7ce976538e521c3c1ba0452077893",
+      "qeli/src/client/dns/resolver_context_tests.rs": "ca5013af57bbee53befa54a8b7a9e10672a027fb97ea279674cfcd500f216cf8",
+      "qeli/src/client/dns.rs": "0569823863e204ed29435d408fe3aed8557dc9318d1036f851d0ffcebe66f988",
+      "qeli/src/client/network_task/prepared_tests.rs": "b50a34b23afda805f836fa90862657c1c468f95978b10711bdf62a2707fcbe94",
+      "qeli/src/client/network_task/teardown_tests.rs": "2cd66f18909dac10d66fc6c79d5336904c3a9763564211288c4643607eb12f7b",
+      "qeli/src/client/network_task/tests.rs": "29c716a0091f4431cc36e98e4ee85ff7503f5958e4be278f2056fe01327168d3",
+      "qeli/src/client/network_task.rs": "623075681cf891034984957bcd77f1162d56085efd856be819c119734518fc78",
+      "qeli/src/dns_lease/storage.rs": "bb274c04669eaaeea7c14a081902aae06f0690b85d5316028767d736f04f0219",
+      "qeli/src/dns_lease/tests.rs": "422919bcd04630cbe62d6490e284f54f729a7b1c5274f36743ac1feff2273e0b",
+      "qeli/src/dns_lease.rs": "677a606b348b2c10b9a058cea5f74ce00bf962444d8e073ac9cb81c59aeb8eac",
+      "qeli/src/dns_legacy.rs": "a54a853cb567a0e7046b4aa4447e3e0823ad9486ef7376888a94584c1743b5c5",
+      "qeli/src/network_namespace.rs": "637a4b9e9186c8a2349ba3485809c593b31fccca17d3f107d3aaa70ac790806e",
+      "qeli/src/operation_budget.rs": "b07fb92f948ead359bf276857e6923a9d5798e466b87de951f433666d18d55d8",
+      "qeli/src/server/dns/resolver.rs": "c458a1b1e64cf55e1b2d91daa6918ef64171add19d3a8d309a72abc6f5882ff0",
+      "qeli/src/server/dns/test_support.rs": "b8ff30b1c35c9f25c9f928b33c559557dbd9b476e66917e31b9c327acf37f7e7",
+      "qeli/src/server/dns.rs": "1e71ac13d00cddbf168a79613c8f282a6e72d618bebd84d5c71a757994425682",
+      "qeli/src/server/nat/dns_input/tests.rs": "e6135c3a3bccd4e62a128fe9e4b6d8daf23bc5c5f9e512a924890aa11093010f",
+      "qeli/src/server/nat/dns_input.rs": "e2bc590e6ddd4799cef96e7a29058326b6fa0a9b6699dafca7a267238d81db8c",
+      "qeli/src/server/nat/dns_input_budget_tests.rs": "1e3b14b5721649f291c5c2fd0b24a1d8650763b14fea89a10072af3f4307680e",
+      "qeli/src/state_storage/journal_file.rs": "87816a97161a8ed7a05c4db64fa6415d4ace7eed6816982e686adc411752efd2",
+      "qeli/src/state_storage/state_dir.rs": "39dd61c6e83f0b66897cc68fb4aa85c748f5a368be0de0e0352aade06e045baf",
+      "qeli/src/state_storage/state_dir_tests.rs": "2618136fef6178e758485ee5791d8f37346ba9b4964f2e77bff4c4fe1484c7c4",
+      "qeli/src/state_storage.rs": "56b7be40e49a30451e1c2fe5b972e6a81cbf3850c95c2f0a581f7e4ba9fd9766",
+      "qeli/src/system_command/test_support.rs": "7fc4a3af6deeae68b135b315bebac3af068d5f1a2059398434b1e7af784b000d",
+      "qeli/src/system_command/tests.rs": "94609c837d7d3ce079212e394c68f1fbcab680940b4d829e9b6ba9a45449dac0",
+      "qeli/src/system_command.rs": "d91dd14e251489110c99c43f1433105f35cc28bacc6e164e8b10229403dbf54b",
+      "qeli/src/transport_core/network.rs": "dce6c40b0c384d8f221a2ff069b40ef617086937f08ec97a2a7a7bb9cc8d6450",
+      "qeli/src/transport_core/resolver/system_config/tests.rs": "c12ff56e1ab38de46a0b55a543c227510ffe3d5c419a48700679c482c326c640",
+      "qeli/src/transport_core/resolver/system_config.rs": "2aa14bdb45145b87b2536f9e1f838a438c307e5c80fc3cd17dd02504a8e15546",
+      "qeli/src/transport_core/resolver/tests.rs": "f17ceeaf273ce6ae5b72b04500f6144d0ed108a54c4dbecb437982d5e684bfc2",
+      "qeli/src/transport_core/resolver.rs": "2fa53ed9f87187f8ffb22156189899d7677dd3c3528555908de0b843cf2c0c43"
+    },
+    "raw_files_verified": 61,
+    "raw_root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\d06-external-context-20261002",
+    "prior": [
+      {
+        "folder": "dns-context-phase",
+        "evidence_sha256": "7126221d6017c18fc303254c09b806003574d242cd438bd930b1cba282b83c0f",
+        "manifest_sha256": "0e4e6c33418746b25750f310b146893bdf14e9db4c94d2796b94534e43a2ee89",
+        "source_matches": {
+          "qeli/src/server/dns/resolver.rs": "c458a1b1e64cf55e1b2d91daa6918ef64171add19d3a8d309a72abc6f5882ff0",
+          "qeli/src/server/dns/test_support.rs": "b8ff30b1c35c9f25c9f928b33c559557dbd9b476e66917e31b9c327acf37f7e7",
+          "qeli/src/server/dns.rs": "1e71ac13d00cddbf168a79613c8f282a6e72d618bebd84d5c71a757994425682",
+          "qeli/src/server/nat/dns_input/tests.rs": "e6135c3a3bccd4e62a128fe9e4b6d8daf23bc5c5f9e512a924890aa11093010f",
+          "qeli/src/server/nat/dns_input.rs": "e2bc590e6ddd4799cef96e7a29058326b6fa0a9b6699dafca7a267238d81db8c",
+          "qeli/src/server/nat/dns_input_budget_tests.rs": "1e3b14b5721649f291c5c2fd0b24a1d8650763b14fea89a10072af3f4307680e"
+        },
+        "changed_or_absent": [
+          "qeli/src/client/dns.rs",
+          "qeli/src/client/dns/resolver_config.rs",
+          "qeli/src/client/dns/resolver_context.rs",
+          "qeli/src/client/dns/resolver_context_tests.rs",
+          "qeli/src/client/network_task.rs",
+          "qeli/src/client/network_task/prepared_tests.rs",
+          "qeli/src/client/network_task/teardown_tests.rs",
+          "qeli/src/client/network_task/tests.rs",
+          "qeli/src/dns_lease.rs",
+          "qeli/src/dns_lease/storage.rs",
+          "qeli/src/dns_lease/tests.rs",
+          "qeli/src/dns_legacy.rs",
+          "qeli/src/network_namespace.rs",
+          "qeli/src/operation_budget.rs",
+          "qeli/src/state_storage.rs",
+          "qeli/src/state_storage/journal_file.rs",
+          "qeli/src/state_storage/state_dir.rs",
+          "qeli/src/state_storage/state_dir_tests.rs",
+          "qeli/src/system_command.rs",
+          "qeli/src/system_command/test_support.rs",
+          "qeli/src/system_command/tests.rs",
+          "qeli/src/transport_core/network.rs",
+          "qeli/src/transport_core/resolver.rs",
+          "qeli/src/transport_core/resolver/system_config.rs",
+          "qeli/src/transport_core/resolver/system_config/tests.rs",
+          "qeli/src/transport_core/resolver/tests.rs"
+        ],
+        "archives_verified": {},
+        "retained_results": {
+          "host-unit": 1491,
+          "config-integration": 71
+        }
+      },
+      {
+        "folder": "resolver-budget-phase",
+        "evidence_sha256": "fb8fa160164e00545728d833a9f0c638dd24b6575ee957e0bc2bafc99a1cea8f",
+        "manifest_sha256": "5d7fad62ac2ae3f36b5e7402c50ba5e621565d5f961babdeae86793b501d394f",
+        "source_matches": {
+          "qeli/src/client/dns/resolver_context.rs": "ca006ecbd33f583b12a34412bc33f5c75cd7ce976538e521c3c1ba0452077893",
+          "qeli/src/client/dns/resolver_context_tests.rs": "ca5013af57bbee53befa54a8b7a9e10672a027fb97ea279674cfcd500f216cf8",
+          "qeli/src/dns_lease/tests.rs": "422919bcd04630cbe62d6490e284f54f729a7b1c5274f36743ac1feff2273e0b",
+          "qeli/src/dns_legacy.rs": "a54a853cb567a0e7046b4aa4447e3e0823ad9486ef7376888a94584c1743b5c5",
+          "qeli/src/network_namespace.rs": "637a4b9e9186c8a2349ba3485809c593b31fccca17d3f107d3aaa70ac790806e",
+          "qeli/src/server/dns/resolver.rs": "c458a1b1e64cf55e1b2d91daa6918ef64171add19d3a8d309a72abc6f5882ff0",
+          "qeli/src/server/dns/test_support.rs": "b8ff30b1c35c9f25c9f928b33c559557dbd9b476e66917e31b9c327acf37f7e7",
+          "qeli/src/server/dns.rs": "1e71ac13d00cddbf168a79613c8f282a6e72d618bebd84d5c71a757994425682",
+          "qeli/src/server/nat/dns_input/tests.rs": "e6135c3a3bccd4e62a128fe9e4b6d8daf23bc5c5f9e512a924890aa11093010f",
+          "qeli/src/server/nat/dns_input.rs": "e2bc590e6ddd4799cef96e7a29058326b6fa0a9b6699dafca7a267238d81db8c",
+          "qeli/src/server/nat/dns_input_budget_tests.rs": "1e3b14b5721649f291c5c2fd0b24a1d8650763b14fea89a10072af3f4307680e",
+          "qeli/src/state_storage/state_dir.rs": "39dd61c6e83f0b66897cc68fb4aa85c748f5a368be0de0e0352aade06e045baf",
+          "qeli/src/transport_core/resolver/tests.rs": "f17ceeaf273ce6ae5b72b04500f6144d0ed108a54c4dbecb437982d5e684bfc2"
+        },
+        "changed_or_absent": [
+          "qeli/src/client/dns.rs",
+          "qeli/src/client/dns/resolver_config.rs",
+          "qeli/src/client/network_task.rs",
+          "qeli/src/client/network_task/prepared_tests.rs",
+          "qeli/src/client/network_task/teardown_tests.rs",
+          "qeli/src/client/network_task/tests.rs",
+          "qeli/src/dns_lease.rs",
+          "qeli/src/dns_lease/storage.rs",
+          "qeli/src/operation_budget.rs",
+          "qeli/src/state_storage.rs",
+          "qeli/src/state_storage/journal_file.rs",
+          "qeli/src/state_storage/state_dir_tests.rs",
+          "qeli/src/system_command.rs",
+          "qeli/src/system_command/test_support.rs",
+          "qeli/src/system_command/tests.rs",
+          "qeli/src/transport_core/network.rs",
+          "qeli/src/transport_core/resolver.rs",
+          "qeli/src/transport_core/resolver/system_config.rs",
+          "qeli/src/transport_core/resolver/system_config/tests.rs"
+        ],
+        "archives_verified": {
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\resolver-hostname-matrix-v2.tar.gz": "706a2fca29117c33545e3e713225fd668bf2d84e060808c2771076aa038108e4",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\resolver-shutdown-v2.tar.gz": "56e5ab1fcfc9eb3983ceae877a7970d6b8f4359ec0e8d0d730b0141e6d3c21a7",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\resolver-counterfactual-v1.tar.gz": "85c6d0671264201f4b9c9f8b2a5bc4700ef4f9cfa4c5f1e692a71c3dd1f03c37",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\lifecycle-resolver-budget-v2.tar.gz": "dad45c7f06e021c4c856092c0ececdf90944e3787ad1e441e0901eb60e2ee17e",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\resolver-budget-phase\\resolver-scripts.tar.gz": "b2e0a7fdb438b03b36dd9e207fe0a2d6b7ab25275b670d8b9abf4cea7c6169ec"
+        },
+        "retained_results": {
+          "cells": 38,
+          "main_assertions": 1220,
+          "nested_checks": 806,
+          "crash_cells": 34,
+          "blocked_attempts": 1088,
+          "allowed_packets": 656
+        }
+      },
+      {
+        "folder": "resolver-files-phase",
+        "evidence_sha256": "effb0f0804894353caa8c7d698c14900a480c2f377a4b50cf7c14970d573fd20",
+        "manifest_sha256": "fdb17f8ede1be258d3043780676ec24e3f7faf65a41f92c99b2d984cdbf12aad",
+        "source_matches": {
+          "qeli/src/client/dns/resolver_config.rs": "4ad39f3d91ec10023a2a1adf8784d0b7c70b9d39bc0ff6fee03cf92210a702d5",
+          "qeli/src/client/dns/resolver_context.rs": "ca006ecbd33f583b12a34412bc33f5c75cd7ce976538e521c3c1ba0452077893",
+          "qeli/src/client/dns/resolver_context_tests.rs": "ca5013af57bbee53befa54a8b7a9e10672a027fb97ea279674cfcd500f216cf8",
+          "qeli/src/dns_lease/tests.rs": "422919bcd04630cbe62d6490e284f54f729a7b1c5274f36743ac1feff2273e0b",
+          "qeli/src/dns_legacy.rs": "a54a853cb567a0e7046b4aa4447e3e0823ad9486ef7376888a94584c1743b5c5",
+          "qeli/src/network_namespace.rs": "637a4b9e9186c8a2349ba3485809c593b31fccca17d3f107d3aaa70ac790806e",
+          "qeli/src/server/dns/resolver.rs": "c458a1b1e64cf55e1b2d91daa6918ef64171add19d3a8d309a72abc6f5882ff0",
+          "qeli/src/server/dns/test_support.rs": "b8ff30b1c35c9f25c9f928b33c559557dbd9b476e66917e31b9c327acf37f7e7",
+          "qeli/src/server/dns.rs": "1e71ac13d00cddbf168a79613c8f282a6e72d618bebd84d5c71a757994425682",
+          "qeli/src/server/nat/dns_input/tests.rs": "e6135c3a3bccd4e62a128fe9e4b6d8daf23bc5c5f9e512a924890aa11093010f",
+          "qeli/src/server/nat/dns_input.rs": "e2bc590e6ddd4799cef96e7a29058326b6fa0a9b6699dafca7a267238d81db8c",
+          "qeli/src/server/nat/dns_input_budget_tests.rs": "1e3b14b5721649f291c5c2fd0b24a1d8650763b14fea89a10072af3f4307680e",
+          "qeli/src/state_storage/state_dir.rs": "39dd61c6e83f0b66897cc68fb4aa85c748f5a368be0de0e0352aade06e045baf",
+          "qeli/src/transport_core/resolver/system_config/tests.rs": "c12ff56e1ab38de46a0b55a543c227510ffe3d5c419a48700679c482c326c640",
+          "qeli/src/transport_core/resolver/system_config.rs": "2aa14bdb45145b87b2536f9e1f838a438c307e5c80fc3cd17dd02504a8e15546",
+          "qeli/src/transport_core/resolver/tests.rs": "f17ceeaf273ce6ae5b72b04500f6144d0ed108a54c4dbecb437982d5e684bfc2",
+          "qeli/src/transport_core/resolver.rs": "2fa53ed9f87187f8ffb22156189899d7677dd3c3528555908de0b843cf2c0c43"
+        },
+        "changed_or_absent": [
+          "qeli/src/client/dns.rs",
+          "qeli/src/client/network_task.rs",
+          "qeli/src/client/network_task/prepared_tests.rs",
+          "qeli/src/client/network_task/teardown_tests.rs",
+          "qeli/src/client/network_task/tests.rs",
+          "qeli/src/dns_lease.rs",
+          "qeli/src/dns_lease/storage.rs",
+          "qeli/src/operation_budget.rs",
+          "qeli/src/state_storage.rs",
+          "qeli/src/state_storage/journal_file.rs",
+          "qeli/src/state_storage/state_dir_tests.rs",
+          "qeli/src/system_command.rs",
+          "qeli/src/system_command/test_support.rs",
+          "qeli/src/system_command/tests.rs",
+          "qeli/src/transport_core/network.rs"
+        ],
+        "archives_verified": {
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\resolver-files-matrix-v2.tar.gz": "d7cb15a43daef83749ebe5e3cef6817821db168598ff641335a136df6e7c46aa",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\resolver-files-repro-v4.tar.gz": "2c1a2295727c4763d39e0f486b4dfe86527c6e1ed8f28f000d2d9d384c96ef70",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\lifecycle-resolver-files-v2.tar.gz": "23c29fb1a143b29bf494bf8d3a453e41e3759a453a75e77ae2874da626152ee5",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\resolver-files-phase\\resolver-files-scripts.tar.gz": "df81cbae4e3e0db7451b4f4a90cea5ad449cb9559144311ae6e92d1b0e5ff67e"
+        },
+        "retained_results": {
+          "cells": 38,
+          "main_assertions": 1220,
+          "nested_checks": 806,
+          "crash_cells": 34,
+          "blocked_attempts": 1088,
+          "allowed_packets": 656
+        }
+      }
+    ],
+    "limits": "Older execution retains original binary/date/scope; changed_or_absent are not claimed as exact old source. Current Q18 full Linux plus fresh Q19 real resolved/tunnel/crash tests qualify current composition."
+  },
+  "limits": [
+    "Old baseline FAIL and original dates/artifacts remain scoped; older manifest differences are explicit.",
+    "No new Android installed-app or physical-network DNS leak execution; previous APK/Private DNS caveat remains scoped. Full Android/client audits remain separate.",
+    "Mac/router/Windows VM runtime user-excluded; no physical DNS guarantee fabricated.",
+    "NSS workers cannot be forcibly cancelled; four stalled calls retain slots until completion. Context guard is observational against arbitrary privileged service moves.",
+    "No full DNSSEC/RRset coherence validation; unknown RDATA opaque and nonempty EDNS options bypass cache. No new benchmark.",
+    "60 ignored tests not globally claimed executed; Q25-A125 accepted WAN replacement limit remains."
+  ],
+  "plan": {
+    "done": 19,
+    "total": 37,
+    "percent": 51.4,
+    "remaining": 18,
+    "next": "Q20 DHCP/leases"
+  },
+  "raw_root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q19-dns-20261004",
+  "raw_sha256": {
+    "final-integrity.py": "b6af5031979ada4f958d5fa22c704d19d1d8d87ae0d2f7cc8d782f2f2dc6d99d",
+    "prepare.py": "4a62a5633d80ed720be422580a8c727f16b3e7f53af509fc2270b1bef477b742",
+    "reconcile.py": "a1be5eac2f5c572ac22018fa720205b62577fe040e576c317544dec3e9bb0c8b",
+    "reconciliation.json": "c96779bb5f643f2c08b117853e935763d71433b1698dde77f1a10fa4c433f1c4",
+    "seal.py": "40275cf2e042c15fe986764af2e1ebc5c62c5c2ad83d2fe6764fab1c21bef32a",
+    "transfer.py": "d3e93775cb1a60abaf31b50303763a0fad4182dc20588253c67fa48e6da7b130",
+    "tunnel/linux.dns.ipv4-ipv6.log": "16f2f1e4b00a672b4db8c95640dae492f02a6f5ecd66d0817df95627fc815f36",
+    "tunnel/results.json": "868e435a77dece9b291b349b490eef3b9a8abec857a2b6f564ec7a9c5dd207fb",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-CquYF2/add-user.log": "e179a14e7330ac126651248dfd1d54b114c3331d448bda851ad66cc9a8cb0b5a",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-CquYF2/client.log": "22fdb40fcd0f0f6bb80e2cac3acc0518a63bc005e4cfa3630d4232fb2377a16d",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-CquYF2/dbus.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-CquYF2/dns-upstream.log": "d82da643c2a0eee2b02fd42090b629db6ef6147633e99e7b315cd839ab357cb9",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-CquYF2/resolved.log": "42cfdae5f8841d13caca14b33a3c82bdcedfa42170b5773856a96dd191a1ba1e",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-CquYF2/server.log": "8e464e56621e1310c351da858851db04bd71ce8ac00d5bdecdd1e38342d9eb62",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-sudXlE/add-user.log": "65c959592d0819e547df96d22a039b60a420457e5d3d820598261477621f6169",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-sudXlE/client.log": "8a2f2dbab1a36bb4d2eb32b7c6ffb028d685395d4940eabff6e16b091dea2aaa",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-sudXlE/dbus.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-sudXlE/dns-upstream.log": "c2b487b5b9892d94a3a211c2fff40f4bfe07388f692780591e4604c10224e23d",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-sudXlE/resolved.log": "e78e6724182b937dce45534bfd4f29966e57247637619f23bb4e97c39870c884",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-sudXlE/server.log": "472f83c9c78662eba914ddb5629afbe899b1c7aa03efe58a3fa07c17be79b447",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-tzPAL6/add-user.log": "d0d643f73912c5ff195e3b2f6af08dba4a994574765bfca6af4074c7e959ceac",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-tzPAL6/client.log": "49c7811d51e301d781249b5794550b57409c256a967aed065eb62781653ef77e",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-tzPAL6/dbus.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-tzPAL6/dns-upstream.log": "f38ba890baeaced8009df7d639580bb07c6178cd81bf40b3e43c3004f71cedce",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-tzPAL6/resolved.log": "84cc16fb0ce736dcf4f71b2b54a228d395be401ef027a21f743e20f62f7d79a6",
+    "tunnel/linux.dns.ipv4-ipv6/tmp/qeli-ipv6-tzPAL6/server.log": "a81b6a5ad640552a5e9767b8e10c8cf13a664b629f9fe4c0f834afbfcfcf2f93"
+  }
+}

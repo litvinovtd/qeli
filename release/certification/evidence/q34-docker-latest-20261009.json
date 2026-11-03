@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_DOCKER_LATEST_GIT_CLI_SCOPED",
+  "source_digest": "dc79d08630cc560606506c8af1ab428ddbbd7e6e37e5a04656a0b523ffe9a586",
+  "qualification_source_commit": "b5c68358a68d9d0f146a78b532af10f5eda389b3",
+  "product_source_commit": "b5c68358a68d9d0f146a78b532af10f5eda389b3",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F490/Q34-F044"
+  ],
+  "verification": {
+    "baseline": {
+      "tags": [
+        "v0.8.2",
+        "v0.9.0"
+      ],
+      "old_candidate": "v0.8.2",
+      "actual_cli": [
+        {
+          "script": "audit-debt-20260924\\q34-docker-latest-20261009\\baseline\\scripts\\docker_publish_ref.py",
+          "returncode": 0,
+          "outputs": "existing=value\nrelease_tag=true\nstable_release=true\n"
+        },
+        {
+          "script": "native-audit-worktree\\scripts\\docker_publish_ref.py",
+          "returncode": 0,
+          "outputs": "existing=value\nrelease_tag=true\nstable_release=true\nlatest_release=false\n"
+        }
+      ],
+      "no_registry_publication": true
+    },
+    "windows": {
+      "status": "PASS",
+      "runs": [
+        {
+          "test": "test_docker_publish_ref.py",
+          "returncode": 0
+        },
+        {
+          "test": "test_release_tag.py",
+          "returncode": 0
+        },
+        {
+          "test": "test_release_ci_gate.py",
+          "returncode": 0
+        },
+        {
+          "test": "test_release_preflight.py",
+          "returncode": 0
+        },
+        {
+          "test": "test_check_workflows.py",
+          "returncode": 0
+        }
+      ],
+      "actionlint": "PASS4workflows official1.7.12"
+    },
+    "linux": {
+      "status": "PASS",
+      "tests": 16,
+      "versions": "Python 3.13.5\ngit version 2.47.3",
+      "returncode": 0,
+      "root": "/var/tmp/qeli-docker-latest-20261009.WrLtdk5p",
+      "recovered": [
+        {
+          "path": "scripts/docker_publish_ref.py",
+          "size": 3161,
+          "sha256": "e054081c3717c365e3a86f2aa54cf78c8344faa8d001a547d3cc1e21a9e4b76f"
+        },
+        {
+          "path": "scripts/test_docker_publish_ref.py",
+          "size": 8281,
+          "sha256": "1444790c5536c2ef1c729ff2c3672d3804281f4e64eaa0d7bee7ba9615065648"
+        },
+        {
+          "path": ".github/workflows/docker-publish.yml",
+          "size": 4765,
+          "sha256": "a9dfc3ed9651ecaef1030f32e0d44d64bf06491f627c1499065347ad30bf3cfa"
+        },
+        {
+          "path": "test.log",
+          "size": 2247,
+          "sha256": "9846b75511c4dc19794ccb2e3321150d0860113fbfe76641fd81b9a63c1f8573"
+        }
+      ],
+      "cleanup": {
+        "cleanup": "REMOVED",
+        "process_references": [],
+        "mount_guard": "PASS",
+        "nonrecursive_known_files_only": true
+      },
+      "before": "active\nMainPID=777\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n777\n845",
+      "after": "active\nMainPID=777\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n777\n845",
+      "scope": "Real Linux Git/Python publication tests; no Docker build/push/network configuration or global installation; .10 unused"
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/docker-publish.yml",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "scripts/docker_publish_ref.py",
+        "scripts/test_docker_publish_ref.py"
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "qualified_paths": [
+        {
+          "path": ".github/workflows/docker-publish.yml",
+          "sha256": "a9dfc3ed9651ecaef1030f32e0d44d64bf06491f627c1499065347ad30bf3cfa",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/docker_publish_ref.py",
+          "sha256": "e054081c3717c365e3a86f2aa54cf78c8344faa8d001a547d3cc1e21a9e4b76f",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_docker_publish_ref.py",
+          "sha256": "1444790c5536c2ef1c729ff2c3672d3804281f4e64eaa0d7bee7ba9615065648",
+          "normalization": "LF"
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-docker-latest-20261009",
+    "files": 31,
+    "bytes": 1049840,
+    "manifest_sha256": "61d93c90e2640e781acf6ef239b72ce1a0cce1fd5e3f5a7eafb8ba24816581d2",
+    "runtime_status": "PASS_Q34_DOCKER_LATEST_GIT_CLI_WINDOWS_LINUX_SCOPED",
+    "path": "audit-debt-20260924/q34-docker-latest-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F490/Q34-F044 Docker latest rollback: real baseline CLI admits old stable v0.8.2 with v0.9.0 present; fixed separate latest_release selects highest fetched stable Git MAJOR/MINOR/PATCH numerically and preserves version/SHA tags. Complete nonshallow Git/candidate required; missing Git/tag/repository/shallow/timeout refuse before outputs/login/build; branch/RC skip Git; invalid/unrelated tags ignored; build metadata equal precedence. Shared workflow concurrency across refs cancels no executing run; GitHub queue order not guaranteed and pending runs may be replaced. Existing exact-commit CI/Cargo/source gates preserved. Actual16Windows+16Linux publication methods and59relatedWindows release/CI/preflight/workflow methods PASS; official SHA-qualified actionlint1.7.12 accepts4workflows;724Markdown9checks/diffPASS. Linux inputs/full output recovered SHA then knownfiles-only nonrecursive cleanup with process/fd/mountguards; service777845/CLI75bc preserved,.10unused. Highest fetched tag is not GHCR state; newer not-yet-built stable tags suppress old latest; complete current fetch/retained tags prerequisite; force/delete tags/externalwriters/oldworkflowrefs not qualified. No registry push/hostedActions/multiarch/signing/deploy/release. Nativee3fb14SHA/protected/qelitree/OpenWrt existing source gate unchanged; no new compiler/VPN/fuzz qualification.41cases91priorsupplements preserved modulo source_digest bookkeeping;append92scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;Q29SIGKILLFAIL-ENONET/Q30Q31/F459bracesOPEN/D06accepted/USER_EXCLUDED retained.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

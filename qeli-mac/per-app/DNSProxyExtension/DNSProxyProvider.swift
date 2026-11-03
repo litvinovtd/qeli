@@ -9,6 +9,7 @@ final class DNSProxyProvider: NEDNSProxyProvider {
     private let lock = NSLock()
     private var state: RoutingState?
     private var leaseWasValid = false
+    private var running = false
     private let relays = RelayRegistry()
     private let monitorQueue = DispatchQueue(label: "ru.qeli.perapp.dns.state")
     private var stateMonitor: DispatchSourceTimer?
@@ -18,16 +19,19 @@ final class DNSProxyProvider: NEDNSProxyProvider {
         // The manager can outlive both Qeli.app and its app-group state. Starting in bypass
         // mode is safer than making an enabled but unstartable DNS proxy black-hole lookups.
         let loaded = try? RoutingStateStore.load()
-        lock.lock(); state = loaded; leaseWasValid = loaded?.leaseIsValid() ?? false; lock.unlock()
+        lock.lock(); running = true; state = loaded; leaseWasValid = loaded?.leaseIsValid() ?? false; lock.unlock()
         startStateMonitor()
         completionHandler(nil)
     }
 
     override func stopProxy(with reason: NEProviderStopReason,
                             completionHandler: @escaping () -> Void) {
+        lock.lock()
+        running = false; state = nil; leaseWasValid = false
+        let retired = relays.retire()
+        lock.unlock()
         stopStateMonitor()
-        relays.closeAll()
-        lock.lock(); state = nil; leaseWasValid = false; lock.unlock()
+        for relay in retired { relay.stop(nil) }
         completionHandler()
     }
 
@@ -36,7 +40,7 @@ final class DNSProxyProvider: NEDNSProxyProvider {
         // tiny app-group state on every new DNS flow; this also makes reconnect fail-close
         // effective without restarting the system extension.
         refreshState()
-        lock.lock(); let current = state; lock.unlock()
+        lock.lock(); let current = state; let generation = relays.generation; lock.unlock()
         guard let current else { return false }
         // A persistent NEDNSProxyManager can be relaunched by macOS after qeli was killed,
         // removed, or the machine lost power. An expired owner lease must restore the system
@@ -59,13 +63,13 @@ final class DNSProxyProvider: NEDNSProxyProvider {
             TCPRelay(flow: tcp, remote: tcp.remoteEndpoint, interface: interface,
                      dnsServers: current.dnsServers, overrideHosts: resolvers,
                      destinationPolicy: nil,
-                     registry: relays).start()
+                     registry: relays, generation: generation).start()
             return true
         }
         if let udp = flow as? NEAppProxyUDPFlow {
             UDPRelay(flow: udp, interface: interface, dnsServers: current.dnsServers,
                      overrideHosts: resolvers, destinationPolicy: nil,
-                     registry: relays).start()
+                     registry: relays, generation: generation).start()
             return true
         }
         return false
@@ -79,7 +83,12 @@ final class DNSProxyProvider: NEDNSProxyProvider {
         timer.schedule(deadline: .now() + .milliseconds(250),
                        repeating: .milliseconds(500), leeway: .milliseconds(100))
         timer.setEventHandler { [weak self] in self?.refreshState() }
-        lock.lock(); stateMonitor = timer; lock.unlock()
+        lock.lock()
+        guard running else {
+            lock.unlock(); timer.cancel(); timer.resume(); return
+        }
+        stateMonitor = timer
+        lock.unlock()
         timer.resume()
     }
 
@@ -91,15 +100,17 @@ final class DNSProxyProvider: NEDNSProxyProvider {
     private func refreshState() {
         let loaded = try? RoutingStateStore.load()
         lock.lock()
+        guard running else { lock.unlock(); return }
         let leaseValid = loaded?.leaseIsValid() ?? false
         let policyChanged: Bool
         if let loaded, let state { policyChanged = !loaded.policyEquivalent(to: state) }
         else { policyChanged = (loaded != nil) != (state != nil) }
         let changed = policyChanged || leaseValid != leaseWasValid
+        let retired: [RelayClosable] = changed ? relays.retire() : []
         state = loaded
         leaseWasValid = leaseValid
         lock.unlock()
-        if changed { relays.closeAll() }
+        for relay in retired { relay.stop(nil) }
     }
 
     private func reject(_ flow: NEAppProxyFlow, _ message: String) -> Bool {

@@ -1,0 +1,329 @@
+{
+  "status": "Q31_Q34_FIVE_CRITERIA_QUALIFIED_IN_AGREED_SCOPE",
+  "audited_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+  "audited_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+  "branch": "dev",
+  "done_sections": 36,
+  "total_sections": 37,
+  "percent": 97.2972972972973,
+  "remaining": [
+    "Q29"
+  ],
+  "criteria": {
+    "Q31": {
+      "review_and_dead_code": "28-file router review and subsequent bounded fixes: AUDIT-Q31-OPENWRT-CONTROLS.md",
+      "normal_boundary_negative": "Actual ucode/rpcd/UCI/procd, INI generation, cross-target checks and seven real opkg cases",
+      "failures_and_concurrency": "Retained negative baselines, generation/owner/ABA, rollback and cleanup evidence in the router report",
+      "integration_and_platform": "Qualified source LLVM/Rust bootstrap and cache handoff; fresh SDK/IPK with seven opkg and nine CLI/INI cases; current four-architecture hosted CI; physical router USER_EXCLUDED",
+      "fixes_rechecks_evidence": "Published immutable source pin/archive, exact current CI and retained cleanup/qualification receipts"
+    },
+    "Q34": {
+      "review_and_dead_code": "Dependency, SDK/locks, legal/source binding, workflow, native, Docker and release-admission reports linked by AUDIT-Q34-CLIENT-SUPPLY.md and the full plan",
+      "normal_boundary_negative": "All 19 current required CI jobs PASS, strict dependency audit, feature matrix, packages and fresh Linux20",
+      "failures_and_concurrency": "Actual prior CI failures preserved; corrected API29 observer test PASS; native writer/publication/atomic checks and fresh ABI/JNI rechecks",
+      "integration_and_platform": "Actual Windows/macOS builds, signed iOS simulator Keychain tests, Android API29/API35 runtime, four router cross-builds, SDK/IPK and independent native A/B; physical exclusions retained",
+      "fixes_rechecks_evidence": "Published dev history/current source pin, current native provenance, fresh Linux20 receipts and source-bound certification follow-up"
+    }
+  },
+  "current_CI": {
+    "url": "https://github.com/litvinovtd/qeli/actions/runs/38754898316",
+    "headSha": "9fa0903a191aea54019a2ba293c709d740c661de",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "build-test",
+        "databaseId": 116490619296,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T15:07:43Z"
+      },
+      {
+        "name": "native-libs",
+        "databaseId": 116490619483,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:51:11Z"
+      },
+      {
+        "name": "keenetic-cross (aarch64, aarch64-unknown-linux-musl, 1.97.0)",
+        "databaseId": 116490619509,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:53:40Z"
+      },
+      {
+        "name": "workflow-lint",
+        "databaseId": 116490619536,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:50:12Z"
+      },
+      {
+        "name": "deb-package",
+        "databaseId": 116490619557,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:53:52Z"
+      },
+      {
+        "name": "windows-build",
+        "databaseId": 116490619675,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:55:17Z"
+      },
+      {
+        "name": "keenetic-cross (x86_64-musl, x86_64-unknown-linux-musl, 1.97.0)",
+        "databaseId": 116490619747,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:52:57Z"
+      },
+      {
+        "name": "lint",
+        "databaseId": 116490619822,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:51:03Z"
+      },
+      {
+        "name": "security-audit",
+        "databaseId": 116490619831,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:50:26Z"
+      },
+      {
+        "name": "docs",
+        "databaseId": 116490619866,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:50:38Z"
+      },
+      {
+        "name": "ios-build",
+        "databaseId": 116490619945,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T15:07:00Z"
+      },
+      {
+        "name": "shellcheck",
+        "databaseId": 116490619964,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:50:06Z"
+      },
+      {
+        "name": "fuzz-smoke",
+        "databaseId": 116490619972,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T15:01:20Z"
+      },
+      {
+        "name": "Android runtime gates (API 35)",
+        "databaseId": 116490619985,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:57:50Z"
+      },
+      {
+        "name": "Android runtime gates (API 29)",
+        "databaseId": 116490620047,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:57:45Z"
+      },
+      {
+        "name": "keenetic-cross (armv7, armv7-unknown-linux-musleabihf, 1.97.0)",
+        "databaseId": 116490620078,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:53:45Z"
+      },
+      {
+        "name": "macos-build",
+        "databaseId": 116490620082,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:55:16Z"
+      },
+      {
+        "name": "android-build",
+        "databaseId": 116490620099,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:58:28Z"
+      },
+      {
+        "name": "keenetic-cross (mipsel, mipsel-unknown-linux-musl, nightly-2026-06-10)",
+        "databaseId": 116490620420,
+        "conclusion": "success",
+        "completedAt": "2026-10-15T14:54:28Z"
+      },
+      {
+        "name": "fuzz-targets",
+        "databaseId": 116490621617,
+        "conclusion": "skipped",
+        "completedAt": "2026-10-15T14:49:53Z"
+      },
+      {
+        "name": "fuzz-nightly",
+        "databaseId": 116490622601,
+        "conclusion": "skipped",
+        "completedAt": "2026-10-15T14:49:53Z"
+      }
+    ],
+    "raw_sha256": "5aaa8bb10546076bccfa7118050a9047080a955b72ea2e4f3b9edef784a3c950",
+    "default_library": {
+      "passed": 2469,
+      "ignored": 60
+    },
+    "server_only_library": {
+      "passed": 2314,
+      "ignored": 56
+    },
+    "test_populations_not_summed": true,
+    "build_test_log_sha256": "5bf3118320fa0b8b1846cdf0818c6007a0de2f8756ebdfc4069394ab0a4c6e77",
+    "iOS_log_sha256": "3ba6ba4146c90d40d5c7d1f3a2ef5a89392dddf85b2bbe41b6aa4edda2827c13"
+  },
+  "fresh_Linux": {
+    "evidence": "release/certification/evidence/q34-dev-linux-runtime-20261015.json",
+    "cases": 20,
+    "executions": 19,
+    "assertions": 409,
+    "artifact_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa"
+  },
+  "current_SDK": {
+    "status": "CURRENT_CORE_ACTUAL_SDK_IPK_7_OPKG_9_USERSPACE_LICENSE_PAYLOAD_AND_CLEANUP_INDEPENDENTLY_QUALIFIED",
+    "source_commit": "099258dc3719161154c7978347a017a8d90aba75",
+    "qeli_tree": "b432515e7e4423fd310d49803ce6799a33875b0e",
+    "source_inputs_verified": 321,
+    "IPK": {
+      "sha256": "adcbb4c6cf5b7ff1c049260720414579155b6604466906c3f3d7dd4d1af2126a",
+      "bytes": 2710659
+    },
+    "binary_sha256": "fcded183b8fd18cc706493f3b9f04096d7d6310920e0d736b8cf3e1e17ea1d5b",
+    "interpreter": "/lib/ld-musl-x86_64.so.1",
+    "license_files": 533,
+    "license_modes_and_root_owner": true,
+    "opkg_methods": [
+      "test_corrupt_upgrade_rejected_before_payload_change",
+      "test_install_with_real_legacy_providers",
+      "test_install_with_real_nft_providers",
+      "test_missing_dependencies_reject_installation",
+      "test_removal_dependency_guard_and_modified_uci_retention",
+      "test_upgrade_preserves_modified_uci",
+      "test_upgrade_replaces_unmodified_default"
+    ],
+    "userspace_cases": [
+      {
+        "case": "version",
+        "rc": 0,
+        "stdout": "qeli-client 0.8.2\n"
+      },
+      {
+        "case": "legacy",
+        "rc": 0,
+        "expected": "legacy",
+        "stdout": "legacy\n",
+        "stderr": ""
+      },
+      {
+        "case": "quoted-bom",
+        "rc": 0,
+        "expected": "legacy",
+        "stdout": "legacy\n",
+        "stderr": ""
+      },
+      {
+        "case": "core-exit-node",
+        "rc": 0,
+        "expected": "core",
+        "stdout": "core\n",
+        "stderr": ""
+      },
+      {
+        "case": "attached",
+        "rc": 0,
+        "expected": "legacy",
+        "stdout": "legacy\n",
+        "stderr": ""
+      },
+      {
+        "case": "wrong-device",
+        "rc": 1,
+        "expected": null,
+        "stdout": "",
+        "stderr": "Error: router template TUN does not match configured dev\n"
+      },
+      {
+        "case": "wrong-attach",
+        "rc": 1,
+        "expected": null,
+        "stdout": "",
+        "stderr": "Error: router template attachment mode does not match configured dev_attach\n"
+      },
+      {
+        "case": "tap-refusal",
+        "rc": 1,
+        "expected": null,
+        "stdout": "",
+        "stderr": "Error: router template requires device_type=tun\n"
+      },
+      {
+        "case": "invalid-ini",
+        "rc": 1,
+        "expected": null,
+        "stdout": "",
+        "stderr": "Error: qeli.mtu: invalid field value\n"
+      }
+    ],
+    "private_prebuilt_Rust": {
+      "rustc": "rustc 1.89.0 (29483883e 2025-08-04)",
+      "cargo": "cargo 1.89.0 (c24e10642 2025-06-23)",
+      "private_rustup_home": "/var/tmp/qeli-sdk-rustls-20261015.b9a7cb1ea0b44e59908e40699bf89d74/rustup",
+      "official_dist_server": "https://static.rust-lang.org",
+      "bootstrap": false
+    },
+    "sdk": "24.10.4",
+    "fixture_source_pin": "558d7473263b5d4db569f7320daba5861c1556ba",
+    "fixture_pin_is_not_original_full_release_commit": true,
+    "production_recipe_only_private_url_pin_hash_delta": true,
+    "seal_sha256": "a5642ad37a7b0b78910f6baec867461747d294c7540990bf9a3c1d901ae9b58f",
+    "all_inputs_and_archive_bound": true,
+    "host_preserved": true,
+    "unit_absent": true,
+    "current_SDK_package_qualified": true,
+    "full_host_Rust_bootstrap": false,
+    "physical_router_qualified": false,
+    "whole_Q31_closed": false,
+    "no_push_deploy_release": true
+  },
+  "current_source_cut": {
+    "status": "PASS_EXACT_CURRENT_COMMIT_TWO_SDK_DOWNLOADS_PREPARE",
+    "source_commit": "099258dc3719161154c7978347a017a8d90aba75",
+    "source_tree": "f9905e2dbcdb15d29284b81cea786b8d47725d30",
+    "qeli_tree": "b432515e7e4423fd310d49803ce6799a33875b0e",
+    "archive": {
+      "sha256": "c04a743ead5a9ade64c85ed22a52a4b0cc3714c632a7b7bcd3c6fa11691a9e02",
+      "bytes": 28607360
+    },
+    "prepared_count": 3419,
+    "all_prepared_blobs_verified_against_canonical_git": true,
+    "unaltered_sdk_git_export": true,
+    "private_recipe_only_url_pin_hash_changes": true,
+    "SDK": "24.10.4",
+    "two_empty_download_caches_identical": true,
+    "host_preserved": true,
+    "production_recipe_not_yet_updated": true,
+    "no_compiler_bootstrap_or_full_build": true,
+    "no_publication_or_hosted_ci": true
+  },
+  "public_source": {
+    "sha": "099258dc3719161154c7978347a017a8d90aba75",
+    "tree": "f9905e2dbcdb15d29284b81cea786b8d47725d30"
+  },
+  "native_evidence": "release/certification/evidence/q34-rustls-native-refresh-20261015.json",
+  "historical_source_compiler_evidence": "release/certification/evidence/q31-clean-lab-source-sdk-20261015.json",
+  "API29_fixture_fix": {
+    "commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+    "production_callback_unchanged": true,
+    "test_disabled": false,
+    "prior_failure_log": "q34-publication-20261015/dev-api29.log",
+    "prior_failure_sha256": "398ac6512829d954ffddfa17a243dab571b7304fbae51d41a13a082a8c7f9696",
+    "current_API29_log_sha256": "8eea927826d18334f869b106045f666c8ba1e68c1d276b0001b7e421cfc85e77",
+    "current_API35_log_sha256": "e2cde4be6f47fe2bdfa2bd9d04d6e3b9222e497679fb26c2074671d517e360af",
+    "retired_observer_case_not_skipped": true
+  },
+  "physical_scope_unchanged": true,
+  "source_bootstrap_cache_handoff_not_claimed_a_pristine_single_pass": true,
+  "Q29_generic_null_API34_unresolved": true,
+  "Android_bypass_cancelled": true,
+  "tags_releases_deployments_created": false,
+  "original_failures_retained": true,
+  "strict_certification_followup": "Bind fresh runtime rows after the report-only source delta is committed"
+}

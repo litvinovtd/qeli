@@ -1,10 +1,12 @@
 # Qeli — обфусцированный VPN 
 
+> Документация **0.8.2 Beta**. Статус публикации и доступные загрузки — в [GitHub Releases](https://github.com/litvinovtd/qeli/releases). [Описание 0.8.2](../../release/RELEASE_NOTES_0.8.2.md) · [Статус аудита и границы проверок](plans/FULL-SYSTEM-AUDIT.md).
+
 **Qeli** (Quick Easy Link IP) — self-host VPN с собственным L4-протоколом и
 встроенной обфускацией, поверх TCP или UDP. Цель — устойчивость к пассивному/
 сигнатурному DPI при удобстве классических TUN/TAP-VPN, со встроенной веб-админкой.
 
-- **Язык**: Rust 2021, версия 0.8.1 (бета)
+- **Язык**: Rust 2021, версия 0.8.3 (бета)
 - **Криптостек**: `x25519-dalek`, `ml-kem` (PQ-гибрид X25519MLKEM768), `chacha20poly1305`, `chacha20`, `aes-gcm`, `hkdf`, `sha2`, `argon2`, `zeroize`; `rustls`/`ring` — серверная терминация настоящего TLS 1.3 в `reality-tls`
 - **Транспорт**: TCP или UDP; несколько профилей (интерфейсов) в одном демоне
 - **Wire-режимы**: `plain` · `fake-tls` · `obfs` · `reality` · `reality-tls` (REALITY TLS 1.3 + настоящий HTTP/2 carrier; `handrolled` одалживает сертификат target) · QUIC-shaped совместимость для UDP, не настоящий QUIC/HTTP3
@@ -33,7 +35,7 @@ REALITY/настоящий TLS 1.3 написаны **с нуля на Rust**: �
 готовых REALITY-библиотек и **НЕ** обёртка над Xray/sing-box. Свой fake-TLS, свой
 hand-rolled TLS 1.3 (`realtls`) с cert-borrowing (сертификат и форма JA3S target'а,
 без заявления полного паритета с Xray/браузером),
-свой крипто-канал (X25519 + ML-KEM-768 PQ-гибрид, ChaCha20-Poly1305,
+свой крипто-канал (X25519, ML-KEM-768 в legacy camouflage, ChaCha20-Poly1305,
 channel-binding, key-pinning, PRP-nonce). Полный контроль и аудируемость кода,
 без зависимости от чужих proxy-ядер.
 
@@ -67,8 +69,10 @@ VPN — не self-hosted. Qeli = self-host full-TUN VPN + REALITY-style маск
   долгоживущий двунаправленный `POST /v1/events/stream`, настоящие SETTINGS/HEADERS/DATA/
   flow-control и случайный batching 2–8 мс. Пользовательского H2-переключателя и второго
   внутреннего fake-TLS handshake больше нет.
-- **Крипто-канал** — X25519 + **ML-KEM-768** (PQ-гибрид X25519MLKEM768), HKDF-SHA256,
-  ChaCha20-Poly1305 / AES-GCM, Argon2id для паролей.
+- **Крипто-канал** — X25519; внутренний X25519MLKEM768 обязателен в legacy camouflage,
+  `plain` и внутренний `reality-tls` используют классический X25519. PQ внешнего TLS зависит
+  от согласованной группы. PacketCodec — ChaCha20-Poly1305; внешний TLS — AES-GCM.
+  HKDF выводит ключи, Argon2id проверяет пароли.
 - **Channel-binding аутентификация** — proof сервера привязан к транскрипту
   рукопожатия + key-pinning: MITM не перехватит пароль ещё до его отправки.
 - **PRP-nonce** — 96-битный Feistel-PRP маскирует счётчик пакетов: на проводе нет
@@ -104,7 +108,8 @@ qeli_vpn/
 ├── qeli-mac/             — macOS-клиент (C#/Avalonia, .NET 10 + libqeli.dylib)
 ├── qeli-shared/          — общий C#-код win+mac (crypto/protocol/model, ядро VpnTunnel, RealTls, Loc; .NET 10)
 ├── native-libs/          — собранные нативные realtls-либы (.so/.dll/.dylib)
-├── release/              — собранный бинарь + benchmark_results.json + reality-tls/ конфиги
+├── release/              — release notes, дистрибутивы и упаковка
+├── docs/data/            — общие данные бенчмарков, аудитов и проверок
 ├── scripts/              — paramiko: деплой, бенчмарк, отладка, кросс-сборка либ
 └── docs/                 — эта документация
 ```
@@ -123,16 +128,15 @@ qeli_vpn/
 4. **Данные.** PacketCodec остаётся end-to-end ChaCha20-Poly1305 с PRP-маскировкой nonce.
    Legacy-режимы сохраняют своё framing; текущий `reality-tls` несёт raw private qeli records
    внутри H2. Внешний TLS AEAD и внутренний qeli AEAD остаются, но вложенного fake-TLS нет.
-Подробности безопасности — [AUDIT.md](reports/AUDIT.md). Против **активного** пробинга
-работает REALITY: `reality` мостит чужих на реальный сайт, а `reality-tls` несёт
-туннель внутри настоящего TLS 1.3 (с `handrolled` — одолженный реальный серт
-target'а). PQ-гибрид X25519MLKEM768 теперь и во **внутреннем** qeli-туннеле: ключи
-данных = X25519 ⊕ ML-KEM-768 (`derive_keys_hybrid`) во всех режимах кроме `plain`
-(`fake-tls`/`obfs`/`reality-tls`/UDP), так что защита от harvest-now-decrypt-later
-не зависит от обёртки. Сервер ТРЕБУЕТ PQ-долю для не-`plain` режимов (нет тихого
-даунгрейда). Managed-клиенты (C#/Kotlin) берут ML-KEM из общего Rust-ядра через
-FFI/JNI. В режимах `fake-tls`/`obfs` сам внешний TLS не настоящий (серт-заглушка) —
-они рассчитаны на пассивный/энтропийный DPI.
+Подробности безопасности — [AUDIT.md](reports/AUDIT.md). Против активного пробинга
+REALITY мостит чужих на реальный сайт; `reality-tls` несёт туннель в настоящем TLS 1.3/H2.
+Legacy camouflage (`fake-tls`/`obfs`/`reality`/UDP) требует X25519MLKEM768 во внутреннем
+туннеле: ключи зависят от X25519 и ML-KEM-768, без классического fallback.
+Текущий `reality-tls` использует классический внутренний обмен с привязкой identity.
+Внешний TLS допускает X25519MLKEM768 и классический X25519; PQ-защита зависит
+от согласованной внешней группы. `plain` — классический. Общий Rust core реализует
+ML-KEM для native-клиентов. В `fake-tls`/`obfs` внешний сертификат — заглушка;
+они рассчитаны на пассивный/энтропийный DPI. См. [THREAT-MODEL.md](reference/THREAT-MODEL.md).
 
 ## Быстрый старт
 
@@ -198,11 +202,14 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 аудитории (пользователю · администратору · роутеры · безопасность · устройство ·
 разработка · архив).
 
+Отдельный раздел [«Технологии и измерения»](reference/TECHNOLOGIES.md) объясняет
+механизмы Qeli и связывает их с настройками и датированными инженерными отчётами.
+
 Чаще всего нужны:
 
 - **[GETTING-STARTED.md](manuals/GETTING-STARTED.md)** — установка и начало работы, пошагово.
 - **[CONFIG.md](manuals/CONFIG.md)** — конфигурация (flat-INI), все параметры.
-- **[IPV6.md](manuals/IPV6.md)** — полная настройка dual-stack/IPv6-only, NAT66/route и диагностика.
+- **[IPV6.md](manuals/IPV6.md)** — полная настройка dual-stack/IPv6-only, `off/manual/route/nat66`, NDP proxy и диагностика.
 - **[CLIENT-CONFIG-MATRIX.md](reference/CLIENT-CONFIG-MATRIX.md)** — актуальные 80 ключей по клиентам и история рефакторинга.
 - **[TROUBLESHOOTING.md](manuals/TROUBLESHOOTING.md)** — диагностика и справочник по ошибкам.
 - **[PANEL.md](manuals/PANEL.md)** — веб-панель: установка и использование.

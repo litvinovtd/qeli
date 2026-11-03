@@ -1,4 +1,6 @@
 <div x-data="clientPage">
+  <div x-show="loadError" role="alert" class="card p-3 mb-4 text-xs text-red-400" x-text="loadError"></div>
+  <button class="btn btn-ghost btn-sm mb-3" x-show="loadError" @click="load()" :disabled="loading">Reload</button>
 
   <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
     <div class="flex items-center gap-2">
@@ -21,7 +23,7 @@
   </div>
 
   <div class="card">
-    <div x-show="!loading && profiles.length === 0" class="py-16 text-center text-slate-600 text-sm">
+    <div x-show="loaded && !loading && !loadError && profiles.length === 0" class="py-16 text-center text-slate-600 text-sm">
       <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
       No client profiles yet — Import a qeli:// link or Add one manually.
     </div>
@@ -77,7 +79,7 @@
                 <button class="btn btn-ghost btn-sm" @click="openEdit(p.name)" title="Edit">
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                 </button>
-                <button class="btn btn-danger btn-sm" @click="del(p.name)" title="Delete">
+                <button class="btn btn-danger btn-sm" @click="del(p)" title="Delete">
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                 </button>
               </div>
@@ -167,25 +169,25 @@
       </div>
       <div class="px-6 pb-5 flex gap-2 justify-end border-t border-[#21314e] pt-4">
         <button class="btn btn-ghost" @click="importOpen=false">Cancel</button>
-        <button class="btn btn-primary" @click="doImport()">Import</button>
+        <button class="btn btn-primary" @click="doImport()" :disabled="importSaving">Import</button>
       </div>
     </div>
   </div>
 
   <!-- ── Add / Edit form modal ── -->
-  <div x-cloak x-show="formOpen" class="modal-bg" @click.self="formOpen=false">
+  <div x-cloak x-show="formOpen" class="modal-bg" @click.self="closeForm()">
     <div class="modal" @click.stop style="max-width:560px">
       <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#21314e]">
         <h3 class="text-base font-semibold text-white" x-text="form.editing ? 'Edit profile' : 'Add client profile'"></h3>
         <div class="flex items-center gap-2">
-          <button class="btn btn-ghost btn-sm" @click="toggleRaw()" x-text="form.rawMode ? '↤ Form view' : 'Raw INI ↦'"></button>
-          <button class="text-slate-500 hover:text-white" @click="formOpen=false">
+          <button class="btn btn-ghost btn-sm" @click="toggleRaw()" :disabled="form.saving" x-text="form.rawMode ? '↤ Form view' : 'Raw INI ↦'"></button>
+          <button class="text-slate-500 hover:text-white" @click="closeForm()">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
       </div>
 
-      <div class="p-6 space-y-4 max-h-[72vh] overflow-y-auto">
+      <fieldset :disabled="form.saving" class="p-6 space-y-4 max-h-[72vh] overflow-y-auto">
         <div>
           <label class="block text-xs font-medium text-slate-400 mb-1.5">Name <span class="text-red-400">*</span></label>
           <input x-model="form.name" class="inp" :disabled="form.editing" placeholder="home-relay">
@@ -297,11 +299,11 @@
             <p class="text-[11px] text-slate-500 mt-1.5">Raw INI accepts the complete client schema, including ipv6, allow_ipv4_leak, allow_ipv6_leak, device_type, dev_attach, routes, DNS, MTU, kill switch and [logging]. See client.conf and the IPv6 guide.</p>
           </div>
         </template>
-      </div>
+      </fieldset>
 
       <div class="px-6 pb-5 flex gap-2 justify-end border-t border-[#21314e] pt-4">
-        <button class="btn btn-ghost" @click="formOpen=false">Cancel</button>
-        <button class="btn btn-primary" @click="save()">Save</button>
+        <button class="btn btn-ghost" @click="closeForm()">Cancel</button>
+        <button class="btn btn-primary" @click="save()" :disabled="form.saving">Save</button>
       </div>
     </div>
   </div>
@@ -310,25 +312,45 @@
 <script>
 function clientPage() {
   return {
-    profiles: [], loading: false, timer: null,
+    profiles: [], loading: false, loaded: false, loadError: '', timer: null,
+    loadSequence: 0, pendingLoads: 0, destroyed: false, editorSequence: 0, connectTimers: [],
+    importSequence: 0, importSaving: false,
     init() {
       this.load();
-      this.timer = setInterval(() => this.refresh(), 5000);
+      this.timer = qeliPoll(async () => { await this.refresh(true); return !this.loadError; }, 5000);
     },
-    destroy() { if (this.timer) clearInterval(this.timer); },
+    destroy() {
+      this.destroyed = true; this.loadSequence++; this.editorSequence++; this.importSequence++;
+      this.loading = false;
+      qeliStopPoll(this.timer); this.timer = null;
+      for (const timer of this.connectTimers) clearTimeout(timer);
+      this.connectTimers = [];
+    },
     importOpen: false, importLink: '', importName: '',
     diagOpen: false, diagProfile: null,
     formOpen: false,
-    form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', include:'', exclude:'', lan_subnet_ipv6:'', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false },
-    blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', include:'', exclude:'', lan_subnet_ipv6:'', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false }; },
+    form: { saving:false, editing:false, rawMode:false, raw:'', revision:null, name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', include:'', exclude:'', lan_subnet_ipv6:'', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false },
+    blankForm() { return { saving:false, editing:false, rawMode:false, raw:'', revision:null, name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', include:'', exclude:'', lan_subnet_ipv6:'', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false }; },
 
-    async load() { this.loading = true; await this.refresh(); this.loading = false; },
-    async refresh() {
+    async load() { await this.refresh(); },
+    async refresh(background = false) {
+      if (this.destroyed || (background && this.pendingLoads)) return;
+      const sequence = ++this.loadSequence;
+      this.pendingLoads++;
+      if (!background) this.loading = true;
       try {
         const r = await apiFetch('api/client/profiles');
-        if (r.ok) this.profiles = r.profiles || [];
-      } catch {}
+        if (this.destroyed || sequence !== this.loadSequence) return;
+        if (!r.ok || !Array.isArray(r.profiles || [])) throw new Error(r.error || qeliT('Request failed'));
+        this.profiles = r.profiles || []; this.loaded = true; this.loadError = '';
+      } catch (e) {
+        if (!this.destroyed && sequence === this.loadSequence) this.loadError = e.message;
+      } finally {
+        this.pendingLoads--;
+        if (sequence === this.loadSequence) this.loading = false;
+      }
     },
+
     lastLine(t) { const a = (t||'').trim().split('\n'); return a[a.length-1] || ''; },
     notify(msg, type) { this.$dispatch('notify', { msg, type: type || 'success' }); },
     // Alpine's CSP evaluator intentionally does not expose arbitrary window globals.
@@ -346,87 +368,131 @@ function clientPage() {
     async connect(n) {
       const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}/connect`, {method:'POST'});
       this.notify(r.ok ? r.message : r.error, r.ok ? 'success' : 'error');
-      setTimeout(() => this.refresh(), 1500);
+      if (this.destroyed) return;
+      const timer = setTimeout(() => {
+        this.connectTimers = this.connectTimers.filter(value => value !== timer);
+        if (!this.destroyed) this.refresh();
+      }, 1500);
+      this.connectTimers.push(timer);
     },
     async disconnect(n) {
       const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}/disconnect`, {method:'POST'});
       this.notify(r.ok ? r.message : r.error, r.ok ? 'success' : 'error');
       await this.refresh();
     },
-    async del(n) {
+    async del(profile) {
+      const n = profile.name;
+      const revision = profile.revision;
       if (!await qeliConfirm('Delete client profile',
                              qeliTf('Delete client profile "{}"?', n)
                                + '\n' + qeliT('It is disconnected first.'),
                              { danger: true, label: 'Delete' })) return;
-      const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}`, {method:'DELETE'});
-      if (r.ok) { this.notify('Deleted'); await this.refresh(); } else this.notify(r.error, 'error');
+      if (!revision) { this.notify(qeliT('Profile revision unavailable. Reload before deleting.'), 'error'); await this.refresh(); return; }
+      const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}`, {method:'DELETE', headers:{'X-Qeli-Revision': revision}});
+      if (r.ok) { this.notify('Deleted'); await this.refresh(); }
+      else { this.notify(r.error, 'error'); if (r.kind === 'config_conflict') await this.refresh(); }
     },
 
-    openImport() { this.importLink=''; this.importName=''; this.importOpen=true; },
+    openImport() { this.editorSequence++; this.importSequence++; this.importSaving=false; this.importLink=''; this.importName=''; this.importOpen=true; },
     async doImport() {
-      const r = await apiFetch('api/client/import', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ link: this.importLink, name: this.importName })});
-      if (r.ok) { this.importOpen=false; this.notify(`Imported "${r.name}"`); await this.refresh(); }
-      else this.notify(r.error, 'error');
+      if (this.destroyed || !this.importOpen || this.importSaving) return;
+      const sequence = this.importSequence;
+      this.importSaving = true;
+      try {
+        const r = await apiFetch('api/client/import', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ link: this.importLink, name: this.importName })});
+        if (this.destroyed) return;
+        if (r.ok) {
+          if (sequence === this.importSequence) this.importOpen=false;
+          this.notify(`Imported "${r.name}"`); await this.refresh();
+        } else this.notify(r.error, 'error');
+      } finally { if (sequence === this.importSequence) this.importSaving=false; }
     },
 
-    // tiny [qeli] INI parser → form fields
+    // INI values follow the shared codec: only surrounding double quotes and \" escapes.
+    iniValue(value) {
+      const text = value.trim();
+      return text.length >= 2 && text.startsWith('"') && text.endsWith('"')
+        ? text.slice(1, -1).replace(/\\"/g, '"') : text;
+    },
+    iniQuote(value) {
+      const text = String(value ?? '');
+      return !text || /^\s|\s$|[;#"]/.test(text) ? '"' + text.replace(/"/g, '\\"') + '"' : text;
+    },
     parseIni(raw, f) {
-      const map = {server:'server',proto:'proto',user:'user',pass:'pass',dev:'dev',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front',include:'include',exclude:'exclude',lan_subnet_ipv6:'lan_subnet_ipv6'};
-      // Keys the Field view manages; anything else in [qeli] (dev/mtu/kill_switch/dns/
-      // bind_static/…) and every other section is preserved verbatim so a Field-view
-      // save round-trips losslessly instead of silently dropping them.
-      const managed = new Set([...Object.keys(map), 'awg','jc','jmin','jmax','quic','ipv6','allow_ipv4_leak','allow_ipv6_leak','gateway','route_local','autostart']);
-      f._extraQeli = []; f._extraSections = [];
-      let afterQeli = false;
-      (raw||'').split('\n').forEach(line => {
+      const next = this.blankForm();
+      next.saving = !!f.saving; next.name = f.name; next.editing = f.editing; next.raw = raw; next.rawMode = f.rawMode; next.revision = f.revision;
+      const map = {server:'server',proto:'proto',user:'user',pass:'pass',dev:'dev',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front',include:'include',exclude:'exclude',lan_subnet_ipv6:'lan_subnet_ipv6',ipv6:'ipv6'};
+      const flags = new Set(['awg','quic','gateway','route_local','autostart','allow_ipv4_leak','allow_ipv6_leak']);
+      const numbers = new Set(['jc','jmin','jmax']);
+      const lists = new Set(['include','exclude']);
+      next._extraQeli = []; next._extraSections = [];
+      let section = '';
+      const seen = new Set();
+      let qeliSections = 0;
+      for (const line of (raw || '').split('\n')) {
         const t = line.trim();
         if (t.startsWith('[')) {
-          if (t === '[qeli]') { afterQeli = false; }
-          else { afterQeli = true; f._extraSections.push(line); }
-          return;
+          if (!t.endsWith(']')) throw new Error(qeliT('Invalid INI section'));
+          section = t.slice(1, -1).trim();
+          if (section === 'qeli') {
+            if (++qeliSections > 1) throw new Error(qeliT('Duplicate [qeli] section'));
+          } else next._extraSections.push(line);
+          continue;
         }
-        if (afterQeli) { f._extraSections.push(line); return; }
+        if (section !== 'qeli') {
+          if (section) next._extraSections.push(line);
+          else if (t && !t.startsWith('#') && !t.startsWith(';')) throw new Error(qeliT('INI key before [qeli]'));
+          continue;
+        }
+        if (!t || t.startsWith('#') || t.startsWith(';')) continue;
         const i = line.indexOf('=');
-        if (i < 0 || t.startsWith('#')) return;
-        const k = line.slice(0,i).trim(), v = line.slice(i+1).trim();
-        if (map[k]) f[map[k]] = v;
-        else if (k==='awg') f.awg = (v==='true'||v==='1'||v==='yes');
-        else if (k==='jc') f.jc = parseInt(v)||0;
-        else if (k==='jmin') f.jmin = parseInt(v)||0;
-        else if (k==='jmax') f.jmax = parseInt(v)||0;
-        else if (k==='quic') f.quic = (v==='true'||v==='1'||v==='yes');
-        else if (k==='gateway') f.gateway = (v==='true'||v==='1'||v==='yes');
-        else if (k==='ipv6') f.ipv6 = v;
-        else if (k==='allow_ipv4_leak') f.allow_ipv4_leak = (v==='true'||v==='1'||v==='yes'||v==='on');
-        else if (k==='allow_ipv6_leak') f.allow_ipv6_leak = (v==='true'||v==='1'||v==='yes'||v==='on');
-        else if (k==='route_local') f.route_local = (v==='true'||v==='1'||v==='yes');
-        else if (k==='autostart') f.autostart = (v==='true'||v==='1'||v==='yes');
-        else if (!managed.has(k)) f._extraQeli.push(line);
-      });
+        if (i < 1) throw new Error(qeliT('Expected INI key = value'));
+        const k = line.slice(0, i).trim(), v = this.iniValue(line.slice(i + 1));
+        const managed = Object.hasOwn(map, k) || flags.has(k) || numbers.has(k);
+        if (managed && seen.has(k) && !lists.has(k)) throw new Error(qeliT('Duplicate INI key: ') + k);
+        if (Object.hasOwn(map, k)) {
+          next[map[k]] = lists.has(k) && seen.has(k) ? next[map[k]] + ', ' + v : v;
+        } else if (flags.has(k)) {
+          const lower = v.toLowerCase();
+          if (['true','yes','on','1'].includes(lower)) next[k] = true;
+          else if (['false','no','off','0',''].includes(lower)) next[k] = false;
+          else throw new Error(qeliT('Invalid INI boolean: ') + k);
+        } else if (numbers.has(k)) {
+          if (v !== '' && !/^\+?\d+$/.test(v)) throw new Error(qeliT('Invalid INI number: ') + k);
+          if (v !== '') {
+            const value = Number(v), max = k === 'jc' ? 4294967295 : 65535;
+            if (!Number.isSafeInteger(value) || value > max) throw new Error(qeliT('Invalid INI number: ') + k);
+            next[k] = value;
+          }
+        } else next._extraQeli.push(line);
+        seen.add(k);
+      }
+      if (!qeliSections) throw new Error(qeliT('Missing [qeli] section'));
+      Object.assign(f, next);
       return f;
     },
     // form fields → INI text (common keys; matches the server's builder)
     formToIni() {
       const f = this.form; let s = '[qeli]\n';
-      s += `server = ${f.server||''}\n`;
-      if (f.proto) s += `proto = ${f.proto}\n`;
-      if (f.user) s += `user = ${f.user}\n`;
-      if (f.pass) s += `pass = ${f.pass}\n`;
-      if (f.key) s += `key = ${f.key}\n`;
-      if (f.mode) s += `mode = ${f.mode}\n`;
-      if (f.sni) s += `sni = ${f.sni}\n`;
-      if (f.rsid) s += `reality_sid = ${f.rsid}\n`;
-      if (f.obfs_key) s += `obfs_key = ${f.obfs_key}\n`;
+      s += `server = ${this.iniQuote(f.server || '')}\n`;
+      if (f.proto) s += `proto = ${this.iniQuote(f.proto)}\n`;
+      if (f.user) s += `user = ${this.iniQuote(f.user)}\n`;
+      if (f.pass) s += `pass = ${this.iniQuote(f.pass)}\n`;
+      if (f.key) s += `key = ${this.iniQuote(f.key)}\n`;
+      if (f.mode) s += `mode = ${this.iniQuote(f.mode)}\n`;
+      if (f.sni) s += `sni = ${this.iniQuote(f.sni)}\n`;
+      if (f.rsid) s += `reality_sid = ${this.iniQuote(f.rsid)}\n`;
+      if (f.obfs_key) s += `obfs_key = ${this.iniQuote(f.obfs_key)}\n`;
       // `dev` is a managed field (parseIni consumes it into form.dev, so it is NOT kept in
       // _extraQeli) — emit it here or a Field→Raw toggle silently drops the TUN device name.
-      if (f.dev) s += `dev = ${f.dev}\n`;
-      if (f.include) s += `include = ${f.include}\n`;
-      if (f.exclude) s += `exclude = ${f.exclude}\n`;
-      if (f.lan_subnet_ipv6) s += `lan_subnet_ipv6 = ${f.lan_subnet_ipv6}\n`;
-      if (f.mode==='obfs' && f.front && f.front!=='websocket') s += `front = ${f.front}\n`;
+      if (f.dev) s += `dev = ${this.iniQuote(f.dev)}\n`;
+      if (f.include) s += `include = ${this.iniQuote(f.include)}\n`;
+      if (f.exclude) s += `exclude = ${this.iniQuote(f.exclude)}\n`;
+      if (f.lan_subnet_ipv6) s += `lan_subnet_ipv6 = ${this.iniQuote(f.lan_subnet_ipv6)}\n`;
+      if (f.mode==='obfs' && f.front && f.front!=='websocket') s += `front = ${this.iniQuote(f.front)}\n`;
       if (f.mode==='obfs' && f.awg) { s += 'awg = true\n'; s += `jc = ${f.jc||0}\n`; s += `jmin = ${f.jmin||0}\n`; s += `jmax = ${f.jmax||0}\n`; }
-      if (f.ipv6) s += `ipv6 = ${f.ipv6}\n`;
+      if (f.ipv6) s += `ipv6 = ${this.iniQuote(f.ipv6)}\n`;
       // QUIC is UDP-only (its checkbox is x-show'd for proto=udp); gate the emit on proto so
       // enabling it then switching udp→tcp doesn't leave a stale quic=true on a TCP profile.
       if (f.quic && f.proto==='udp') s += 'quic = true\n';
@@ -443,39 +509,62 @@ function clientPage() {
     },
     toggleRaw() {
       if (!this.form.rawMode) { this.form.raw = this.formToIni(); this.form.rawMode = true; }
-      else { this.parseIni(this.form.raw, this.form); this.form.rawMode = false; }
+      else {
+        try { this.parseIni(this.form.raw, this.form); this.form.rawMode = false; }
+        catch (error) { this.notify(error.message, 'error'); }
+      }
     },
 
-    openCreate() { this.form = this.blankForm(); this.formOpen = true; },
+    closeForm() { this.editorSequence++; this.formOpen = false; },
+    openCreate() { this.editorSequence++; this.form = this.blankForm(); this.formOpen = true; },
     openRaw() {
+      this.editorSequence++;
       this.form = this.blankForm(); this.form.rawMode = true;
       this.form.raw = '[qeli]\nserver = vpn.example.com:443\nproto = tcp\nuser = \npass = \nkey = \nmode = fake-tls\nsni = www.microsoft.com\nipv6 = auto\n# allow_ipv4_leak = false\n# allow_ipv6_leak = false\n# dev = vpn0\n# mtu = 0\n# gateway = false\n# route_local = false\n# kill_switch = false\n# dns = tunnel\n# autostart = false\n\n[logging]\nlevel = info\n';
       this.formOpen = true;
     },
     async openEdit(n) {
+      const sequence = ++this.editorSequence;
       const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}`);
+      if (this.destroyed || sequence !== this.editorSequence) return;
       if (!r.ok) { this.notify(r.error, 'error'); return; }
-      const f = this.blankForm(); f.editing = true; f.name = n; f.raw = r.raw || '';
-      this.parseIni(r.raw, f);     // populate fields; Raw view shows the stored INI verbatim
+      const f = this.blankForm(); f.editing = true; f.name = n; f.raw = r.raw || ''; f.revision = r.revision;
+      try { this.parseIni(r.raw, f); }
+      catch (error) { f.rawMode = true; this.notify(error.message, 'error'); }
       this.form = f; this.formOpen = true;
     },
     async save() {
-      // Raw mode → send the INI verbatim (full config); else send form fields.
-      // Form mode must NOT carry `raw`. openEdit() stashes the stored INI there so the Raw
-      // view can show it verbatim, and the backend prefers `raw` whenever it is present — so
-      // sending the whole form re-wrote the ORIGINAL config and silently discarded every edit
-      // the user had just made. (Audit 2026-07-31, §1.)
-      let body;
-      if (this.form.rawMode) {
-        body = { name: this.form.name, raw: this.form.raw };
+      const form = this.form;
+      if (this.destroyed || !this.formOpen || form.saving) return;
+      const draft = JSON.stringify(Object.assign({}, form, {saving:false}));
+      form.saving = true;
+      try {
+        // Raw mode → send the INI verbatim (full config); else send form fields.
+        // Form mode must NOT carry `raw`. openEdit() stashes the stored INI there so the Raw
+        // view can show it verbatim, and the backend prefers `raw` whenever it is present — so
+        // sending the whole form re-wrote the ORIGINAL config and silently discarded every edit
+        // the user had just made. (Audit 2026-07-31, §1.)
+        let body;
+        if (this.form.rawMode) {
+          body = { name: this.form.name, raw: this.form.raw };
       } else {
         body = Object.assign({}, this.form);
         delete body.raw;
+        delete body.saving;
       }
+      body.expected_revision = this.form.revision;
       const r = await apiFetch('api/client/profiles', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(body)});
-      if (r.ok) { this.formOpen=false; this.notify(`Saved "${r.name}"`); await this.refresh(); }
+      if (this.destroyed) return;
+      if (r.ok) {
+        if (this.form === form && JSON.stringify(Object.assign({}, form, {saving:false})) === draft) this.formOpen=false;
+        this.notify(r.requires_reconnect
+          ? qeliTf('Saved "{}". Disconnect and Connect to apply changes.', r.name)
+          : qeliTf('Saved "{}"', r.name));
+        await this.refresh();
+      }
       else this.notify(r.error, 'error');
+      } finally { form.saving = false; }
     },
   };
 }

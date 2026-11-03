@@ -1,0 +1,15 @@
+{
+  "status": "MAC_CANDIDATE_LIPO_ARGUMENT_ORDER_CORRECTED_PENDING_HOSTED_PACKAGE",
+  "previous_commit": "8f77f9b3af8d1859992d36627526453ca4ea44b3",
+  "workflow_fix_commit": "ea8ec48ecb64af28e3370a7d5b3755056be2f888",
+  "source_digest": "6c3b97b6bc847962daf76df06a9c7055e85184732d5ce483adb351fa3bd7ebf3",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "scope": "Only three lipo argument orders corrected in candidate Mac packaging step. Input path must precede variadic -verify_arch. No product, native, compiler recipes or Linux runtime harness change; original20 execution facts and21physical statuses retained. Actual new Mac packaging qualification pending.",
+  "original_run": 38770662238,
+  "failed_job": 116545302364,
+  "failure_log_sha256": "55235fd62ed2cbb6173b7fcf62e2c9007ddca049c22681344b00d506c8250e2e",
+  "failure": "New workflow passed file path after -verify_arch; Apple lipo parsed the path as another architecture. Input path moved before operation in all three calls.",
+  "local_actionlint_workflows_passed": 4,
+  "new_local_Linux_runtime": 0,
+  "original_failure_preserved": true
+}

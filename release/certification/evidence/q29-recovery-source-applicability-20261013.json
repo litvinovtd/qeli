@@ -1,0 +1,52 @@
+{
+  "status": "ANDROID_ONLY_PRODUCT_RECOVERY_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_commit": "dab28f5f17b1dd211e867b9bbff0588703129042",
+  "source_digest": "cb2811dbe0663c650adddff01b1075732ec73b8c4eb2fe6369a6a6ea3a369c87",
+  "previous_source_commit": "6b9cfce1880d3d17871c8624c3476b79c23a8e62",
+  "exact_non_certification_delta": [
+    "docs/eng/index.md",
+    "docs/eng/manuals/TROUBLESHOOTING.md",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q29-ANDROID-RECOVERY.md",
+    "docs/eng/reports/AUDIT-Q29-ANDROID-SYSTEM.md",
+    "docs/ru/index.md",
+    "docs/ru/manuals/TROUBLESHOOTING.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q29-ANDROID-RECOVERY.md",
+    "docs/ru/reports/AUDIT-Q29-ANDROID-SYSTEM.md",
+    "qeli-android/README.md",
+    "qeli-android/app/instrumentation-abi.pro",
+    "qeli-android/app/src/androidTest/kotlin/com/qeli/ManifestInstrumentedTest.kt",
+    "qeli-android/app/src/androidTest/kotlin/com/qeli/ProfileStoreInstrumentedTest.kt",
+    "qeli-android/app/src/main/AndroidManifest.xml",
+    "qeli-android/app/src/main/kotlin/com/qeli/ProfileStore.kt",
+    "qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt",
+    "qeli-android/app/src/main/kotlin/com/qeli/VpnForegroundNotification.kt",
+    "qeli-android/app/src/main/kotlin/com/qeli/VpnRecoveryService.kt",
+    "scripts/audit_android_data_plane_lab.py"
+  ],
+  "canonical_tested_product_inputs": {
+    "qeli-android/app/src/androidTest/kotlin/com/qeli/ManifestInstrumentedTest.kt": "08f3d279e283ffa7fb3462689813ed1b07cad58a95026b34a7a682e96904e80e",
+    "qeli-android/app/src/androidTest/kotlin/com/qeli/ProfileStoreInstrumentedTest.kt": "d10c78d75a4d8617af618c8a9c77f1479bd208c65300c876d5c9cc9af3fe8e6e",
+    "qeli-android/app/src/main/AndroidManifest.xml": "d977c036b9d134bd64407e5c38cef7ac862d0e86fc30574761000af196794ca6",
+    "qeli-android/app/src/main/kotlin/com/qeli/ProfileStore.kt": "c833ea8b5598796f8ac5348ef4be513759d911370c8c5a781659d379728bf1a3",
+    "qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt": "74648f746c5b66905e51c17cc847fdbab48155b5364ef6b1f6f6f3a7ed1158cf",
+    "qeli-android/app/src/main/kotlin/com/qeli/VpnForegroundNotification.kt": "1870f6ed5c61b3617d18816a6bfd6c43de72dc414630e5ce38459c6058cbe410",
+    "qeli-android/app/src/main/kotlin/com/qeli/VpnRecoveryService.kt": "ca6739002dad91deab4ebc3db3fd64e5707c8e11db46476cce898df56a8144a8",
+    "scripts/audit_android_data_plane_lab.py": "718de415d1aad911a385d9132328c48d0a769ec885a15bd989eb5cda38bdc0b0",
+    "qeli-android/app/instrumentation-abi.pro": "52dbcc1d417332edd7154c45257670fbd2bd5bb0fa46b18da603fd25f758f5ea"
+  },
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "product_runtime_qualification_sha256": "cb45390277fee77c2f56451e27eaf96a6cea67f6e26371f6e502344ec90410ed",
+  "product_evidence": "release/certification/evidence/q29-product-recovery-20261013.json",
+  "product_evidence_sha256": "abb182e6f02859c9cd06a47d35fa34221819823c6e347c17cc7249d7d1c171e9",
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "new_certification_matrix_execution": false,
+  "scope": "Android-only recovery product delta: private same-process sticky record, guarded idempotent recovery, encrypted canonical INI snapshot and shared notification; five actual platform tests plus ordinary production-R8 independent-UID authenticated SIGKILL/payload/lockdown/UI-stop/revoke runtime PASS. Matching JNI bytes unchanged. Linux/Rust/config parser/native recipes unchanged; original20Linux executions and21physical statuses retained, not rerun. DNS/null remains unqualified and Q29 open; no hostedCI/publicrelease or physical-platform claim.",
+  "no_push_deploy_release": true,
+  "driver_sha256": "03e952af02a8978bec429d7aac015fc7e10a16ded07ca048d007cd9028d61d1b"
+}

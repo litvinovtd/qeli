@@ -9,3 +9,7 @@
 *.deb binary
 *.zip binary
 *.icns binary
+qeli/third-party-notices/rust/** -text -whitespace
+
+# Preserve original upstream NuGet legal text bytes.
+qeli-shared/third-party-notices/dotnet/** -text -whitespace

@@ -1,77 +1,48 @@
 #!/usr/bin/env python3
-"""Generate an EXHAUSTIVE server round-trip fixture + prove it covers every key.
+"""Generate the server codec fixture, or verify its key coverage with --check.
 
-The round-trip proof itself is Rust (parse -> to_ini_string -> parse -> serde
-equality), reusing the method the existing `server_round_trip_preserves_fields`
-test already trusts. What that test lacks is coverage: a key absent from its
-fixture round-trips trivially (default==default) and so a read-but-not-written
-bug (the logging_to/time_format class) slips through for every unset key.
-
-This script builds a fixture that sets EVERY parser-read key to a non-default
-value, then mechanically checks -- against the keys server_ini.rs actually reads
--- that none is missing. Transport-split keys (perf.tcp.*/multipath vs quic) are
-placed on the profile whose transport emits them, else to_ini would legitimately
-drop them and the round-trip would falsely fail.
+Coverage here proves that the fixture names every statically read key and dynamic
+key family. Rust verifies parse -> serialize -> parse equality. Neither check
+proves every field is non-default, runtime-valid, or applied by the server.
 """
-import re, sys, os
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+import argparse
+import re
+from pathlib import Path
 
-SRC = "qeli/src/config/server_ini.rs"
-
-# Keys that are read but are NOT round-trippable INI scalars the fixture drives:
-#  - handled structurally (reservations/users/groups/routes/listen), or
-#  - test-fixture artifacts / prefixes, or emitted only under a condition we set
-#    elsewhere. Each is justified so the coverage gate stays honest.
-EXEMPT = {
-    "bob",              # a pool.reservation.<name> instance in another test
-    "bind",            # web '[web] bind' handled; also a prefix match artifact
-    "profiles",        # user profile-list; set on the user entry below
-    "group",           # user's group ref; set on the user entry
-    "enabled",         # appears in profile/user/web/dhcp/brute_force — set in all
-    "format",          # logging.format — set
-    "file",            # logging.file — set
-    "level",           # logging.level — set
-    "username",        # web.username — set
-    "password_hash",   # web + user — set in both
-    "password_enc",    # user — set
-    "static_ip",       # user — set
-    "allowed_networks",# user/group — set
-    "allowed_ips",     # web — set
-    "allowed_origins", # web — set
-    "trusted_proxies", # web — set
-    "client_subnet",   # user — set
-    "max_sessions",    # user/group — set
-    "data_limit_gb",   # user — set
-    "bandwidth.limit_mbps", "bandwidth.burst_mbps",  # user — set
-    "port",            # web.port — set
-    "public_host", "base_path", "secure_cookie", "insecure_no_auth",
-    "persist_session_key", "csrf", "update_check", "session_ttl_secs",
-    "tls", "tls_cert", "tls_key",   # web — all set
-    "time_format", "users_file", "require_client_key_proof",
-    "bind_static_to_session",
-    "brute_force.enabled", "brute_force.max_attempts",
-    "brute_force.window_secs", "brute_force.lockout_secs",  # auth+web — set
-    "tun.netmask",     # legacy read-only compatibility key; intentionally never emitted
-    "netmask",         # serde_json test lookup, not an INI parser key
-}
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "qeli/src/config/server_ini.rs"
+# This legacy key is consumed only to warn; it must not be serialized again.
+EXEMPT = {"tun.netmask"}
 
 
 def read_keys():
-    src = open(SRC, encoding="utf-8").read()
-    ks = set(re.findall(
-        r'\.(?:bool_or|parse_or|str_or|get|list|u32_or|u16_or|u64_or|f64_or)\("([a-z_.0-9]+)"',
-        src))
-    return ks
+    src = SRC.read_text(encoding="utf-8").split("#[cfg(test)]\nmod tests", 1)[0]
+    keys = set(re.findall(
+        r'\.(?:bool_or|parse_or|str_or|get|get_or|list|all|contains_key)\(\s*"([a-z_.0-9]+)"', src))
+    keys.update(re.findall(r'opt_parse\(s,\s*"([a-z_.0-9]+)"', src))
+    prefixes = set(re.findall(r'entries_with_prefix\(\s*"([a-z_.0-9]+)"', src))
+    return keys, prefixes
+
+
+def embedded_fixture():
+    src = SRC.read_text(encoding="utf-8")
+    test = src.split("fn exhaustive_round_trip_every_server_key()", 1)[1]
+    return test.split('r####"', 1)[1].split('"####;', 1)[0].strip()
 
 
 # ---- the fixture -----------------------------------------------------------
 # Shared profile keys (parsed for BOTH transports). Values are all non-default.
 SHARED_PROFILE = """\
 enabled = false
+roaming.enabled = true
+roaming.grace_secs = 51
+roaming.max_orphaned = 77
+roaming.max_orphan_bytes = 8388608
 identity_key = /tmp/id-{tag}.key
 bind.address = 192.168.5.5
 bind.port = {port}
 bind.transport = {tp}
+listen = 192.168.5.6:{port} {tp}
 tun.name = tuna{tag}
 tun.address = 10.{n}.0.1
 tun.ip_mode = dual
@@ -85,12 +56,15 @@ pool.ipv6.cidr = fd42:{n}::/64
 pool.ipv6.exclude = fd42:{n}::2
 pool.exclude = 10.{n}.0.2
 pool.reservation.alice = 10.{n}.0.50
+pool.ipv6.reservation.alice = fd42:{n}::50
 routing.client_to_client = true
 routing.forward_private = false
 routing.nat.enabled = true
 routing.nat.interface = eth7
-routing.ipv6.mode = nat66
+routing.ipv6.mode = route
 routing.ipv6.interface = eth7
+routing.ipv6.ndp_proxy = required
+routing.ipv6.ndp_proxy_interface = eth7
 routing.post_up = echo up
 routing.post_down = echo down
 route = 10.{n}.9.0/24 gateway=10.{n}.0.1 metric=42 desc=lan seg
@@ -197,6 +171,7 @@ perf.connection.new_session_rate_window_secs = 11
 
 OTHER_SECTIONS = """\
 [auth]
+users_file = /tmp/qeli-roundtrip-users.conf
 require_client_key_proof = true
 bind_static_to_session = false
 brute_force.enabled = false
@@ -238,6 +213,7 @@ brute_force.lockout_secs = 300
 [user:carol]
 password_hash = $argon2id$v=19$m=16384,t=2,p=1$c2FsdHNhbHQ$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 password_enc = ENCVAL123
+metadata.note = roundtrip annotation
 static_ip = 10.5.0.77
 static_ipv6 = fd42:5::77
 enabled = false
@@ -270,25 +246,29 @@ def build():
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="check coverage and Rust fixture parity without writing files")
+    args = parser.parse_args()
     fixture = build()
     present = set(re.findall(r'^\s*([a-z_][a-z_.0-9]*)\s*=', fixture, re.M))
-    # pool.reservation.alice -> normalize the prefix key for coverage
-    present |= {"pool.reservation." + "alice"}
-    ks = read_keys()
-    missing = sorted(k for k in ks if k not in present and k not in EXEMPT
-                     and not k.startswith("pool.reservation"))
-    print(f"parser read-keys: {len(ks)} | fixture keys: {len(present)} | exempt: {len(EXEMPT)}")
+    keys, prefixes = read_keys()
+    missing = sorted(keys - present - EXEMPT)
+    missing += sorted(prefix + "<name>" for prefix in prefixes
+                      if not any(k.startswith(prefix) and k != prefix for k in present))
+    print(f"parser key names: {len(keys)} | dynamic families: {len(prefixes)} | fixture key names: {len(present)}")
     if missing:
-        print(f"\nMISSING from fixture ({len(missing)}):")
-        for k in missing:
-            print("   ", k)
-        print("\n-> fixture is NOT exhaustive; add these before trusting the round-trip")
-    else:
-        print("\nCOVERAGE OK: every parser-read key is set non-default in the fixture (or justified-exempt)")
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
-                       "release", "roundtrip_fixture_server.ini")
-    open(out, "w", encoding="utf-8").write(fixture)
-    print("fixture written ->", os.path.normpath(out))
+        print("MISSING from fixture: " + ", ".join(missing))
+        raise SystemExit(1)
+    if args.check:
+        if embedded_fixture() != fixture.strip():
+            print("Rust roundtrip fixture is stale; synchronize it with build() before trusting coverage")
+            raise SystemExit(1)
+        print("PASS: all key names/families covered; embedded Rust fixture matches generator")
+        return
+    out = ROOT / "test/fixtures/roundtrip_fixture_server.ini"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(fixture, encoding="utf-8")
+    print(f"fixture written -> {out}")
 
 
 if __name__ == "__main__":

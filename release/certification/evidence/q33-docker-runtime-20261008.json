@@ -1,0 +1,1850 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q33_DOCKER_RUNTIME_SCOPED",
+  "source_digest": "23ff8a716250b1eeb5d560cdee572c11e5dbfb373ebf866aafba2ad14febb62d",
+  "qualification_source_commit": "9666f2faae546aa0a1fc5d95414dc0b09e7ec14c",
+  "runtime_fixture_commit": "5ef44e50f071f305c2c9847d6d7e899490ec0b41",
+  "findings": [
+    "F446/Q33-F049",
+    "F447/Q33-F050",
+    "F448/Q33-F051"
+  ],
+  "verification": {
+    "runtime": {
+      "status": "PASS",
+      "image": "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+      "checks": [
+        {
+          "label": "help passes actual CLI without seeding files",
+          "pass": true
+        },
+        {
+          "label": "image contains exact qualified release SHA",
+          "pass": true
+        },
+        {
+          "label": "new actual seed config and empty users are root0600",
+          "pass": true
+        },
+        {
+          "label": "readonly volume startup fails without writes",
+          "pass": true
+        },
+        {
+          "label": "actual server static key available",
+          "pass": true
+        },
+        {
+          "label": "fresh actual authenticated three inner pings",
+          "pass": true
+        },
+        {
+          "label": "fresh route through q33dkvpn",
+          "pass": true
+        },
+        {
+          "label": "startup preserves configured state",
+          "pass": true
+        },
+        {
+          "label": "real authenticated panel readiness HTTP200",
+          "pass": true
+        },
+        {
+          "label": "Qeli uses private NET with default AppArmor and seccomp",
+          "pass": true
+        },
+        {
+          "label": "client exits without OOM or forced SIGKILL",
+          "pass": true
+        },
+        {
+          "label": "server exits without OOM or forced SIGKILL",
+          "pass": true
+        },
+        {
+          "label": "graceful stop preserves server identity/config/users bytes owner mode",
+          "pass": true
+        },
+        {
+          "label": "recreated actual authenticated three inner pings",
+          "pass": true
+        },
+        {
+          "label": "recreated route through q33dkvpn",
+          "pass": true
+        },
+        {
+          "label": "recreation preserves server identity/config/users",
+          "pass": true
+        },
+        {
+          "label": "client exits without OOM or forced SIGKILL",
+          "pass": true
+        },
+        {
+          "label": "server exits without OOM or forced SIGKILL",
+          "pass": true
+        },
+        {
+          "label": "local qualified build tag resolves to exact tested image",
+          "pass": true
+        },
+        {
+          "label": "invalid image exits nonzero and never remains running",
+          "pass": true
+        },
+        {
+          "label": "failed image preserves volume bytes/owner/mode",
+          "pass": true
+        },
+        {
+          "label": "rollback-known-image actual authenticated three inner pings",
+          "pass": true
+        },
+        {
+          "label": "rollback-known-image route through q33dkvpn",
+          "pass": true
+        },
+        {
+          "label": "known-image recovery preserves identity/config/users",
+          "pass": true
+        },
+        {
+          "label": "client exits without OOM or forced SIGKILL",
+          "pass": true
+        },
+        {
+          "label": "server exits without OOM or forced SIGKILL",
+          "pass": true
+        }
+      ],
+      "commands": [
+        {
+          "argv": [
+            "network",
+            "create",
+            "--driver",
+            "bridge",
+            "--subnet",
+            "10.93.0.0/24",
+            "--gateway",
+            "10.93.0.1",
+            "--opt",
+            "com.docker.network.bridge.name=q33dkbridge",
+            "--opt",
+            "com.docker.network.bridge.enable_ip_masquerade=false",
+            "--label",
+            "qeli.audit.root=/var/tmp/qeli-q33-docker-20261008100617952293",
+            "qeli-q33-docker-20261008100617952293-net"
+          ],
+          "rc": 0,
+          "log": "runtime-000.log",
+          "label": "owned bridge"
+        },
+        {
+          "argv": [
+            "run",
+            "--rm",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/help/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/help/lib:/var/lib/qeli",
+            "--network",
+            "none",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "--help"
+          ],
+          "rc": 0,
+          "log": "runtime-001.log",
+          "label": "actual CLI help"
+        },
+        {
+          "argv": [
+            "run",
+            "--rm",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/inventory/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/inventory/lib:/var/lib/qeli",
+            "--network",
+            "none",
+            "--entrypoint",
+            "sha256sum",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "/usr/local/bin/qeli"
+          ],
+          "rc": 0,
+          "log": "runtime-002.log",
+          "label": "image ELF SHA"
+        },
+        {
+          "argv": [
+            "run",
+            "--rm",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/inventory/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/inventory/lib:/var/lib/qeli",
+            "--network",
+            "none",
+            "--entrypoint",
+            "sh",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "-c",
+            "qeli --version; dpkg-query -W; command -v ip iptables curl ping dig ss tcpdump"
+          ],
+          "rc": 0,
+          "log": "runtime-003.log",
+          "label": "actual image dependencies"
+        },
+        {
+          "argv": [
+            "run",
+            "--rm",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/seed/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/seed/lib:/var/lib/qeli",
+            "--network",
+            "none",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "server",
+            "--intentional-q33-invalid-option"
+          ],
+          "rc": 2,
+          "log": "runtime-004.log",
+          "label": "actual first-run seeding"
+        },
+        {
+          "argv": [
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/readonly/etc:/etc/qeli:ro",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/readonly/lib:/var/lib/qeli:ro",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "server"
+          ],
+          "rc": 1,
+          "log": "runtime-005.log",
+          "label": "readonly first-run refuses"
+        },
+        {
+          "argv": [
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/lib:/var/lib/qeli",
+            "--entrypoint",
+            "qeli",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "add-client",
+            "audit-docker-user",
+            "--password",
+            "synthetic-docker-user-password",
+            "--config",
+            "/etc/qeli/server.conf"
+          ],
+          "rc": 0,
+          "log": "runtime-006.log",
+          "label": "actual config CLI add-client"
+        },
+        {
+          "argv": [
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/lib:/var/lib/qeli",
+            "--entrypoint",
+            "qeli",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "set-web-password",
+            "--password",
+            "synthetic-docker-panel-password",
+            "--config",
+            "/etc/qeli/server.conf"
+          ],
+          "rc": 0,
+          "log": "runtime-007.log",
+          "label": "actual config CLI set-web-password"
+        },
+        {
+          "argv": [
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/lib:/var/lib/qeli",
+            "--entrypoint",
+            "qeli",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "show-identity",
+            "--config",
+            "/etc/qeli/server.conf"
+          ],
+          "rc": 0,
+          "log": "runtime-008.log",
+          "label": "actual config CLI show-identity"
+        },
+        {
+          "argv": [
+            "run",
+            "-d",
+            "--name",
+            "qeli-q33-docker-20261008100617952293-server",
+            "--label",
+            "qeli.audit.root=/var/tmp/qeli-q33-docker-20261008100617952293",
+            "--network",
+            "qeli-q33-docker-20261008100617952293-net",
+            "--ip",
+            "10.93.0.2",
+            "--memory",
+            "256m",
+            "--cpus",
+            "0.7",
+            "--cap-add",
+            "NET_ADMIN",
+            "--cap-add",
+            "NET_RAW",
+            "--device",
+            "/dev/net/tun",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/lib:/var/lib/qeli",
+            "--sysctl",
+            "net.ipv4.ip_forward=1",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "server"
+          ],
+          "rc": 0,
+          "log": "runtime-009.log",
+          "label": "server create"
+        },
+        {
+          "argv": [
+            "run",
+            "-d",
+            "--name",
+            "qeli-q33-docker-20261008100617952293-client",
+            "--label",
+            "qeli.audit.root=/var/tmp/qeli-q33-docker-20261008100617952293",
+            "--network",
+            "qeli-q33-docker-20261008100617952293-net",
+            "--ip",
+            "10.93.0.3",
+            "--memory",
+            "256m",
+            "--cpus",
+            "0.7",
+            "--cap-add",
+            "NET_ADMIN",
+            "--cap-add",
+            "NET_RAW",
+            "--device",
+            "/dev/net/tun",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/client/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/client/lib:/var/lib/qeli",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "client"
+          ],
+          "rc": 0,
+          "log": "runtime-010.log",
+          "label": "client create"
+        },
+        {
+          "argv": [
+            "exec",
+            "qeli-q33-docker-20261008100617952293-client",
+            "ping",
+            "-c",
+            "3",
+            "-W",
+            "2",
+            "10.77.1.1"
+          ],
+          "rc": 0,
+          "log": "runtime-011.log",
+          "label": "client ping"
+        },
+        {
+          "argv": [
+            "exec",
+            "qeli-q33-docker-20261008100617952293-client",
+            "ip",
+            "route",
+            "get",
+            "10.77.1.1"
+          ],
+          "rc": 0,
+          "log": "runtime-012.log",
+          "label": "client ip"
+        },
+        {
+          "argv": [
+            "exec",
+            "qeli-q33-docker-20261008100617952293-server",
+            "curl",
+            "-sS",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "http://127.0.0.1:24990/login"
+          ],
+          "rc": 0,
+          "log": "runtime-013.log",
+          "label": "server curl"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-server",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-014.log",
+          "label": "real security settings"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-015.log",
+          "label": "client ownership before stop"
+        },
+        {
+          "argv": [
+            "stop",
+            "--time",
+            "20",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-016.log",
+          "label": "client graceful stop"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-017.log",
+          "label": "client stopped state"
+        },
+        {
+          "argv": [
+            "logs",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-018.log",
+          "label": "client final logs"
+        },
+        {
+          "argv": [
+            "rm",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-019.log",
+          "label": "client remove"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-020.log",
+          "label": "server ownership before stop"
+        },
+        {
+          "argv": [
+            "stop",
+            "--time",
+            "20",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-021.log",
+          "label": "server graceful stop"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-022.log",
+          "label": "server stopped state"
+        },
+        {
+          "argv": [
+            "logs",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-023.log",
+          "label": "server final logs"
+        },
+        {
+          "argv": [
+            "rm",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-024.log",
+          "label": "server remove"
+        },
+        {
+          "argv": [
+            "run",
+            "-d",
+            "--name",
+            "qeli-q33-docker-20261008100617952293-server",
+            "--label",
+            "qeli.audit.root=/var/tmp/qeli-q33-docker-20261008100617952293",
+            "--network",
+            "qeli-q33-docker-20261008100617952293-net",
+            "--ip",
+            "10.93.0.2",
+            "--memory",
+            "256m",
+            "--cpus",
+            "0.7",
+            "--cap-add",
+            "NET_ADMIN",
+            "--cap-add",
+            "NET_RAW",
+            "--device",
+            "/dev/net/tun",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/lib:/var/lib/qeli",
+            "--sysctl",
+            "net.ipv4.ip_forward=1",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "server"
+          ],
+          "rc": 0,
+          "log": "runtime-025.log",
+          "label": "server create"
+        },
+        {
+          "argv": [
+            "run",
+            "-d",
+            "--name",
+            "qeli-q33-docker-20261008100617952293-client",
+            "--label",
+            "qeli.audit.root=/var/tmp/qeli-q33-docker-20261008100617952293",
+            "--network",
+            "qeli-q33-docker-20261008100617952293-net",
+            "--ip",
+            "10.93.0.3",
+            "--memory",
+            "256m",
+            "--cpus",
+            "0.7",
+            "--cap-add",
+            "NET_ADMIN",
+            "--cap-add",
+            "NET_RAW",
+            "--device",
+            "/dev/net/tun",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/client/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/client/lib:/var/lib/qeli",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "client"
+          ],
+          "rc": 0,
+          "log": "runtime-026.log",
+          "label": "client create"
+        },
+        {
+          "argv": [
+            "exec",
+            "qeli-q33-docker-20261008100617952293-client",
+            "ping",
+            "-c",
+            "3",
+            "-W",
+            "2",
+            "10.77.1.1"
+          ],
+          "rc": 0,
+          "log": "runtime-027.log",
+          "label": "client ping"
+        },
+        {
+          "argv": [
+            "exec",
+            "qeli-q33-docker-20261008100617952293-client",
+            "ip",
+            "route",
+            "get",
+            "10.77.1.1"
+          ],
+          "rc": 0,
+          "log": "runtime-028.log",
+          "label": "client ip"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-029.log",
+          "label": "client ownership before stop"
+        },
+        {
+          "argv": [
+            "stop",
+            "--time",
+            "20",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-030.log",
+          "label": "client graceful stop"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-031.log",
+          "label": "client stopped state"
+        },
+        {
+          "argv": [
+            "logs",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-032.log",
+          "label": "client final logs"
+        },
+        {
+          "argv": [
+            "rm",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-033.log",
+          "label": "client remove"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-034.log",
+          "label": "server ownership before stop"
+        },
+        {
+          "argv": [
+            "stop",
+            "--time",
+            "20",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-035.log",
+          "label": "server graceful stop"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-036.log",
+          "label": "server stopped state"
+        },
+        {
+          "argv": [
+            "logs",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-037.log",
+          "label": "server final logs"
+        },
+        {
+          "argv": [
+            "rm",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-038.log",
+          "label": "server remove"
+        },
+        {
+          "argv": [
+            "image",
+            "inspect",
+            "qeli-q33:qualified"
+          ],
+          "rc": 0,
+          "log": "runtime-039.log",
+          "label": "fault parent image identity"
+        },
+        {
+          "argv": [
+            "build",
+            "-t",
+            "qeli-q33:fault",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/fault"
+          ],
+          "rc": 0,
+          "log": "runtime-040.log",
+          "label": "build corrupt runtime image"
+        },
+        {
+          "argv": [
+            "run",
+            "-d",
+            "--name",
+            "qeli-q33-docker-20261008100617952293-server",
+            "--label",
+            "qeli.audit.root=/var/tmp/qeli-q33-docker-20261008100617952293",
+            "--network",
+            "qeli-q33-docker-20261008100617952293-net",
+            "--ip",
+            "10.93.0.2",
+            "--memory",
+            "256m",
+            "--cpus",
+            "0.7",
+            "--cap-add",
+            "NET_ADMIN",
+            "--cap-add",
+            "NET_RAW",
+            "--device",
+            "/dev/net/tun",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/lib:/var/lib/qeli",
+            "--sysctl",
+            "net.ipv4.ip_forward=1",
+            "qeli-q33:fault",
+            "server"
+          ],
+          "rc": 0,
+          "log": "runtime-041.log",
+          "label": "server create"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-042.log",
+          "label": "bad image state"
+        },
+        {
+          "argv": [
+            "logs",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-043.log",
+          "label": "bad image logs"
+        },
+        {
+          "argv": [
+            "rm",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-044.log",
+          "label": "bad image remove"
+        },
+        {
+          "argv": [
+            "run",
+            "-d",
+            "--name",
+            "qeli-q33-docker-20261008100617952293-server",
+            "--label",
+            "qeli.audit.root=/var/tmp/qeli-q33-docker-20261008100617952293",
+            "--network",
+            "qeli-q33-docker-20261008100617952293-net",
+            "--ip",
+            "10.93.0.2",
+            "--memory",
+            "256m",
+            "--cpus",
+            "0.7",
+            "--cap-add",
+            "NET_ADMIN",
+            "--cap-add",
+            "NET_RAW",
+            "--device",
+            "/dev/net/tun",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/lib:/var/lib/qeli",
+            "--sysctl",
+            "net.ipv4.ip_forward=1",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "server"
+          ],
+          "rc": 0,
+          "log": "runtime-045.log",
+          "label": "server create"
+        },
+        {
+          "argv": [
+            "run",
+            "-d",
+            "--name",
+            "qeli-q33-docker-20261008100617952293-client",
+            "--label",
+            "qeli.audit.root=/var/tmp/qeli-q33-docker-20261008100617952293",
+            "--network",
+            "qeli-q33-docker-20261008100617952293-net",
+            "--ip",
+            "10.93.0.3",
+            "--memory",
+            "256m",
+            "--cpus",
+            "0.7",
+            "--cap-add",
+            "NET_ADMIN",
+            "--cap-add",
+            "NET_RAW",
+            "--device",
+            "/dev/net/tun",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/client/etc:/etc/qeli",
+            "-v",
+            "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/client/lib:/var/lib/qeli",
+            "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "client"
+          ],
+          "rc": 0,
+          "log": "runtime-046.log",
+          "label": "client create"
+        },
+        {
+          "argv": [
+            "exec",
+            "qeli-q33-docker-20261008100617952293-client",
+            "ping",
+            "-c",
+            "3",
+            "-W",
+            "2",
+            "10.77.1.1"
+          ],
+          "rc": 0,
+          "log": "runtime-047.log",
+          "label": "client ping"
+        },
+        {
+          "argv": [
+            "exec",
+            "qeli-q33-docker-20261008100617952293-client",
+            "ip",
+            "route",
+            "get",
+            "10.77.1.1"
+          ],
+          "rc": 0,
+          "log": "runtime-048.log",
+          "label": "client ip"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-049.log",
+          "label": "client ownership before stop"
+        },
+        {
+          "argv": [
+            "stop",
+            "--time",
+            "20",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-050.log",
+          "label": "client graceful stop"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-051.log",
+          "label": "client stopped state"
+        },
+        {
+          "argv": [
+            "logs",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-052.log",
+          "label": "client final logs"
+        },
+        {
+          "argv": [
+            "rm",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 0,
+          "log": "runtime-053.log",
+          "label": "client remove"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-054.log",
+          "label": "server ownership before stop"
+        },
+        {
+          "argv": [
+            "stop",
+            "--time",
+            "20",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-055.log",
+          "label": "server graceful stop"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-056.log",
+          "label": "server stopped state"
+        },
+        {
+          "argv": [
+            "logs",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-057.log",
+          "label": "server final logs"
+        },
+        {
+          "argv": [
+            "rm",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 0,
+          "log": "runtime-058.log",
+          "label": "server remove"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-client"
+          ],
+          "rc": 1,
+          "log": "runtime-059.log",
+          "label": "cleanup existence client"
+        },
+        {
+          "argv": [
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-server"
+          ],
+          "rc": 1,
+          "log": "runtime-060.log",
+          "label": "cleanup existence server"
+        },
+        {
+          "argv": [
+            "network",
+            "inspect",
+            "qeli-q33-docker-20261008100617952293-net"
+          ],
+          "rc": 0,
+          "log": "runtime-061.log",
+          "label": "cleanup network ownership"
+        },
+        {
+          "argv": [
+            "network",
+            "rm",
+            "qeli-q33-docker-20261008100617952293-net"
+          ],
+          "rc": 0,
+          "log": "runtime-062.log",
+          "label": "remove only owned bridge"
+        }
+      ],
+      "baseline_server_state": {
+        "etc/identity/docker.key": {
+          "sha256": "49528b1a228acc595e3ed436eb10086a2d005cdfdcbc1c0e29b7212fcf94f39b",
+          "mode": 384,
+          "uid": 0
+        },
+        "etc/identity/docker.key.lock": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mode": 384,
+          "uid": 0
+        },
+        "etc/server.conf": {
+          "sha256": "05d150671ae966802cfc4a920a899e09506d666c894cd3a9102415d51c2f574f",
+          "mode": 384,
+          "uid": 0
+        },
+        "etc/server.conf.lock": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mode": 384,
+          "uid": 0
+        },
+        "etc/users.conf": {
+          "sha256": "51bc6ce3e4296996a1ab041c5d5dc764f54f939061964ca46192ebef1e26bca3",
+          "mode": 384,
+          "uid": 0
+        },
+        "etc/users.conf.lock": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mode": 384,
+          "uid": 0
+        },
+        "lib/panel-secret.key": {
+          "sha256": "4f9ce6f53df1bc310a75cac645f538bb3e8ffef9cd9df58a8643cd7ac54144d6",
+          "mode": 384,
+          "uid": 0
+        },
+        "lib/panel-secret.key.lock": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mode": 384,
+          "uid": 0
+        },
+        "lib/server-firewall.state": {
+          "sha256": "b3379794eeb7272047f12c7a03bfaf4888b4592d0973ac337e2e87f7d2e85658",
+          "mode": 384,
+          "uid": 0
+        },
+        "lib/server-firewall.state.lock": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mode": 384,
+          "uid": 0
+        },
+        "lib/sysctls.state.lock": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mode": 384,
+          "uid": 0
+        }
+      },
+      "containers": [
+        {
+          "Id": "b941ff5f41fb9158cce8ad697168d9ee301f5dca2e7569e36df29d2657eb348f",
+          "Created": "2026-10-08T10:31:21.924425077Z",
+          "Path": "/usr/local/bin/entrypoint.sh",
+          "Args": [
+            "server"
+          ],
+          "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 3247,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-08T10:31:21.938687062Z",
+            "FinishedAt": "0001-01-01T00:00:00Z"
+          },
+          "Image": "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+          "ResolvConfPath": "/var/tmp/qeli-q33-docker-20261008100617952293/data/containers/b941ff5f41fb9158cce8ad697168d9ee301f5dca2e7569e36df29d2657eb348f/resolv.conf",
+          "HostnamePath": "/var/tmp/qeli-q33-docker-20261008100617952293/data/containers/b941ff5f41fb9158cce8ad697168d9ee301f5dca2e7569e36df29d2657eb348f/hostname",
+          "HostsPath": "/var/tmp/qeli-q33-docker-20261008100617952293/data/containers/b941ff5f41fb9158cce8ad697168d9ee301f5dca2e7569e36df29d2657eb348f/hosts",
+          "LogPath": "/var/tmp/qeli-q33-docker-20261008100617952293/data/containers/b941ff5f41fb9158cce8ad697168d9ee301f5dca2e7569e36df29d2657eb348f/b941ff5f41fb9158cce8ad697168d9ee301f5dca2e7569e36df29d2657eb348f-json.log",
+          "Name": "/qeli-q33-docker-20261008100617952293-server",
+          "RestartCount": 0,
+          "Driver": "overlay2",
+          "Platform": "linux",
+          "MountLabel": "",
+          "ProcessLabel": "",
+          "AppArmorProfile": "docker-default",
+          "ExecIDs": null,
+          "HostConfig": {
+            "Binds": [
+              "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/etc:/etc/qeli",
+              "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/lib:/var/lib/qeli"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+              "Type": "json-file",
+              "Config": {}
+            },
+            "NetworkMode": "qeli-q33-docker-20261008100617952293-net",
+            "PortBindings": {},
+            "RestartPolicy": {
+              "Name": "no",
+              "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+              0,
+              0
+            ],
+            "CapAdd": [
+              "CAP_NET_ADMIN",
+              "CAP_NET_RAW"
+            ],
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": [],
+            "DnsSearch": [],
+            "ExtraHosts": null,
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Sysctls": {
+              "net.ipv4.ip_forward": "1"
+            },
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 268435456,
+            "NanoCpus": 700000000,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": [],
+            "BlkioDeviceReadBps": [],
+            "BlkioDeviceWriteBps": [],
+            "BlkioDeviceReadIOps": [],
+            "BlkioDeviceWriteIOps": [],
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": [
+              {
+                "PathOnHost": "/dev/net/tun",
+                "PathInContainer": "/dev/net/tun",
+                "CgroupPermissions": "rwm"
+              }
+            ],
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": -1,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "MaskedPaths": [
+              "/proc/acpi",
+              "/proc/asound",
+              "/proc/interrupts",
+              "/proc/kcore",
+              "/proc/keys",
+              "/proc/latency_stats",
+              "/proc/sched_debug",
+              "/proc/scsi",
+              "/proc/timer_list",
+              "/proc/timer_stats",
+              "/sys/devices/virtual/powercap",
+              "/sys/firmware"
+            ],
+            "ReadonlyPaths": [
+              "/proc/bus",
+              "/proc/fs",
+              "/proc/irq",
+              "/proc/sys",
+              "/proc/sysrq-trigger"
+            ]
+          },
+          "GraphDriver": {
+            "Data": {
+              "ID": "b941ff5f41fb9158cce8ad697168d9ee301f5dca2e7569e36df29d2657eb348f",
+              "LowerDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/1a6a908d4134e0a6773e73b102fc65199beb6a4c49fe1a8bed3280f81496de0c-init/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/f4e3teurkdtliqobgxm2l7ffn/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/l446qtcmok17t7fujsgks625k/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/v2s79h9nqrtxv5dgfby425832/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/jglb7q55xl75z5olafyn7pkma/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/4vuc6kfcbss1ga59l3w5yuu8h/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/0i01pjloi0wrkplsjs61fx04g/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/na3c2n1tn1e0l7p8zzl8o5psy/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/hbva1lesdlf2kzyd3vslu3xh8/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/335x79udsfm7z2xompmrum2q8/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/t18wzwiup38jle1hazlmbwpzv/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/qfxx4qhdoeq5pfux9zi6l0miu/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/tcm26m7p1ca77fbuo0dy190d7/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/7ee5ec8894ce7607a78ae2b681c5a72997da2b14fa1aa60ca92637294ba3560c/diff",
+              "MergedDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/1a6a908d4134e0a6773e73b102fc65199beb6a4c49fe1a8bed3280f81496de0c/merged",
+              "UpperDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/1a6a908d4134e0a6773e73b102fc65199beb6a4c49fe1a8bed3280f81496de0c/diff",
+              "WorkDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/1a6a908d4134e0a6773e73b102fc65199beb6a4c49fe1a8bed3280f81496de0c/work"
+            },
+            "Name": "overlay2"
+          },
+          "Mounts": [
+            {
+              "Type": "bind",
+              "Source": "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/etc",
+              "Destination": "/etc/qeli",
+              "Mode": "",
+              "RW": true,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/server/lib",
+              "Destination": "/var/lib/qeli",
+              "Mode": "",
+              "RW": true,
+              "Propagation": "rprivate"
+            }
+          ],
+          "Config": {
+            "Hostname": "b941ff5f41fb",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "AttachStderr": false,
+            "ExposedPorts": {
+              "443/tcp": {},
+              "8080/tcp": {},
+              "8443/tcp": {},
+              "8444/tcp": {},
+              "8445/tcp": {},
+              "8446/tcp": {},
+              "8447/tcp": {},
+              "8448/udp": {},
+              "8449/udp": {},
+              "8450/udp": {}
+            },
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+              "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            ],
+            "Cmd": [
+              "server"
+            ],
+            "Image": "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "Volumes": {
+              "/etc/qeli": {},
+              "/var/lib/qeli": {}
+            },
+            "WorkingDir": "",
+            "Entrypoint": [
+              "/usr/local/bin/entrypoint.sh"
+            ],
+            "Labels": {
+              "qeli.audit.root": "/var/tmp/qeli-q33-docker-20261008100617952293"
+            }
+          },
+          "NetworkSettings": {
+            "SandboxID": "fb1e490bc0fd8b5629912e3bcb3ad650e725d092b0838d15836fb222d39306b6",
+            "SandboxKey": "/var/tmp/qeli-q33-docker-20261008100617952293/exec-v4/netns/fb1e490bc0fd",
+            "Ports": {
+              "443/tcp": null,
+              "8080/tcp": null,
+              "8443/tcp": null,
+              "8444/tcp": null,
+              "8445/tcp": null,
+              "8446/tcp": null,
+              "8447/tcp": null,
+              "8448/udp": null,
+              "8449/udp": null,
+              "8450/udp": null
+            },
+            "Networks": {
+              "qeli-q33-docker-20261008100617952293-net": {
+                "IPAMConfig": {
+                  "IPv4Address": "10.93.0.2"
+                },
+                "Links": null,
+                "Aliases": null,
+                "DriverOpts": null,
+                "GwPriority": 0,
+                "NetworkID": "4e4f76c5767923297c95278bde6aa75b762145d6a714a1f1d365c8760ece9e91",
+                "EndpointID": "fe2ad26f49606d9886fd12b56d41cf856959dcecf68f64a6c3f2998d9b4c4608",
+                "Gateway": "10.93.0.1",
+                "IPAddress": "10.93.0.2",
+                "MacAddress": "ce:aa:99:19:bb:7a",
+                "IPPrefixLen": 24,
+                "IPv6Gateway": "",
+                "GlobalIPv6Address": "",
+                "GlobalIPv6PrefixLen": 0,
+                "DNSNames": [
+                  "qeli-q33-docker-20261008100617952293-server",
+                  "b941ff5f41fb"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "Id": "6a716c2716528d29a38dfeaad4247c4ffb8ac6ba8634bb35d291f9c23996ea97",
+          "Created": "2026-10-08T10:31:22.046874315Z",
+          "Path": "/usr/local/bin/entrypoint.sh",
+          "Args": [
+            "client"
+          ],
+          "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 3374,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-08T10:31:22.06821818Z",
+            "FinishedAt": "0001-01-01T00:00:00Z"
+          },
+          "Image": "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+          "ResolvConfPath": "/var/tmp/qeli-q33-docker-20261008100617952293/data/containers/6a716c2716528d29a38dfeaad4247c4ffb8ac6ba8634bb35d291f9c23996ea97/resolv.conf",
+          "HostnamePath": "/var/tmp/qeli-q33-docker-20261008100617952293/data/containers/6a716c2716528d29a38dfeaad4247c4ffb8ac6ba8634bb35d291f9c23996ea97/hostname",
+          "HostsPath": "/var/tmp/qeli-q33-docker-20261008100617952293/data/containers/6a716c2716528d29a38dfeaad4247c4ffb8ac6ba8634bb35d291f9c23996ea97/hosts",
+          "LogPath": "/var/tmp/qeli-q33-docker-20261008100617952293/data/containers/6a716c2716528d29a38dfeaad4247c4ffb8ac6ba8634bb35d291f9c23996ea97/6a716c2716528d29a38dfeaad4247c4ffb8ac6ba8634bb35d291f9c23996ea97-json.log",
+          "Name": "/qeli-q33-docker-20261008100617952293-client",
+          "RestartCount": 0,
+          "Driver": "overlay2",
+          "Platform": "linux",
+          "MountLabel": "",
+          "ProcessLabel": "",
+          "AppArmorProfile": "docker-default",
+          "ExecIDs": null,
+          "HostConfig": {
+            "Binds": [
+              "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/client/etc:/etc/qeli",
+              "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/client/lib:/var/lib/qeli"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+              "Type": "json-file",
+              "Config": {}
+            },
+            "NetworkMode": "qeli-q33-docker-20261008100617952293-net",
+            "PortBindings": {},
+            "RestartPolicy": {
+              "Name": "no",
+              "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+              0,
+              0
+            ],
+            "CapAdd": [
+              "CAP_NET_ADMIN",
+              "CAP_NET_RAW"
+            ],
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": [],
+            "DnsSearch": [],
+            "ExtraHosts": null,
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 268435456,
+            "NanoCpus": 700000000,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": [],
+            "BlkioDeviceReadBps": [],
+            "BlkioDeviceWriteBps": [],
+            "BlkioDeviceReadIOps": [],
+            "BlkioDeviceWriteIOps": [],
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": [
+              {
+                "PathOnHost": "/dev/net/tun",
+                "PathInContainer": "/dev/net/tun",
+                "CgroupPermissions": "rwm"
+              }
+            ],
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": -1,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "MaskedPaths": [
+              "/proc/acpi",
+              "/proc/asound",
+              "/proc/interrupts",
+              "/proc/kcore",
+              "/proc/keys",
+              "/proc/latency_stats",
+              "/proc/sched_debug",
+              "/proc/scsi",
+              "/proc/timer_list",
+              "/proc/timer_stats",
+              "/sys/devices/virtual/powercap",
+              "/sys/firmware"
+            ],
+            "ReadonlyPaths": [
+              "/proc/bus",
+              "/proc/fs",
+              "/proc/irq",
+              "/proc/sys",
+              "/proc/sysrq-trigger"
+            ]
+          },
+          "GraphDriver": {
+            "Data": {
+              "ID": "6a716c2716528d29a38dfeaad4247c4ffb8ac6ba8634bb35d291f9c23996ea97",
+              "LowerDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/0d3f09e8bced5b9768ff42ddab2b742fdf8640cda0c2ada44249596a7f59a5b5-init/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/f4e3teurkdtliqobgxm2l7ffn/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/l446qtcmok17t7fujsgks625k/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/v2s79h9nqrtxv5dgfby425832/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/jglb7q55xl75z5olafyn7pkma/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/4vuc6kfcbss1ga59l3w5yuu8h/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/0i01pjloi0wrkplsjs61fx04g/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/na3c2n1tn1e0l7p8zzl8o5psy/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/hbva1lesdlf2kzyd3vslu3xh8/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/335x79udsfm7z2xompmrum2q8/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/t18wzwiup38jle1hazlmbwpzv/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/qfxx4qhdoeq5pfux9zi6l0miu/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/tcm26m7p1ca77fbuo0dy190d7/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/7ee5ec8894ce7607a78ae2b681c5a72997da2b14fa1aa60ca92637294ba3560c/diff",
+              "MergedDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/0d3f09e8bced5b9768ff42ddab2b742fdf8640cda0c2ada44249596a7f59a5b5/merged",
+              "UpperDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/0d3f09e8bced5b9768ff42ddab2b742fdf8640cda0c2ada44249596a7f59a5b5/diff",
+              "WorkDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/0d3f09e8bced5b9768ff42ddab2b742fdf8640cda0c2ada44249596a7f59a5b5/work"
+            },
+            "Name": "overlay2"
+          },
+          "Mounts": [
+            {
+              "Type": "bind",
+              "Source": "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/client/etc",
+              "Destination": "/etc/qeli",
+              "Mode": "",
+              "RW": true,
+              "Propagation": "rprivate"
+            },
+            {
+              "Type": "bind",
+              "Source": "/var/tmp/qeli-q33-docker-20261008100617952293/volumes/client/lib",
+              "Destination": "/var/lib/qeli",
+              "Mode": "",
+              "RW": true,
+              "Propagation": "rprivate"
+            }
+          ],
+          "Config": {
+            "Hostname": "6a716c271652",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "AttachStderr": false,
+            "ExposedPorts": {
+              "443/tcp": {},
+              "8080/tcp": {},
+              "8443/tcp": {},
+              "8444/tcp": {},
+              "8445/tcp": {},
+              "8446/tcp": {},
+              "8447/tcp": {},
+              "8448/udp": {},
+              "8449/udp": {},
+              "8450/udp": {}
+            },
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+              "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            ],
+            "Cmd": [
+              "client"
+            ],
+            "Image": "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+            "Volumes": {
+              "/etc/qeli": {},
+              "/var/lib/qeli": {}
+            },
+            "WorkingDir": "",
+            "Entrypoint": [
+              "/usr/local/bin/entrypoint.sh"
+            ],
+            "Labels": {
+              "qeli.audit.root": "/var/tmp/qeli-q33-docker-20261008100617952293"
+            }
+          },
+          "NetworkSettings": {
+            "SandboxID": "ce2dae19ad3165f4ae52fe694ea42cae7e7ae8657776f40dbb9a420c60eb03de",
+            "SandboxKey": "/var/tmp/qeli-q33-docker-20261008100617952293/exec-v4/netns/ce2dae19ad31",
+            "Ports": {
+              "443/tcp": null,
+              "8080/tcp": null,
+              "8443/tcp": null,
+              "8444/tcp": null,
+              "8445/tcp": null,
+              "8446/tcp": null,
+              "8447/tcp": null,
+              "8448/udp": null,
+              "8449/udp": null,
+              "8450/udp": null
+            },
+            "Networks": {
+              "qeli-q33-docker-20261008100617952293-net": {
+                "IPAMConfig": {
+                  "IPv4Address": "10.93.0.3"
+                },
+                "Links": null,
+                "Aliases": null,
+                "DriverOpts": null,
+                "GwPriority": 0,
+                "NetworkID": "4e4f76c5767923297c95278bde6aa75b762145d6a714a1f1d365c8760ece9e91",
+                "EndpointID": "e1f0c5299472bb7cbe4f726aba7ea164441965bbc4dedebebb7f38e9f3474c09",
+                "Gateway": "10.93.0.1",
+                "IPAddress": "10.93.0.3",
+                "MacAddress": "82:77:97:9e:78:f9",
+                "IPPrefixLen": 24,
+                "IPv6Gateway": "",
+                "GlobalIPv6Address": "",
+                "GlobalIPv6PrefixLen": 0,
+                "DNSNames": [
+                  "qeli-q33-docker-20261008100617952293-client",
+                  "6a716c271652"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "build": {
+      "rc": 0,
+      "command": [
+        "/var/tmp/qeli-q33-docker-20261008100617952293/docker/docker",
+        "buildx",
+        "build",
+        "--network",
+        "host",
+        "--allow",
+        "network.host",
+        "--build-context",
+        "build=/var/tmp/qeli-q33-docker-20261008100617952293/artifact",
+        "--platform",
+        "linux/amd64",
+        "--progress",
+        "plain",
+        "--load",
+        "--metadata-file",
+        "/var/tmp/qeli-q33-docker-20261008100617952293/build-metadata.json",
+        "-f",
+        "/var/tmp/qeli-q33-docker-20261008100617952293/source/release/docker/Dockerfile",
+        "-t",
+        "qeli-q33:qualified",
+        "/var/tmp/qeli-q33-docker-20261008100617952293/source"
+      ]
+    },
+    "image": [
+      {
+        "Id": "sha256:f72fd97409da8c515c0771395dcf96227f60bf6ca6ddf493ea8a8c0b5784fcc9",
+        "RepoTags": [
+          "qeli-q33:qualified"
+        ],
+        "RepoDigests": [],
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-10-08T13:12:08.720134415+03:00",
+        "Config": {
+          "ExposedPorts": {
+            "443/tcp": {},
+            "8080/tcp": {},
+            "8443/tcp": {},
+            "8444/tcp": {},
+            "8445/tcp": {},
+            "8446/tcp": {},
+            "8447/tcp": {},
+            "8448/udp": {},
+            "8449/udp": {},
+            "8450/udp": {}
+          },
+          "Env": [
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          ],
+          "Entrypoint": [
+            "/usr/local/bin/entrypoint.sh"
+          ],
+          "Cmd": [
+            "server"
+          ],
+          "Volumes": {
+            "/etc/qeli": {},
+            "/var/lib/qeli": {}
+          },
+          "ArgsEscaped": true
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 160765481,
+        "GraphDriver": {
+          "Data": {
+            "LowerDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/l446qtcmok17t7fujsgks625k/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/v2s79h9nqrtxv5dgfby425832/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/jglb7q55xl75z5olafyn7pkma/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/4vuc6kfcbss1ga59l3w5yuu8h/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/0i01pjloi0wrkplsjs61fx04g/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/na3c2n1tn1e0l7p8zzl8o5psy/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/hbva1lesdlf2kzyd3vslu3xh8/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/335x79udsfm7z2xompmrum2q8/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/t18wzwiup38jle1hazlmbwpzv/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/qfxx4qhdoeq5pfux9zi6l0miu/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/tcm26m7p1ca77fbuo0dy190d7/diff:/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/7ee5ec8894ce7607a78ae2b681c5a72997da2b14fa1aa60ca92637294ba3560c/diff",
+            "MergedDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/f4e3teurkdtliqobgxm2l7ffn/merged",
+            "UpperDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/f4e3teurkdtliqobgxm2l7ffn/diff",
+            "WorkDir": "/var/tmp/qeli-q33-docker-20261008100617952293/data/overlay2/f4e3teurkdtliqobgxm2l7ffn/work"
+          },
+          "Name": "overlay2"
+        },
+        "RootFS": {
+          "Type": "layers",
+          "Layers": [
+            "sha256:e58989146fcec76699871403b9897b5c014af1ccd85f5a9300a215e7975525d7",
+            "sha256:d188101b376fe0bd9f2d8a783c1790ae71c9afb8d44bbf550caeaa4d0e44e391",
+            "sha256:3d7a20350eaa01b772866fd91890c148b899c485be46185811fe5aaa552dd2e2",
+            "sha256:ea7e444a16ddb3310d795ad331e72c7a2ada6326a9abc3543bab4beac5836e42",
+            "sha256:303f76adf2ebbefeae6350872261a32dc8b73bacdf41ad416cfda9ecd235dada",
+            "sha256:c9e3cc99ba70e1ddc1e46ec88b95780f3bf87d567403ee404d192836d181c864",
+            "sha256:bf8ab44e74afd8e146637a0ac40ab803370b7ef39e9e966cdb49f7c27010f6a0",
+            "sha256:73fb2f77b8662eb0c1b639a8a9e57e30e94d049543a8ac08cef80e1bda37248b",
+            "sha256:45ad440cf5090f1fc1053499e3396c0c1dd9ba419cd0aca42bc3c2ba605c4c59",
+            "sha256:82594f7df233ae7b0252d530959bdb29a63dadffb4bdc24c7b2c3cec79df787a",
+            "sha256:8faf71fdc0ece440d4998d49ddcd2432737860129bb74c08576e73914618dca5",
+            "sha256:0b01c5bc94b014156c95323fd1c4396bce3936755915bdeb4be22890d301f30e",
+            "sha256:d6ee0951e579c5dca4678ca15db9edb528b4980720d29a90ea27dd28491b4428"
+          ]
+        },
+        "Metadata": {
+          "LastTagTime": "2026-10-08T13:12:09.120042637+03:00"
+        }
+      }
+    ],
+    "local": {
+      "status": "PASS",
+      "rows": [
+        {
+          "script": "test_docker_publish_ref.py",
+          "methods": 7,
+          "rc": 0
+        },
+        {
+          "script": "test_release_ci_gate.py",
+          "methods": 18,
+          "rc": 0
+        },
+        {
+          "script": "test_native_recipes.py",
+          "methods": 38,
+          "rc": 0
+        }
+      ],
+      "docs": "9/684PASS",
+      "qualification_fixture_commit": "5ef44e50f071f305c2c9847d6d7e899490ec0b41",
+      "fixture_sha256": "4c4745069c5bf01c2fc5df1e4ecabed783f5b2eb255c9cfe43a0a853d4b63f1c"
+    },
+    "host": {
+      "status": "PASS",
+      "before": {
+        "10.66.116.10": {
+          "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.10/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+          "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:572a/64 \nvpn0             UNKNOWN        fe80::1750:6d0e:8fba:4e3a/64",
+          "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.10 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.10 dev ens18 table local proto kernel scope host src 10.66.116.10 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.10 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+          "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::1750:6d0e:8fba:4e3a dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:572a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+          "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT\n*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT\n-A FORWARD -i vpn0 -j ACCEPT\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE\nCOMMIT",
+          "firewall6": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT\n*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+          "firewall4_legacy": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT\n*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT\n-A FORWARD -i vpn0 -j ACCEPT\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE\nCOMMIT",
+          "firewall6_legacy": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT\n*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+          "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}",
+          "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=901,fd=10))",
+          "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+          "named_namespaces": ""
+        },
+        "10.66.116.11": {
+          "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+          "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+          "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+          "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+          "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+          "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+          "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+          "firewall6_legacy": "",
+          "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}",
+          "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=845,fd=11))",
+          "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+          "named_namespaces": ""
+        }
+      },
+      "after": {
+        "10.66.116.10": {
+          "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.10/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+          "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:572a/64 \nvpn0             UNKNOWN        fe80::1750:6d0e:8fba:4e3a/64",
+          "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.10 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.10 dev ens18 table local proto kernel scope host src 10.66.116.10 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.10 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+          "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::1750:6d0e:8fba:4e3a dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:572a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+          "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT\n*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT\n-A FORWARD -i vpn0 -j ACCEPT\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE\nCOMMIT",
+          "firewall6": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT\n*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+          "firewall4_legacy": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT\n*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT\n-A FORWARD -i vpn0 -j ACCEPT\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE\nCOMMIT",
+          "firewall6_legacy": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT\n*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+          "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}",
+          "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=901,fd=10))",
+          "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+          "named_namespaces": ""
+        },
+        "10.66.116.11": {
+          "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+          "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+          "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+          "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+          "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+          "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+          "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+          "firewall6_legacy": "",
+          "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}",
+          "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=845,fd=11))",
+          "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+          "named_namespaces": ""
+        }
+      },
+      "diff": {
+        "10.66.116.10": {},
+        "10.66.116.11": {}
+      }
+    },
+    "stop": {
+      "status": "PASS",
+      "owned_docker_stopped_gracefully": true,
+      "no_owned_process_or_mount": true,
+      "apparmor_profiles_restored": true,
+      "image_export_sha256": "357271c9ddb26bfc5dd194c174c90716a1d99a8cffb10682291e76e29612c9a8",
+      "original_qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n",
+      "original_unit": "MainPID=777\nActiveState=active\n",
+      "host_binary_sha": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n"
+    },
+    "cleanup": {
+      "status": "PASS",
+      "owned_root_removed": "/var/tmp/qeli-q33-docker-20261008100617952293",
+      "archive_verified_locally": true,
+      "original_unit": "MainPID=777\nActiveState=active\n",
+      "original_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "publication_policy": {
+      "status": "CONFIRMED_OLD_BRANCH_LATEST_BUG_FIXED_POLICY_PASS",
+      "rows": [
+        {
+          "ref_type": "branch",
+          "ref_name": "dev",
+          "old_raw_latest_enable": true,
+          "fixed": {
+            "release_tag": "false",
+            "stable_release": "false"
+          }
+        },
+        {
+          "ref_type": "branch",
+          "ref_name": "main",
+          "old_raw_latest_enable": true,
+          "fixed": {
+            "release_tag": "false",
+            "stable_release": "false"
+          }
+        },
+        {
+          "ref_type": "branch",
+          "ref_name": "v1.2.3",
+          "old_raw_latest_enable": true,
+          "fixed": {
+            "release_tag": "false",
+            "stable_release": "false"
+          }
+        },
+        {
+          "ref_type": "tag",
+          "ref_name": "v0.8.2",
+          "old_raw_latest_enable": true,
+          "fixed": {
+            "release_tag": "true",
+            "stable_release": "true"
+          }
+        },
+        {
+          "ref_type": "tag",
+          "ref_name": "v0.8.3-rc.1",
+          "old_raw_latest_enable": false,
+          "fixed": {
+            "release_tag": "true",
+            "stable_release": "false"
+          }
+        }
+      ],
+      "actual_metadata_action_local_run": "NOT_QUALIFIED: upstream action needs GitHub API context/token; rc1 retained; no token or publish requested"
+    }
+  },
+  "raw_packet": {
+    "name": "q33-docker-runtime-20261008",
+    "files": 137,
+    "bytes": 360220146,
+    "manifest_sha256": "de3c519bbab67a0881c2b579146a0f2132b8cf06ece667a0e0d10259952f2eb7",
+    "runtime_status": "PASS_SCOPED_WITH_RETAINED_INFRA_FIXTURE_FAILS",
+    "path": "audit-debt-20260924/q33-docker-runtime-20261008",
+    "status": "SEALED"
+  },
+  "scope": "Q33 Docker runtime/publication F446-F448/Q33-F049-F051: fixed branch manual latest publication with early valid SemVer tag gate, full SHA branch fallback and flavor latest=false; Cargo --locked; removed four obsolete destructive/status-ignoring SSH Docker scripts and their 100%-loss false-positive ping match. Replacement audit-owned socket/config/root/name/label harness verifies cleanup ownership and actual exit code. Actual Docker29.8.2/Buildx0.38 Debian13 runtime stage image built from unchanged qualified production release ELFf9c70e67 supplied via named build context; compiler stage/multiarch/registry RepoDigest/publish/attestation NOT_QUALIFIED.26PASS actual CLI/deps, help no writes, seed root0600+emptyusers, readonly refusal, actual Argon2/identity/password-protected login pageHTTP200(not authenticated-login/HEALTHCHECK), pinned default-H1 fresh/recreated/bad-image recovery three innerpings each/TUNroute, immutable config/users/identity/session bytes UID/mode, six exit0 noOOM/SIGKILL. Usage.json traffic flush is dynamic, retained original fixture failure distinguishes it. Corrupt executable image exits nonzero, same volumes recover by prior exact imageID(operator rollback, not automatic). Root-owned temporary daemon private mounts/PID/limits/delegated cgroup, Qeli private NET, no hostports/hostNET, daemon firewall/forwarding writes disabled, AppArmor/seccomp on. Retained initial cgroup/stale namespace PID/usage snapshot/BuildKit FROM failures and redundant stop not-loaded/overlapping SFTP-fd archive guard failure; restored original profiles and both host snapshots, .11original777/845/ELF75bc unchanged, no owned processes/mounts, SHA downloaded recoverable archive/guard cleanup/credential scan SEALED. Policy7/admission18/recipes38/docs9PASS; upstream metadata-action local execution lacked GitHub API context/token and returned rc1, preservedNOT_QUALIFIED,currentActionsOPEN; no historical panel-edit/kick/routepush/InternetNAT/throughput rerun. Core/native source923b prior A-B ABI/native14SHA unchanged, no heavy Rust rebuild. Q33IN_PROGRESS29-37DONE78.4%,8remain final command/hook/criteria reconciliation;Q29SIGKILLFAILENONET/Q30/Q31capacitysourcecut USER_EXCLUDED D06accepted preserved.41casesacceptance+68prior supplements modulo source_digest preserved,append69;20requiredautomated21advisory unchanged. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

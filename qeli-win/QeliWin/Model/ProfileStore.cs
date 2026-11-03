@@ -17,62 +17,97 @@ public static class ProfileStore
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "QeliWin");
     private static readonly string FilePath = Path.Combine(Dir, "profiles.json");
 
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    private static readonly WindowsProfileArchive Archive = new(FilePath);
 
-    public static List<VpnConfig> Load()
+    public static List<VpnConfig> Load() => Archive.Load();
+    public static void Save(IEnumerable<VpnConfig> profiles) => Archive.Save(profiles);
+}
+
+// A path-scoped archive also lets selftest exercise real DPAPI without opening user profiles.
+internal sealed class WindowsProfileArchive(string filePath)
+{
+    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    private readonly ProfileStoreFile StoreFile = new(filePath);
+
+    private static List<VpnConfig> Decode(byte[] stored, out bool needsMigration)
     {
-        // Absent file = normal first run. Only a PRESENT-but-unreadable file is dangerous.
-        if (!File.Exists(FilePath)) return new List<VpnConfig>();
+        byte[]? plaintext = null;
         try
         {
-            var bytes = File.ReadAllBytes(FilePath);
-            string json;
-            bool wasLegacyPlaintext = false;
-            try
+            bool legacy = false;
+            try { plaintext = ProtectedData.Unprotect(stored, null, DataProtectionScope.CurrentUser); }
+            catch (CryptographicException)
             {
-                // Encrypted-at-rest (DPAPI, current user).
-                var plain = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
-                json = Encoding.UTF8.GetString(plain);
+                // Only DPAPI failure selects legacy; bad decrypted UTF-8/JSON is corruption.
+                plaintext = stored;
+                legacy = true;
             }
-            catch
-            {
-                // Legacy plaintext file written before E1 — read as-is, then migrate.
-                json = Encoding.UTF8.GetString(bytes);
-                wasLegacyPlaintext = true;
-            }
-            var profiles = JsonSerializer.Deserialize<List<VpnConfig>>(json, Options) ?? new List<VpnConfig>();
-            // Profiles saved before the stable-Id fix have no "Id" field; the deserializer
-            // left each at a fresh-GUID default that would otherwise change on every load
-            // (settings reference profiles by Id). Persist once to freeze those Ids.
-            bool needsIdMigration = profiles.Count > 0 && !json.Contains("\"Id\":");
-            // Re-write encrypted immediately so plaintext secrets stop lingering on disk.
-            if (wasLegacyPlaintext || needsIdMigration) Save(profiles);
+            var profiles = ProfileStorePayload.Decode(StrictUtf8.GetString(plaintext), out bool ids, Options);
+            needsMigration = legacy || ids;
             return profiles;
         }
-        catch (Exception ex)
+        finally
         {
-            // The file exists but couldn't be decrypted/parsed. Do NOT silently return an
-            // empty list — the next Save would overwrite the (possibly recoverable) file.
-            // Preserve it aside first, then start empty.
-            try { File.Move(FilePath, FilePath + ".corrupt-" + DateTimeOffset.UtcNow.ToUnixTimeSeconds()); }
-            catch { /* best effort */ }
-            System.Diagnostics.Debug.WriteLine($"ProfileStore: profiles.json unreadable, preserved aside ({ex.Message})");
-            return new List<VpnConfig>();
+            if (plaintext != null && !ReferenceEquals(plaintext, stored))
+                CryptographicOperations.ZeroMemory(plaintext);
         }
     }
 
-    public static void Save(IEnumerable<VpnConfig> profiles)
+    public List<VpnConfig> Load()
     {
-        Directory.CreateDirectory(Dir);
-        var json = JsonSerializer.Serialize(profiles, Options);
-        var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.CurrentUser);
-        // Atomic write: a crash mid-write must not truncate the only copy. `File.Replace`
-        // swaps in the new file and keeps a one-generation `.bak` of the prior one.
-        var tmp = FilePath + ".tmp";
-        File.WriteAllBytes(tmp, enc);
-        if (File.Exists(FilePath))
-            File.Replace(tmp, FilePath, FilePath + ".bak");
-        else
-            File.Move(tmp, FilePath);
+        var stored = StoreFile.Read(); // I/O/size failure cannot be treated as an empty store.
+        if (stored is null) return new List<VpnConfig>();
+        List<VpnConfig> profiles;
+        bool needsMigration;
+        try
+        {
+            try { profiles = Decode(stored, out needsMigration); }
+            catch (Exception error)
+            {
+                // Quarantine must succeed against the observed revision BEFORE recovery.
+                // Never overwrite an unreadable latest generation, even if backup is valid.
+                var preserved = StoreFile.PreserveUnreadable();
+                System.Diagnostics.Debug.WriteLine($"ProfileStore: preserved {preserved} ({error.Message})");
+                List<VpnConfig>? recovered = null;
+                byte[]? backupBytes = null;
+                try
+                {
+                    if (File.Exists(filePath + ".bak"))
+                    {
+                        backupBytes = ProfileStoreFile.ReadBounded(filePath + ".bak");
+                        recovered = Decode(backupBytes, out _);
+                    }
+                }
+                catch (Exception backupError)
+                {
+                    System.Diagnostics.Debug.WriteLine($"ProfileStore: .bak recovery failed ({backupError.Message})");
+                }
+                finally
+                {
+                    if (backupBytes != null) CryptographicOperations.ZeroMemory(backupBytes);
+                }
+                if (recovered is null) return new List<VpnConfig>();
+                // A failed recovery write is fatal. Save's stale-revision guard still applies.
+                Save(recovered);
+                return recovered;
+            }
+        }
+        finally { CryptographicOperations.ZeroMemory(stored); }
+
+        // A failed migration write does not turn a readable source into corruption.
+        if (needsMigration) Save(profiles);
+        return profiles;
+    }
+
+    public void Save(IEnumerable<VpnConfig> profiles)
+    {
+        var plaintext = Encoding.UTF8.GetBytes(ProfileStorePayload.Encode(profiles, Options));
+        try
+        {
+            var encrypted = ProtectedData.Protect(plaintext, null, DataProtectionScope.CurrentUser);
+            StoreFile.Write(encrypted);
+        }
+        finally { CryptographicOperations.ZeroMemory(plaintext); }
     }
 }

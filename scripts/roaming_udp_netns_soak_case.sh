@@ -6,12 +6,12 @@
 run_udp_soak_case() {
   local iterations=${QELI_ROAMING_SOAK_ITERATIONS:-10000}
   local sample_every=${QELI_ROAMING_SOAK_SAMPLE_EVERY:-100}
-  case "$iterations:$sample_every" in
-    *[!0-9:]*|0:*|*:0)
-      echo "QELI_ROAMING_SOAK_ITERATIONS and QELI_ROAMING_SOAK_SAMPLE_EVERY must be positive integers" >&2
-      return 2
-      ;;
-  esac
+  if [ ! -r "$SCRIPT_DIR/roaming_soak_parameters.sh" ]; then
+    echo "required roaming soak parameter helper is missing" >&2
+    return 2
+  fi
+  source "$SCRIPT_DIR/roaming_soak_parameters.sh" || return 2
+  roaming_soak_counts "$iterations" "$sample_every" || return 2
   local stats_helper="$SCRIPT_DIR/roaming_control_stats.py"
   if ! command -v python3 >/dev/null 2>&1 || [ ! -r "$stats_helper" ]; then
     echo "UDP roaming soak requires python3 and $stats_helper" >&2
@@ -26,7 +26,7 @@ run_udp_soak_case() {
   source "$process_probe"
   udp_roaming_stats() {
     local line
-    line=$(python3 "$stats_helper" "$WORK/control.sock" roam udp \
+    line=$(python3 "$stats_helper" "$ROAMING_CONTROL_SOCKET" roam udp \
       attempts_total commits_total failures_total active_sessions active_candidates cid_aliases) \
       || return
     IFS=$'\t' read -r UDP_ATTEMPTS UDP_COMMITS UDP_FAILURES UDP_SESSIONS UDP_CANDIDATES \
@@ -63,6 +63,7 @@ run_udp_soak_case() {
   server_socket_max=$server_socket_before
   client_rss_max=$client_rss_before
   server_rss_max=$server_rss_before
+  echo "  RESOURCE baseline transport=udp client_pid=$CLIENT_PID server_pid=$server_pid client_rss_kib=$client_rss_before server_rss_kib=$server_rss_before client_fd=$client_fd_before server_fd=$server_fd_before client_sockets=$client_socket_before server_sockets=$server_socket_before"
 
   if ! udp_roaming_stats \
       || [ "$UDP_ATTEMPTS:$UDP_COMMITS:$UDP_FAILURES:$UDP_SESSIONS:$UDP_CANDIDATES:$UDP_CID_ALIASES" != "0:0:0:1:0:2" ]; then
@@ -143,6 +144,7 @@ run_udp_soak_case() {
   server_socket_after=$(find "/proc/$server_pid/fd" -mindepth 1 -maxdepth 1 -lname 'socket:*' 2>/dev/null | wc -l)
   client_rss_after=$(awk '/^VmRSS:/ { print $2 }' "/proc/$CLIENT_PID/status")
   server_rss_after=$(awk '/^VmRSS:/ { print $2 }' "/proc/$server_pid/status")
+  echo "  RESOURCE final transport=udp client_rss_kib=$client_rss_after server_rss_kib=$server_rss_after client_rss_delta_kib=$((client_rss_after - client_rss_before)) server_rss_delta_kib=$((server_rss_after - server_rss_before)) client_rss_peak_delta_kib=$((client_rss_max - client_rss_before)) server_rss_peak_delta_kib=$((server_rss_max - server_rss_before)) client_fd=$client_fd_after server_fd=$server_fd_after client_sockets=$client_socket_after server_sockets=$server_socket_after"
 
   check "soak committed every requested client/server path transaction exactly once" \
     "test '$commit_count' -eq '$iterations' && test '$server_commits' -eq '$iterations'"
@@ -156,4 +158,6 @@ run_udp_soak_case() {
   check "soak closed superseded sockets instead of leaking file descriptors" "test '$client_fd_after' -le $((client_fd_before + 4)) && test '$server_fd_after' -le $((server_fd_before + 4)) && test '$client_fd_max' -le $((client_fd_before + 16)) && test '$server_fd_max' -le $((server_fd_before + 16))"
   check "soak did not accumulate socket descriptors" "test '$client_socket_after' -le $((client_socket_before + 2)) && test '$server_socket_after' -le $((server_socket_before + 2)) && test '$client_socket_max' -le $((client_socket_before + 8)) && test '$server_socket_max' -le $((server_socket_before + 8))"
   check "soak kept sampled RSS growth within the 32 MiB acceptance budget" "test $((client_rss_max - client_rss_before)) -le 32768 && test $((server_rss_max - server_rss_before)) -le 32768 && test $((client_rss_after - client_rss_before)) -le 32768 && test $((server_rss_after - server_rss_before)) -le 32768"
+  check "soak restored candidate reverse-path filters and released sysctl leases" \
+    "test \"\$(ip netns exec $CLI_NS sysctl -n net.ipv4.conf.qru-a.rp_filter)\" = '$ORIGINAL_RPF_A' && test \"\$(ip netns exec $CLI_NS sysctl -n net.ipv4.conf.qru-b.rp_filter)\" = '$ORIGINAL_RPF_B' && ! grep -q 'roam-rpf-' $STATE_DIRECTORY/sysctls.state 2>/dev/null"
 }

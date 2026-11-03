@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "status": "EXTERNAL_HOST_VARIANCE_INDEPENDENTLY_QUALIFIED_ORIGINAL_FAIL_RETAINED",
+  "source_commit": "633e95eff4e5ce303c899a6c765c3de3ab745beb",
+  "executed_source_commit": "5584f297cb6daa34a79054c8421f5d3656757b2a",
+  "artifact_sha256": "15a181d5f9de851826839dfe8413ea4ee9b1ff798cb25d6d403ac2bcddcdda9a",
+  "original_host_guard": "FAIL_RETAINED",
+  "changed_fields": [
+    "legacy4"
+  ],
+  "exact_rules": [
+    "-A FORWARD -i vpn0 -j ACCEPT",
+    "-A FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT",
+    "-A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE"
+  ],
+  "source": "Existing vpn-nat.service /usr/local/bin/vpn-nat.sh",
+  "pre_runtime_journal_sha256": "12036b84453937247b11143ba1b9c086fa3e7ff1f48f2c2315ae86304bc0ae14",
+  "maintenance_script_sha256": "64f207975424f4e1d01e8b400e222c826b65fe2dc18faf645ec9a18ce3cc7c2f",
+  "maintenance_unit_sha256": "86c68f56601ab17f360ac2bdacdeba7fc67f4c69e8a0cbb9dd7ba3584af9852d",
+  "raw_variance_record_sha256": "82ba1d721c9da93083a6f36113a71d406cae0f5f75f353fed643d7b9bed47222",
+  "original_execution_log_sha256": "68b216f1711b38f2e94479de61b1ae22471cb5291f88f4c81c0694cc00dfa2dd",
+  "independent_qualification": "Unchanged existing qualifier verifies pre-runtime add/remove events, exact three-rule variance and no other structural host changes, plus SHA-256 and distinct mount/network/PID namespaces for each actual case.",
+  "all_other_captured_structural_fields_equal": true,
+  "full_host_unchanged_claim": false,
+  "service_or_firewall_modified_by_release_preparation": false,
+  "physical_checks_executed": false,
+  "published": false
+}

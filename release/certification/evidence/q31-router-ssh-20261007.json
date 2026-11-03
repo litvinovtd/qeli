@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_PASS_F368_F369_SOURCE_REVIEW_Q31_IN_PROGRESS_NATIVE_PROVENANCE_STALE",
+  "source_digest": "a8306ce926cb1b32fded9b40f3c7f255e329d76bf89eee146365c192b604aa2c",
+  "scope": "Q31 F368-F369/Q31-V007: exact four baseline SSH callers reproduce receive-window timeout with real .10 fixture3MiBstderr then64KiBstdout. Shared ssh_command combines stderr,closes unused stdin/drains before status/closes command channel finally;four callers retain whitespace/tuple/rc contracts.16actual fixed SSH checks preserve all bytes/nonzero status/EOF/timeout/channel close;connection reused aftertimeouts. Existing Paramiko operation timeout retained,no total deadline or remote-reap claim. Native connect failure closes allocated client,keeps original error;probe closes finally,queries installed named pins without rolling/default proxies. Exact old AST models prove failed-connect/probe missing close;no false auth/tool-download liveattempt.8actual probe commands PASS,toolchain/install inventories/tool hashes unchanged.35native+90router Linux methods PASS,zero skips;764exact model inputs checkedbeforeafter/index.78local native contract includes37recipes;15releasegate/docs9/bindings/diff PASS. Windows diagnostic suite3methods has1POSIXskip;Linux3allPASS qualifies. Newtests CIwired,no GHA run.28Q31files reviewed/classified:21production/declarations,3examples,4manuals;framework callbacks/thin entry wrappers retained,referencecounts notdeadcodeproof. Review criterion closed,otherfourcriteria scopes remainOPEN. Initial review-index check exposed Windows textCRLF vsGitLF;inspectedSHAretained,exactGitSHAadded,no binarynormalization;preparationfailure retained. Newtransport includednativeBUILD_INPUTS/releasegate dirtyadmission. Native provenance alreadySTALE atbase andremainsSTALE;release-blocking freshnativeA/B/provenanceQ34 retained,PROVENANCE/evidence/binaries notrewritten. CoreRust/ABI/routercompileflags/artifacts unchanged;no freshcross/native rebuild claimed. Own boundedfixtures/processes/modeltmp cleaned,sourcepacketretained;no services/network/firewall/globaltools/defaultchanges,.11unused. SDKbootstrap/sourcecut/fullhermetic/writerlock/atomicndmOPEN;firmwareUSER_EXCLUDED. Q31IN_PROGRESS28/37(75.7%),9remain,Q29SIGKILLFAIL/auto-nullENONET,Q30callbackdrainOPEN/Appleexclusions,D06ACCEPTED retained.41historic cases/acceptance and38prior supplements preserved except source_digest. ScopedcertificationPASSdoesnotmean nativeprovenance/CIgreen;no push/deploy.",
+  "checks": {
+    "verified_at": "2026-10-07T15:37:15.632883+00:00",
+    "model_inputs_match_index": 764,
+    "reviewed_files_git_identity_verified": 28,
+    "linux_native_methods": 35,
+    "linux_router_methods": 90,
+    "linux_skips": 0,
+    "actual_baseline_ssh_timeouts": 4,
+    "actual_fixed_ssh_checks": 16,
+    "actual_probe_commands": 8,
+    "local_native_contract_methods": 78,
+    "local_recipe_methods_included": 37,
+    "local_release_gate_methods": 15,
+    "local_probe_methods": 3,
+    "local_probe_POSIX_skips": 1,
+    "docs_checks": 9,
+    "bindings": "PASS",
+    "native_provenance": "PREEXISTING_STALE_REMAINS_OPEN_Q34",
+    "published_binaries_unchanged": true
+  },
+  "primary_reference": "https://docs.paramiko.org/en/stable/api/channel.html#paramiko.channel.Channel.set_combine_stderr",
+  "base_worktree_commit": "165dd522d00195932568fb2f89708f0a23e9c788",
+  "base_dev_commit": "f08232bb1aa05d993caca2c6be6666f70c99515b",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-router-ssh-20261007",
+  "raw_seal_sha256": "f258987285c9e3cb7580609a8fd6653a283748a0a1fc1a793eba895a8635d9e1",
+  "raw_sealed_files": 38,
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "q31": "IN_PROGRESS",
+    "q31_review_dead_code": "DONE"
+  }
+}

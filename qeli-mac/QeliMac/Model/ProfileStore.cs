@@ -13,76 +13,86 @@ namespace QeliMac.Model;
 /// See docs/*/archive/plans/RELEASE-FIXES.md E1.</summary>
 public static class ProfileStore
 {
-    private static readonly string Dir = Paths.UserDir;
-    private static readonly string FilePath = Path.Combine(Dir, "profiles.json");
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    private static readonly MacProfileArchive Archive = new(
+        Path.Combine(Paths.UserDir, "profiles.json"), SecureKey.GetOrCreate);
 
-    public static List<VpnConfig> Load()
+    public static List<VpnConfig> Load() => Archive.Load();
+    public static void Save(IEnumerable<VpnConfig> profiles) => Archive.Save(profiles);
+}
+
+// Uses production encryption/parsing/atomic writes with a path-scoped key provider.
+internal sealed class MacProfileArchive(string filePath, Func<byte[]> getKey)
+{
+    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    private readonly ProfileStoreFile StoreFile = new(filePath);
+
+    public List<VpnConfig> Load()
     {
         // Absent file = normal first run. Only a PRESENT-but-unreadable file is dangerous.
-        if (!File.Exists(FilePath)) return new List<VpnConfig>();
+        var stored = StoreFile.Read();
+        if (stored is null) return new List<VpnConfig>();
+        // Keychain/permission failures are not damaged profile bytes. Do not quarantine.
+        var key = getKey();
+        List<VpnConfig> profiles;
+        bool needsMigration;
         try
         {
-            var raw = File.ReadAllBytes(FilePath);
+            var raw = stored;
             var plaintext = EncryptedEnvelope.Open(
-                raw, SecureKey.GetOrCreate(), allowLegacyArray: true, out bool needsMigration);
-            string json = Encoding.UTF8.GetString(plaintext);
-            var profiles = JsonSerializer.Deserialize<List<VpnConfig>>(json, Options) ?? new List<VpnConfig>();
-            // Profiles saved before the stable-Id fix have no "Id" field; the deserializer
-            // left each at a fresh-GUID default that would otherwise change on every load
-            // (settings reference profiles by Id). Persist once to freeze those Ids.
-            bool needsIdMigration = profiles.Count > 0 && !json.Contains("\"Id\":");
-            if (needsMigration || needsIdMigration) Save(profiles);
-            return profiles;
+                raw, key, allowLegacyArray: true, out bool needsEnvelopeMigration);
+            try
+            {
+                profiles = ProfileStorePayload.Decode(StrictUtf8.GetString(plaintext), out bool needsIdMigration, Options);
+                needsMigration = needsEnvelopeMigration || needsIdMigration;
+            }
+            finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext); }
         }
         catch (Exception ex)
         {
-            // The file exists but couldn't be decrypted/parsed (e.g. Keychain key lost).
-            // Do NOT silently return an empty list — the next Save would overwrite the
-            // (possibly recoverable) file. Preserve it aside first, then start empty.
-            try { File.Move(FilePath, FilePath + ".corrupt-" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()); }
-            catch { /* best effort */ }
-            System.Diagnostics.Debug.WriteLine($"ProfileStore: profiles.json unreadable, preserved aside ({ex.Message})");
+            // Keep the unreadable original before attempting .bak recovery. Failure to
+            // preserve it must stop loading, rather than allow a later Save to overwrite it.
+            var preserved = StoreFile.PreserveUnreadable();
+            System.Diagnostics.Debug.WriteLine(
+                $"ProfileStore: profiles.json unreadable, preserved at {preserved} ({ex.Message})");
 
             // File.Replace keeps one last authenticated generation. Recover it automatically
             // instead of opening with an empty profile list after a torn/corrupt latest write.
+            List<VpnConfig>? recovered = null;
             try
             {
-                var backup = FilePath + ".bak";
+                var backup = filePath + ".bak";
                 if (File.Exists(backup))
                 {
                     var plaintext = EncryptedEnvelope.Open(
-                        File.ReadAllBytes(backup), SecureKey.GetOrCreate(), true, out _);
-                    var profiles = JsonSerializer.Deserialize<List<VpnConfig>>(
-                        Encoding.UTF8.GetString(plaintext), Options) ?? new List<VpnConfig>();
-                    Save(profiles);
-                    System.Diagnostics.Debug.WriteLine("ProfileStore: restored profiles from authenticated .bak");
-                    return profiles;
+                        ProfileStoreFile.ReadBounded(backup), key, true, out _);
+                    try { recovered = ProfileStorePayload.Decode(StrictUtf8.GetString(plaintext), Options); }
+                    finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext); }
                 }
             }
             catch (Exception backupError)
             {
                 System.Diagnostics.Debug.WriteLine($"ProfileStore: .bak recovery failed ({backupError.Message})");
             }
-            return new List<VpnConfig>();
+            if (recovered is null) return new List<VpnConfig>();
+
+            // A write failure must propagate instead of hiding the successfully read backup.
+            Save(recovered);
+            System.Diagnostics.Debug.WriteLine("ProfileStore: restored profiles from authenticated .bak");
+            return recovered;
         }
+
+        // Do not quarantine a readable store if only its migration write fails.
+        if (needsMigration) Save(profiles);
+        return profiles;
     }
 
-    public static void Save(IEnumerable<VpnConfig> profiles)
+    public void Save(IEnumerable<VpnConfig> profiles)
     {
-        Directory.CreateDirectory(Dir);
-        var key = SecureKey.GetOrCreate();
-        var pt = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(profiles, Options));
-        var blob = EncryptedEnvelope.Seal(pt, key);
-        // Atomic write (temp born 0600 + replace): a crash mid-write must not truncate the
-        // only copy, and the secret ciphertext must never briefly be world-readable.
-        var tmp = FilePath + ".tmp";
-        File.WriteAllBytes(tmp, blob);
-        if (!OperatingSystem.IsWindows())
-            try { File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
-        if (File.Exists(FilePath))
-            File.Replace(tmp, FilePath, FilePath + ".bak");
-        else
-            File.Move(tmp, FilePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        var key = getKey();
+        var pt = Encoding.UTF8.GetBytes(ProfileStorePayload.Encode(profiles, Options));
+        try { StoreFile.Write(EncryptedEnvelope.Seal(pt, key)); }
+        finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(pt); }
     }
 }

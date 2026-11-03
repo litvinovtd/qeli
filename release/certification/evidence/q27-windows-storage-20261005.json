@@ -1,0 +1,627 @@
+{
+  "schema": "q27-windows-storage-v1",
+  "status": "PASS_STAGE_Q27_IN_PROGRESS",
+  "date": "2026-10-05",
+  "base_commit": "e981c8c5df85bdff3a2b399ef29bff0b64d62e44",
+  "plan_done": 26,
+  "plan_total": 37,
+  "next": "Q27 GUI/SCM/autostart and remaining adapters",
+  "defects": [
+    "Q27-F222",
+    "Q27-F223",
+    "Q27-F224"
+  ],
+  "checks": [
+    {
+      "name": "windows-build",
+      "command": [
+        "dotnet",
+        "build",
+        "qeli-win/QeliWin/QeliWin.csproj",
+        "-c",
+        "Release",
+        "--no-restore"
+      ],
+      "exit_code": 0,
+      "log": "windows-build.log",
+      "passes": 0,
+      "failures": 0,
+      "skips": 0
+    },
+    {
+      "name": "windows-selftest",
+      "command": [
+        "dotnet",
+        "exec",
+        "qeli-win/QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll",
+        "selftest"
+      ],
+      "exit_code": 0,
+      "log": "windows-selftest.log",
+      "passes": 184,
+      "failures": 0,
+      "skips": 0
+    },
+    {
+      "name": "shared-build",
+      "command": [
+        "dotnet",
+        "build",
+        "qeli-shared/QeliConformance/QeliConformance.csproj",
+        "-c",
+        "Release",
+        "--no-restore"
+      ],
+      "exit_code": 0,
+      "log": "shared-build.log",
+      "passes": 0,
+      "failures": 0,
+      "skips": 0
+    },
+    {
+      "name": "shared-selftest",
+      "command": [
+        "dotnet",
+        "run",
+        "--project",
+        "qeli-shared/QeliConformance/QeliConformance.csproj",
+        "-c",
+        "Release",
+        "--no-build",
+        "--",
+        "selftest"
+      ],
+      "exit_code": 0,
+      "log": "shared-selftest.log",
+      "passes": 543,
+      "failures": 0,
+      "skips": 0
+    },
+    {
+      "name": "mac-compile-only",
+      "command": [
+        "dotnet",
+        "build",
+        "qeli-mac/QeliMac/QeliMac.csproj",
+        "-c",
+        "Release",
+        "--no-restore"
+      ],
+      "exit_code": 0,
+      "log": "mac-build.log",
+      "passes": 0,
+      "failures": 0,
+      "skips": 0
+    },
+    {
+      "name": "driver-pinning",
+      "command": [
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/verify_windows_drivers.ps1"
+      ],
+      "exit_code": 0,
+      "log": "driver-verification-r2.log",
+      "passes": 0,
+      "failures": 0,
+      "skips": 0
+    },
+    {
+      "name": "bindings",
+      "command": [
+        "python",
+        "-X",
+        "utf8",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings-check.log",
+      "passes": 0,
+      "failures": 0,
+      "skips": 0
+    },
+    {
+      "name": "panel",
+      "command": [
+        "python",
+        "-X",
+        "utf8",
+        "scripts/check_panel.py"
+      ],
+      "exit_code": 0,
+      "log": "panel-check.log",
+      "passes": 0,
+      "failures": 0,
+      "skips": 0
+    },
+    {
+      "name": "native-provenance",
+      "command": [
+        "python",
+        "-X",
+        "utf8",
+        "native-libs/provenance.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "native-check.log",
+      "passes": 0,
+      "failures": 0,
+      "skips": 0
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python",
+        "-X",
+        "utf8",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs-check-r2.log",
+      "checks": 9
+    }
+  ],
+  "baseline": {
+    "final_log": "baseline-run-r4.log",
+    "exit_code": 1,
+    "expected_failures": 5,
+    "source_adaptation": "baseline-adaptation.json",
+    "harness_failed_attempts_retained": [
+      "baseline-run.log",
+      "baseline-run-r2.log",
+      "baseline-run-r3.log"
+    ]
+  },
+  "new_windows_assertions": 41,
+  "source_proof": {
+    "base_commit": "e981c8c5df85bdff3a2b399ef29bff0b64d62e44",
+    "native_source_digest": "68902e1ef699d7e356bb558e709b6d5e7258cdafb2bd6460d7a66f8d5fc7d74b",
+    "native_sha256_rows": [
+      {
+        "path": "native-libs/android/arm64-v8a/libqeli.so",
+        "sha256": "ba21ee1783e523dc044356ef92509536e5bb1db78ed6b324c8ecbd7b1f6f3d11"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+        "sha256": "ba21ee1783e523dc044356ef92509536e5bb1db78ed6b324c8ecbd7b1f6f3d11"
+      },
+      {
+        "path": "native-libs/android/x86_64/libqeli.so",
+        "sha256": "125f9022c4af0dc8e3bc4cda29608fd26781eaed4acae64257c232609364d57b"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+        "sha256": "125f9022c4af0dc8e3bc4cda29608fd26781eaed4acae64257c232609364d57b"
+      },
+      {
+        "path": "native-libs/windows-x64/qeli.dll",
+        "sha256": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7"
+      },
+      {
+        "path": "qeli-win/QeliWin/native/qeli.dll",
+        "sha256": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7"
+      },
+      {
+        "path": "native-libs/macos-universal/libqeli.dylib",
+        "sha256": "e28fac551bb09e8136b98b79e8a8f41610b5493be62b9739a5b9be625f63fff2"
+      },
+      {
+        "path": "qeli-mac/QeliMac/native/libqeli.dylib",
+        "sha256": "e28fac551bb09e8136b98b79e8a8f41610b5493be62b9739a5b9be625f63fff2"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "qeli-win/QeliWin/wintun/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      }
+    ],
+    "managed_artifacts": {
+      "qeli-win/QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll": "8e83a0f4bce1b2fed381566c9f45fa0444adad2dbd9bc42f121608f9c4945d5d",
+      "qeli-shared/QeliConformance/bin/Release/net10.0/QeliConformance.dll": "8c899b76b86b55aef5a41c0772ec470ccda9f7dfd35f468c4278f687afffbbc1",
+      "qeli-mac/QeliMac/bin/Release/net10.0/QeliMac.dll": "a32d18f374979cf9c848451e72051f3e35e3d58223bfb4f49b50bcbd5543626d",
+      "qeli-shared/QeliShared/bin/Release/net10.0/QeliShared.dll": "9fef8905ac37a88be60cb3f21a5943435314f6978c3f9712bb4c97f8030e6ee0",
+      "qeli-win/QeliWin/bin/Release/net10.0-windows/win-x64/QeliShared.dll": "9fef8905ac37a88be60cb3f21a5943435314f6978c3f9712bb4c97f8030e6ee0",
+      "qeli-shared/QeliConformance/bin/Release/net10.0/QeliShared.dll": "9fef8905ac37a88be60cb3f21a5943435314f6978c3f9712bb4c97f8030e6ee0",
+      "qeli-mac/QeliMac/bin/Release/net10.0/QeliShared.dll": "9fef8905ac37a88be60cb3f21a5943435314f6978c3f9712bb4c97f8030e6ee0"
+    },
+    "source_inputs": {
+      "qeli-win/QeliWin/AboutWindow.xaml.cs": "be6c9f21f3dcdb13eeb9b7f6819caaf4cc9bbf554f5a3293c62ca6a111a55f16",
+      "qeli-win/QeliWin/App.xaml.cs": "7b0a2355f31ef91729600da380f50495ee392ae818da4288b1cec77514c01f7b",
+      "qeli-win/QeliWin/AppPickerWindow.xaml.cs": "3b761119574e8464f16cbf9a8abb5daad7e8be8d97c6b9ad666f036b6329ab42",
+      "qeli-win/QeliWin/AutoStartManager.cs": "afda2a767aece7906230e097283c074e53b474ce25cd2cc5f94cedca772b51a6",
+      "qeli-win/QeliWin/Branding.cs": "6d7655c4cd9aae73729e4bdcda95b1bebc5aed711e48c76596e08671f4195cf0",
+      "qeli-win/QeliWin/CliRunner.cs": "f3b1036e80c7f4220b2ef93661d7da735274f4d84063553b224b45ccd6a6406f",
+      "qeli-win/QeliWin/ConfigEditorWindow.xaml.cs": "2c4f41c1b50b23551b078afd97600e1e1994311bb85418bc63d80a548a89762e",
+      "qeli-win/QeliWin/InputDialog.cs": "5ff1b8b3c02a9eacbebedd4c069a2dad461d3dbef13f370279fd5970ebc82b3d",
+      "qeli-win/QeliWin/Loc.cs": "fe39b76bb6b74b3c8b784477c8e010e30b801cdf42e3f123399d8437f26ddd9b",
+      "qeli-win/QeliWin/MainWindow.xaml.cs": "4a9aa03e8134af517b7b61fba471c7b9c2b6236aa35bb339e6adb98a924c8e3a",
+      "qeli-win/QeliWin/Program.cs": "567710e34db56dba7f3edc4d242a7933a9c7c56de5793bbe606aa7c5ae35ebd2",
+      "qeli-win/QeliWin/QeliWin.csproj": "598b18e38dd5ae20c51d775de443ad14e4bf6f343dc486a7223cc0d1952cd8b7",
+      "qeli-win/QeliWin/QrShareWindow.xaml.cs": "a25e7354857fb553f2e9256873c0627699d58ad01334d0398d0081b32a122870",
+      "qeli-win/QeliWin/ReachabilityToBrushConverter.cs": "04043a14791f09b543071280585522786a4d0fb33264539bd55fa00036c59396",
+      "qeli-win/QeliWin/SettingsWindow.xaml.cs": "d4b0ab4f8ac7caf603fa6b86127e0d75be81787f47bc1ea8f22ec4878ec655c3",
+      "qeli-win/QeliWin/SystemPaths.cs": "d087d5ee59f00d2ec817afa5988bcb566c3b952f25c47239384a6d446bcaab6c",
+      "qeli-win/QeliWin/ThemeManager.cs": "c51a4c584fd0800737a493ab5772d49a56443cb54d2956b3cedb9d48643d26c0",
+      "qeli-win/QeliWin/Toast.cs": "12a72f17c21c5bee57517ba957c1d0cd16e826ed55cf2a4f6d45952ca0e03763",
+      "qeli-win/QeliWin/TrayController.cs": "65507ce3ae62b10c7bfdf65f0b503dd666ae6a7a7faedf828dc4e9c02b3f1fd8",
+      "qeli-win/QeliWin/Ui.cs": "c33affd1506446a0d243b99cc2f824ecef5b3eb59b2a756988e62396f5a11f4b",
+      "qeli-win/QeliWin/Model/AppSettings.cs": "4a9b964aff4aa54e3534785b8788a4b30a70927e875ba19f5a43df4a62103aa0",
+      "qeli-win/QeliWin/Model/ProfileStore.cs": "c7ebfa438107f69c6ccea089b62ce24b2ef487cf0b034f08125e5ed6c2cafa64",
+      "qeli-win/QeliWin/Model/ProfileStoreSelfTest.cs": "878c337335a9dc27036c3cab12bb610de0f0d81c1f521450d426a428e78b8d66",
+      "qeli-win/QeliWin/Service/ServiceHost.cs": "61e8fde79322141d48d7911110e263cda02e50a8deaeb5fc7b2df35198f4b995",
+      "qeli-win/QeliWin/Service/ServiceManager.cs": "04d2912da64d3a257a307925070fd201566a5361ed8ca795647d3c02f8b55245",
+      "qeli-win/QeliWin/Service/ServiceProfileSelfTest.cs": "21855bdf0305f0b0ce382c0a7b9fb087876a013273f8ef59eddd5e14f644d994",
+      "qeli-win/QeliWin/Service/ServiceSecuritySelfTest.cs": "b1951f5363b649c423af94d203c2c2c1010ae2a2ab409a9edd849daf6baeb9df",
+      "qeli-win/QeliWin/Service/ServiceState.cs": "2e879fb43f83ce8f28a36889c2708520e2afff1e94b292aae3cd57f73f825649",
+      "qeli-win/QeliWin/Vpn/KillSwitch.cs": "19cfb96184c36ff2e0d957c5896eea5ee834403efe65c3a3c26b249b106c4c99",
+      "qeli-win/QeliWin/Vpn/NativeLoader.cs": "6ea88801d50b835c489698c61f3ad22837c4da49013455742ba82e16ae9b6236",
+      "qeli-win/QeliWin/Vpn/NetworkConfigurator.cs": "00b3cc16eea7337e247a81dbc191af3ed965fbd0006f91823ff8f175447c3a8d",
+      "qeli-win/QeliWin/Vpn/PendingFragmentBuffer.cs": "cbb2ec5e9850b626d00a2ee8281fdf5a101e0dfa9149e23b6d936be6c71113d9",
+      "qeli-win/QeliWin/Vpn/ProcessAppMap.cs": "05ad67668a55c82543d050364cb26e2bc8efbb9da44c2402e59aa3240f839263",
+      "qeli-win/QeliWin/Vpn/VpnTunnel.cs": "28aa76c1d34e6b53c24905d77abb1d23cdf0afb8fbb053ee93f43ca7e1217f84",
+      "qeli-win/QeliWin/Vpn/WinDivertAdapter.cs": "8359b15e12a8e511d17e21c9440b43c23683db5b6d80ea438ca41ce36201ee95",
+      "qeli-win/QeliWin/Vpn/WinDivertDestinationPolicy.cs": "e2cfbcb1d24d7f8507e5711210527383b974b1b6c58327d858bf7c3d403d770b",
+      "qeli-win/QeliWin/Vpn/WinDivertFlowTable.cs": "881b52b879827ec7b2a5f3eb4a985886d475574acfe024d961ae17f1f0498fb9",
+      "qeli-win/QeliWin/Vpn/WinDivertKillSwitchGate.cs": "f50605bc9a4f756d95c5b454095118385897040f0adde2ef3f2f316aab6a1afc",
+      "qeli-win/QeliWin/Vpn/WinDivertNative.cs": "01df43092af936704d930f4d5a3651a513a9362621d8400b4aae51dca2c7a0ee",
+      "qeli-win/QeliWin/Vpn/WinDivertSelfTest.cs": "5927e6f2c2d4091b9e57f46d05baeb18d32456944f1fc142e1eeb2728c8ad513",
+      "qeli-win/QeliWin/Vpn/WindowsRoamingSocket.cs": "6df2bcb311def95c5ad7d227b88a6028bd6897be2bc41c81ab78ec5f7a53e94c",
+      "qeli-win/QeliWin/Vpn/Wintun.cs": "1ecf6ab06d12f064a8ca89fe298fe3cd6ed04696bf4139cd5bb091e7765a962c",
+      "qeli-shared/QeliShared/BrandPalette.cs": "c74a813519805af9f7d20d4fa077a02cadd6c0a9515f8f23bd8ca38eba11b97d",
+      "qeli-shared/QeliShared/Loc.cs": "a38a8c7ab6c08fdbd43cf8ae69edc825039f979285e526da9a0a1ec43f1a8455",
+      "qeli-shared/QeliShared/LogTime.cs": "44cd60d3500b3e84f0d2384e91911ab8452b37a1d068a731df9daf562e5ef867",
+      "qeli-shared/QeliShared/QeliShared.csproj": "c6b2458f812b911d6f6a4bd73eb882f0b645bef6d4b68d7ec3d64ef70ba90216",
+      "qeli-shared/QeliShared/Crypto/KeyDerivation.cs": "71f04d0512a837a0838a0c58934d5ea63a73cd162a1ca07da0db2d9a186291a8",
+      "qeli-shared/QeliShared/Crypto/KeyExchange.cs": "d8c17cc05ebfeca1a14bb6e83205220de01e7b95967697fd0afa0659dbdc91c8",
+      "qeli-shared/QeliShared/Crypto/PacketCipher.cs": "9ac7bdadf645a61245041c4b6a82dffecb7401046671a385b7cc9042a3c8d3c7",
+      "qeli-shared/QeliShared/Model/AppSettingsStore.cs": "e6df76c504971e8379c054973f389eb2262d0622e151a7d45857c9379fde7754",
+      "qeli-shared/QeliShared/Model/ConfigCore.cs": "f75f0ef9309edda42ad229e9482392bca8518342cd05b8e74615ae50e164999f",
+      "qeli-shared/QeliShared/Model/LinkConformance.cs": "bcd6b5c969698b02746b98981a52e2386b873b3d4724fc1941683fa6e37cade6",
+      "qeli-shared/QeliShared/Model/PairPresetSelection.cs": "4e87449d35758c2c3956e80cea793ccdf69355fa2fe7184c43c0ba20a2a97fa6",
+      "qeli-shared/QeliShared/Model/ProfileStoreFile.cs": "423fdc207c8cca68aa387322995b0e06a1340057b5a992ad9dd620249edd3014",
+      "qeli-shared/QeliShared/Model/ProfileStorePayload.cs": "0d77787f00cea59f52f79f0c55a3d6eafc61a2772b0faafd291fde47e98d7b06",
+      "qeli-shared/QeliShared/Model/ProfileStoreRecovery.cs": "f3d05dd1e8e67eea0a29811478bd0c7e06449bf3435a1c7f1b0e68fdc18c4ec3",
+      "qeli-shared/QeliShared/Model/TransportWireLimits.cs": "13ec3fd380be7f85d73f0f706f118a03fa3d0d0c40d86243d393f5f3e7929573",
+      "qeli-shared/QeliShared/Model/VpnConfig.cs": "5c4aa13920fe4a51021827c69b0bfd48fbe2f6cf0554d88c529fe9b77108ab06",
+      "qeli-shared/QeliShared/Model/VpnConfig.Native.g.cs": "96b37209f936191e28e3fbd5595d8ae52f1834caaaa4e9ca2050206421d8ef0a",
+      "qeli-shared/QeliShared/Protocol/CtrlFrame.cs": "a5220b1529362a8f26471aff06f446cdbce5a1e67738d6559dd7b8f079207249",
+      "qeli-shared/QeliShared/Protocol/ObfsStream.cs": "9493f54dd6107d8825c798fe242691ac9d86b138cfa5b0c91a00b94110976c9c",
+      "qeli-shared/QeliShared/Protocol/PacketCodec.cs": "2bd8d7ad212e51357b7b90cdc6a569bef983d6c31dfb45dd949fa4448fc0d3bd",
+      "qeli-shared/QeliShared/Protocol/PacketCodecBenchmark.cs": "6b85b5f19b11f3275b4c72a35469c565b0a34d2a5ce98bce5b255e8c1155fb4d",
+      "qeli-shared/QeliShared/Protocol/PrpNonceConformance.cs": "00bdaaa79371f9b48404c4c9a5f8d10fa37a5fcf4d94b361e9df5cb1c0f6865b",
+      "qeli-shared/QeliShared/Protocol/Quic.cs": "0a57d673894032e6e46c93e2a4042e211c9a9c0278dd425e95a0e111a3d8030b",
+      "qeli-shared/QeliShared/Protocol/TlsHandshake.cs": "094236618d808ae8ebac044c9983ac2ca938aaabeb53c7570d2f48a67e53f365",
+      "qeli-shared/QeliShared/Protocol/UdpFrag.cs": "f0447e88a1e3cff8f10cef4f91de7ac891e4a61fd741452a5db22925bb11c2b9",
+      "qeli-shared/QeliShared/Protocol/WireConformance.cs": "c1c246f9932969f3b1af86a8d294ec4571b4639b296420b76f304515e614dbbc",
+      "qeli-shared/QeliShared/Update/SemVer.cs": "1f5a7e217f4eb41eb6654dd4bf4492789548f91c69173b6b8f24e958c03f4c4a",
+      "qeli-shared/QeliShared/Update/UpdateChecker.cs": "93f6364d4f3a9c2bf26df316abf25dcb9293727c4bad97b4b09ba52f24f253ee",
+      "qeli-shared/QeliShared/Vpn/NativeRoamingPath.cs": "67f9644bb57e8d06011e789615d98e01dfccbc1f86852ea61fa376a9e8dce4ec",
+      "qeli-shared/QeliShared/Vpn/NativeRoamingPlatformStateUnknownException.cs": "e54083733c20c501fb1de0b92b8f76d8d92873b52f49911126db38e8d74daa7f",
+      "qeli-shared/QeliShared/Vpn/NativeTransportCore.cs": "7b5aa16924a445983ec1e0c7dee68536626911bd6cf5945ea6fb75f71a442fab",
+      "qeli-shared/QeliShared/Vpn/NativeWorkerLifetime.cs": "a237fa6ac941ad9982f31cac1642de48a9e0eb62fa7b46a7dc114a551b60a3e5",
+      "qeli-shared/QeliShared/Vpn/RouteFileParser.cs": "1ad690b38cf61415cc297120ca432401b73509b00470b2910c6e32ef5c89369f",
+      "qeli-shared/QeliShared/Vpn/RouteLocalPolicy.cs": "b56997dabc7d5fa82017bfb0ef5e6e63a47b9a63b7f0a300618e0aefb5031743",
+      "qeli-shared/QeliShared/Vpn/TunDevice.cs": "cb631f04252188a21e283ffd310eb6cf6f4ddde695bbaf7c8a4f23948bfc18af",
+      "qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs": "e84f25069ff87eb33a594913b7de21fbc22688878b527dbb401ea07cd8f958a2"
+    },
+    "scope": "Windows storage/DPAPI only; no SCM, installed service state or OS VPN tests"
+  },
+  "raw_directory": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q27-windows-store-20261005",
+  "scope": "DPAPI archive recovery and protected service file codecs; temporary GUID files and pure ACL checks; no APPDATA/ProgramData/SCM/network modification by tests",
+  "limitations": [
+    "Q27 remains IN_PROGRESS",
+    "Windows VM network/sleep-wake/boot-service runtime user SKIPPED",
+    "Mac compile-only on Windows",
+    "No new Linux/native A-B/JNI/matrix/benchmark/soak execution",
+    "Immutable managed strings not completely erasable",
+    "Streaming growth fixture is not a demonstrated FileShare.Read-only file race",
+    "No push/deploy"
+  ],
+  "qualified_at": "2026-10-04T22:40:05.830231+00:00",
+  "raw_files": [
+    {
+      "path": "baseline-adaptation.json",
+      "size": 575,
+      "sha256": "840409e7b88f2bd7695cf1838b5c25ebb1940f061e9b00121f514f4d8fca5938"
+    },
+    {
+      "path": "baseline-build-r4.log",
+      "size": 1228,
+      "sha256": "d5a6ef90f64b02def5b9c56b18dfa88c5ea657f1c10d30dd8cffe904f8ca970f"
+    },
+    {
+      "path": "baseline-run-r2.log",
+      "size": 1033,
+      "sha256": "27abf14a2746894e2abf26d147f4c79a71a78222d78eca889b12c8e5226100a9"
+    },
+    {
+      "path": "baseline-run-r3.log",
+      "size": 2912,
+      "sha256": "a1bd60758120faa67ab32242f8fa6ce5c98d76c8a1e29f0f164968959461a5ab"
+    },
+    {
+      "path": "baseline-run-r4.log",
+      "size": 372,
+      "sha256": "08e5e3c36f316623def0a0beac30827d05361fd6557b27e0af21444893e0a743"
+    },
+    {
+      "path": "baseline-run.log",
+      "size": 4027,
+      "sha256": "51a6a7bfdb66f48e1621ccea4f84ea0c5b94a0cedc018db216c167becab62aba"
+    },
+    {
+      "path": "baseline-runner/Baseline.csproj",
+      "size": 424,
+      "sha256": "6fe527e9c3a9d11b40aa1e3f5f9e0a6865de4fdd0b5ff8424824977762b35438"
+    },
+    {
+      "path": "baseline-runner/bin/Release/net10.0-windows/Baseline.deps.json",
+      "size": 797,
+      "sha256": "d5aa3e499be81694223610adc8ab0ec9bfeeb7957f6e8b24be71e21504f937ce"
+    },
+    {
+      "path": "baseline-runner/bin/Release/net10.0-windows/Baseline.dll",
+      "size": 11264,
+      "sha256": "3ec989cdd93087ed8fab70154b7e3cbb571b711d5e10378f74c9282f6d5e2122"
+    },
+    {
+      "path": "baseline-runner/bin/Release/net10.0-windows/Baseline.exe",
+      "size": 162304,
+      "sha256": "c76973b24363b7b477eb6c7f99475b5d010d54d849f32cf937a789b333891301"
+    },
+    {
+      "path": "baseline-runner/bin/Release/net10.0-windows/Baseline.pdb",
+      "size": 14860,
+      "sha256": "60e47c1c95f7bc8cbc145d76445d8be893492c8aefe7bb3cf4f371ea4d9b0d3e"
+    },
+    {
+      "path": "baseline-runner/bin/Release/net10.0-windows/Baseline.runtimeconfig.json",
+      "size": 519,
+      "sha256": "96bc2946dff8790400d652ec7f8de7bb043e954980d59470c112788b68a1fbd3"
+    },
+    {
+      "path": "baseline-runner/bin/Release/net10.0-windows/QeliShared.dll",
+      "size": 219648,
+      "sha256": "9fef8905ac37a88be60cb3f21a5943435314f6978c3f9712bb4c97f8030e6ee0"
+    },
+    {
+      "path": "baseline-runner/bin/Release/net10.0-windows/QeliShared.pdb",
+      "size": 51096,
+      "sha256": "82d73811c645d8d7ad2d6ce6dc7cab0b8a29c20d9de0e8ee77834d726d07d645"
+    },
+    {
+      "path": "baseline-runner/obj/Baseline.csproj.nuget.dgspec.json",
+      "size": 44727,
+      "sha256": "dbda22fc87b9281ecb71c339bfdffa440439d4e9666c3c076d9cc5ab3deb4792"
+    },
+    {
+      "path": "baseline-runner/obj/Baseline.csproj.nuget.g.props",
+      "size": 1135,
+      "sha256": "ce35effc004958fc0851a3da6607d86ec71fc2b7832bb53747bca73297ed7b31"
+    },
+    {
+      "path": "baseline-runner/obj/Baseline.csproj.nuget.g.targets",
+      "size": 150,
+      "sha256": "971cc9b535384849b5c661d776cd7a80833a416265e32e8968e06c367368b8b5"
+    },
+    {
+      "path": "baseline-runner/obj/project.assets.json",
+      "size": 23006,
+      "sha256": "883567323ca661f14608bc5fc9c39d70bf594a2db557f3050646ef9c5a04f143"
+    },
+    {
+      "path": "baseline-runner/obj/project.nuget.cache",
+      "size": 271,
+      "sha256": "4d8a2b39412f46eb6b8d78940beceb8570a9ae14908990861370c0eaef31d17e"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/.NETCoreApp,Version=v10.0.AssemblyAttributes.cs",
+      "size": 200,
+      "sha256": "93d67476196ebfc80d1d7d8844b91146cfd678d105f5ce635eb900ca40610c9b"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/apphost.exe",
+      "size": 162304,
+      "sha256": "c76973b24363b7b477eb6c7f99475b5d010d54d849f32cf937a789b333891301"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.AssemblyInfo.cs",
+      "size": 1118,
+      "sha256": "33d571bde5679a084fee49bb347ec729b4893d19cd78541e9c2e3ca8af85d10f"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.AssemblyInfoInputs.cache",
+      "size": 66,
+      "sha256": "35a5cfe7eb692e14ea9bfc562ea3d9f69a6b2313f79e521b6e9e4fa0af12cb4a"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.assets.cache",
+      "size": 152,
+      "sha256": "79288a38ed2f320f76ec18434c47bc5502084481e7fa021b2815da3a6b9368b5"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.csproj.AssemblyReference.cache",
+      "size": 1622,
+      "sha256": "5c73bb51f1b455d75e534cd80f1a1f45e8a30432c5ea3216248d1c0875334f39"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.csproj.CoreCompileInputs.cache",
+      "size": 66,
+      "sha256": "074b38359cb3b482350ccf65a41cecf037d143acdd4e5f42ed2d4b57cffa3478"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.csproj.FileListAbsolute.txt",
+      "size": 2783,
+      "sha256": "db0cb76337417ef05a1e1cf0a4a6e651b4fb29b761777e86612eadbbc8b154de"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.csproj.Up2Date",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.dll",
+      "size": 11264,
+      "sha256": "3ec989cdd93087ed8fab70154b7e3cbb571b711d5e10378f74c9282f6d5e2122"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.GeneratedMSBuildEditorConfig.editorconfig",
+      "size": 954,
+      "sha256": "335b7293b4d65918cbc39b569c8a01f4bc50c015155a783a699fb918cbe1c1f3"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.genruntimeconfig.cache",
+      "size": 66,
+      "sha256": "0f6abe0cbfd5f5ec03c38102179391be8e17224197c4369f6552f21e4aa127e8"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.GlobalUsings.g.cs",
+      "size": 183,
+      "sha256": "fe45ea572aadfd1a9b54cf7251405cfa11b748ca88b034f06a724d49758ced2d"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/Baseline.pdb",
+      "size": 14860,
+      "sha256": "60e47c1c95f7bc8cbc145d76445d8be893492c8aefe7bb3cf4f371ea4d9b0d3e"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/ref/Baseline.dll",
+      "size": 6656,
+      "sha256": "3142137735e71d553881b82f1891762d6e93ed55a654fcde7d36d03afb0088d4"
+    },
+    {
+      "path": "baseline-runner/obj/Release/net10.0-windows/refint/Baseline.dll",
+      "size": 6656,
+      "sha256": "3142137735e71d553881b82f1891762d6e93ed55a654fcde7d36d03afb0088d4"
+    },
+    {
+      "path": "baseline-runner/OldProfileStore.cs",
+      "size": 3182,
+      "sha256": "2a473e9216eb46f29a1b0e21a976330a0d9085642c802002140b17f65906eabe"
+    },
+    {
+      "path": "baseline-runner/OldServiceCodec.cs",
+      "size": 1471,
+      "sha256": "bd9bbbc1e2b904ed5c6668fc6d23395494a5890fda23baf0e72c3a39b62fa62c"
+    },
+    {
+      "path": "baseline-runner/Program.cs",
+      "size": 3109,
+      "sha256": "219efa473158c8362268c598ea8dcef8eb673e4ca91fa8f3810df5a6053ea986"
+    },
+    {
+      "path": "baseline.json",
+      "size": 280,
+      "sha256": "12813cfb78abf5c1fe2ef6133f58fe6542a6a002ad16163bab58be9ab5496314"
+    },
+    {
+      "path": "bindings-check.log",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs-check-r2.log",
+      "size": 179,
+      "sha256": "11ccc3c0677f2ba19afbeccf863f1f4391abf4ee60e551b09b8bff132dac3cc2"
+    },
+    {
+      "path": "docs-check.log",
+      "size": 248,
+      "sha256": "a899109adaba113fdf9232296ad47f3471b314d2dda7b549253766123610dfd5"
+    },
+    {
+      "path": "driver-verification-r2.log",
+      "size": 495,
+      "sha256": "2cff3d1a646b530267dd69bb409610c2a5f3e82a8854dca230156d03486c19ac"
+    },
+    {
+      "path": "driver-verification.log",
+      "size": 415,
+      "sha256": "6d0c6898a22ca7b994827d8aefa0d178029847acfa4bea168c05c84352296bfc"
+    },
+    {
+      "path": "evidence-draft.json",
+      "size": 17501,
+      "sha256": "d224f6f9ed7e1f8f20f79dd562e8dbb65ca91590323a1122e89d0397fc9eb2df"
+    },
+    {
+      "path": "mac-build.log",
+      "size": 412,
+      "sha256": "b8f73ad3196577743a30730e410ba06557b0c2078f8494ed0361adfc571d5912"
+    },
+    {
+      "path": "native-check.log",
+      "size": 64,
+      "sha256": "b165a29977e1cecb8e8f970e280c7bf69e8a928730eea599b5b2ff31c15251b6"
+    },
+    {
+      "path": "panel-check.log",
+      "size": 48,
+      "sha256": "b8e4165d118b8fbb51655003173e95486b1f5cc0f7f2a0090db08e4d8c6997bb"
+    },
+    {
+      "path": "ProfileStore.cs",
+      "size": 3301,
+      "sha256": "01d252146c2ad381aefee2671c21dde16c37afc020ae00f88113ec2cd74d6c6a"
+    },
+    {
+      "path": "ProfileStorePayload.cs",
+      "size": 3961,
+      "sha256": "b25fa8e5a3f5475af62cb2231505d1d2685c6f6ba61119e07bf62d3e391e2274"
+    },
+    {
+      "path": "ServiceState.cs",
+      "size": 9565,
+      "sha256": "b06212aebecbf25d0fb4381814b41dd64409dcabdb66f06bd3f69b4e612c0128"
+    },
+    {
+      "path": "shared-build.log",
+      "size": 439,
+      "sha256": "0fb1eed334af3f2fe3e84aee6cc18652393a3cdb66012610cd4e5047284ddac9"
+    },
+    {
+      "path": "shared-selftest.log",
+      "size": 32103,
+      "sha256": "edd052d2be2fdd7cd6c20704ddcf6d1f2c07ce9f860e4b319b6f3f23acecef32"
+    },
+    {
+      "path": "source-proof.json",
+      "size": 12776,
+      "sha256": "542fe9c38d6a5b073d2cb090475387422af6345a14bc1c2d239c8253105e3827"
+    },
+    {
+      "path": "windows-build.log",
+      "size": 428,
+      "sha256": "7125e7de5a716c869e8ce6ea658f01e562421e9688d49201e3d214d6fbd6a85d"
+    },
+    {
+      "path": "windows-selftest.log",
+      "size": 12187,
+      "sha256": "4adaad8c8d94328397676227f871b92f6fb403b4caef1ac6f6af9d513ec030ac"
+    }
+  ]
+}

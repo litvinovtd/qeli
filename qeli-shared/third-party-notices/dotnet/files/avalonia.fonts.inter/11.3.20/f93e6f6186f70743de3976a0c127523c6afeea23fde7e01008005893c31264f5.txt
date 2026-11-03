@@ -1,0 +1,43 @@
+Embedded Inter font name records (UTF-16BE decoded to UTF-8):
+src/Avalonia.Fonts.Inter/Assets/Inter-Bold.ttf
+sha256=790c108befe859dac2ddbd20af3fbb6917c601b3d544c8a05761519f3b5508fe
+https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-Bold.ttf
+name_id=0 platform=3 encoding=1 language=1033: Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
+name_id=5 platform=3 encoding=1 language=1033: Version 3.019;git-0a5106e0b
+name_id=13 platform=3 encoding=1 language=1033: This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL
+name_id=14 platform=3 encoding=1 language=1033: http://scripts.sil.org/OFL
+src/Avalonia.Fonts.Inter/Assets/Inter-Light.ttf
+sha256=c44ff7a5fde4816f94fc1e5e232b021a812a411339ddd08b0a475ca6e21db810
+https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-Light.ttf
+name_id=0 platform=3 encoding=1 language=1033: Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
+name_id=5 platform=3 encoding=1 language=1033: Version 3.019;git-0a5106e0b
+name_id=13 platform=3 encoding=1 language=1033: This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL
+name_id=14 platform=3 encoding=1 language=1033: http://scripts.sil.org/OFL
+src/Avalonia.Fonts.Inter/Assets/Inter-Medium.ttf
+sha256=10d48331f5b3c7362ca357b00c17ac4863ad35199b13b0eceb0962c8c1ad7dc9
+https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-Medium.ttf
+name_id=0 platform=3 encoding=1 language=1033: Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
+name_id=5 platform=3 encoding=1 language=1033: Version 3.019;git-0a5106e0b
+name_id=13 platform=3 encoding=1 language=1033: This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL
+name_id=14 platform=3 encoding=1 language=1033: http://scripts.sil.org/OFL
+src/Avalonia.Fonts.Inter/Assets/Inter-Regular.ttf
+sha256=41ab0f707a2bfab8133ccdfcdab52282f5f79e5751f43a264805451c7bb95fb8
+https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-Regular.ttf
+name_id=0 platform=3 encoding=1 language=1033: Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
+name_id=5 platform=3 encoding=1 language=1033: Version 3.019;git-0a5106e0b
+name_id=13 platform=3 encoding=1 language=1033: This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL
+name_id=14 platform=3 encoding=1 language=1033: http://scripts.sil.org/OFL
+src/Avalonia.Fonts.Inter/Assets/Inter-SemiBold.ttf
+sha256=e8cbc2b88bc4268237ff5e251776d3c54edcb14e015a9e66e4883bde4b55f13f
+https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-SemiBold.ttf
+name_id=0 platform=3 encoding=1 language=1033: Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
+name_id=5 platform=3 encoding=1 language=1033: Version 3.019;git-0a5106e0b
+name_id=13 platform=3 encoding=1 language=1033: This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL
+name_id=14 platform=3 encoding=1 language=1033: http://scripts.sil.org/OFL
+src/Avalonia.Fonts.Inter/Assets/Inter-Thin.ttf
+sha256=b778a52b84f39ba1d3b08553a246643573b33453b5481b4d09c604bccced930d
+https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-Thin.ttf
+name_id=0 platform=3 encoding=1 language=1033: Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
+name_id=5 platform=3 encoding=1 language=1033: Version 3.019;git-0a5106e0b
+name_id=13 platform=3 encoding=1 language=1033: This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL
+name_id=14 platform=3 encoding=1 language=1033: http://scripts.sil.org/OFL

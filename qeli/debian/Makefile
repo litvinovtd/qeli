@@ -81,10 +81,13 @@ deb-prebuilt: stage
 	@echo "OK: $(PACKAGE_NAME)_$(VERSION)_$(ARCH).deb"
 
 stage:
+	python3 ../../scripts/native_licenses.py --repo ../..
 	@test -f "$(BINARY)" || { echo "binary not found: $(BINARY) - run make deb or pass BINARY=<path>"; exit 1; }
 	rm -rf $(DEB_DIR)
 	install -d $(DEB_DIR)/usr/bin $(DEB_DIR)/etc/$(PACKAGE_NAME) $(DEB_DIR)/lib/systemd/system $(DEB_DIR)/DEBIAN
 	install -m755 "$(BINARY)" $(DEB_DIR)/usr/bin/$(PACKAGE_NAME)
+	install -d $(DEB_DIR)/usr/share/doc/$(PACKAGE_NAME)/licenses
+	cp -R ../third-party-notices/rust $(DEB_DIR)/usr/share/doc/$(PACKAGE_NAME)/licenses/
 	install -m644 ../config/server.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/server.conf.example
 	install -m644 ../config/server-multiprofile.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/server-multiprofile.conf.example
 	install -m644 ../config/server-ipv6.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/server-ipv6.conf.example
@@ -96,6 +99,7 @@ stage:
 	install -m644 qeli.service $(DEB_DIR)/lib/systemd/system/qeli.service
 	install -d $(DEB_DIR)/etc/polkit-1/rules.d
 	install -m644 49-qeli.rules $(DEB_DIR)/etc/polkit-1/rules.d/49-qeli.rules
+	install -m755 preinst $(DEB_DIR)/DEBIAN/preinst
 	install -m755 postinst $(DEB_DIR)/DEBIAN/postinst
 	install -m755 prerm    $(DEB_DIR)/DEBIAN/prerm
 	install -m755 config    $(DEB_DIR)/DEBIAN/config

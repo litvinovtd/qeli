@@ -1,8 +1,10 @@
 # qeli web panel — installation & usage
 
-> **Documentation status:** current development tree **0.8.1**; planned full-IPv6 release **0.8.2**;
-> latest published release **0.8.1**. There will be no public 0.7.17 release.
+> **Documentation status:** current development tree **0.8.3**; planned full-IPv6 release **0.8.3**;
+> package version covered by this guide **0.8.3**.
 > `qeli --version` reports the version of the binary actually installed.
+> See [GitHub Releases](https://github.com/litvinovtd/qeli/releases) for package availability and publication status.
+> Links to this version's files work after its publication.
 
 The daemon's built-in admin UI: profiles, users/groups, live clients, identity
 keys and `qeli://` link/QR issuance. It runs **inside** `qeli server` (the
@@ -12,12 +14,27 @@ and the control socket.
 - **Self-contained:** CSS/JS/fonts are embedded in the binary and served from
   `/assets/*` — **no runtime CDN**, so the panel works on an air-gapped server.
 - **Stack:** `axum` + `alpine.js`; REST `/api/*`; the session is a stateless HMAC
-  cookie (key = the admin password hash).
+  cookie. Its signing key is derived with HKDF from a separate random secret,
+  the admin password hash and the session-revocation generation.
 - **Languages:** RU/EN dropdown at the bottom of the sidebar (default English;
   the choice is remembered in the browser).
 
+The Tailwind 4 stylesheet targets Safari 16.4+, Chrome/Chromium 111+
+and Firefox 128+. These are upstream minimum requirements, not evidence that
+every browser/version has been tested. See the
+[upstream compatibility guide](https://tailwindcss.com/docs/upgrade-guide).
+
 > Full `[web]` key reference — [CONFIG.md](CONFIG.md#web-panel-web). This page is
 > how to bring it up and how to use it.
+
+
+Failed background reads double the polling interval up to 60 seconds; a successful
+read restores the normal interval. Hidden tabs do not poll; manual refresh remains
+immediate. API reads have a 15-second timeout.
+
+Share/QR profile selectors label disabled profiles. The first enabled profile is
+preferred; a disabled one remains selectable for preparing configuration, but it
+will accept connections only after being enabled and the server restarted.
 
 ---
 
@@ -71,9 +88,10 @@ the hash:
 - **In the panel:** Config → Web → "Set admin password" (type a password → it's
   hashed into the field → Save) — once you already have access and want to rotate it.
   A panel save of the `[web]` settings (admin password/username, IP allowlist, CSRF
-  origins) takes effect **immediately, without a restart** — a password change also
-  invalidates the current session on the spot. Only socket-bound fields (`bind`/`port`/
-  `tls`) still need a restart. (The `set-web-password` CLI above is a separate process,
+  origins) takes effect **immediately, without a restart** when the response reports
+  `web_settings_applied: true` — a password change also invalidates the current session.
+  If false, the INI is saved but the previous panel settings remain active; the response
+  warns about it. Socket-bound fields (`bind`/`port`/`tls`) still need a full restart. (The `set-web-password` CLI above is a separate process,
   so it does need the restart.)
 - **`argon2` CLI (manual):** `printf '%s' 'YOUR_PASSWORD' | argon2 "$(head -c12 /dev/urandom|base64)" -id -t 3 -m 15 -p 1 -e`
 - **Via API** (only when the panel is already reachable — i.e. a password is already
@@ -97,6 +115,17 @@ needed.
   tls_cert = /etc/letsencrypt/live/vpn.example.com/fullchain.pem
   tls_key  = /etc/letsencrypt/live/vpn.example.com/privkey.pem
   ```
+- Each PEM must be a regular file no larger than 4 MiB. Symlinks to regular
+  files, including Let's Encrypt's, remain supported. FIFOs and other special
+  files are rejected without waiting. If only one auto-generated file remains,
+  the panel refuses HTTPS and preserves it: restore the other file from backup,
+  or remove **both** files to deliberately generate a new pair.
+  `qeli check-config` validates an existing pair with the same TLS loader. When
+  the auto-generated pair does not yet exist, it permits first startup without
+  creating files. An explicit TLS path requires a trusted server INI: a regular
+  file owned by root or the effective UID, with no group/world write or symlink.
+  With TLS files outside `/etc/qeli`, panel Backup returns HTTP 409; back up
+  the external pair separately.
 - With `tls = true` the session cookie automatically gets `Secure`.
 
 > Alternative to publishing: keep `bind = 127.0.0.1`, `tls = false` and reach the
@@ -109,13 +138,15 @@ The strongest barrier for a public bind: a list of CIDRs / bare IPs allowed to
 reach the panel; everyone else gets `403`. Edit it in Config → Web → "Source-IP
 allowlist". **Include your own current IP**, or you'll 403 yourself.
 
-**Allowing any source.** All three of these are equivalent — surrounding quotes are
+**How to allow access from everywhere.** Choose one of the three alternatives below. They are equivalent — surrounding quotes are
 stripped by the config parser, so `""` is simply an explicit way to write "empty":
 
 ```ini
 # allowed_ips = …    ; key omitted entirely
-allowed_ips =        ; present but empty
-allowed_ips = ""     ; identical to the line above
+# present but empty
+allowed_ips =
+# identical to the line above
+allowed_ips = ""
 ```
 
 With no entries there is no IP filter and security rests on TLS + password + rate-limit.
@@ -174,7 +205,11 @@ honors `X-Forwarded-Prefix`. Full nginx example — see "Reverse-proxy sub-path"
 - **Anti-brute-force** — hard lockout per source IP + per-username tarpit (you
   can't lock someone else's account by guessing their name).
 - **Session** — `HttpOnly; SameSite=Strict; Path=/` cookie (+`Secure` under TLS),
-  HMAC-signed with the password hash (changing the password invalidates sessions).
+  HMAC-signed with a key derived from a separate signing secret, the password
+  hash and the revocation generation. Changing the password or revoking all
+  sessions invalidates existing tokens. With `web.persist_session_key = true`
+  (the default), the secret is stored in a file with mode `0600`; with it disabled,
+  or if the file cannot be used, a process-local secret ends sessions on restart.
 
 ---
 
@@ -234,6 +269,15 @@ socket/TUN buffers and connection limits. Alerts call out an unavailable worker,
 `iptables` for requested NAT, observed drops and liveness combinations that could retain a dead
 peer. The page refreshes every 5 s and pauses background polling in a hidden browser tab.
 
+Status and Transport health share asynchronous iptables discovery. If the tool is
+not found in standard system directories, its PATH `--version` probe has 15 seconds
+including waiting for a slot. At most four such async iptables/ip6tables probes run
+at once, including Quick Start IPv6 discovery. These two pages skip the probe when
+no profile requests NAT. `Could not verify iptables availability` reports a failed
+check, such as timeout or denied access; Transport health presents it as a warning.
+Confirmed tool absence remains critical. Finding the tool does not verify NAT rules.
+[Responsiveness checks and limitations](../reports/audit-0.8.2/AUDIT-Q05-HEALTH-PROBES.md).
+
 The projection selects safe fields individually: obfs/reality credentials, passwords, identity
 private keys and session keys are never returned by `/api/transport/health`.
 
@@ -261,7 +305,7 @@ The **⤓ Backup** and **⤒ Restore** buttons in the header of the *Host load* 
 - **Backup** (`GET /api/backup`) — the browser downloads
   `qeli-backup-<unixtime>.tar.gz`: a `tar czf` of the whole **`/etc/qeli`** directory —
   the server config, the users file, the **per-profile identity keys**,
-  `usage.json`, `notify.json`, the client profiles and the panel's TLS cert. Leftovers
+  `usage.json`, `notify.ini`, the client profiles and the panel's TLS cert. Leftovers
   from earlier restores (`.pre-restore-*`, `.restore-*`) are
   excluded so an archive can't nest inside the next one; local editor rollback history
   (`.config-history`) is excluded as well, so superseded credentials do not accumulate in
@@ -269,9 +313,9 @@ The **⤓ Backup** and **⤒ Restore** buttons in the header of the *Host load* 
   on your machine. If any critical file (identity, `server.conf`, the users database)
   turned out to be unreadable, the download is **refused** with an
   explanation rather than handing you an archive that only looks complete.
-  The active config, external users database, per-profile identity keys and explicit panel
-  TLS files must all use normal absolute paths below `/etc/qeli`. Custom filenames and
-  subdirectories there are supported. If any active path is relative or outside that managed
+  The active config, external users database, per-profile identity keys and explicit TLS
+  files of an **enabled HTTPS panel** must all use normal absolute paths below
+  `/etc/qeli`. Custom filenames and subdirectories there are supported. If any active path is relative or outside that managed
   root, both panel backup and restore are refused with HTTP 409 instead of silently producing
   or applying a partial archive; use a manual backup that includes every external path.
   > **The archive holds secrets.** Private identity keys, argon2 password hashes, the
@@ -317,6 +361,83 @@ The **⤓ Backup** and **⤒ Restore** buttons in the header of the *Host load* 
 - Two restores never run at once — the second is refused with "another restore is already
   in progress". After a successful restore you **must restart** to apply it, and a
   *Config restored* notification fires.
+- Panel saves, `qeli set-web-password`, and restore share a server-INI sidecar
+  lock. Exact restore preserves `.lock` files, and old archived lock files are
+  not published over active ones. A manual SSH editor does not take this lock:
+  do not edit the INI concurrently with a panel or CLI save.
+
+The restored active INI requires all profile identities: managed paths below
+`/etc/qeli` must be supplied as regular 32-byte files, including overlay mode.
+Missing keys are never replaced by newly generated identities. Enabled HTTPS
+requires a complete readable matching PEM pair; managed paths are checked in
+staging, external paths against existing server files. Missing or corrupt
+dependencies are rejected before publication. Archive UID/GID values are ignored:
+extraction creates files as the server user. Nested `.lock` files retain their
+inodes and do not prevent `exact` restore.
+
+Backup/Restore preparation shares 60 seconds across config-lock admission, all tar
+commands and preflight. Portable gzip is limited to 16 MiB, pre-restore gzip to 64 MiB;
+timeout/overflow never yields a partial archive. An unreadable file makes the rollback
+snapshot fail and prevents publication. Once publication starts, filesystem operations
+finish under the lock; no hard filesystem I/O deadline is promised. Cancelling a request
+does not cancel a running restore. A duplicate restore immediately receives HTTP 409,
+including while the first awaits the config lock. [Troubleshooting](TROUBLESHOOTING.md#659-backuprestore-timeout-archive-limit-and-incomplete-snapshot).
+
+
+### Failure during archive restoration
+
+Restore publishes files through individual atomic renames; the whole tree is not
+one atomic transaction. A rename or exact-cleanup failure returns HTTP 500 with
+`ok: false`, `publication_started: true`, and `rollback_snapshot` naming the private
+snapshot. Some files may already have changed. Inspect the tree and recover from
+that snapshot before restarting. A process crash disconnects HTTP; locate the
+latest created `/etc/qeli/.pre-restore-*.tgz`, inspect it and recover the old tree.
+
+`tar xzf <snapshot> -C /etc` restores snapshot members but does not remove new files
+introduced by a failed restore. For a complete recovery, compare the tree with
+the snapshot and remove only confirmed newly introduced files. Preserve the
+snapshot and active `.lock` files; coordinate recovery with other writers. Check
+config, users, identity and TLS before restarting. Automatic rollback and power-loss
+guarantees are not provided.
+
+The snapshot is created after staging validation and acquisition of FileLocks for
+the active config and managed users/identity paths from both old and new configs.
+Each additional lock waits up to 5 seconds within the shared preparation budget.
+A busy lock returns HTTP 409 before publication. Invalid archives do not rotate
+previous snapshots. Successful restores retain the five newest by mtime and always
+preserve the current recovery snapshot. Publication failures do not rotate snapshots.
+
+Uploaded archives cannot contain `.config-history`, `.pre-restore-*`,
+`.restore-upload-*` or `.restore-staging-*` at any level: these are local operational
+state. A full pre-restore snapshot is for manual recovery, not API upload. File-only
+command checks cover both `.ini` and legacy `.conf`; notify.ini uses its own parser.
+Exact retains nested `.lock` files even in a directory absent from the archive,
+while removing that directory's ordinary files.
+
+`exact` accepts `true/1/yes/on` and `false/0/no/off`, case-insensitively, trimming
+surrounding spaces. An absent parameter means overlay. Empty or unknown values
+return HTTP 400 before restore starts.
+
+
+Filesystem failures opening/checking locks and tar extraction failures return
+HTTP 500; actual external FileLock contention timeout returns HTTP 409. Structurally
+invalid uploads still return HTTP 400. Pre-publication failure reports
+`publication_started: false` and `rollback_snapshot: null`.
+If storage becomes read-only after extraction, staging cannot be removed either:
+a private `.restore-staging-*` directory remains with modes 0700/0600. Once storage
+is writable and restore has finished, inspect and remove that temporary directory.
+Subsequent restores do not use it; portable backups and rollback snapshots exclude
+operational staging/upload paths.
+
+Fresh restoration with mixed inline/external users requires the external users INI
+in the archive even when inline accounts exist. The external file wins duplicate
+user/group names; group references are validated on the union. Restart applies
+the restored credentials and restrictions. `/var/lib/qeli/panel-secret.key` remains
+machine-local state excluded from portable archives. On the same server the preserved
+key allows reissuing the old link. On a new server without that key, old password_hash
+values still authenticate, but reissuing password_enc needs recovery of a separate
+state backup or an explicitly authorized password reset. Decryption failure itself
+does not change passwords.
 
 ### Quick start page
 Its own sidebar page: a table of ten masking modes, each launchable with **Launch** —
@@ -359,17 +480,18 @@ The modes are independent — each gets its own interface, subnet and port — s
 several at once is the recommended production layout (a client connects on whichever port
 gets through its network).
 
-The complete selection rules, routed GUA, NAT66/off, client `ipv6=auto|required|off`, and
+The complete selection rules, routed GUA, `off/manual/route/nat66`, NDP proxy, client `ipv6=auto|required|off`, and
 leak verification are documented in the [IPv6 guide](IPV6.md).
 
 ### Config
+
 - **Top tabs** — `Global` + one per profile (+ add). A profile's settings are
   **all on one page** (no inner tabs); a **sticky jump nav** (Bind / TUN / Pool /
   Routing / DNS / DHCP / Obfuscation / Performance) is pinned under the header.
 - **Profile** — an `enabled` toggle and sections with **every** field: transport/
   bind/identity path, TUN (including `ip_mode`, IPv4/IPv6 gateways, MTU and multi-queue
   `queues`), separate IPv4/IPv6 pools, exclusions and reservations, routing with NAT44 +
-  `off|route|nat66` + pushed routes, dual-family DNS + blocklist,
+  `off|manual|route|nat66` + pushed routes, dual-family DNS + blocklist,
   DHCP (TAP only — see below),
   obfuscation (mode/cipher/fronting, TLS masking + SNI pool, REALITY +
   `handrolled`/`peek`, padding, heartbeat, fragmentation, the automatic Reality/H2 carrier (no user switch), traffic-norm,
@@ -378,16 +500,29 @@ leak verification are documented in the [IPv6 guide](IPV6.md).
 - **Global** — Authentication (incl. `bind_static_to_session` H-1), Web UI (TLS,
   allowlist, public_host, admin password), Logging, **Server identity keys**
   (show each profile's pinned key + **Rotate**).
+- **Administrator-managed IPv6 (0.8.2):** in Config, select a profile with `tun.ip_mode = dual`
+  or `ipv6`, then Routing → `IPv6 forwarding / NAT66` → `manual`.
+  `Upstream IPv6 NDP proxy` offers `off`, `auto`, `required`; for an on-link prefix,
+  specify the upstream Ethernet interface. Switching `route` ↔ `manual` preserves NDP;
+  choosing `off` or `nat66` disables NDP and clears its interface. Prepare host firewall,
+  forwarding, RA and DNS, then use `Apply & Restart`. `Save to Disk` only saves the
+  configuration for the next restart. See the [manual section](IPV6.md#manual) for
+  responsibilities and an INI example.
 - **Saving:** `Save to Disk` (writes the config, applied on next restart) or
-  `Apply & Restart` (save + restart now). `Form` / `JSON` / `Raw INI` views (raw
+  `Apply & Restart` (save + restart now). `Form` / `INI` views (raw
   saves verbatim — comments preserved).
 - **Safe editing:** all views share a revision of the exact INI bytes (comments included).
   A save refuses to overwrite a newer panel-tab or hand edit, and switching raw/structured,
   Reload or leaving the page warns before discarding unsaved work. Before confirmation the
-  panel lists changed JSON paths or raw line numbers. Every changing panel write creates a
+  panel lists changed field paths or raw line numbers. Every changing panel write creates a
   private rollback snapshot in `/etc/qeli/.config-history` (`0700` directory, `0600` files;
   newest ten retained); **History** validates and restores one while first preserving the
   current file as another snapshot. A restart is still required for data-plane changes.
+
+Save/restart network preflight runs asynchronously before acquiring the write lock.
+Probes share 15 seconds; after observation, five seconds remain for config-lock admission
+and candidate preparation. Busy or expired preflight asks for a retry; revision and users
+are re-read under the lock. [Details](../reports/audit-0.8.2/AUDIT-Q05-PANEL-TRANSACTIONS.md).
 
 > **`Apply & Restart` needs permission to restart the service.** It runs
 > `systemctl restart <unit>`. A **root** service can do this directly; the hardened
@@ -425,7 +560,12 @@ The panel has two different restarts and the difference matters.
 **A full restart is REQUIRED** for the fields the panel listens on: `web.enabled`,
 `web.bind`, `web.port`, `web.tls`, `web.tls_cert`, `web.tls_key` (and `web.base_path`) —
 they are bound when the supervisor starts and a worker restart does not reapply them. A
-save that touched any of them says so: apply it with a FULL restart.
+save that touched any of them says so: apply it with a FULL restart. A full restart
+is also required after changing `auth.users_file`, `web.persist_session_key`, or the
+active logging settings `logging.level`, `logging.file`, and `logging.time_format`.
+Before a full restart, the panel also checks for an enabled profile, admission
+for an enabled panel, and a readable certificate/key pair when TLS files exist.
+If this fails, the running process stays up; correct the configuration and retry.
 
 - **The panel session survives a full restart** as long as `web.persist_session_key` is
   on (the default: the session-signing key is kept in a `0600` file). Turn it off and
@@ -439,12 +579,41 @@ save that touched any of them says so: apply it with a FULL restart.
 - **Inside a container** systemctl is unavailable; if the change does NOT touch the panel
   socket the panel falls back to the worker restart on its own and says so.
 
+
+<!-- normative-sync: panel-editor-state-v1 -->
+
+### Config editor operation and confirmation
+
+Save reviews the current draft and writes it with the revision that draft was
+loaded from. Repeated clicks cannot start another action while a confirmation,
+write or restart is pending. Edits made after the review opens remain unsaved
+if they differ from the submitted draft. Apply & Restart stops if saving is
+cancelled, fails or leaves newer edits unsaved. An unconfirmed full restart
+keeps the indication that panel socket changes still need a full restart.
+
+Reload and Form/INI switching request confirmation before discarding a dirty
+draft. Leaving the page uses the browser's unsaved-changes warning. Failed
+reads show an error and require a successful reload before saving; they do not
+make initial defaults eligible for a write. If new-profile defaults alone are
+unavailable, the loaded configuration stays editable, while Add remains disabled.
+
+Identity and History show read failures with Reload. A failed refresh retains
+the previous snapshot. A late reply cannot replace a newer opened history window
+or update a destroyed editor. Restoring history uses the current config revision;
+it reloads the restored configuration and does not restart automatically.
+
+The shared confirmation dialog initially focuses Cancel, keeps Tab and Shift+Tab
+inside the dialog, supports Escape and returns focus to the initiating control
+when that control remains available. Closing a nested restore confirmation leaves
+History open.
+
 ### Raw INI config editor
-The third view on the Config page (`GET`/`PUT /api/config/raw`) shows the config **file
-verbatim** and writes back exactly the text you submit — **comments and formatting are
-preserved**. The `Form` and `JSON` views go through parse-and-reserialize, so
-hand-written comments in the file are lost on save; edit a comment-heavy config in Raw
-INI (or directly on the server).
+
+The `INI` view on the Config page (`GET`/`PUT /api/config/raw`) shows the config **file
+verbatim** and writes back the submitted text — **comments and formatting are preserved**.
+`Form` parses the configuration and serializes it back to INI, so hand-written comments
+are lost on that save; edit a comment-heavy config in the `INI` view or directly on the
+server. Both views save configuration only as INI.
 
 > **Secrets are masked in this view (since 0.7.13).** The values of `password_hash`,
 > `password_enc` and `password` are served as `<unchanged>` — the editor used to show them
@@ -454,17 +623,30 @@ INI (or directly on the server).
 > (comments, ordering, spacing) is still preserved verbatim.
 
 Raw saves are guarded exactly like structured ones: the text must parse; `logging.file`
-must be inside `/var/log/qeli`; `auth.users_file`, `identity_key` and
-`web.tls_cert`/`tls_key` inside `/etc/qeli`; `web.password_hash` must be a valid argon2
-hash (the hand editor is the easiest place to lock yourself out with a typo);
+must be inside `/var/log/qeli`; `auth.users_file` and `identity_key` inside
+`/etc/qeli`; `web.tls_cert`/`tls_key` inside `/etc/qeli` or `/etc/letsencrypt`;
+`web.password_hash` must be a valid argon2 hash (the hand editor is the easiest
+place to lock yourself out with a typo);
 `routing.post_up`/`post_down` can neither be introduced nor changed through the panel;
 and the config must pass the same profile validation the server runs at startup. Panel
-settings apply live, profile/bind/tun changes need a restart.
+settings apply live when the save response reports `web_settings_applied: true`;
+when false, the previous panel settings remain active. Changing `auth.users_file`
+or `web.persist_session_key`,
+`logging.level`, `logging.file`, or `logging.time_format` requires a full supervisor
+restart through `Apply & Restart` (or `systemctl restart qeli`). Profile/bind/tun
+changes also need a restart.
+
+When writing server INI through the API (Quick Start, form, INI editor or history
+restore), send `expected_revision` from the latest config GET. A missing or stale
+revision rejects the write; reload the config and retry.
 
 ### Server identity: show & rotate
 **Config → Global → Server identity keys** (`GET /api/identity`) lists each profile with
-its bind string and its **pinned public key** (hex) — the panel equivalent of
+its bind string and its **persisted public key** (hex) — the panel equivalent of
 `qeli show-identity`; the key file is created on first read if it doesn't exist yet.
+The panel reads a bounded snapshot of the current INI and refuses identity listing,
+rotation, and Share when an explicit `identity_key` comes from an untrusted file.
+It also refuses a custom `auth.users_file` from that snapshot for user operations.
 
 **Rotate** (`POST /api/identity/{profile}/rotate`) generates a new key for that profile.
 **The running worker keeps using the OLD key until a restart**, and after the restart
@@ -472,10 +654,14 @@ its bind string and its **pinned public key** (hex) — the panel equivalent of
 they pinned before will no longer match. In other words rotating means re-issuing the
 config/link to all of that profile's clients, so don't do it "just in case".
 
+The Identity list reads the persisted key. After rotation it shows the new key even
+while the running worker still holds the old one; coordinate client pin updates with
+the explicit worker restart.
+
 ### Users & groups
 - **Create/edit:** enter the password in **plaintext** — the server hashes it
   (argon2id) and stores a reversibly-encrypted copy (for config re-issue, below).
-  Fields: bandwidth/burst, optional static IPv4 and IPv6 addresses, group, max sessions,
+  Fields: bandwidth limit and read-only legacy burst, optional static IPv4 and IPv6 addresses, group, max sessions,
   **allowed profiles** (interface isolation), allowed networks and **per-user routes**.
   Clearing either static-address field or the group really removes the stored value; the API
   distinguishes an omitted field (leave unchanged) from `null`/blank (clear it).
@@ -557,6 +743,25 @@ connecting *to* this machine.
   start, `route_local` and full-tunnel. The **Raw INI ↦** toggle in the same dialog gives
   the full config, and keys the form doesn't manage survive a round-trip through it.
 
+Set the Linux client TUN queue size here through **Raw INI**:
+`tun.tx_queue_len = 1000` under `[qeli]` (default `1000` packets, range `1..32767`,
+no auto mode). There is no dedicated form control; the key is local, absent from
+links/QR and not configured in a server profile. It requires a client containing
+the development 0.8.2 change. Omit it with `dev_attach=true`, where an external
+system owns the queue. Save, then Disconnect and Connect; do not reload the server.
+The binary serving this panel must also support the key: an old editor can reject
+the INI before starting a new client. This concerns the local panel host, not a
+mandatory remote VPN-server upgrade for a standalone client.
+[Full contract](CONFIG.md#client-tun-tx-queue).
+
+Creating or importing requires an unused name; an existing client profile is never
+silently replaced. The editor saves with the exact INI revision it loaded. If another
+tab or a manual edit changes the file, the save is rejected: reopen the profile,
+review the newer contents, and save again. INI reads use the client runtime's
+256 KiB limit. Saving a connected profile writes the INI but does not change the
+running client process. Use Disconnect, then Connect to apply it; the process's
+internal reconnect loop does not reload the file.
+
 **Where things live.**
 - Profiles: `/etc/qeli/clients/<name>.conf`, mode `0600` (they contain the password in
   plaintext). Names are `[A-Za-z0-9._-]` only, up to 64 characters.
@@ -571,8 +776,13 @@ connecting *to* this machine.
 **Connect / Disconnect.** Connect spawns `qeli client -c <file>` as a child of the
 supervisor (inheriting its privileges, so it can bring up its TUN and routes). Disconnect
 sends SIGTERM — the client restores DNS and routes and exits; if it hasn't left after 5 s
-it is SIGKILLed. **Delete** disconnects first, then removes the profile and its log. A
-profile with `autostart = true` is connected when the supervisor starts.
+it is SIGKILLed. **Delete** checks the INI revision before disconnecting, then
+removes the profile and its log. A stale page leaves the tunnel running and the
+file intact; refresh the list. Direct Delete API calls require the
+X-Qeli-Revision header from the profile list. A
+profile with `autostart = true` is connected when the supervisor starts. Autostart
+reads only a stable client INI up to 256 KiB; a file that changes during reading
+or exceeds the limit is skipped.
 
 **The status is honest, not "is the process alive".** The list refreshes every 5 s and reads
 the Rust client's structured status: **● Connected**, **◌ Connecting…**, **⚠ Error —
@@ -580,7 +790,9 @@ retrying** (the process is alive but the tunnel is looping on reconnect — e.g.
 `reality-tls` with no short_id) or **○ Disconnected**. **Details** shows carrier/tunnel
 addresses, MTU, DNS, effective routes, full-tunnel/kill-switch/multipath decisions and
 TX/RX/UDP buffer/drop counters. The short log tail remains a human audit trail and a
-compatibility fallback for a client process started by an older binary.
+compatibility fallback for a client process started by an older binary. A
+structured status file over 64 KiB or changed during reading is ignored,
+leaving the log fallback.
 
 ### Panel source and visual checks
 `python3 scripts/check_panel.py` is a dependency-free CI gate for shared control styling,
@@ -636,8 +848,12 @@ GETTING-STARTED §10).
 - **Panel login** → `[web] brute_force`.
 
 Each has its own **on/off switch**, *Max attempts*, *Window* and *Lockout*, so the tunnel
-and the panel are limited (or disabled) separately. **Save policy** applies both live with
-no restart and no dropped sessions (it resets that surface's failure counters). Turn a
+and the panel are limited (or disabled) separately. **Save policy** validates the complete
+resulting INI before writing it and applies the panel policy through a live settings reload; it requests a VPN
+worker SIGHUP without dropping sessions. Applying changed thresholds resets that surface's
+failure counters. If the worker is unavailable, the tab reports that the saved VPN policy
+will apply at its next start. If the panel reload fails, the INI remains saved while the active policy stays unchanged; the tab flags the saved/live mismatch and asks the operator to check the INI and logs before restarting. A failed INI read is shown as an error rather than defaults.
+Turn a
 switch off to disable rate-limiting for that surface entirely (only safe for panel login on
 a trusted / loopback bind). The same policies are also editable in **Config → Authentication**
 (VPN) and **Config → Web UI** (panel).
@@ -649,9 +865,47 @@ a trusted / loopback bind). The same policies are also editable in **Config → 
 ### Notifications
 Outbound alerts on key server events via **Telegram** and a **generic webhook** — two
 independent channels, each with its own switch, credentials, event toggles and **Send
-test** button. Config lives in `/etc/qeli/notify.json` (editable from the panel or the
+test** button. Config lives in `/etc/qeli/notify.ini` (editable from the panel or the
 file); sends are best-effort and never block the data plane, and outbound TLS certs are
-verified. OFF by default (no `notify.json` → no-op).
+verified. Channels are OFF by default when no saved notification settings exist.
+
+The file uses the shared INI parser with `[notify]`, `[telegram]`, and `[webhook]`
+sections. Event keys belong to their channel section; unknown keys, duplicates and
+invalid booleans are rejected. Example:
+
+```ini
+[notify]
+server_name = edge-eu
+
+[telegram]
+enabled = false
+token = ""
+chat_id = ""
+on_server_start = true
+on_quota_breach = true
+on_login_lockout = true
+on_auth_lockout = true
+on_restore = true
+on_client_connect = false
+on_client_disconnect = false
+
+[webhook]
+enabled = false
+url = ""
+on_restore = true
+```
+
+Notification settings are read only from INI (up to 64 KiB); an oversized or
+invalid file is rejected without falling back to defaults. If an old
+`notify.json` remains without `notify.ini`, loading fails: transfer its
+settings to INI and remove the old file. Panel backups omit `notify.json`,
+and archive restore rejects it. JSON remains only in the internal API and
+webhook messages.
+
+On save, the panel checks a revision of the exact notify.ini bytes. If another
+tab or a manual editor has changed the file, the write is rejected; reload
+the page and review the new values before saving again.
+
 - **Server name** — a label prefixed to every message (`[name] …`) and put in the
   webhook JSON `server` field, so several servers reporting into one chat / hook are
   distinguishable. Empty = no prefix.
@@ -659,9 +913,50 @@ verified. OFF by default (no `notify.json` → no-op).
   user hit their data cap or their expiry), *Panel login lockout* (an IP locked after
   too many failed **panel** logins), **VPN auth IP lockout** (an IP locked by
   brute-force protection after repeated wrong **VPN** login/password), *Config
-  restored*. Recurring conditions are throttled (≤ once/hour per user or IP).
+  restored*. Quota/VPN-auth alerts have a one-hour per-key cooldown; panel lockouts use ten minutes.
+  Opt-in connect/disconnect alerts use ten seconds per user and event type.
 - The Telegram token is **write-only** (masked after saving); **Send test** delivers a
   probe to one channel using the current (even unsaved) settings.
+
+Delivery limits apply separately to worker and supervisor: **128 accepted requests
+including active ones**, **8 active sends**, shared by Telegram, webhook and **Send test**.
+An event sent to both channels uses two slots. A full queue drops new automatic sends;
+`notify: queue full` reports the cumulative rejection count at exponentially spaced
+intervals. A panel probe gets an explicit error instead. Its **10-second total timeout
+includes queue wait**; timeout or handler cancellation cancels unsent work. Each automatic
+HTTP send also has a ten-second timeout after admission to the active group.
+
+Event details and the displayed server name are clipped at UTF-8 boundaries to 2048 and
+256 bytes respectively. Webhook bodies are capped at 32 KiB. URL/token/chat id longer
+than 4096/512/128 bytes are rejected, not shortened; saved configuration is unchanged.
+Graceful stop closes admission, drains for at most ten seconds, then cancels and joins
+remaining deliveries. There is no durable retry; full queues, shutdown or network errors
+can lose notifications. The grace starts at the first worker/supervisor stop request;
+the queue drains concurrently with cleanup and does not add ten seconds afterwards.
+HTTP responses outside 2xx are logged with the channel name.
+
+<!-- normative-sync: notify-delivery-trust-v1 -->
+
+On Unix the sidecar must be a regular file owned by root or the running user,
+without group/other write permission. Symlinks are refused; `0600` is recommended.
+An untrusted file disables automatic channels and produces a panel error. A panel
+save never repairs its permissions or authorizes its contents: repair the file as
+an administrator, then reload it. Successful saves invalidate the process cache;
+the next event loads the current stable INI snapshot, including a later manual edit.
+
+Webhook URLs preserve query parameters and omit fragments (`#...`) from requests.
+Encode spaces in the URL. Delivery accepts only HTTP/1.0 or HTTP/1.1 final status
+lines of at most 4 KiB; interim 1xx responses are unsupported. Only 2xx is success.
+3xx is a failure and redirects are not followed. Malformed remote response text
+is never copied into panel errors or the journal.
+
+Destinations must pass the conservative public-address policy before connection,
+each candidate is checked before use; only a validated address is selected and pinned.
+Loopback, private/link-local, documentation, benchmark and reserved destinations,
+IPv6 translation/tunnelling prefixes and special protocol assignments are refused.
+This also excludes some globally reachable special-purpose addresses; it is not an
+exact IANA reachability classifier. Internal webhooks and NAT64 destinations are
+unsupported. HTTPS verifies certificates and names against the bundled root store.
 
 ### Update banner (opt-in)
 When `[web] update_check = true`, the panel shows a dismissible **"Update available"**
@@ -718,3 +1013,131 @@ previously required hand-editing the INI.
 
 Server identity, key pinning, H-1, per-profile authorization, limits, wire
 modes/REALITY — see [CONFIG.md](CONFIG.md).
+
+<!-- normative-sync: server-config-writers-v1 -->
+<a id="server-config-writers-v1"></a>
+
+### External server INI writers and revision boundaries
+
+The form, INI editor, Quick Start, history, writing CLI commands and Backup/Restore
+share one sidecar lock `<canonical config path>.lock`. It protects the complete
+read, validation and atomic publication transaction. Never delete or replace a live
+process's lock file; exact restore preserves its inode.
+
+An external script or editor must hold an exclusive `flock` on that same canonical
+sidecar from reading through completion of writing/rename. If the editor cannot
+follow this protocol, stop Qeli and finish concurrent panel/CLI operations first,
+edit the INI, run `qeli check-config`, then start the service. `expected_revision`
+detects changes to the previously read file; a second read also detects changes
+during save preparation. This detects conflicts rather than blocking arbitrary
+root writers: a write without the sidecar lock between the final check and rename
+is not protected.
+
+Saving a profile does not change active bind/TUN/DNS parameters. Apply it through
+an explicit worker restart; startup-only panel fields require a full process
+restart. An invalid restart candidate is refused before stopping the active worker.
+History applies eligible web fields live; archive restoration requires an explicit
+restart. These boundaries are checked by the shared
+[runtime scenario](../../../scripts/audit_panel_config_lifecycle.py) and recorded
+in the [D07 register](../plans/AUDIT-DEBT.md).
+
+## API authentication and attempt limits
+
+<!-- normative-sync: panel-web-auth-v1 -->
+
+Panel pages use the `qeli_session` cookie. HTTP Basic is supported for `/api/*`;
+its scheme is case-insensitive (`Basic`, `basic`, `bAsIc`). The username is compared
+exactly; password spaces and colons are preserved. Service JSON API payloads do not
+change INI as the sole configuration-file format.
+
+`[web] brute_force.*` governs admin login and API Basic independently of the VPN
+policy under `[auth] brute_force.*`. Hard lockout applies to the client IP; behind
+a configured trusted proxy the validated X-Forwarded-For chain supplies that IP.
+Ordinary probes without credentials or with an invalid/expired cookie do not count
+as password attempts. The admin username never receives a global hard lockout.
+
+Password verification shares an Argon2 semaphore (2–8 jobs based on available
+CPU count). After queueing, the IP is checked again: a locked source receives 429
+before hashing. Already admitted jobs may complete; their results are recorded
+before permit return even when the HTTP client cancels its request.
+
+CSRF applies to mutating API requests, including login and Basic. Origin takes
+precedence over Referer; allowed host/port are compared. CLI calls without either
+header are supported. `trusted_proxies` also controls trust in forwarded HTTPS
+and prefixes; a direct caller cannot impersonate a proxy.
+
+Logout revokes all previously issued admin sessions through persistent session
+generation and clears the browser cookie. Persistence failure returns an explicit
+500: browser cookie removal does not prove successful token revocation. With
+healthy persistent key/generation files, revocation survives restart. An authenticated
+login page redirects directly to the canonical panel root. Web-panel TOTP is not
+implemented; VPN TOTP is a separate mechanism.
+
+### Save failures and restart confirmation
+
+<!-- normative-sync: panel-transaction-outcomes-v1 -->
+
+Form/INI/Quick Start/history require a fresh `expected_revision`. Save publishes a
+private rollback snapshot before replacing INI; it does not restart the worker.
+An error containing `published ... persistence is uncertain` may follow publication:
+read the new revision and inspect INI before retrying; an error does not prove rollback.
+New password/allowlist settings apply live; password changes revoke previous cookies.
+Bind/port/base_path/TLS require full restart; startup values remain active until then.
+
+`worker restarting` confirms command dispatch; use status to check readiness. Full
+restart also responds before replacing the supervisor. Rejection/uncertainty appears
+in status warnings; inspect unit/journal before retrying. A successful full restart
+applies new listener settings and retains sessions with healthy persistent keys.
+
+
+### Damaged key files
+
+<!-- normative-sync: panel-key-storage-v1 -->
+
+Identity, panel-secret and session keys are read as regular files of exactly 32 bytes. FIFOs, directories and dangling links are not missing keys and are never replaced automatically. Links to existing regular files remain supported; reading does not change their owner/mode. Verify ownership/permissions manually: generated files are private (0600), and the standard identity directory is 0700.
+
+Legacy panel-secret migration holds the same lock as key creation: an already-published modern key takes precedence. A damaged or inaccessible legacy file requires recovering the original key; do not delete it to generate a new key when existing `password_enc` must remain decryptable. Key errors can disable reversible storage of a new password; its Argon2 hash remains a separate authentication mechanism. An unavailable session key is preserved without replacement; the panel uses its existing per-process-key fallback and logs a warning, so those cookies do not survive restart.
+
+### Users API and live access
+
+<!-- normative-sync: panel-user-mutations-v6 -->
+
+User/group/limit mutation bodies must be objects; wrong types cannot become Unlimited or a successful no-op. `enabled` is boolean, `bandwidth` an object, password/hash strings, route gateway string/null. Configurations are saved only as INI.
+
+A file entry overrides its namesake inline definition. Deleting this override is refused: it would restore inline access or previous group limits. Use Disable or remove the inline definition in server.conf.
+
+After successful Users reload in the worker, removed/disabled users and entries forbidding the current profile lose open TCP/UDP sessions. Effective bandwidth, including group inheritance, applies to live sessions. API success confirms persistence and queued reload; new authentication readiness may follow later. Periodic sweep rechecks rights, quota and expiry. `burst_mbps` remains a stored legacy field; there is no separate burst enforcement.
+
+After accepted SIGHUP, enable-user, disable-user, set-limit and set-bandwidth use
+current inline users/groups. Removed inline accounts cannot return from the startup
+snapshot; accounts added by reload can be managed without restarting the worker.
+Rejected reload preserves the previous accepted auth configuration.
+
+Changing effective user/group ACL, `client_subnets` or exit-default permission also
+ends open sessions carrying old permissions. Reconnect to receive the new policy.
+Rule order and duplicates do not affect sessions; a user ACL overrides its group.
+Lowering `max_sessions` retains the newest devices on each profile and disconnects
+older excess sessions. Bandwidth changes apply without disconnecting. `burst_mbps`
+is a stored compatibility field with no separate data-plane burst control.
+
+Waiting for the users-file lock is bounded to five seconds. Failure before `rename`
+preserves old bytes. If rename has published INI but directory fsync fails, the API
+returns an error with `published=true` and uncertain durability, reads back users
+and attempts to queue worker reload. `reload_requested` reports queue success,
+not application acknowledgement. Inspect saved INI and live client state before
+retrying. Control commands also read back published users and never promise rollback.
+
+Users displays effective bandwidth: a positive own cap, otherwise the group cap,
+otherwise Unlimited. A zero own cap restores inheritance. Legacy burst is read-only
+in the form and remains stored when editing other fields; it does not raise the
+permitted rate.
+
+Replacing a device, a fixed-IP holder or an older session at a full cap ends the
+previous connection with `session_superseded`. Management-capable clients stop
+retrying automatically; connect manually to return. Caps apply separately on each
+profile. Narrowing allowed profiles disconnects only forbidden connections;
+account deletion removes all its sessions.
+
+Password reset during link issuance uses the same published-write recovery.
+If fsync fails after rename, inspect `published`/`reload_requested` and reissue the
+link without another reset: the persisted password can be recovered from the database.

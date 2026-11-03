@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "PASS_SCOPED_CURRENT_NATIVE_AND_LINUX_DEBT_RECONCILIATION",
+  "source_digest": "44040cb0781ea98b658fee3dbb4c8524aa766969aad6176702f1f079ddb30b22",
+  "base_worktree_commit": "2b2c1565d6dd18d82722afe78f4d00e9f68b66ab",
+  "base_dev_commit": "d08f95b8bc56dd71a07c13938e4cebcaa1f6c135",
+  "native_source_digest": "c2ac10e0f41c826129a7b10918db88e84a77e55109eb4537783b34f99abd2a8b",
+  "counts": {
+    "linux_lib_passed": 2417,
+    "linux_lib_ignored": 60,
+    "linux_cli_passed": 12,
+    "windows_abi": 22,
+    "windows_platform": 325,
+    "shared_dotnet": 549,
+    "android_jvm": 201,
+    "android_jni": 23
+  },
+  "native_hashes": {
+    "native-libs/android/arm64-v8a/libqeli.so": "b3b195c4ee3d62a441d6d0d1cfe0a73b85f4d276c3d24c0cac22903aaadc58f9",
+    "native-libs/android/x86_64/libqeli.so": "49c9eccc21f822c805364edb10adb45208519957554ba89c21696d1edc2c6a04",
+    "native-libs/windows-x64/qeli.dll": "a32aff872e5a57bfb24e1d6eca066f0580e86485bd09910eb95407de9b855ed9",
+    "native-libs/macos-universal/libqeli.dylib": "dda6c2b1a1a094af4487133217b74325de30913530deeb3d38d738c7d6097c38"
+  },
+  "android_apks": {
+    "status": "PASS",
+    "apks": {
+      "app-debug.apk": "89adc5c36d2673f234aee1a4eb1fa9f37c8143bfc21f19a7948d6bef330654d9",
+      "app-debug-androidTest.apk": "5d8027b23b5ee1d6879cad4ddcc055b87cc81b1ee8cfd43c8cb7663c66203dd2"
+    },
+    "embedded_native": {
+      "arm64-v8a": "b3b195c4ee3d62a441d6d0d1cfe0a73b85f4d276c3d24c0cac22903aaadc58f9",
+      "x86_64": "49c9eccc21f822c805364edb10adb45208519957554ba89c21696d1edc2c6a04"
+    }
+  },
+  "linux_debug_artifacts": {
+    "/var/tmp/qeli-native-debt-close-20261007/linux/artifacts/qeli-debug": "0c5a276d4becfe7fff9dbb5de133b9e54df8ed619a1c20326afd860022cd6523",
+    "/var/tmp/qeli-native-debt-close-20261007/linux/artifacts/qeli-client-debug": "e7ec8608f317354112030048ade0a585b0aa132b305fda41cd53fe9692ff30bb"
+  },
+  "debt_done": 14,
+  "debt_accepted": [
+    "D06"
+  ],
+  "full_audit_done": 28,
+  "full_audit_total": 37,
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\native-refresh-build-20261007",
+  "scope": "Current October7 native/D11-D15 checkpoint: clean2b2c1565 independent A/B Windows x64/macOS universal2/Android arm64+x86_64, complete exports/Mach-O signatures,14 SHA/copy entries/current PROVENANCE PASS. Fresh22Windows ABI,325platform,549shared.NET,201JVM and23actualAndroid14JNI PASS. Current383 exact Linux inputs;2417lib units PASS/60normally ignored,12standaloneCLI units/strict1.97all-target Clippy/debugclient+daemon PASS. InitialJNI wrapper FAIL from WLANboot and combined nft warning stderr, and Clippy missing release-fixture preparation FAIL retained; retry preserves all rules/stdout/userdata/PID,only incomplete stages repeated. Both recoverable prior archives retained; eight exactly approved old roots removed only afteridentity/backup/guards; new1.37GBgeneratedcompiler cache removed afterSHA-preserveddebugbinaries. Docs9/bindings/diff PASS. No new commonVPNmatrix/peakbenchmark/soak/release daemon or installed-app E2E claim; previous cases/acceptance retain original artifacts/dates/limits.41historic cases/acceptance and41prior supplements preserved except source_digest;new supplement does not claim a GitHub Actions run or complete Q34. Currentdebt14/15DONE+D06ACCEPTED;fullaudit28/37(75.7%),9remain. Q29SIGKILL/auto-nullENONET,Q30callbackdrainOPEN/Appleexclusions,Q31SDK/releasepipeline and userexclusions preserved. ConfigsINIonly,internalJSONretained. Services/listeners/PIDs preserved; .11host snapshots PASS; no whole-host firewall invariant for .10 without full baseline. No tools/default/networkpolicy/releasepublishing changes,no push/deploy.",
+  "initial_failures_retained": [
+    "JNI wrapper: boot wlan0 DOWN-to-UP; nondeterministic nft warning stderr interleaving",
+    "Linux Clippy: missing release compile fixtures; only incomplete stages repeated"
+  ],
+  "raw_seal_sha256": "f7a66842700430749b4728f4204f3a6995a081d4e22c3dd15d6d5a11553b325d",
+  "raw_sealed_files": 88,
+  "checks": {
+    "docs": 9,
+    "bindings": "PASS",
+    "diff": "PASS",
+    "provenance": "PASS",
+    "lab_integrity": "PASS",
+    "historic_cases_preserved": 41,
+    "prior_supplements_preserved": 41
+  }
+}

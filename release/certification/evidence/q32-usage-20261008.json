@@ -1,0 +1,346 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_SCOPED_USAGE_PUBLICATION_FIX",
+  "source_commit": "49d20c011442fe50c08c3fab42f06d73309d7df8",
+  "native_source_digest": "59f2aa129e2afa567dcd2ce31e9bd2d9f046e2e48687a6d5c210c8d7ea1792e4",
+  "findings": [
+    {
+      "id": "F384",
+      "case": "Q32-F005",
+      "severity": "P2",
+      "status": "FIXED_QUALIFIED",
+      "problem": "Post-rename directory fsync error restored old in-memory usage despite published zero and erased typed cause; control falsely reported no reset.",
+      "fix": "Retain published reset, preserve anyhow cause, return uncertain durability message; retain pre-publication rollback."
+    }
+  ],
+  "baseline": {
+    "result": "EXPECTED_FAIL_REPRODUCED",
+    "file_down": 0,
+    "memory_down": 700,
+    "fault": "Real create/write/file fsync/rename, injected final directory sync failure. Baseline writer-call seam added without changing rollback/error wrapping.",
+    "host_exact_preserved": false,
+    "observed_diff": "Three exact legacy IPv4 FORWARD/NAT rules; unknown origin, no policy mutations issued."
+  },
+  "harness": {
+    "passed": 16,
+    "usage_tests": 15,
+    "atomic_tests": 1,
+    "uid65534": "PASS",
+    "production_usage_source_byte_identity": true,
+    "util_subset": "Production atomic writer and atomic_file.rs copied; test-only final-sync injection seam, no whole-crate harness claim."
+  },
+  "linux": {
+    "status": "PASS",
+    "library_passed": 2426,
+    "preexisting_ignored": 60,
+    "strict_clippy_all_targets": true,
+    "daemon_debug_build": true,
+    "host_preserved": true,
+    "test_binary": {
+      "sha256": "89665696f5a176fd5cc58decf44b4bb353c52dd1beb4d4b2a351829c091ff769",
+      "size": 139925200,
+      "source_commit": "49d20c011442fe50c08c3fab42f06d73309d7df8"
+    }
+  },
+  "windows_abi": {
+    "status": "PASS",
+    "library_sha256": "73c34284c625f2a58092b997186367a237d14f88124d175eeb318fe7b7d37057",
+    "checks": [
+      {
+        "check": "ABI 1.16 and declared capabilities",
+        "passed": true
+      },
+      {
+        "check": "null configuration rejected before allocation",
+        "passed": true
+      },
+      {
+        "check": "invalid UTF8 returns no handle",
+        "passed": true
+      },
+      {
+        "check": "Created state",
+        "passed": true
+      },
+      {
+        "check": "device identity requires sixteen nonzero bytes",
+        "passed": true
+      },
+      {
+        "check": "start transitions once",
+        "passed": true
+      },
+      {
+        "check": "publish copies plan and enters AwaitingNetwork",
+        "passed": true
+      },
+      {
+        "check": "buffer size probe preserves plan and future event tail",
+        "passed": true
+      },
+      {
+        "check": "stale generation cannot accept network",
+        "passed": true
+      },
+      {
+        "check": "positive ACK enters Running",
+        "passed": true
+      },
+      {
+        "check": "old stats prefix and caller tail preserved",
+        "passed": true
+      },
+      {
+        "check": "malformed batch has no partial acceptance",
+        "passed": true
+      },
+      {
+        "check": "fixed packet pool applies backpressure",
+        "passed": true
+      },
+      {
+        "check": "empty downlink reports zero bytes",
+        "passed": true
+      },
+      {
+        "check": "stop terminates generation",
+        "passed": true
+      },
+      {
+        "check": "stopped bridge is unavailable",
+        "passed": true
+      },
+      {
+        "check": "free and stale handle refuse reuse",
+        "passed": true
+      },
+      {
+        "check": "100 registry reuse cycles preserve stale-handle isolation",
+        "passed": true
+      },
+      {
+        "check": "eight concurrent frees destroy one generation exactly once",
+        "passed": true
+      },
+      {
+        "check": "second native runner cannot enter an active generation",
+        "passed": true
+      },
+      {
+        "check": "free invalidates public handle while runner is leased",
+        "passed": true
+      },
+      {
+        "check": "free cancels and joins pending native handshake",
+        "passed": true
+      }
+    ],
+    "scope": "Windows packaged C ABI and real localhost handshake cancellation; no Wintun or OS network mutation."
+  },
+  "android_jni": {
+    "status": "PASS",
+    "checks": 23,
+    "library_sha256": "742342a4038ac93d02f4e120d369950db3b5b8ce3f3c3f07f6404b5c910f5633",
+    "userdata_preserved": true,
+    "links_and_packages_preserved": true,
+    "host_preserved": true
+  },
+  "native": {
+    "desktop": {
+      "artifacts": {
+        "native-libs/macos-universal/libqeli.dylib": {
+          "consumed": {
+            "qeli-mac/QeliMac/native/libqeli.dylib": "ea016a0dec2a09517d808c06a4436184e9c1b92ec157c2b4c587f702a469d5ce"
+          },
+          "final_sha256": "ea016a0dec2a09517d808c06a4436184e9c1b92ec157c2b4c587f702a469d5ce",
+          "pass_a_sha256": "ea016a0dec2a09517d808c06a4436184e9c1b92ec157c2b4c587f702a469d5ce",
+          "pass_b_sha256": "ea016a0dec2a09517d808c06a4436184e9c1b92ec157c2b4c587f702a469d5ce",
+          "reproducible": true
+        },
+        "native-libs/windows-x64/qeli.dll": {
+          "consumed": {
+            "qeli-win/QeliWin/native/qeli.dll": "73c34284c625f2a58092b997186367a237d14f88124d175eeb318fe7b7d37057"
+          },
+          "final_sha256": "73c34284c625f2a58092b997186367a237d14f88124d175eeb318fe7b7d37057",
+          "pass_a_sha256": "73c34284c625f2a58092b997186367a237d14f88124d175eeb318fe7b7d37057",
+          "pass_b_sha256": "73c34284c625f2a58092b997186367a237d14f88124d175eeb318fe7b7d37057",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "49d20c011442fe50c08c3fab42f06d73309d7df8",
+      "source_date_epoch": 1791409730,
+      "source_digest": "59f2aa129e2afa567dcd2ce31e9bd2d9f046e2e48687a6d5c210c8d7ea1792e4",
+      "source_dirty": false,
+      "toolchain": {
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+        "cargo_zigbuild_version": "0.23.0",
+        "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+        "rcodesign": "apple-codesign 0.29.0",
+        "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+        "zig": "0.13.0"
+      }
+    },
+    "android": {
+      "artifacts": {
+        "native-libs/android/arm64-v8a/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "e13e2254de90151534e9cd4bdec3ec2da0b9183274c8d511b7a4ca39c50e27d7"
+          },
+          "final_sha256": "e13e2254de90151534e9cd4bdec3ec2da0b9183274c8d511b7a4ca39c50e27d7",
+          "pass_a_sha256": "e13e2254de90151534e9cd4bdec3ec2da0b9183274c8d511b7a4ca39c50e27d7",
+          "pass_b_sha256": "e13e2254de90151534e9cd4bdec3ec2da0b9183274c8d511b7a4ca39c50e27d7",
+          "reproducible": true
+        },
+        "native-libs/android/x86_64/libqeli.so": {
+          "consumed": {
+            "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "742342a4038ac93d02f4e120d369950db3b5b8ce3f3c3f07f6404b5c910f5633"
+          },
+          "final_sha256": "742342a4038ac93d02f4e120d369950db3b5b8ce3f3c3f07f6404b5c910f5633",
+          "pass_a_sha256": "742342a4038ac93d02f4e120d369950db3b5b8ce3f3c3f07f6404b5c910f5633",
+          "pass_b_sha256": "742342a4038ac93d02f4e120d369950db3b5b8ce3f3c3f07f6404b5c910f5633",
+          "reproducible": true
+        }
+      },
+      "recipe": "qeli-native-repro-v1",
+      "schema": 1,
+      "source_commit": "49d20c011442fe50c08c3fab42f06d73309d7df8",
+      "source_date_epoch": 1791409730,
+      "source_digest": "59f2aa129e2afa567dcd2ce31e9bd2d9f046e2e48687a6d5c210c8d7ea1792e4",
+      "source_dirty": false,
+      "toolchain": {
+        "android_ndk": "26.3.11579264",
+        "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+        "cargo_ndk": "cargo-ndk v4.1.2:",
+        "cargo_ndk_version": "4.1.2",
+        "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+        "rust_toolchain": "1.97.0",
+        "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+      }
+    }
+  },
+  "native_inputs": {
+    "files": 317,
+    "before_after_verified": true
+  },
+  "native_host_snapshots": {
+    "desktop": {
+      "restored": false,
+      "preserved_except_observed_legacy_rules": true,
+      "observed_legacy_rule_changes_excluded_from_guard": [
+        "-A FORWARD -i vpn0 -j ACCEPT",
+        "-A FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT",
+        "-A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE"
+      ],
+      "network_policy_commands_executed": false
+    },
+    "android": {
+      "restored": true,
+      "preserved_except_observed_legacy_rules": true,
+      "observed_legacy_rule_changes_excluded_from_guard": [
+        "-A FORWARD -i vpn0 -j ACCEPT",
+        "-A FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT",
+        "-A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE"
+      ],
+      "network_policy_commands_executed": false
+    }
+  },
+  "retained_preparation_failures": [
+    "First patched harness assertion used to_string rather than full anyhow chain; corrected assertion qualified.",
+    "First native path verifier used subscription on Path; corrected before any compiler ran.",
+    "Strict initial desktop host guard detected known exact three-rule legacy churn; retry retains full snapshots and excludes only those lines.",
+    "macho_repro.py --help is unsupported; read-only opening failed, no artifact altered."
+  ],
+  "cleanup": {
+    "harness": {
+      "saved": [
+        {
+          "phase": "before",
+          "path": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q32-usage-20261008\\before\\test-binary",
+          "sha256": "1c163ee6692d14ac6d5fcd6392a64b75179724318e7d8e8ced8be592099468e8",
+          "bytes": 2144280
+        },
+        {
+          "phase": "after",
+          "path": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q32-usage-20261008\\after\\test-binary",
+          "sha256": "08138232f436438e836eceda213e933fd89748257590d4de94569d030bf34806",
+          "bytes": 2173120
+        },
+        {
+          "phase": "after-r2",
+          "path": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q32-usage-20261008\\after-r2\\test-binary",
+          "sha256": "d279a3cab4f13b4e4be36f749a1c016d85648784b4e5942657d69bc27a0ff833",
+          "bytes": 2172032
+        }
+      ],
+      "root": "/var/tmp/qeli-q32-usage.nN45fx",
+      "cleanup": "PASS guarded owned harness root removed"
+    },
+    "uid": "PASS cleanup guards",
+    "linux": {
+      "root": "/var/tmp/qeli-q32-usage-linux.czRJ0s",
+      "guarded_cleanup": "PASS owned Linux root cleanup guards",
+      "daemon_sha256": "b71695227f63b10a1d342a6a8db17811b8a3b8727bf3cb992dee9d5d0b8772d5",
+      "test_binary_backup": "linux/test-binary",
+      "source_backup": "source.tar"
+    },
+    "native_jni": [
+      {
+        "host": "10.66.116.10",
+        "root": "/var/tmp/qeli-q32-usage-native.1vQkNX",
+        "guarded_cleanup": "PASS guarded own root cleanup"
+      },
+      {
+        "host": "10.66.116.10",
+        "services": "MainPID=0\nActiveState=inactive\n745\n901",
+        "capacity": "Filesystem     1024-blocks     Used Available Capacity Mounted on\n/dev/sda1         49226388 37058136   9635288      80% /\n               total        used        free      shared  buff/cache   available\nMem:            1973         264        1325           0         530        1709\nSwap:           2044         821        1223"
+      },
+      {
+        "host": "10.66.116.11",
+        "root": "/var/tmp/qeli-q32-usage-native.CsQBpb",
+        "guarded_cleanup": "PASS guarded own root cleanup"
+      },
+      {
+        "host": "10.66.116.11",
+        "root": "/var/tmp/qeli-q32-usage-jni-20261008",
+        "guarded_cleanup": "PASS guarded own root cleanup"
+      },
+      {
+        "host": "10.66.116.11",
+        "services": "MainPID=777\nActiveState=active\n777\n845",
+        "capacity": "Filesystem     1024-blocks     Used Available Capacity Mounted on\n/dev/sda1         49226388 37361384   9332040      81% /\n               total        used        free      shared  buff/cache   available\nMem:            1973         245         487           0        1381        1728\nSwap:           2044         196        1848"
+      }
+    ],
+    "owned_roots_removed": 6
+  },
+  "scope": "Usage reset publication boundary, store tests and source review of registration/quota/shutdown. Q32 not complete.",
+  "limits": [
+    "Injected final sync error, not actual power-loss durability or disk-hang testing.",
+    "Quota sweep is periodic; unsaved hard-SIGKILL tail can be lost.",
+    "No wholehost firewall equality claim on .10; known three-rule drift retained.",
+    "Native independent A/B scoped to separate targets at same private Cargo root; no cross-path hermeticity.",
+    "Mac signature structural inspection only, no platform runtime/cryptographic verifier claim.",
+    "No managed-app rebuild, ARM runtime, Apple/router/Windows VPN E2E.",
+    "Q29/Q30/Q31 open scopes unchanged; D06 accepted and unavailable platforms user-excluded.",
+    "Logs/trace/roaming/notification trust and full Q32 integration remain open."
+  ],
+  "overall_done": 28,
+  "overall_total": 37,
+  "technical_debt_done": 14,
+  "technical_debt_accepted": [
+    "D06"
+  ],
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q32-usage-20261008",
+  "raw_seal": {
+    "path": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q32-usage-20261008\\RAW-MANIFEST.json",
+    "files": 110,
+    "sha256": "317c8737a5463839543b440baa8f606f48edeaae20a75ee66ef423be4efb6ce5"
+  },
+  "source_digest": "ac54777088578f0324e3d8a3f2a016057b5c5f3f86af93b4d97a957fc0cf4c66",
+  "qualification_source_commit": "27e7d49987100af81fa2485269f375e1e3049cd0"
+}

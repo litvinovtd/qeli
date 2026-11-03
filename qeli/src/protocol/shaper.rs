@@ -107,6 +107,7 @@ pub struct CoverBudget {
     rate: f64,
     tokens: f64,
     last_refill: Instant,
+    pacing: StealthBudget,
 }
 
 impl CoverBudget {
@@ -116,6 +117,7 @@ impl CoverBudget {
             rate,
             tokens: rate,
             last_refill: now,
+            pacing: StealthBudget::new(now),
         }
     }
 
@@ -123,6 +125,9 @@ impl CoverBudget {
         if self.rate <= 0.0 {
             return false;
         }
+        // Callers sample before taking the shared lock. A delayed stream may arrive
+        // with an older sample; never move the refill clock backwards.
+        let now = now.max(self.last_refill);
         let elapsed = now.duration_since(self.last_refill).as_secs_f64();
         self.last_refill = now;
         self.tokens = (self.tokens + elapsed * self.rate).min(self.rate);
@@ -134,7 +139,80 @@ impl CoverBudget {
     }
 }
 
+struct StealthBudget {
+    tokens: f64,
+    last: Instant,
+}
+
+impl StealthBudget {
+    fn new(now: Instant) -> Self {
+        Self {
+            tokens: 0.0,
+            last: now,
+        }
+    }
+
+    fn reserve(&mut self, bytes: usize, rate_mbps: u32, now: Instant, aggregate: bool) -> Duration {
+        let rate_bps = f64::from(rate_mbps) * 1_000_000.0;
+        let now = now.max(self.last);
+        let elapsed = now.duration_since(self.last).as_secs_f64();
+        self.last = now;
+        self.tokens = (self.tokens + elapsed * rate_bps).min(rate_bps) - bytes as f64 * 8.0;
+        if !aggregate {
+            // Retain the single-writer guard against an anomalously large public API input.
+            self.tokens = self.tokens.max(-rate_bps);
+        }
+        if self.tokens >= 0.0 {
+            Duration::ZERO
+        } else {
+            Duration::from_secs_f64(-self.tokens / rate_bps)
+        }
+    }
+}
+
+/// A session's cover budget and aggregate stealth reservations, shared by bonded writers.
 pub type SharedCoverBudget = Arc<Mutex<CoverBudget>>;
+
+/// One TCP pacing reservation's absolute deadline, shared by both peers:
+/// cover is optional, but the entire reserved pause (including its final 6 ms)
+/// must elapse. Time spent writing cover counts towards that pause.
+pub(crate) struct StealthPacing {
+    deadline: tokio::time::Instant,
+}
+
+pub(crate) struct StealthPacingStep {
+    pub cover: bool,
+    pub resume_at: tokio::time::Instant,
+}
+
+impl StealthPacing {
+    pub(crate) fn new(delay: Duration) -> Self {
+        Self {
+            deadline: tokio::time::Instant::now() + delay,
+        }
+    }
+
+    pub(crate) fn next_step(&self) -> Option<StealthPacingStep> {
+        self.step_at(tokio::time::Instant::now(), &mut rand::rng())
+    }
+
+    fn step_at(&self, now: tokio::time::Instant, rng: &mut impl Rng) -> Option<StealthPacingStep> {
+        let remaining = self.deadline.saturating_duration_since(now);
+        if remaining.is_zero() {
+            return None;
+        }
+        let cover = remaining > Duration::from_millis(6);
+        let pause = if cover {
+            Duration::from_millis(rng.random_range(4..=18)).min(remaining)
+        } else {
+            remaining
+        };
+        Some(StealthPacingStep {
+            cover,
+            resume_at: now + pause,
+        })
+    }
+}
 
 /// Idle cover-traffic scheduler. Stateful (carries a token-bucket budget); one
 /// per direction/stream. Cheap to clone the config into.
@@ -142,9 +220,6 @@ pub struct Shaper {
     cfg: ShapingConfig,
     local_cover_budget: CoverBudget,
     shared_cover_budget: Option<SharedCoverBudget>,
-    // Separate token bucket (bits) for the stealth data-plane rate cap.
-    rate_tokens: f64,
-    rate_last: Instant,
 }
 
 impl Shaper {
@@ -154,8 +229,6 @@ impl Shaper {
             cfg,
             local_cover_budget,
             shared_cover_budget: None,
-            rate_tokens: 0.0,
-            rate_last: now,
         }
     }
 
@@ -172,26 +245,22 @@ impl Shaper {
     /// cap and return how long to sleep before sending (Duration::ZERO if under
     /// budget or stealth is off). Used by the client to throttle its uplink; the
     /// server uses its own aggregate RateBucket. Carries a deficit so bursts still
-    /// average to the cap.
+    /// average to the cap. Bonded client writers share every outstanding reservation.
     pub fn stealth_pace(&mut self, bytes: usize, now: Instant) -> Duration {
         if !self.stealth() {
             return Duration::ZERO;
         }
-        let rate_bps = self.stealth_rate_mbps() as f64 * 1_000_000.0;
-        let elapsed = now.duration_since(self.rate_last).as_secs_f64();
-        self.rate_last = now;
-        self.rate_tokens = (self.rate_tokens + elapsed * rate_bps).min(rate_bps);
-        // Floor the deficit at one second of debt (symmetric with the positive cap and
-        // the 1.0s sleep clamp below). Without it, one anomalously large `bytes` drives
-        // rate_tokens arbitrarily negative and stalls the pacer for many seconds while
-        // the sleep is still clamped to 1s — the debt and the pause drift apart. Normal
-        // MTU-sized writes never approach -rate_bps, so steady-state pacing is unchanged.
-        self.rate_tokens = (self.rate_tokens - (bytes as f64) * 8.0).max(-rate_bps);
-        if self.rate_tokens >= 0.0 {
-            Duration::ZERO
-        } else {
-            Duration::from_secs_f64((-self.rate_tokens / rate_bps).min(1.0))
+        let rate = self.stealth_rate_mbps();
+        if let Some(shared) = &self.shared_cover_budget {
+            return shared
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .pacing
+                .reserve(bytes, rate, now, true);
         }
+        self.local_cover_budget
+            .pacing
+            .reserve(bytes, rate, now, false)
     }
 
     #[inline]
@@ -397,6 +466,107 @@ mod tests {
         assert_eq!(
             randomized_heartbeat_delay(interval, Duration::ZERO),
             interval
+        );
+    }
+}
+
+#[cfg(test)]
+mod q13_cover_clock_tests {
+    use super::*;
+    #[test]
+    fn q13_shared_cover_budget_does_not_refill_twice_for_stale_samples() {
+        let start = Instant::now();
+        let cfg = ShapingConfig {
+            enabled: true,
+            budget_bytes_per_sec: 1000,
+            ..Default::default()
+        };
+        let shared = Shaper::shared_budget(&cfg, start);
+        let mut a = Shaper::new(cfg.clone(), start).with_shared_budget(shared.clone());
+        let mut b = Shaper::new(cfg, start).with_shared_budget(shared);
+        assert!(a.try_spend(1000, start));
+        assert!(b.try_spend(500, start + Duration::from_millis(500)));
+        assert!(!a.try_spend(1, start + Duration::from_millis(100)));
+        assert!(
+            !b.try_spend(1, start + Duration::from_millis(500)),
+            "a stale timestamp must not create another refill"
+        );
+        assert!(a.try_spend(500, start + Duration::from_secs(1)));
+        assert!(!b.try_spend(1, start + Duration::from_secs(1)));
+    }
+}
+
+#[cfg(test)]
+mod q13_pacing_deadline_tests {
+    use super::*;
+    #[test]
+    fn q13_pacing_retains_short_final_pause_without_cover() {
+        let start = tokio::time::Instant::now();
+        let mut rng = rand::rng();
+        for millis in 1..=6 {
+            let end = start + Duration::from_millis(millis);
+            let pacing = StealthPacing { deadline: end };
+            let step = pacing.step_at(start, &mut rng).unwrap();
+            assert!(!step.cover);
+            assert_eq!(step.resume_at, end);
+            assert!(pacing.step_at(end, &mut rng).is_none());
+        }
+    }
+    #[test]
+    fn q13_pacing_counts_slow_cover_io_towards_the_deadline() {
+        let start = tokio::time::Instant::now();
+        let end = start + Duration::from_millis(30);
+        let pacing = StealthPacing { deadline: end };
+        let mut rng = rand::rng();
+        let step = pacing.step_at(start, &mut rng).unwrap();
+        assert!(step.cover);
+        assert!(
+            (start + Duration::from_millis(4)..=start + Duration::from_millis(18))
+                .contains(&step.resume_at)
+        );
+        let late = end + Duration::from_millis(10);
+        assert!(
+            pacing.step_at(late, &mut rng).is_none(),
+            "completed slow write must not incur an extra sleep"
+        );
+        let final_step = pacing
+            .step_at(end - Duration::from_millis(3), &mut rng)
+            .unwrap();
+        assert!(!final_step.cover);
+        assert_eq!(final_step.resume_at, end);
+    }
+}
+
+#[cfg(test)]
+mod q13_bonded_pacing_tests {
+    use super::*;
+    #[test]
+    fn q13_bonded_writers_reserve_one_aggregate_stealth_rate() {
+        let now = Instant::now();
+        let cfg = ShapingConfig {
+            enabled: true,
+            stealth: true,
+            stealth_rate_mbps: 1,
+            ..Default::default()
+        };
+        let budget = Shaper::shared_budget(&cfg, now);
+        let mut a = Shaper::new(cfg.clone(), now).with_shared_budget(budget.clone());
+        let mut b = Shaper::new(cfg, now).with_shared_budget(budget);
+        for index in 1..=20 {
+            let delay = if index % 2 == 0 {
+                a.stealth_pace(12500, now)
+            } else {
+                b.stealth_pace(12500, now)
+            };
+            assert_eq!(
+                delay,
+                Duration::from_millis(index * 100),
+                "reservation {index} must include every earlier stream reservation"
+            );
+        }
+        assert_eq!(
+            a.stealth_pace(12500, now + Duration::from_secs(2)),
+            Duration::from_millis(100)
         );
     }
 }

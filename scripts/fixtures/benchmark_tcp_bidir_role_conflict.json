@@ -1,0 +1,142 @@
+{
+  "start": {
+    "target_bitrate": 0,
+    "test_start": {
+      "protocol": "TCP",
+      "num_streams": 1,
+      "blksize": 131072,
+      "omit": 0,
+      "duration": 8,
+      "bytes": 0,
+      "blocks": 0,
+      "reverse": 0,
+      "tos": 0,
+      "target_bitrate": 0,
+      "bidir": 1,
+      "fqrate": 0,
+      "interval": 1
+    },
+    "connected": [
+      {
+        "socket": 5,
+        "local_host": "10.9.0.2",
+        "local_port": 33208,
+        "remote_host": "10.9.0.1",
+        "remote_port": 5203
+      },
+      {
+        "socket": 7,
+        "local_host": "10.9.0.2",
+        "local_port": 33220,
+        "remote_host": "10.9.0.1",
+        "remote_port": 5203
+      }
+    ]
+  },
+  "end": {
+    "streams": [
+      {
+        "sender": {
+          "socket": 5,
+          "start": 0,
+          "end": 8.001569,
+          "seconds": 8.001569,
+          "bytes": 131072,
+          "bits_per_second": 131046.29854469793,
+          "retransmits": 0,
+          "max_snd_cwnd": 24264,
+          "max_snd_wnd": 0,
+          "max_rtt": 8153,
+          "min_rtt": 8153,
+          "mean_rtt": 8153,
+          "sender": true
+        },
+        "receiver": {
+          "socket": 5,
+          "start": 0,
+          "end": 8.001965,
+          "seconds": 8.001569,
+          "bytes": 0,
+          "bits_per_second": 0,
+          "sender": true
+        }
+      },
+      {
+        "sender": {
+          "socket": 7,
+          "start": 0,
+          "end": 8.001569,
+          "seconds": 8.001569,
+          "bytes": 262144,
+          "bits_per_second": 262092.59708939586,
+          "retransmits": 1,
+          "max_snd_cwnd": 13480,
+          "max_snd_wnd": 65024,
+          "max_rtt": 271,
+          "min_rtt": 271,
+          "mean_rtt": 271,
+          "sender": false
+        },
+        "receiver": {
+          "socket": 7,
+          "start": 0,
+          "end": 8.001965,
+          "seconds": 8.001569,
+          "bytes": 0,
+          "bits_per_second": 0,
+          "sender": false
+        }
+      }
+    ],
+    "sum_sent": {
+      "start": 0,
+      "end": 8.001569,
+      "seconds": 8.001569,
+      "bytes": 131072,
+      "bits_per_second": 131046.29854469793,
+      "retransmits": 0,
+      "sender": true
+    },
+    "sum_received": {
+      "start": 0,
+      "end": 8.001965,
+      "seconds": 8.001965,
+      "bytes": 0,
+      "bits_per_second": 0,
+      "sender": true
+    },
+    "sum_sent_bidir_reverse": {
+      "start": 0,
+      "end": 8.001569,
+      "seconds": 8.001569,
+      "bytes": 262144,
+      "bits_per_second": 262092.59708939586,
+      "retransmits": 1,
+      "sender": false
+    },
+    "sum_received_bidir_reverse": {
+      "start": 0,
+      "end": 8.001965,
+      "seconds": 8.001965,
+      "bytes": 0,
+      "bits_per_second": 0,
+      "sender": false
+    },
+    "cpu_utilization_percent": {
+      "host_total": 0.026534885886261444,
+      "host_user": 0,
+      "host_system": 0.026534885886261444,
+      "remote_total": 0.009509978666905937,
+      "remote_user": 0.009509978666905937,
+      "remote_system": 0
+    },
+    "sender_tcp_congestion": "cubic",
+    "receiver_tcp_congestion": "cubic"
+  },
+  "server_output_text": "Accepted connection from 10.9.0.2, port 33202\n[  5] local 10.9.0.1 port 5203 connected to 10.9.0.2 port 33220\n[  8] local 10.9.0.1 port 5203 connected to 10.9.0.2 port 33208\n[ ID][Role] Interval           Transfer     Bitrate         Retr  Cwnd\n[  5][RX-S]   0.00-1.00   sec  0.00 Bytes  0.00 bits/sec                  \n[  8][TX-S]   0.00-1.00   sec   256 KBytes  2.09 Mbits/sec    1   60.6 KBytes       \n[  5][RX-S]   1.00-2.00   sec  0.00 Bytes  0.00 bits/sec                  \n[  8][TX-S]   1.00-2.00   sec  0.00 Bytes  0.00 bits/sec    0   60.6 KBytes       \n[  5][RX-S]   2.00-3.00   sec  0.00 Bytes  0.00 bits/sec                  \n[  8][TX-S]   2.00-3.00   sec  0.00 Bytes  0.00 bits/sec    0   60.6 KBytes       \n[  5][RX-S]   3.00-4.00   sec  0.00 Bytes  0.00 bits/sec                  \n[  8][TX-S]   3.00-4.00   sec  0.00 Bytes  0.00 bits/sec    0   60.6 KBytes       \n[  5][RX-S]   4.00-5.00   sec  0.00 Bytes  0.00 bits/sec                  \n[  8][TX-S]   4.00-5.00   sec  0.00 Bytes  0.00 bits/sec    0   60.6 KBytes       \n[  5][RX-S]   5.00-6.00   sec  0.00 Bytes  0.00 bits/sec                  \n[  8][TX-S]   5.00-6.00   sec  0.00 Bytes  0.00 bits/sec    0   60.6 KBytes       \n[  5][RX-S]   6.00-7.00   sec  0.00 Bytes  0.00 bits/sec                  \n[  8][TX-S]   6.00-7.00   sec  0.00 Bytes  0.00 bits/sec    0   60.6 KBytes       \n[  5][RX-S]   7.00-8.00   sec  0.00 Bytes  0.00 bits/sec                  \n[  8][TX-S]   7.00-8.00   sec  0.00 Bytes  0.00 bits/sec    0   60.6 KBytes       \n- - - - - - - - - - - - - - - - - - - - - - - - -\n[ ID][Role] Interval           Transfer     Bitrate         Retr\n[  5][RX-S]   0.00-8.00   sec  0.00 Bytes  0.00 bits/sec                  receiver\n[  8][TX-S]   0.00-8.00   sec   256 KBytes   262 Kbits/sec    1            sender\niperf3: interrupt - the server has terminated\n-----------------------------------------------------------\n",
+  "fixture_source": {
+    "description": "Protocol-field projection of archived failed window plus exact server log fragment; not a new runtime or captured get-server-output result.",
+    "raw_iperf_sha256": "45d07c4cc2bea340d34546b574458a23722416225b8291362b8b92c4601bde4f",
+    "archived_server_log_sha256": "87d12097fdbd1d7453b07d9eae626158f8c29fb558b38871bff423c747780dc8"
+  }
+}

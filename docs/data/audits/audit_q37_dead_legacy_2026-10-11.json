@@ -1,0 +1,397 @@
+{
+  "status": "SCOPED_Q37_DEAD_LEGACY_REMOVAL_VERIFIED",
+  "baseline_commit": "f7b17850",
+  "retired_files_trimmed": 41,
+  "already_refusal_only": [
+    "scripts/gen_reality_link.py",
+    "scripts/gen_share_link.py",
+    "scripts/setup_reality_tls.py",
+    "scripts/finish_deploy.py"
+  ],
+  "files": {
+    "scripts/add-dpd-config.py": {
+      "before_sha256": "ae9294ba9b06de22599a8761114aa3dbc17c9c7b425cc0966e412a8a957eb852",
+      "after_sha256": "ed2b949c64c4edb48227cefd270ba387ba05d5ab0ed2364bb65c0c5a7d7425c5",
+      "before_bytes": 4303,
+      "after_bytes": 97,
+      "removed_lines": 132,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/add-hash-command.py": {
+      "before_sha256": "83311791b7a3454fb7d197f13f72112087192ff34cd06c1554208897796e710a",
+      "after_sha256": "8dbfd75c1c98dad364d1c9917250ab5da99e576d0ebb20f57b30159b2f13d993",
+      "before_bytes": 1688,
+      "after_bytes": 95,
+      "removed_lines": 50,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/add-hash-command-v2.py": {
+      "before_sha256": "1ac9eecd314c22bc8e8f86fb45326d934054cec1d5ad5a22832a53af276c248d",
+      "after_sha256": "8dbfd75c1c98dad364d1c9917250ab5da99e576d0ebb20f57b30159b2f13d993",
+      "before_bytes": 4957,
+      "after_bytes": 95,
+      "removed_lines": 146,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/capture-handshake.py": {
+      "before_sha256": "11876987f6e84c44f41859818879db9ed11ec08dc8c42b432863ff8bb1efefda",
+      "after_sha256": "7f22cc43ceae84b045073d256e998531820c9c23dec6c78d6f88ace340a7e549",
+      "before_bytes": 1617,
+      "after_bytes": 96,
+      "removed_lines": 48,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/create-multi-interface-config.py": {
+      "before_sha256": "d583048ca0eca858b80bbf9d3ec6a6d22efebbbfc9ffa65505c1d4749ba0fa34",
+      "after_sha256": "83e34264e1052397fd5dc21eb0d42cc0b7e419792be753dab9acc22380538da5",
+      "before_bytes": 6601,
+      "after_bytes": 180,
+      "removed_lines": 261,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/create-multi-interface-server.py": {
+      "before_sha256": "6a640b3a99e33475afae4cca750719a8bc4db77dee06613bfae07cc400e15436",
+      "after_sha256": "844f87cfc48a3e23dcfe0833b24aedc0e09f41917c91d23999e46e1551896b77",
+      "before_bytes": 15070,
+      "after_bytes": 104,
+      "removed_lines": 378,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/deploy-and-build.py": {
+      "before_sha256": "d7432265fd086e0ed253de5540703ece7259963fc037d00645a6784a2906e687",
+      "after_sha256": "812e5293bba44f3eaf4d8372f6d291385ce803a716e53be4a9aba2897bd4f426",
+      "before_bytes": 2166,
+      "after_bytes": 87,
+      "removed_lines": 61,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/deploy-and-build-final.py": {
+      "before_sha256": "df21668ae729fdc7335b4626ca1592600a8fdf2768418d9d58de1e01808a12b1",
+      "after_sha256": "812e5293bba44f3eaf4d8372f6d291385ce803a716e53be4a9aba2897bd4f426",
+      "before_bytes": 2869,
+      "after_bytes": 87,
+      "removed_lines": 84,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/deploy_audit_fixes.py": {
+      "before_sha256": "7a8a074161cbaa127494747269d8130add373d1afc26969919a7ee63ddd9097d",
+      "after_sha256": "0b139748b41162d3381b675134fd482108451bab3d95b7ebb91fa31ad47721f5",
+      "before_bytes": 4001,
+      "after_bytes": 321,
+      "removed_lines": 121,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/deploy_prod_0712.py": {
+      "before_sha256": "878013faba0d58ebd61497528234f478fd8276d3a4f7e2dccf4e8e28a076e604",
+      "after_sha256": "7210526be616f80a13826a2c7e36d6ba6daa9b058760ab22519cfce30a65b898",
+      "before_bytes": 9627,
+      "after_bytes": 124,
+      "removed_lines": 164,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/deploy_prod_073.py": {
+      "before_sha256": "96427964570a811aa5b018a883b5188a8c5e1bd30dec637a4e2e76b24357bf06",
+      "after_sha256": "fd8778a7384dd211e62c190374512acfb8a9efdb804dd7a317d51d800d040c36",
+      "before_bytes": 6360,
+      "after_bytes": 123,
+      "removed_lines": 113,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/deploy_prod_dev0711.py": {
+      "before_sha256": "5db959b8b0b37c1d418105343d1358f5eee6be433d08d35d681e6a0d56c3567e",
+      "after_sha256": "6f9eae9c6ad2b52382ae1378d5cbe6a094a3e7107989a75474c2bf8384682675",
+      "before_bytes": 8197,
+      "after_bytes": 128,
+      "removed_lines": 136,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/deploy_to_server.py": {
+      "before_sha256": "8ad050f19081088c1d4f41a2d0043b5ec9ae3b1ce91f35ba53aecad3b2a7ddfc",
+      "after_sha256": "b55d58fb202cd2afa59811df36b21aee46b0085ef9c8a60a92bb42ad28025af9",
+      "before_bytes": 9339,
+      "after_bytes": 131,
+      "removed_lines": 301,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/generate-hash.py": {
+      "before_sha256": "b9932f425550e44395ba8c47e78465d0f07a60ea85b484bd4b4016d8a0efbc54",
+      "after_sha256": "c5e8543ef53382e6eb51bb405d1a539364499bbd989e43fd16b79988f1d41044",
+      "before_bytes": 2446,
+      "after_bytes": 99,
+      "removed_lines": 71,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/generate-hash-v2.py": {
+      "before_sha256": "5547c4fe17d97c27e3041d9df122bafa2a215580c6b037e2fa010dab2914541a",
+      "after_sha256": "c5e8543ef53382e6eb51bb405d1a539364499bbd989e43fd16b79988f1d41044",
+      "before_bytes": 1905,
+      "after_bytes": 99,
+      "removed_lines": 55,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/gen-hash-rust.py": {
+      "before_sha256": "600d1ede8e2c153b931a7a780a590002878c02729de1338b3b9f4e8b5a96a471",
+      "after_sha256": "c5e8543ef53382e6eb51bb405d1a539364499bbd989e43fd16b79988f1d41044",
+      "before_bytes": 1599,
+      "after_bytes": 99,
+      "removed_lines": 45,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/implement-dpd-client.py": {
+      "before_sha256": "1d8c23683ed15ef27676ef4e5a54fcacf150125e047debfaaaf0c4e24ad33d86",
+      "after_sha256": "8c2dd36d29e5b122b4d4275bb3674b4f9b415b9287b67d13e8c578d01346fd16",
+      "before_bytes": 5557,
+      "after_bytes": 101,
+      "removed_lines": 135,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/implement-dpd-server.py": {
+      "before_sha256": "a82647572384d31bc54934a09d72685171cc6093feacd66a92229fb526ee75e7",
+      "after_sha256": "8c2dd36d29e5b122b4d4275bb3674b4f9b415b9287b67d13e8c578d01346fd16",
+      "before_bytes": 5230,
+      "after_bytes": 101,
+      "removed_lines": 123,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/install-argon2.py": {
+      "before_sha256": "3c735de85dda00642295504bdaaba28f0c33a061e43c83c99b2029fc5d30e479",
+      "after_sha256": "64ccb275f574757d84cd12e79fe86e691b8650f1c1565e5180c5ad6cbc7f03d4",
+      "before_bytes": 683,
+      "after_bytes": 103,
+      "removed_lines": 19,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/rebuild-and-test.py": {
+      "before_sha256": "d86e6c038adea1ab76d900fa58c64ebd4f789da8ceaf1d4a56310bc9ec5c09a0",
+      "after_sha256": "21f693ed398f929455966f2e30fcdf993819e172d6579c65cb5f7c396554093d",
+      "before_bytes": 2815,
+      "after_bytes": 96,
+      "removed_lines": 80,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/rebuild-both.py": {
+      "before_sha256": "4573c44709bef99646776191385db14916e979ea77129e1f468826770d47e62b",
+      "after_sha256": "21f693ed398f929455966f2e30fcdf993819e172d6579c65cb5f7c396554093d",
+      "before_bytes": 2240,
+      "after_bytes": 96,
+      "removed_lines": 65,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/setup-client.py": {
+      "before_sha256": "f7da9d04488ff28eaf146762d93c8ee181b2a2c66381e26a725b0019020353d3",
+      "after_sha256": "2e82d6c7267e3e08c6bdb8f362b90bbb36f1ec37d7fb50337b396cc15515c977",
+      "before_bytes": 4549,
+      "after_bytes": 159,
+      "removed_lines": 156,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/setup-multi-interface.py": {
+      "before_sha256": "10c3f212ded3d3ace478f0b7cce2bbfb52312af627e384e49df80d3846a31b32",
+      "after_sha256": "37fb1e843de47e05dbc4f47db19d05a05834121e5e10ddb23c5bddca67a5c843",
+      "before_bytes": 12236,
+      "after_bytes": 180,
+      "removed_lines": 415,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/sync-config-and-rebuild.py": {
+      "before_sha256": "0474cee72b55831f7be33ecb1616b59b2dc18c3c5cb3ec1ea2c3049f14ad822c",
+      "after_sha256": "db33c29cfed487e2a8aedc30b7bb3d3d5417223a251d6db15187b531978f4100",
+      "before_bytes": 3102,
+      "after_bytes": 89,
+      "removed_lines": 91,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/update-client-binary.py": {
+      "before_sha256": "5f9c0e97add7115147495fbfb43fb9191c6ea9099d4a9b1ebcba5ba32acb2a12",
+      "after_sha256": "2cebee342bf5ffc90959ad43fd9d5883cd2f8778ab5db1868fff07d7c2567eaa",
+      "before_bytes": 2334,
+      "after_bytes": 94,
+      "removed_lines": 70,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/update-server-dpd-config.py": {
+      "before_sha256": "828fb6236aea259c536408b5d4518728e094c6eead9b307c81cc04139db58913",
+      "after_sha256": "7f93957ce8942aa5de22b0e0c7df9fd811c2d5c599d1d249a2e088b540f69c94",
+      "before_bytes": 2245,
+      "after_bytes": 98,
+      "removed_lines": 70,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "scripts/verify-dpd-file.py": {
+      "before_sha256": "6b2e13985a9e0571f1bc7cbb7b59665968b09bbb6e50ef23e9a8e9c3c07de77d",
+      "after_sha256": "03afb5c656b8abd06c72d828d1119e23f3d969b41465d7077c72683e8f4577ee",
+      "before_bytes": 1058,
+      "after_bytes": 90,
+      "removed_lines": 28,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/auto_test.py": {
+      "before_sha256": "02786d40b691302ccbc334346cec06988b563f604b5835734fde14b4b8167d6f",
+      "after_sha256": "09311b83fdeaa1d5bd054e990899a89a5a620384921ffa4a14d90e6e38547ad2",
+      "before_bytes": 19953,
+      "after_bytes": 314,
+      "removed_lines": 501,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/benchmark-final.py": {
+      "before_sha256": "20d3db834f4b4d70cc3b6e4764b5ef7628c5702bd5f91eba6fa59811a5be8edd",
+      "after_sha256": "838e87c590e9476d9ac551295e39e4a09fd32f3f03fce7f97b54a0ce4ccad65a",
+      "before_bytes": 6438,
+      "after_bytes": 99,
+      "removed_lines": 151,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/benchmark-vpn-v2.py": {
+      "before_sha256": "cbfb6350c230532ab9b9b8752563ac30eab60ce219d3636d7f06e8ed2e96ab12",
+      "after_sha256": "838e87c590e9476d9ac551295e39e4a09fd32f3f03fce7f97b54a0ce4ccad65a",
+      "before_bytes": 6793,
+      "after_bytes": 99,
+      "removed_lines": 168,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/benchmark-vpn.py": {
+      "before_sha256": "d1776600026f167f85e8ea3748507f0d3e6b20ca465001da761931aa1df822d6",
+      "after_sha256": "838e87c590e9476d9ac551295e39e4a09fd32f3f03fce7f97b54a0ce4ccad65a",
+      "before_bytes": 6881,
+      "after_bytes": 99,
+      "removed_lines": 154,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/benchmark_final.py": {
+      "before_sha256": "05a546e07892ddd935a7828d147b555eafaf319019819139eb7e447466187130",
+      "after_sha256": "a9dc93d40f46f71898b5c8e7de5afc842f9a0fdc0cae3da40f034762ef42f417",
+      "before_bytes": 16168,
+      "after_bytes": 122,
+      "removed_lines": 343,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/run_tests.py": {
+      "before_sha256": "cde018983762e7a8ef397868236168cbeb2b2fa5a97cb3ad24defaa68b0c1600",
+      "after_sha256": "5534fcec29745793740fc07abf51edb6fd4b8e75db48485404fe389824c52abc",
+      "before_bytes": 35718,
+      "after_bytes": 119,
+      "removed_lines": 867,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/test-connectivity.py": {
+      "before_sha256": "06623c59a3afe4491336cb60585250c9e6b2ff82750f4f16eedcb4463f0d2865",
+      "after_sha256": "7a7944344b723b94ee85086bea99cab36bb62547ed7a58a49af5787b3359b56a",
+      "before_bytes": 1445,
+      "after_bytes": 98,
+      "removed_lines": 38,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/test-handshake.py": {
+      "before_sha256": "22f54831de03ba1b24a83b7f5dcc196f83f82bd42968cfed787fbd0053c04026",
+      "after_sha256": "5efdd92fc16572f1cffad241fec81e9259ab01a9201edff23e9a49f2f87dec75",
+      "before_bytes": 4497,
+      "after_bytes": 95,
+      "removed_lines": 139,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/test-nc.py": {
+      "before_sha256": "9c0f940b72e495799ee3a1358940211fbec0b7b28d710d88355f97785ab47c37",
+      "after_sha256": "a152773e47e1ffc3528b609e97bf806c85683d45b64efd23ee18509fc302b9bd",
+      "before_bytes": 1338,
+      "after_bytes": 92,
+      "removed_lines": 33,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/test-rust-client.py": {
+      "before_sha256": "5d2823687bb2c64b044f0c477d522dc0b17c4b84934a136905d9bf0f0e35b4b1",
+      "after_sha256": "40553509fac54cfef3185b88c19b99ac8590971f906a0776d1f9c9aad12413c8",
+      "before_bytes": 1722,
+      "after_bytes": 104,
+      "removed_lines": 49,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/test-tunnel.py": {
+      "before_sha256": "1f3546b1bf97f7b03028e4b8858eae9e628cc955891a1c3a8190d3d23ea665c3",
+      "after_sha256": "24c3d774c7a7b94ad0e1b741c73063089ce70affa7a387147a3417717bf390de",
+      "before_bytes": 2302,
+      "after_bytes": 153,
+      "removed_lines": 60,
+      "proof": "Only module docstring/future-annotations may precede unconditional constant SystemExit; all subsequent top-level statements unreachable"
+    },
+    "test/benchmark-all.sh": {
+      "before_sha256": "bb07daed7ebfa7595e73abd49af4e99d5316104a7f14cdc7053801e56d05ee60",
+      "after_sha256": "bc04d97e97070662f08728c008e8acf490421eefe2ac852d0b9cd8dd9d8f7979",
+      "before_bytes": 6740,
+      "after_bytes": 113,
+      "removed_lines": 196,
+      "proof": "Top-level echo to stderr followed immediately by unconditional exit 1"
+    },
+    "test/collect-results.sh": {
+      "before_sha256": "39d59f85b99cae1c7874a2cb435254be673e39f1a0b23be8557c26f64b0231e2",
+      "after_sha256": "857e31f2eed2aa2bd9c1a7d42baf3701eca0475438625f5d5094c6db4c1a48d1",
+      "before_bytes": 3700,
+      "after_bytes": 83,
+      "removed_lines": 95,
+      "proof": "Top-level echo to stderr followed immediately by unconditional exit 1"
+    },
+    "test/vpn-benchmark.sh": {
+      "before_sha256": "1d83140434193acfa650b1898936b3062b79ce51d9301cd3398afe57927cd1bc",
+      "after_sha256": "bc04d97e97070662f08728c008e8acf490421eefe2ac852d0b9cd8dd9d8f7979",
+      "before_bytes": 3929,
+      "after_bytes": 113,
+      "removed_lines": 108,
+      "proof": "Top-level echo to stderr followed immediately by unconditional exit 1"
+    }
+  },
+  "removed_config": {
+    "path": "scripts/client-config.json",
+    "sha256": "d37e7ea5e4b613fb0baaa563633750f3d0cca6dc0fb4aa25bbd6bb82bd4499b5",
+    "bytes": 1510,
+    "active_references": [],
+    "historical_frozen_references": [
+      "release/certification/evidence/q34-fuzz-toolchain-20261009.json"
+    ]
+  },
+  "removed_lines": 6320,
+  "removed_bytes": 239053,
+  "push_deploy_release": false,
+  "finding": "Q37-F003",
+  "raw_packet": "q37-dead-legacy-20261011",
+  "inventory_receipt_sha256": "0a01c54dd96542004d5d012e40f5b7eec7f4fefd5b9538328dd0a936fb47bc9b",
+  "verification_receipt_sha256": "cd3df42ca0c2056e8081fbe912aa006a493629d58d4334a41faddcd1e1369932",
+  "verification": {
+    "status": "UNREACHABLE_LEGACY_REMOVAL_VERIFIED",
+    "checks": {
+      "refusal-stubs": {
+        "python_runtime_refusals": 42,
+        "shell_unconditional_exit_stubs": 3,
+        "network_or_service_calls": false
+      },
+      "native-recipes": {
+        "exit_code": 0,
+        "log_sha256": "fff3c52fd19ab0751b51f28783ad7d0fb32b2e60b0fd797be4ae51fc4d598534"
+      },
+      "bindings": {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "diff": {
+        "exit_code": 0,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "native_core_and_benchmark_inputs_unchanged": true,
+    "push_deploy_release": false,
+    "original_dead_body_regression": {
+      "status": "EXPECTED_FAILURE_ON_OLD_SOURCE",
+      "tests": 1,
+      "failure_contains": "retains a dead legacy body",
+      "log_sha256": "4fbc4253423a761e38f5092547ea6440d85938e2287ddfdabe84d64a8bbc1942"
+    },
+    "current_retirement_tests": {
+      "status": "PASS",
+      "methods": 38,
+      "log_sha256": "ed405c4eb8fb0af0db7e06abeef16447edb6997219d481c6579d8cb42881a99c",
+      "test_source_sha256": "f5e011fc9e8a553e3ecf90a1d06873afb2268ca7fa6d2d3681c15f4428e96312"
+    }
+  },
+  "test_source_sha256": "f5e011fc9e8a553e3ecf90a1d06873afb2268ca7fa6d2d3681c15f4428e96312",
+  "not_product_runtime_changes": true,
+  "global_done": 30,
+  "global_total": 37
+}

@@ -1,0 +1,37 @@
+{
+  "status": "EXACT_DOCUMENTATION_DELTA_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_commit": "fd89879be12a32b447d7727c134712081818299b",
+  "source_digest": "97db15c8a94676fe936b9c9318d877d2f677f489b63bdc74478e9222e0bf08c0",
+  "previous_source_commit": "2d4dfeda93a24e459b389b0a2f189c7e36f09e12",
+  "document_files": {
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "08d808e8732a03668cf19585b629a94c48a3f27d79f415e1bd3f79093b39b72a",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md": "b3adbcfd65bab5b646db2af354e3195eae989aa2c96bfd14d2c8f0f9f24ab1ee",
+    "docs/eng/reports/BENCHMARK.md": "84435986b5d83b51eba505f8d37f7922c145d218811f3de9306a7352b1a71618",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "73d506f7f6439be79727599044531380d82318ef99aa8877d8d7dc5d549f8825",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md": "8b015199c7e34f35d7013331e9dbd86d8fa080b6652a442fad4a8dfbdaf61eba",
+    "docs/ru/reports/BENCHMARK.md": "2007d05027d42e461582b4f5d0300986a7ac33aa2485f05d1a0a15ec642749ab"
+  },
+  "exact_non_certification_delta": [
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md",
+    "docs/eng/reports/BENCHMARK.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md",
+    "docs/ru/reports/BENCHMARK.md"
+  ],
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "runtime_qualification_sha256": {
+    "q36-recordizer-control-r2-20261013": "63c0b70e52744201b021f994acacd910d600e25835ce8bab6d62bec8d1f9e0b7"
+  },
+  "current_Q36_sessions": 6,
+  "current_Q36_windows": 18,
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "new_certification_matrix_execution": false,
+  "scope": "Exact six-Markdown-only delta plus two excluded evidence files. Native/helper/INI/Cargo/product inputs and native digest unchanged. Six fresh independent sessions in3 matched off/required recordizer pairs;18 eight-second TCPraw P1 unlimited caller up/down/bidir windows. Negotiated modes and archived INI policy verified, batch/morphology/fragment defaults retained, original queues/qdiscs. No default/product change, native rebuild, tracing or kernel change. Original experiment Unix control-socket SUN_LEN refusal retained with3 unpooled baseline windows; R2 short labels/preflight corrected controller. Full host/source/services/staged CLI/SHA archive/cleanup PASS. Source review confirms current TunPacket is released before awaited outer write in both paths. Original20 Linux certification facts and21 physical statuses unchanged, no new certification executions/public release/hosted CI/Q29/Q36 closure.",
+  "no_push_deploy_release": true,
+  "driver_sha256": "130dc8a8820f6ce0ac402e5d0ecf07a9a465dab15154a6c7c3b35c758efc241c"
+}

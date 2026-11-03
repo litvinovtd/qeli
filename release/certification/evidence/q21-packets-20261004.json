@@ -1,0 +1,352 @@
+{
+  "schema_version": 1,
+  "status": "PASS_Q21",
+  "executed_at": "2026-10-04T09:02:15.058927+00:00",
+  "artifact_sha256": "36a0e491f9437773b73b3e29f9c7ab0b7f624142e782dd78777f0c6168e6cef1",
+  "core_commit": "cb94f49bb884ee3e8575bb2104d57c534c38a5ab",
+  "production_source_changed": false,
+  "new_production_defects": 0,
+  "new_boundary_properties": 7,
+  "properties": {
+    "passed": 61,
+    "ignored": 0,
+    "corpus_packets": 8192,
+    "result_sha256": "5b9ae99ad2d257b0d5ed9ea4f41a09b5abb1486afa7a31f947fc464f0100c124",
+    "inputs": {
+      "qeli/src/protocol/ip.rs": "72dfe71250e1a933627ee66e39c4c5f75ade23dc787079aa5976eb8ff347c02e",
+      "qeli/src/protocol/icmp.rs": "91941aebb93baeb8811d46a6bb48ee9db117311b1cdefe2ba9bb51bd716f6ec0",
+      "qeli/src/protocol/data_frag.rs": "7426e41090b7b50db22829a108138a911dd592798da38f9ded89d130c8eb2e13",
+      "qeli/src/protocol/udp_frag.rs": "d9f0854630a924379a66578d56271db9e7b9e8127d7dc33844631a3a7358e21c",
+      "qeli/src/protocol/packet.rs": "37e426b47b9e10555c4e056425cc9a5300aab52cd57de0b029a3dbe0eac3bc6d",
+      "qeli/src/protocol/quic.rs": "05e4e68abb7355d901921b1a36a25433bf904bf49de5bd31df4397e26d45b7d7",
+      "qeli/src/protocol/obfs.rs": "f53eb4369a2e699f752ab0d3390ad1a38f7b8e23155185b60720bee3f343e864",
+      "qeli/src/config/server.rs": "56cb8a3daf75abbebf58513354446a5c157bba16c3ac8af645bc0dbf4d39238c",
+      "qeli/src/tun/tap.rs": "37ed3a600deb0996789409357747a43f6f520f472784a076ed2d94516f6b9807",
+      "qeli/Cargo.lock": "498f4239e89b6320e1f756c86f0dceee7dcf10ee6d6d8ba4c698efa7c00ba840",
+      "conformance/udp-frag.json": "5d2f7ff5bfc93ffffd7278f3c4f8139b2dda7353bc0f9f133bdd8cd1102e63f2"
+    },
+    "constants": {
+      "packet.TLS_RECORD_HEADER": "pub const TLS_RECORD_HEADER: usize = 5;",
+      "packet.TLS_CIPHERTEXT_MAX": "pub const TLS_CIPHERTEXT_MAX: usize = (1 << 14) + 256;",
+      "packet.MAX_RECORD_SIZE": "pub const MAX_RECORD_SIZE: usize = TLS_CIPHERTEXT_MAX;",
+      "quic.QUIC_SHORT_HEADER_MIN": "pub const QUIC_SHORT_HEADER_MIN: usize = 1 + 4 + 4;",
+      "quic.QUIC_LONG_HEADER_EMITTED": "pub const QUIC_LONG_HEADER_EMITTED: usize = 1 + 4 + 1 + 4 + 1 + 1 + 2 + 4;",
+      "obfs.NONCE_LEN": "const NONCE_LEN: usize = 12;",
+      "obfs.OBFS_SEAL_OVERHEAD": "pub const OBFS_SEAL_OVERHEAD: usize = 1 + NONCE_LEN;",
+      "server.MTU_MIN": "pub const MTU_MIN: u32 = 576;"
+    },
+    "scope": "Actual production modules imported by a minimal private offline Cargo crate. Constants are exact declarations extracted from matched current inputs. Not a fresh complete core unit suite."
+  },
+  "runtime": {
+    "checks": 70,
+    "cases": [
+      {
+        "id": "linux.tap.ndp-ra",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 7.884,
+        "checks_passed": 15,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261004T085104390495Z/isolated.sh /var/tmp/qeli-release-matrix-20261004T085104390495Z/linux.tap.ndp-ra 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261004T085104390495Z/scripts/ipv6_netns_case.sh /var/tmp/qeli-q20-release-20261004/qeli 4 6 tcp fake-tls full tap",
+        "log": "linux.tap.ndp-ra.log",
+        "folder": "runtime",
+        "executed_at": "2026-10-04T08:51:04.390495+00:00",
+        "source_commit": "92cf907c437f44db3e82a87539251363865a61fb",
+        "fixture_sha256": {
+          "ipv6_netns_case.sh": {
+            "source": "c0c5b5928cfc58cb1014b77fd4db8d662b5906fb7397bde992d57e04abb19966",
+            "runtime": "c0c5b5928cfc58cb1014b77fd4db8d662b5906fb7397bde992d57e04abb19966"
+          },
+          "ipv6_dns_pair.sh": {
+            "source": "486cfd27b1254b94e92c34ffb2667d53c8b71f5e9f685aeef00411599d5fdcf3",
+            "runtime": "486cfd27b1254b94e92c34ffb2667d53c8b71f5e9f685aeef00411599d5fdcf3"
+          },
+          "ipv6_mtu_pair.sh": {
+            "source": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a",
+            "runtime": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a"
+          },
+          "ipv6_legacy_pair.sh": {
+            "source": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6",
+            "runtime": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6"
+          },
+          "dns_test_server.py": {
+            "source": "2caab1a8b2d98a4ecc76e062cec57f75547466fa257d180c024220d2d55ba537",
+            "runtime": "2caab1a8b2d98a4ecc76e062cec57f75547466fa257d180c024220d2d55ba537"
+          },
+          "tap_ipv6_control_probe.py": {
+            "source": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757",
+            "runtime": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757"
+          }
+        },
+        "environment": "Linux 6.12.105+deb13-amd64 x86_64 GNU/Linux",
+        "result_sha256": "a94848e586b439fc00a5d38cc101c40cfe4d89a5652d003b7a291e9b7e41889f"
+      },
+      {
+        "id": "linux.tap.dual-arp-ndp",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 7.876,
+        "checks_passed": 17,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261004T085507844006Z/isolated.sh /var/tmp/qeli-release-matrix-20261004T085507844006Z/linux.tap.dual-arp-ndp 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261004T085507844006Z/scripts/ipv6_netns_case.sh /var/tmp/qeli-q20-release-20261004/qeli 4 dual tcp fake-tls full tapdual",
+        "log": "linux.tap.dual-arp-ndp.log",
+        "folder": "runtime-wire",
+        "executed_at": "2026-10-04T08:55:07.844006+00:00",
+        "source_commit": "d5408cfaf0838a01929e71fac32cb5de8a3ae0df",
+        "fixture_sha256": {
+          "ipv6_netns_case.sh": {
+            "source": "49072d5b7eab4a52f77f7c95a69d16cbb8c8652097d35d32e0cc8f42596866d5",
+            "runtime": "49072d5b7eab4a52f77f7c95a69d16cbb8c8652097d35d32e0cc8f42596866d5"
+          },
+          "ipv6_dns_pair.sh": {
+            "source": "486cfd27b1254b94e92c34ffb2667d53c8b71f5e9f685aeef00411599d5fdcf3",
+            "runtime": "486cfd27b1254b94e92c34ffb2667d53c8b71f5e9f685aeef00411599d5fdcf3"
+          },
+          "ipv6_mtu_pair.sh": {
+            "source": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a",
+            "runtime": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a"
+          },
+          "ipv6_legacy_pair.sh": {
+            "source": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6",
+            "runtime": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6"
+          },
+          "dns_test_server.py": {
+            "source": "2caab1a8b2d98a4ecc76e062cec57f75547466fa257d180c024220d2d55ba537",
+            "runtime": "2caab1a8b2d98a4ecc76e062cec57f75547466fa257d180c024220d2d55ba537"
+          },
+          "tap_ipv6_control_probe.py": {
+            "source": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757",
+            "runtime": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757"
+          },
+          "audit_outer_udp_capture.py": {
+            "source": "65453a68dd9ced66430180a4da7b66023c132aeaf6fbee793a3ed0074c03c0f9",
+            "runtime": "65453a68dd9ced66430180a4da7b66023c132aeaf6fbee793a3ed0074c03c0f9"
+          }
+        },
+        "environment": "Linux 6.12.105+deb13-amd64 x86_64 GNU/Linux",
+        "result_sha256": "bdc087fb84cca45fc85b46e3310d976179e9e5355ffd9a9b4e1942a9b3eb33d4"
+      },
+      {
+        "id": "linux.mtu.1280-pmtu-ptb",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_seconds": 18.48,
+        "checks_passed": 38,
+        "checks_failed": 0,
+        "command": "timeout --signal=TERM --kill-after=10 390 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261004T085811871354Z/isolated.sh /var/tmp/qeli-release-matrix-20261004T085811871354Z/linux.mtu.1280-pmtu-ptb 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261004T085811871354Z/scripts/ipv6_mtu_pair.sh /var/tmp/qeli-q20-release-20261004/qeli",
+        "log": "linux.mtu.1280-pmtu-ptb.log",
+        "folder": "runtime-pcap",
+        "executed_at": "2026-10-04T08:58:11.871354+00:00",
+        "source_commit": "8f82b3b5ff6d58abd1459ddf4a0f833a1fdc4d98",
+        "fixture_sha256": {
+          "ipv6_netns_case.sh": {
+            "source": "49072d5b7eab4a52f77f7c95a69d16cbb8c8652097d35d32e0cc8f42596866d5",
+            "runtime": "49072d5b7eab4a52f77f7c95a69d16cbb8c8652097d35d32e0cc8f42596866d5"
+          },
+          "ipv6_dns_pair.sh": {
+            "source": "486cfd27b1254b94e92c34ffb2667d53c8b71f5e9f685aeef00411599d5fdcf3",
+            "runtime": "486cfd27b1254b94e92c34ffb2667d53c8b71f5e9f685aeef00411599d5fdcf3"
+          },
+          "ipv6_mtu_pair.sh": {
+            "source": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a",
+            "runtime": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a"
+          },
+          "ipv6_legacy_pair.sh": {
+            "source": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6",
+            "runtime": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6"
+          },
+          "dns_test_server.py": {
+            "source": "2caab1a8b2d98a4ecc76e062cec57f75547466fa257d180c024220d2d55ba537",
+            "runtime": "2caab1a8b2d98a4ecc76e062cec57f75547466fa257d180c024220d2d55ba537"
+          },
+          "tap_ipv6_control_probe.py": {
+            "source": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757",
+            "runtime": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757"
+          },
+          "audit_outer_udp_capture.py": {
+            "source": "3599e1e9f83254665d1c4db84172b99748e31d1d3bee6b7f46dd7b217eb1978c",
+            "runtime": "3599e1e9f83254665d1c4db84172b99748e31d1d3bee6b7f46dd7b217eb1978c"
+          }
+        },
+        "environment": "Linux 6.12.105+deb13-amd64 x86_64 GNU/Linux",
+        "result_sha256": "301a1dd8c33cefac27041431ae65daf5dcd6b19af15440d1f9c0cc279d7afbdc"
+      }
+    ],
+    "pcaps": [
+      {
+        "path": "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-qhwWGL/outer-capture.log.pcap",
+        "sha256": "cf8247bf09ec7577c655f2cf8b57e741922f05216e49498603f17b1367754c5f",
+        "packets": 59,
+        "fragmented": 0,
+        "over_1280": 0,
+        "uplink": 34,
+        "downlink": 25,
+        "max_ip_length": 1215
+      },
+      {
+        "path": "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-Qokqqa/outer-capture.log.pcap",
+        "sha256": "66fe8bc04bd24fcf70678f05e90db868843776e1cabd88d060dd5cafbcda1c31",
+        "packets": 42,
+        "fragmented": 0,
+        "over_1280": 0,
+        "uplink": 25,
+        "downlink": 17,
+        "max_ip_length": 1215
+      }
+    ],
+    "host_restored": true
+  },
+  "retained": {
+    "full_linux_unit_passed": 2383,
+    "full_linux_unit_ignored": 60,
+    "clippy": "strict all targets PASS",
+    "release": "Rust1.96 jemalloc PASS",
+    "core_inputs_verified": 347,
+    "groups": {
+      "protocol::ip::": 8,
+      "protocol::icmp::": 16,
+      "protocol::data_frag::": 7,
+      "protocol::udp_frag::": 15,
+      "tun::tap::": 8,
+      "tun::open::": 28,
+      "server::udp_handler::": 24
+    },
+    "source_matches": {
+      "qeli/src/client/network_view_tests.rs": "0f7dcc442bc6593364d3c080a11cded6996803fccbade680c0d7be0ab8ab2874",
+      "qeli/src/network_namespace.rs": "637a4b9e9186c8a2349ba3485809c593b31fccca17d3f107d3aaa70ac790806e",
+      "qeli/src/tun/attach_tests.rs": "a8758636eba3088f715c9778ee518802c7873f0c22705aa0ce9e1ba0b04da7db",
+      "qeli/src/tun/iface.rs": "ddb7a57cd60114e7c9866d1afe36c963c92af5effb7580e0df920857d5452ef7",
+      "qeli/src/tun/mod.rs": "be514a4f8971abc72d53fc34e7457a4e4ad1e321709db896ffb767cdea642ce0",
+      "qeli/src/tun/open.rs": "7daf2b84d9a50d6d222a572f44c67e87cede6146d7168eb6001e891fa1d83098",
+      "qeli/src/tun/open_tests.rs": "d38c82b78a65ff2b6ffca9a5b87b121cfb5791369cb3700344f43b704fecbf02",
+      "qeli/src/tun/tap.rs": "37ed3a600deb0996789409357747a43f6f520f472784a076ed2d94516f6b9807"
+    },
+    "test_fixture_equivalence": {
+      "qeli/src/tun/attach_linux_tests.rs": {
+        "previous": "f27a259c09549a0a7d194159dfeaf7b56486bbae1057082269da96124c89e7a4",
+        "current": "ccd847414fb2a93d9572210a3248a4a8fc4e0fd62165027c07615ec40f29a9f3",
+        "change": "327de78b: identical NUL-terminated mount arguments expressed as Rust C-string literals; old execution retains original ELF/date."
+      }
+    },
+    "tun_privileged": [
+      {
+        "selector": "tun::iface::linux_tests::",
+        "selected": [
+          "tun::iface::linux_tests::attachment_guard_keeps_existing_device_and_releases_only_its_fd",
+          "tun::iface::linux_tests::closing_detached_queues_preserves_persistent_replacement",
+          "tun::iface::linux_tests::closing_renamed_device_preserves_persistent_replacement",
+          "tun::iface::linux_tests::descriptor_namespace_mismatch_does_not_resolve_same_name",
+          "tun::iface::linux_tests::duplicate_workers_close_before_original_descriptor_releases_name",
+          "tun::iface::linux_tests::inherited_sysfs_same_name_different_index_is_rejected",
+          "tun::iface::linux_tests::missing_attach_never_registers_tun_or_tap",
+          "tun::iface::linux_tests::multiqueue_creation_uses_one_device_and_last_fd_releases_it"
+        ],
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0,
+        "privileged": true,
+        "exact": false
+      }
+    ],
+    "path_probe_tests": [
+      "test protocol::data_frag::tests::active_pmtu_probes_use_the_normal_df_mode ... ok",
+      "test protocol::udp_frag::tests::mtu_probe_parsers_reject_false_size_and_ambiguous_shapes ... ok",
+      "test protocol::udp_frag::tests::mtu_probe_rejects_too_small_and_not_confused_with_fragment ... ok",
+      "test protocol::udp_frag::tests::mtu_probe_roundtrips_and_is_recognized ... ok",
+      "test protocol::udp_frag::tests::reverse_mtu_probe_v2_roundtrips_unpredictable_token_and_exact_shape ... ok",
+      "test server::udp_handler::tests::udp_pmtu_carrier_replies_require_completed_live_authentication ... ok",
+      "test server::udp_handler::tests::udp_roaming_pmtu_ingress_echoes_v2_only_on_committed_path ... ok",
+      "test transport_core::udp_roaming::tests::stale_pmtu_result_cannot_raise_a_new_path_budget ... ok"
+    ],
+    "native": "Four Q20 current-source independent A/B builds reused; no changed native compile inputs; current provenance check PASS."
+  },
+  "portable": {
+    "passed": 3,
+    "command": [
+      "C:\\Python314\\python.exe",
+      "-X",
+      "utf8",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "scripts",
+      "-p",
+      "test_tap_ipv6_control_probe.py"
+    ]
+  },
+  "fixtures_sha256": {
+    "scripts/audit_packet_boundaries.rs": "ba7052dc553634aad2beb46838d08edef086675800ead8b0a655dc5e48ae1561",
+    "scripts/audit_outer_udp_capture.py": "3599e1e9f83254665d1c4db84172b99748e31d1d3bee6b7f46dd7b217eb1978c",
+    "scripts/ipv6_netns_case.sh": "49072d5b7eab4a52f77f7c95a69d16cbb8c8652097d35d32e0cc8f42596866d5",
+    "scripts/audit_release_matrix_lab.py": "35aeb9d0fad0d9494e2cbe1dff64d02a7e6a8262378404e34068abfc8e23a1d5"
+  },
+  "plan": {
+    "done": 21,
+    "total": 37,
+    "percent": 56.8,
+    "remaining": 16,
+    "next": "Q22"
+  },
+  "limits": [
+    "TAP is an L3 facade; VLAN bridging/jumbograms are unsupported. RA has no default-router lifetime or SLAAC flag.",
+    "Carrier challenge ACK is not PacketCodec-encrypted: random128-bit token, exact size/peer/epoch defeat blind spoofing; on-path observation and kernel ICMP PMTU reduction can still deny service. No claim of universal PTB-spoof immunity or a new raw ICMP input policy.",
+    "Reassembly lifetime is five seconds from first accepted fragment; expiry is opportunistic on push. Per-peer caps32 records/512KiB limit retained state. Record ID reuse does not replace PacketCodec AEAD replay checks.",
+    "Actual PCAP covers isolated outer IPv4 UDP QUIC at linkMTU1280. Other path/backend/device combinations keep their original scoped evidence. No new full matrix/native device E2E,benchmark,working executable replacement or deployment.",
+    "User-excluded Mac/router/Windows VM runtime and accepted Q25-A125 WAN same-name replacement limit remain."
+  ],
+  "raw_root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q21-packets-20261004",
+  "raw_sha256": {
+    "portable.log": "33060fd73862c5e1af97335504d5b45211fce6d229657f556d8deceeadc52ce4",
+    "properties/result.json": "5b9ae99ad2d257b0d5ed9ea4f41a09b5abb1486afa7a31f947fc464f0100c124",
+    "properties/tests.log": "f6bfbf299aa4cbdefae3d79c4be8afe2a7f8dc68eaffad09265dd09d128d9e0b",
+    "reconciliation.json": "e14b8b659c31a5a5b45e9ef09150f2b62dffaf3a62170b826495a832ff7f4f11",
+    "runtime/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-dTUhnV/add-user.log": "ff52cd9c97289784a6f36fe21156bdfd2050d84f1b34df7ba57213de4926d667",
+    "runtime/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-dTUhnV/client.log": "fb01a9f7a9c36bc01c123e4339ffe090d56e37762b3eb058128b53c212b60685",
+    "runtime/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-dTUhnV/ptb.log": "42487b926f17f3391aacaab8ebda396da1b1563a145f3cd17c262a85df87a484",
+    "runtime/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-dTUhnV/server.log": "c0b7b4dd794d7eae33dac06ff07f5d256e4d6f998cdbbba5d4bdd5787188f1f7",
+    "runtime/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-H7EEcO/add-user.log": "986263b7bb9c6b743f869b42b8a7555726e5c446e967159740756b6ae37a1768",
+    "runtime/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-H7EEcO/client.log": "f1aa68a2b8037d3bbc2e7b10546edcbc26167c51a3299af5a626add7f20259cd",
+    "runtime/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-H7EEcO/server.log": "9aaf81abfcd2e07f15bbed3f9ec8fc96935d419b89731895e9090410dce6b519",
+    "runtime/linux.mtu.1280-pmtu-ptb.log": "cbf3a5a3f88ef60d17608067b51a62802bf2c3fd5fc288b7d4be83aa303407ea",
+    "runtime/linux.tap.ndp-ra/tmp/qeli-ipv6-TDjxXs/add-user.log": "8a6a4d362b9364d0ad244d12983a057dafea3a702880343e6a3127646e56a08e",
+    "runtime/linux.tap.ndp-ra/tmp/qeli-ipv6-TDjxXs/client.log": "4f1edd2893dd5080baab18332cd76bcece2e5ed4a52e8af04958d519dbca8fda",
+    "runtime/linux.tap.ndp-ra/tmp/qeli-ipv6-TDjxXs/server.log": "6686734351a984716fa1e33b7deff33be1107c6c6a0237dd9825001f440734bf",
+    "runtime/linux.tap.ndp-ra/tmp/qeli-ipv6-TDjxXs/tap-control.log": "42bc0cb79da51819f2a174f4dcaca0be26719f95c910f1c57a9a81fc5687f7ca",
+    "runtime/linux.tap.ndp-ra.log": "ae656fff7b04cd26217fae649ea9cf25dc4fd64f8199d26ccd5ee31d4b132a3c",
+    "runtime/results.json": "a94848e586b439fc00a5d38cc101c40cfe4d89a5652d003b7a291e9b7e41889f",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-qhwWGL/add-user.log": "fb4edcab50c243e934a896fc52e16b91393d1751dbe51174284b6b70648105cd",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-qhwWGL/client.log": "c11aa2abf11ebf139294d4e5fbf2bdc94b9af3d50082e122ab3311c7cdf0fc58",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-qhwWGL/outer-capture-process.log": "c6a5429fb7d1814a5f0ee543b1613a31e85db2a5887fde8d96a4a701cea8b688",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-qhwWGL/outer-capture.log": "c6a5429fb7d1814a5f0ee543b1613a31e85db2a5887fde8d96a4a701cea8b688",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-qhwWGL/outer-capture.log.pcap": "cf8247bf09ec7577c655f2cf8b57e741922f05216e49498603f17b1367754c5f",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-qhwWGL/ptb.log": "42487b926f17f3391aacaab8ebda396da1b1563a145f3cd17c262a85df87a484",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-qhwWGL/server.log": "fd41b2bccc2267f05464789e602658783a4428154255425ab8d1af4339838225",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-Qokqqa/add-user.log": "c5bfb4fa91da960674afbf74c724d16f06befe719620a7fcff427aeffc9a2370",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-Qokqqa/client.log": "b1f31ab1e0d6b7d2b8e88146cfb0ec67f04752771cbac85838564603426ad1c1",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-Qokqqa/outer-capture-process.log": "00e4d8cbb0f4cd1676b1d93f50012e2c1ad5727d37bc53b51b8baefc0eb4d738",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-Qokqqa/outer-capture.log": "00e4d8cbb0f4cd1676b1d93f50012e2c1ad5727d37bc53b51b8baefc0eb4d738",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-Qokqqa/outer-capture.log.pcap": "66fe8bc04bd24fcf70678f05e90db868843776e1cabd88d060dd5cafbcda1c31",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-Qokqqa/server.log": "e1a2338318732f0a9143542d535461296bf9e8a052d16485f7952fb612563416",
+    "runtime-pcap/linux.mtu.1280-pmtu-ptb.log": "55ff8e64d9c061d6b9249b7aa4ffda432648ac139a82cde3342ed666b078aad9",
+    "runtime-pcap/results.json": "301a1dd8c33cefac27041431ae65daf5dcd6b19af15440d1f9c0cc279d7afbdc",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-dwesfw/add-user.log": "14f33ef7ed276a6ae6f4ff22926525a74efc43ae18a22905d1b33e85ba92e68e",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-dwesfw/client.log": "931a685d77a9c7f42bab17fe85726cfc3458bb8c6f34a6387178e58c97444cb4",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-dwesfw/outer-capture-process.log": "6db1a66aa5c98f950cc1e10de11565ffbcb84f8c2d73ac6bd8808aa6b27d1fd6",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-dwesfw/outer-capture.log": "6db1a66aa5c98f950cc1e10de11565ffbcb84f8c2d73ac6bd8808aa6b27d1fd6",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-dwesfw/ptb.log": "42487b926f17f3391aacaab8ebda396da1b1563a145f3cd17c262a85df87a484",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-dwesfw/server.log": "8f754f22a2bcadc0611a3be1bf428f1ef63af88e94d4481c936341b7e61abbe7",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-kyiWsz/add-user.log": "4c95b5d03822cf23592bb25667379a93114bcf1851e8b1ec94a48fb0bae0400b",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-kyiWsz/client.log": "e8436e2d6929572a8c7d9be0d5dede7bac1cd6e6a988f0c853526773c5b887cb",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-kyiWsz/outer-capture-process.log": "bbd0a5d75406f8fab85d459b1bf9f43b5f6f65635562b9307b3e249d714f0604",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-kyiWsz/outer-capture.log": "bbd0a5d75406f8fab85d459b1bf9f43b5f6f65635562b9307b3e249d714f0604",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb/tmp/qeli-ipv6-kyiWsz/server.log": "ab422622a6b5395342208f4605af391e78d86e5be8bddaf2b57d557e8b1e8bc4",
+    "runtime-wire/linux.mtu.1280-pmtu-ptb.log": "ec051a3a1264440fc4740add29fa97496818e27edbdf11dc9e6f7352e8924105",
+    "runtime-wire/linux.tap.dual-arp-ndp/tmp/qeli-ipv6-91Bf2P/add-user.log": "f89690b6ae38acea11a07f1ef8937b56b6dd70b633b3971fdbc339e707d79f46",
+    "runtime-wire/linux.tap.dual-arp-ndp/tmp/qeli-ipv6-91Bf2P/client.log": "a4a16c41d8fd7d86302e7b360a01fd95d19bfaa050de537b613a8c52bad14d0b",
+    "runtime-wire/linux.tap.dual-arp-ndp/tmp/qeli-ipv6-91Bf2P/server.log": "d5575fb9c9a36e3bca036057a3c244fe4a3078454e0e48d3fd009def5a2198cb",
+    "runtime-wire/linux.tap.dual-arp-ndp/tmp/qeli-ipv6-91Bf2P/tap-control.log": "996833726e2984a5869f3f739a37b23e79d782314c551548bcdd196d61228cbb",
+    "runtime-wire/linux.tap.dual-arp-ndp.log": "7788cd12263526b44ac45d92ba1200cdb4aa79afd865d44dbcc541fc203d38c3",
+    "runtime-wire/results.json": "bdc087fb84cca45fc85b46e3310d976179e9e5355ffd9a9b4e1942a9b3eb33d4"
+  }
+}

@@ -291,7 +291,7 @@ pub(crate) async fn connect(
     config: &ClientConfig,
 ) -> anyhow::Result<ConnectedCarrier> {
     let timeout = Duration::from_secs(config.server.connection_timeout_secs.max(1));
-    let address = resolve_ip_candidates(&config.server.address, config.server.port, &[])
+    let address = resolve_ip_candidates(&config.server.address, config.server.port, &[], timeout)
         .await?
         .into_iter()
         .next()
@@ -335,11 +335,12 @@ async fn connect_inner(
 /// Return every distinct IP candidate in stable order. Platform-supplied addresses are
 /// authoritative: Android resolves them through `Network.getAllByName`, and desktop/iOS
 /// resolve them before installing or while retaining fail-closed tunnel settings. Falling
-/// back to Tokio DNS is only for adapters that have not supplied that physical-network fact.
+/// back to system DNS is only for adapters that have not supplied that physical-network fact.
 pub(crate) async fn resolve_ip_candidates(
     host: &str,
     port: u16,
     preferred: &[IpAddr],
+    timeout: Duration,
 ) -> anyhow::Result<Vec<SocketAddr>> {
     let mut seen = HashSet::new();
     let mut output = Vec::new();
@@ -351,7 +352,9 @@ pub(crate) async fn resolve_ip_candidates(
             }
         }
     } else {
-        for address in tokio::net::lookup_host((host, port)).await? {
+        for address in
+            super::resolver::lookup(host, port, tokio::time::Instant::now() + timeout).await?
+        {
             let ip = canonical_carrier_ip(address.ip());
             if seen.insert(ip) {
                 output.push(SocketAddr::new(ip, address.port()));
@@ -487,6 +490,7 @@ mod tests {
                 "2001:db8::10".parse().unwrap(),
                 "192.0.2.10".parse().unwrap(),
             ],
+            Duration::from_secs(1),
         )
         .await
         .unwrap();
@@ -505,6 +509,7 @@ mod tests {
                 "192.0.2.10".parse().unwrap(),
                 "2001:db8::10".parse().unwrap(),
             ],
+            Duration::from_secs(1),
         )
         .await
         .unwrap();

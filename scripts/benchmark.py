@@ -2,7 +2,7 @@
 
 Run from the local machine (paramiko) against the 2-VM lab:
     SERVER 10.66.116.10   CLIENT 10.66.116.11
-Produces release/benchmark_results.json and prints a summary.
+Produces docs/data/benchmarks/benchmark_results.json and prints a summary.
 
 Per mode: bring up a dedicated tunnel, ping (latency/jitter/loss), then TCP
 throughput up+down (iperf3, retransmits + iperf CPU + sampled qeli process
@@ -10,10 +10,10 @@ throughput up+down (iperf3, retransmits + iperf CPU + sampled qeli process
 
 Modes include the no-obfuscation `plain` (raw) tunnel and real-TLS `reality-tls`.
 """
+import argparse
 import os
 import sys, io, os, json, time, socket, re
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-import paramiko
 import ssh_hostkey
 
 # Lab test-VM creds — override via env (QELI_LAB_SERVER / QELI_LAB_CLIENT /
@@ -37,6 +37,7 @@ HASH = "$argon2id$v=19$m=16384,t=2,p=1$cWVsaVNhbHRWYWw$CCYuTv8pvqQrvhrBQW3KjPpEN
 PASS = "testpass123"
 
 def conn(h):
+    import paramiko
     c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], timeout=20, look_for_keys=False, allow_agent=False)
     return c
@@ -360,6 +361,12 @@ def baseline(s, cl):
     return r
 
 def main():
+    parser = argparse.ArgumentParser(description="Historical host-wide benchmark; stops services and replaces lab files")
+    parser.add_argument('--allow-host-wide-benchmark', action='store_true',
+                        help='explicitly allow service stops, global process kills and host file replacement')
+    args = parser.parse_args()
+    if not args.allow_host_wide_benchmark:
+        parser.error('use benchmark_isolated_lab.py for an active lab; this historical runner requires --allow-host-wide-benchmark')
     print("Waiting for VMs...")
     if not wait_up():
         print("VMs not up"); return
@@ -402,9 +409,10 @@ def main():
     # sweep destroyed the previous one — that is how a clean 0.7.12 baseline was
     # nearly lost under two noisy 0.7.13 runs. A repeat run of the same version
     # gets a numbered suffix instead of overwriting its predecessor.
-    rel = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "release")
+    rel = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "data", "benchmarks")
     ver = (results["meta"].get("version") or "unknown").replace("qeli ", "v").strip()
     day = time.strftime("%Y-%m-%d")
+    os.makedirs(rel, exist_ok=True)
     base = os.path.join(rel, f"benchmark_{ver}_{day}")
     path, n = base + ".json", 1
     while os.path.exists(path):
@@ -415,7 +423,7 @@ def main():
     latest = os.path.normpath(os.path.join(rel, "benchmark_results.json"))
     open(latest, "w", encoding="utf-8").write(blob)
     print(f"\n===== saved {os.path.normpath(path)}")
-    print(f"      (and refreshed release/benchmark_results.json as 'latest') =====")
+    print(f"      (and refreshed docs/data/benchmarks/benchmark_results.json as 'latest') =====")
 
 if __name__ == "__main__":
     main()

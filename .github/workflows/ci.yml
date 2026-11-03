@@ -1,64 +1,18 @@
 name: CI
 
 on:
+  # Every tracked change can affect a release; root build policy files must run CI.
   push:
-    paths:
-      - 'qeli/**'
-      # The desktop clients' SHARED crypto/protocol (PacketCodec, HKDF, ChaCha20,
-      # ObfsStream, realtls glue) lives here and is ProjectReference'd by both
-      # qeli-win and qeli-mac — without it a shared-only change shipped with no CI
-      # at all.
-      - 'qeli-shared/**'
-      - 'qeli-android/**'
-      - 'qeli-win/**'
-      - 'qeli-mac/**'
-      # Added with the ios-build / native-libs jobs — a job whose paths filter never
-      # matches is worse than no job: it shows up green having run nothing. (R-05/R-06)
-      - 'qeli-ios/**'
-      - 'native-libs/**'
-      - '.github/workflows/ci.yml'
-      # The docs job gates these, and without them a docs-only change ran NO CI at
-      # all: the gate existed but could never be triggered by the thing it guards.
-      - 'docs/**'
-      - 'scripts/**'
-      - 'conformance/**'
-      - '*.md'
-      # The `shellcheck` job lints the two root-level installer scripts — without
-      # them here it would be a gate that its own subject can never trigger.
-      # (Audit 2026-07-27, G2)
-      - '*.sh'
-      # Same reasoning, two directories that were still missing: a change confined to the
-      # OpenWrt package recipe or to the release/packaging assets ran NO ci at all, so the
-      # thing shipped to users could be edited without a single check.
-      # (Audit 2026-07-29, #3.)
-      - 'qeli-openwrt/**'
-      - 'release/**'
   pull_request:
-    paths:
-      - 'qeli/**'
-      - 'qeli-shared/**'
-      - 'qeli-android/**'
-      - 'qeli-win/**'
-      - 'qeli-mac/**'
-      # Added with the ios-build / native-libs jobs — a job whose paths filter never
-      # matches is worse than no job: it shows up green having run nothing. (R-05/R-06)
-      - 'qeli-ios/**'
-      - 'native-libs/**'
-      - '.github/workflows/ci.yml'
-      # The docs job gates these, and without them a docs-only change ran NO CI at
-      # all: the gate existed but could never be triggered by the thing it guards.
-      - 'docs/**'
-      - 'scripts/**'
-      - 'conformance/**'
-      - '*.md'
-      - 'qeli-openwrt/**'
-      - 'release/**'
-      - '*.sh'
   workflow_dispatch:
   schedule:
     # Nightly continuous fuzzing (the `fuzz-nightly` job; other jobs also run as a
     # free health check). 03:17 UTC — off the top of the hour to dodge scheduler load.
     - cron: '17 3 * * *'
+
+env:
+  QELI_FUZZ_TOOLCHAIN: nightly-2026-06-10
+  QELI_CARGO_FUZZ_VERSION: 0.13.2
 
 defaults:
   run:
@@ -70,6 +24,59 @@ permissions:
   contents: read
 
 jobs:
+  # Validate Actions contexts, jobs, expressions and matrix references in every workflow.
+  workflow-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Test workflow gate failures and tool admission
+        run: python3 -m unittest discover -s scripts -p 'test_check_workflows.py'
+      - name: Check all workflows with SHA-pinned actionlint
+        run: python3 scripts/check_workflows.py --install-dir "$RUNNER_TEMP/qeli-actionlint"
+
+  # Exercise Docker tooling without invoking the publisher or writing to a registry.
+  # A successful DCO/lint alone cannot validate QEMU or a build-push action update.
+  docker-tooling-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64,arm
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Prepare bounded architecture probes
+        run: |
+          mkdir -p "$RUNNER_TEMP/qeli-docker-tooling"
+          cat > "$RUNNER_TEMP/qeli-docker-tooling/Dockerfile" <<'DOCKERFILE'
+          FROM busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+          ARG TARGETARCH
+          ARG TARGETVARIANT
+          RUN arch="$(uname -m)"; \
+              case "$TARGETARCH/$TARGETVARIANT" in \
+                amd64/*) test "$arch" = x86_64 ;; \
+                arm64/*) test "$arch" = aarch64 ;; \
+                arm/v7) test "$arch" = armv7l ;; \
+                *) exit 1 ;; \
+              esac
+          DOCKERFILE
+      - name: Build three architectures without publishing
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ runner.temp }}/qeli-docker-tooling
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: false
+          provenance: false
+          sbom: false
+          outputs: type=oci,dest=${{ runner.temp }}/qeli-docker-tooling.oci.tar
+      - name: Check local OCI export
+        run: |
+          test -s "$RUNNER_TEMP/qeli-docker-tooling.oci.tar"
+          tar -tf "$RUNNER_TEMP/qeli-docker-tooling.oci.tar" >/dev/null
+
   # Hard gate: the committed native libraries (.so/.dll/.dylib) must match their
   # manifest. They are opaque blobs whose diff no reviewer can read, so without this a
   # swapped binary passes review unnoticed; the manifest also pins each canonical copy to
@@ -82,8 +89,80 @@ jobs:
         working-directory: .          # the script expects the repo root, not qeli/
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Check and test common managed legal resources
+        run: |
+          python3 scripts/managed_licenses.py
+          python3 -m unittest discover -s scripts -p 'test_managed_licenses.py'
+      - name: Check and test pinned toolchain legal resources
+        run: |
+          python3 scripts/toolchain_licenses.py
+          python3 -m unittest discover -s scripts -p 'test_toolchain_licenses.py'
+      - name: Check common Cargo legal resources
+        run: |
+          python3 scripts/native_licenses.py
+          python3 scripts/embedded_licenses.py
+          python3 -m unittest discover -s scripts -p 'test_embedded_licenses.py'
       - name: Test native reproducibility contract
         run: python3 -m unittest discover -s scripts -p 'test_native_*.py'
+      - name: Test audit suite admission and portable regressions
+        run: |
+          python3 -B -m unittest discover -s scripts -p 'test_audit_test_suite.py'
+          python3 -B scripts/audit_test_suite.py --group portable
+      - name: Test self-contained Linux audit fixtures
+        run: python3 -B scripts/audit_test_suite.py --group linux
+      - name: Test local CI runner locks and child failure propagation
+        run: python3 -B -m unittest discover -s scripts -p 'test_ci_check.py'
+      - name: Test iOS simulator signing admission
+        run: python3 -B -m unittest discover -s scripts -p 'test_verify_ios_simulator.py'
+      - name: Test LuCI source with isolated RPC and UCI models
+        run: node scripts/test_openwrt_luci.js
+      - name: Test router release and diagnostic gates
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_router_release_gate.py'
+          python3 -m unittest discover -s scripts -p 'test_release_ci_gate.py'
+          python3 -B -m unittest discover -s scripts -p 'test_stability_gate.py'
+          python3 -B -m unittest discover -s scripts -p 'test_release_layout.py'
+          python3 -B -m unittest discover -s scripts -p 'test_benchmark*.py'
+          python3 -B -m unittest discover -s scripts -p 'test_roaming_soak_parameters.py'
+          python3 -B -m unittest discover -s scripts -p 'test_roaming_netns_isolation.py'
+          python3 -B -m unittest discover -s scripts -p 'test_roaming_udp_resource_soak_netns_gate.py'
+          python3 -B -m unittest discover -s scripts -p 'test_roaming_resource_release_gate.py'
+          python3 -m unittest discover -s scripts -p 'test_fuzz_targets.py'
+          python3 -m unittest discover -s scripts -p 'test_docker_publish_ref.py'
+          python3 -m unittest discover -s scripts -p 'test_rebuild_apk.py'
+          python3 -m unittest discover -s scripts -p 'test_android_apk_input.py'
+          python3 -m unittest discover -s scripts -p 'test_release_preflight.py'
+          python3 scripts/test_macos_build_paths.py --bash /bin/bash --fixtures "$RUNNER_TEMP/qeli-build-path-fixtures"
+          python3 -B -m unittest discover -s scripts -p 'test_macos_app_signer.py'
+          python3 -B -m unittest discover -s scripts -p 'test_macos_universal.py'
+          python3 -B -m unittest discover -s scripts -p 'test_macos_packager.py'
+          python3 -B -m unittest discover -s scripts -p 'test_check_macos_deployment.py'
+          python3 -m unittest discover -s scripts -p 'test_keenetic_probe.py'
+          python3 -m unittest discover -s scripts -p 'test_keenetic_address_retirement.py'
+          python3 -m unittest discover -s scripts -p 'test_openwrt_source_gate.py'
+          python3 -m unittest discover -s scripts -p 'test_openwrt_archive.py'
+      - name: Test Docker entrypoint in isolated Linux chroots
+        run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_docker_entrypoint.py
+      - name: Test server updater package transactions in isolated chroots
+        run: |
+          command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
+          sudo unshare --mount --net --pid --fork python3 -B scripts/test_server_updater.py
+      - name: Test Debian package lifecycle in isolated chroots
+        run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_debian_lifecycle.py
+      - name: Test binary installer payload and state preparation
+        run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_binary_installer.py
+      - name: Installer dependency and package admission fixtures
+        run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_installer_admission.py
+      - name: Installer secret and config publication fixtures
+        run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_installer_secrets.py
+      - name: Installer kernel tuning failure and recovery fixtures
+        run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_installer_tuning.py
+      - name: Installer and Debian private state ownership
+        run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_service_state_ownership.py
+      - name: Installer and updater legacy CLI version discovery
+        run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_installer_cli_version.py
+      - name: Installer preflight and staged config fixtures
+        run: sudo unshare --mount --net --pid --fork python3 -B scripts/test_installer_config.py
       - name: Verify native library hashes
         run: bash native-libs/verify.sh
       # verify.sh proves copy/manifest parity. provenance.py additionally requires the exact
@@ -101,7 +180,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: qeli
       - name: Release server rejects builds without jemalloc
@@ -117,13 +198,30 @@ jobs:
           grep -F "release qeli server builds require --features jemalloc" "$log"
       - name: Build release server with jemalloc
         run: cargo build --locked --bin qeli --release --features jemalloc
+      - name: Server library without client feature
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo check --locked --no-default-features --features server --lib
+      - name: Standalone client without server feature
+        run: cargo check --locked --no-default-features --features client-bin --bin qeli-client
+      - name: Server INI roundtrip key coverage
+        run: python3 ../scripts/gen_roundtrip_fixture.py --check
       - name: Test
         run: cargo test --locked --workspace -- --test-threads=1
+      - name: Minimal feature library tests
+        run: |
+          for feature in server client-bin transport-core-ffi; do
+            cargo test --locked --no-default-features --features "$feature" --lib -- --test-threads=1
+          done
       # The whole-client ABI is opt-in while clients migrate. Test its state machine with
       # the normal feature set (some older realtls unit tests require `server`), then build
       # the actual minimal cdylib configuration separately. The release profile is the
       # important half: `transport-core-ffi` implies `ffi-cdylib`, whose compile-time guard
       # rejects panic=abort because it would make every catch_unwind boundary ineffective.
+      - name: Configuration document and policy service tests
+        run: cargo test --locked --features transport-core-ffi --test config_editor
+      - name: Generated native configuration adapters are current
+        run: python3 ../scripts/gen_config_bindings.py --check
       - name: Transport-core C ABI tests
         env:
           CARGO_PROFILE_RELEASE_PANIC: unwind
@@ -172,7 +270,9 @@ jobs:
         with:
           version: 0.13.0
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: qeli
       - name: Install cargo-zigbuild
@@ -188,6 +288,15 @@ jobs:
           deb=$(ls qeli/debian/qeli_*_amd64.deb | head -n1)
           echo "deb=$deb" >> "$GITHUB_OUTPUT"
           ls -la "$deb"
+      - name: Installer with the actual packaged CLI
+        run: |
+          set -euo pipefail
+          command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
+          payload=$(mktemp -d)
+          trap 'rm -rf -- "$payload"' EXIT
+          dpkg-deb -x "${{ steps.pkg.outputs.deb }}" "$payload"
+          test -x "$payload/usr/bin/qeli"
+          sudo env QELI_AUDIT_BINARY="$payload/usr/bin/qeli" unshare --mount --net --pid --fork python3 -B scripts/test_installer_real_cli.py
       - name: Runs on the declared glibc floor (debian:10 = glibc 2.28)
         run: |
           set -euo pipefail
@@ -233,6 +342,39 @@ jobs:
             done
           ' "${{ steps.pkg.outputs.deb }}"
 
+      - name: Verify embedded licenses in the actual Debian CLI
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          extracted="$(mktemp -d)"
+          trap 'rm -rf -- "$extracted"' EXIT
+          dpkg-deb -x "${{ steps.pkg.outputs.deb }}" "$extracted"
+          "$extracted/usr/bin/qeli" licenses --export "$extracted/exported-licenses"
+          python3 scripts/embedded_licenses.py --verify-export "$extracted/exported-licenses"
+          "$extracted/usr/bin/qeli" licenses --file rust/Qeli-AGPL-3.0.txt | cmp - qeli/third-party-notices/rust/Qeli-AGPL-3.0.txt
+      - name: Stage tested Linux candidate packages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && contains(github.event.head_commit.message, '[candidate]')
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/qeli-candidate-linux"
+          extracted="$(mktemp -d)"
+          trap 'rm -rf -- "$extracted"' EXIT
+          mkdir -p "$out"
+          cp "${{ steps.pkg.outputs.deb }}" "$out/"
+          dpkg-deb -x "${{ steps.pkg.outputs.deb }}" "$extracted"
+          cp "$extracted/usr/bin/qeli" "$out/qeli-linux-amd64"
+      - name: Retain tested Linux candidate packages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && contains(github.event.head_commit.message, '[candidate]')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: qeli-candidate-linux-${{ github.sha }}
+          path: ${{ runner.temp }}/qeli-candidate-linux/
+          if-no-files-found: error
+          retention-days: 7
+
   # Hard gate: the two installer scripts are the ONLY thing between a fresh VPS and a
   # running server, they run as root, and nothing ever linted them. (Audit 2026-07-27, G2)
   # The gate is severity `warning` and above — that is a threshold, not an exemption:
@@ -247,7 +389,7 @@ jobs:
       - name: Install shellcheck
         run: command -v shellcheck >/dev/null || sudo apt-get install -y --no-install-recommends shellcheck
       - name: shellcheck (gate — warning and above)
-        run: shellcheck -S warning install-qeli-server.sh update-qeli-server.sh
+        run: shellcheck -S warning install-qeli-server.sh update-qeli-server.sh qeli/debian/preinst qeli/debian/postinst qeli/debian/prerm
       - name: shellcheck (advisory — every severity)
         run: shellcheck install-qeli-server.sh update-qeli-server.sh || true
 
@@ -264,7 +406,7 @@ jobs:
           # Match the reproducible native-build toolchain so a moving `stable` cannot
           # introduce new lints that force unrelated binary provenance updates.
           toolchain: 1.97.0
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: qeli
       - name: rustfmt
@@ -290,7 +432,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: docs checks
-        run: python3 scripts/check_docs.py
+        run: |
+          python3 -B -m unittest discover -s scripts -p 'test_check_docs.py'
+          python3 scripts/check_docs.py
+      - name: Server INI example and default contracts
+        run: python3 -B -m unittest discover -s scripts -p 'test_server_config*.py'
+      - name: Release publication admission contracts
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_release_tag.py'
+          python3 -m unittest discover -s scripts -p 'test_gen_checksums.py'
+          python3 -m unittest discover -s scripts -p 'test_release_ci_gate.py'
+          python3 -m unittest discover -s scripts -p 'test_fuzz_targets.py'
+
       - name: release certification contracts
         run: |
           python3 -m unittest discover -s scripts -p 'test_release_certification.py'
@@ -298,7 +451,9 @@ jobs:
           bash -n scripts/ipv6_netns_case.sh
 
       - name: panel source checks
-        run: python3 scripts/check_panel.py
+        run: |
+          python3 scripts/check_panel.py
+          node scripts/test_panel_editors.cjs
       - name: embedded panel CSS is current
         run: |
           cd qeli/web-assets
@@ -310,7 +465,9 @@ jobs:
       - name: fetch tags
         run: git fetch --tags --force
       - name: version consistency
-        run: python3 scripts/sync_version.py
+        run: |
+          python3 scripts/sync_version.py
+          python3 -m unittest discover -s scripts -p 'test_sync_version.py'
 
   # HARD gates: the client apps must at least compile. None of these carry
   # `continue-on-error`, so a broken client build blocks the merge — which is the intent.
@@ -319,17 +476,21 @@ jobs:
   # labels and mechanics in step: a comment that misstates whether a gate blocks is how people come
   # to believe a red job is expected. (Audit 2026-07-27, Z5.)
   #
-  # The native realtls core (libqeli.so / qeli.dll / libqeli.dylib) is committed under each
-  # client, so these jobs only need the platform toolchain — they do NOT cross-build Rust.
+  # Adapter tests and app builds use fresh ABI 1.16 cores from this checkout.
+  # The independent native-libs job still gates committed release provenance.
   android-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          # Command-line tools are installed by the action itself. The legacy SDK
+          # package named `tools` was removed from Google's current repository.
+          packages: platform-tools
       # `gradle-wrapper.jar` is a BINARY committed to this repo, and every Gradle step below
       # executes it. Nothing verified it: a tampered wrapper (or a `distributionUrl` pointed
       # somewhere else) would run attacker code inside the job that builds and signs the
@@ -337,7 +498,43 @@ jobs:
       # of every known release; `allow-snapshots: false` keeps it to released versions.
       # Pinned by SHA like every other action here. (Audit 2026-08-04.)
       - name: Validate the Gradle wrapper
-        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - name: Resolve opt-in release test dependencies under strict locking
+        working-directory: qeli-android
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          report="$RUNNER_TEMP/qeli-release-test-dependencies.log"
+          if ! ./gradlew --no-daemon --dependency-verification strict -PqeliTestBuildType=release :app:dependencies >"$report" 2>&1; then
+            cat "$report"
+            exit 1
+          fi
+          if grep -n 'FAILED' "$report"; then
+            cat "$report"
+            exit 1
+          fi
+          grep -q '^releaseAndroidTestRuntimeClasspath' "$report"
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: qeli
+      - name: Build current host configuration and transport core
+        working-directory: .
+        run: python scripts/build_client_core.py --github-env
+      - name: Install pinned native Android build dependencies
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "ndk;$(python3 -c 'import sys; sys.path.insert(0,"scripts"); from native_repro import DEFAULT_ANDROID_NDK; print(DEFAULT_ANDROID_NDK)')"
+          cargo install cargo-ndk --locked --version "$(python3 -c 'import sys; sys.path.insert(0,"scripts"); from native_repro import DEFAULT_CARGO_NDK_VERSION; print(DEFAULT_CARGO_NDK_VERSION)')"
+          rustup target add aarch64-linux-android x86_64-linux-android
+      - name: Build current Android JNI cores
+        working-directory: .
+        run: python3 scripts/build_client_core.py --android --github-env
       - name: Assemble debug APK
         working-directory: qeli-android
         run: |
@@ -364,7 +561,28 @@ jobs:
       # (Audit 2026-07-29, #3.)
       - name: Android release APK builds
         working-directory: qeli-android
+        env:
+          # Candidate packages consume the qualified A/B release cores, not CI cores.
+          QELI_NATIVE_JNI_DIR: ${{ github.workspace }}/qeli-android/app/src/main/jniLibs
         run: ./gradlew --no-daemon assembleRelease
+      - name: Test Android legal asset admission
+        working-directory: .
+        run: python3 -m unittest discover -s scripts -p test_check_android_licenses.py
+      - name: Verify project, Maven and Cargo legal resources in both APKs
+        working-directory: .
+        run: |
+          python3 scripts/check_android_licenses.py --apk qeli-android/app/build/outputs/apk/debug/app-debug.apk
+          python3 scripts/check_android_licenses.py --apk qeli-android/app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Retain unsigned Android candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && contains(github.event.head_commit.message, '[candidate]')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: qeli-candidate-android-unsigned-${{ github.sha }}
+          path: qeli-android/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
 
   android-instrumented:
     name: Android runtime gates (API ${{ matrix.api-level }})
@@ -377,12 +595,32 @@ jobs:
         api-level: [29, 35]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '17'
       - name: Validate the Gradle wrapper
-        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: qeli
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: platform-tools
+      - name: Install pinned native Android build dependencies
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "ndk;$(python3 -c 'import sys; sys.path.insert(0,"scripts"); from native_repro import DEFAULT_ANDROID_NDK; print(DEFAULT_ANDROID_NDK)')"
+          cargo install cargo-ndk --locked --version "$(python3 -c 'import sys; sys.path.insert(0,"scripts"); from native_repro import DEFAULT_CARGO_NDK_VERSION; print(DEFAULT_CARGO_NDK_VERSION)')"
+          rustup target add aarch64-linux-android x86_64-linux-android
+      - name: Build current Android JNI cores
+        working-directory: .
+        run: python3 scripts/build_client_core.py --android --abis x86_64 --github-env
       - name: Enable KVM for the Android emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -407,27 +645,44 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Verify pinned Wintun version and Authenticode signer
+      - name: Verify pinned Windows drivers, signatures and notices
         working-directory: .
         shell: pwsh
         run: ./scripts/verify_windows_drivers.ps1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: 'global.json'
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: qeli
+      - name: Build current host configuration and transport core
+        working-directory: .
+        run: python scripts/build_client_core.py --github-env
       - name: Build QeliWin (Release)
         working-directory: qeli-win
         run: dotnet build QeliWin/QeliWin.csproj -c Release
+      - name: Test Windows publication failure propagation
+        working-directory: .
+        run: python -B -m unittest discover -s scripts -p 'test_windows_ci_publish.py' -v
+      - name: Build metadata-only embedded license inspector
+        working-directory: .
+        run: dotnet build scripts/embedded_license_reader/Reader.csproj -c Release -o "${{ runner.temp }}/qeli-license-reader"
       - name: Publish both Windows distributions with required third-party notices
         working-directory: qeli-win
         shell: pwsh
+        env:
+          QeliNativeCorePath: ${{ github.workspace }}/qeli-win/QeliWin/native/qeli.dll
         run: |
           dotnet publish QeliWin/QeliWin.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o dist/net-required
+          if ($LASTEXITCODE -ne 0) { throw "framework-dependent Windows publication failed" }
           dotnet publish QeliWin/QeliWin.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o dist/standalone
+          if ($LASTEXITCODE -ne 0) { throw "standalone Windows publication failed" }
           foreach ($dir in @('dist/net-required', 'dist/standalone')) {
-            foreach ($notice in @('Wintun-LICENSE.txt', 'WinDivert-LICENSE.txt', 'WinDivert-NOTICE.txt')) {
-              $path = Join-Path $dir $notice
-              if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "published package is missing $path" }
-            }
+            python ../scripts/check_windows_embedded_licenses.py --repo .. --exe "$dir/QeliWin.exe" --reader "$env:RUNNER_TEMP/qeli-license-reader/Reader.dll"
+            if ($LASTEXITCODE -ne 0) { throw "embedded original license/native verification failed: $dir" }
           }
       - name: Self-test QeliWin platform adapters
         working-directory: qeli-win
@@ -444,19 +699,55 @@ jobs:
         working-directory: qeli-shared
         run: dotnet exec QeliConformance/bin/Release/net10.0/QeliConformance.dll packetbench --ci
 
+      - name: Retain tested Windows candidate distributions
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && contains(github.event.head_commit.message, '[candidate]')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: qeli-candidate-windows-${{ github.sha }}
+          path: |
+            qeli-win/dist/net-required/
+            qeli-win/dist/standalone/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
   macos-build:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: 'global.json'
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: qeli
+      - name: Build current host configuration and transport core
+        working-directory: .
+        run: python scripts/build_client_core.py --github-env
       - name: Build QeliMac (Release)
         working-directory: qeli-mac
         run: dotnet build QeliMac/QeliMac.csproj -c Release
       - name: Self-test QeliMac platform adapters
         working-directory: qeli-mac
         run: dotnet exec QeliMac/bin/Release/net10.0/QeliMac.dll selftest
+      - name: Render macOS build assets without privileged recovery
+        working-directory: qeli-mac
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets="$(mktemp -d)"
+          trap 'rm -rf "$assets"' EXIT
+          dotnet exec QeliMac/bin/Release/net10.0/QeliMac.dll genicns "$assets/Qeli.icns" 2>"$assets/icns-errors.log"
+          cat "$assets/icns-errors.log"
+          test ! -s "$assets/icns-errors.log"
+          test -s "$assets/Qeli.icns"
+          dotnet exec QeliMac/bin/Release/net10.0/QeliMac.dll genassets "$assets/png" 2>"$assets/png-errors.log"
+          cat "$assets/png-errors.log"
+          test ! -s "$assets/png-errors.log"
+          test -n "$(find "$assets/png" -name '*.png' -type f -print -quit)"
       - name: Build managed conformance runner (macOS)
         working-directory: qeli-shared
         run: dotnet build QeliConformance/QeliConformance.csproj -c Release
@@ -503,17 +794,61 @@ jobs:
         run: |
           dotnet build QeliMac/QeliMac.csproj -c Release -r osx-arm64
           dotnet build QeliMac/QeliMac.csproj -c Release -r osx-x64
+      - name: Publish both macOS RIDs with required legal resources
+        working-directory: qeli-mac
+        shell: bash
+        run: |
+          set -euo pipefail
+          for rid in osx-arm64 osx-x64; do
+            dotnet publish QeliMac/QeliMac.csproj -c Release -r "$rid" --self-contained true -o "dist/$rid"
+            python3 ../scripts/native_licenses.py --repo .. --bundle "dist/$rid/Legal/NativeRust"
+            python3 ../scripts/managed_licenses.py --repo .. --bundle "dist/$rid/Legal/DotNet"
+            cmp LICENSE "dist/$rid/Legal/MPL-2.0.txt"
+          done
       - name: Install XcodeGen for macOS per-app extension
         run: brew install xcodegen
       - name: Build and test macOS per-app system extension
         working-directory: qeli-mac
-        run: ./per-app/build.sh "$PWD/dist/per-app-ci" arm64
+        run: ./per-app/build.sh "$PWD/dist/per-app-arm64" arm64
+
+      - name: Package ad-hoc signed macOS candidates
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && contains(github.event.head_commit.message, '[candidate]')
+        working-directory: qeli-mac
+        shell: bash
+        env:
+          # A host-only CI core cannot run in the other RID; ship the qualified universal core.
+          QeliNativeCorePath: ${{ github.workspace }}/qeli-mac/QeliMac/native/libqeli.dylib
+          QELI_CONFIG_NATIVE_LIBRARY: ${{ github.workspace }}/qeli-mac/QeliMac/native/libqeli.dylib
+        run: |
+          set -euo pipefail
+          lipo "$QeliNativeCorePath" -verify_arch arm64 x86_64
+          for arch in arm64 x86_64; do
+            bash build_app.sh "$arch"
+            lipo dist/Qeli.app/Contents/MacOS/QeliMac -archs
+            lipo dist/Qeli.app/Contents/MacOS/QeliMac -verify_arch "$arch"
+            lipo dist/Qeli.app/Contents/MacOS/libqeli.dylib -archs
+            lipo dist/Qeli.app/Contents/MacOS/libqeli.dylib -verify_arch arm64 x86_64
+            codesign --verify --deep --strict --verbose=2 dist/Qeli.app
+            test -s "dist/Qeli-macos-$arch.tar.gz"
+          done
+      - name: Retain signed macOS candidate archives
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && contains(github.event.head_commit.message, '[candidate]')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: qeli-candidate-macos-${{ github.sha }}
+          path: |
+            qeli-mac/dist/Qeli-macos-arm64.tar.gz
+            qeli-mac/dist/Qeli-macos-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
 
   # iOS had NO CI at all: the Swift client (QeliCore crypto/protocol + the packet-tunnel
   # extension) could stop compiling and nothing would notice until a manual Xcode build.
   # The project is generated by XcodeGen from project.yml, so CI generates it the same way
   # the developer script does rather than committing a .xcodeproj. Simulator build + the
-  # existing QeliIOSTests; no signing, so no certificates are needed. (R-05)
+  # existing QeliIOSTests. Tests need ad-hoc simulator signing for real Keychain
+  # access; no device certificate or provisioning profile is required. (R-05)
   ios-build:
     runs-on: macos-latest
     steps:
@@ -523,7 +858,9 @@ jobs:
       # job could never build the product it claims to test; it died at project
       # generation instead. build_native.sh adds the iOS rustup targets itself.
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: qeli
       - name: Build the native core (XCFramework, device + simulator)
@@ -553,17 +890,35 @@ jobs:
           set -euo pipefail
           # Pick whatever iPhone simulator this runner image ships — hardcoding a model
           # breaks every time GitHub rolls the image forward.
-          xcrun simctl list devices available -j > /tmp/sims.json
-          dest=$(python3 -c "import json; d=json.load(open('/tmp/sims.json'))['devices']; print(next(x['udid'] for v in d.values() for x in v if 'iPhone' in x['name']))")
+          sims="$RUNNER_TEMP/qeli-ios-sims.json"
+          xcrun simctl list devices available -j > "$sims"
+          dest=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1]))['devices']; print(next(x['udid'] for v in d.values() for x in v if 'iPhone' in x['name']))" "$sims")
           echo "using simulator $dest"
-          xcodebuild test \
+          # An unsigned host has no effective Keychain access groups (-34018).
+          # Build first so the actual signature can be checked before running tests.
+          xcodebuild build-for-testing \
             -project QeliIOS.xcodeproj \
             -scheme QeliIOS \
+            -configuration Debug \
             -destination "id=$dest" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+            -derivedDataPath build/ci-tests \
+            QELI_KEYCHAIN_GROUP=FAKETEAMID.ru.qeli.app.shared \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES
+          python3 -B ../scripts/verify_ios_simulator.py \
+            build/ci-tests/Build/Products/Debug-iphonesimulator/Qeli.app
+          xcodebuild test-without-building \
+            -project QeliIOS.xcodeproj \
+            -scheme QeliIOS \
+            -configuration Debug \
+            -destination "id=$dest" \
+            -derivedDataPath build/ci-tests \
+            QELI_KEYCHAIN_GROUP=FAKETEAMID.ru.qeli.app.shared \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES
 
-  # Hard build gate: клиент для роутера (Keenetic) кросс-компилируется под обе арки —
-  # aarch64 (stable) и mipsel (tier-3: nightly + -Zbuild-std). Линкер/cc — zig через
+  # Hard build gate: клиент для роутера (Keenetic) кросс-компилируется под четыре арки.
+  # Rust 1.97.0; mipsel tier-3: nightly-2026-06-10 + -Zbuild-std. Линкер/cc — zig через
   # cargo-zigbuild (OpenWrt SDK не нужен). Только сборка; рантайм проверяется на устройстве.
   # Арк-специфичные TUNSETIFF (тип/значение) и float-ABI mipsel видны ТОЛЬКО здесь, не на
   # x86-гейте build-test выше — этот job ловит молчаливую поломку кросс-сборки.
@@ -575,23 +930,23 @@ jobs:
         include:
           - arch: aarch64
             target: aarch64-unknown-linux-musl
-            toolchain: stable
+            toolchain: 1.97.0
           - arch: mipsel
             target: mipsel-unknown-linux-musl
-            toolchain: nightly
+            toolchain: nightly-2026-06-10
           # armv7 is a shipped OpenWrt target but was missing from the matrix, so a
           # 32-bit-only break could still slip through even though mipsel is covered.
-          # Same soft-float / stable toolchain path as aarch64 (tier-2, no build-std).
+          # ARM EABI5 hard-float; tier-2 prebuilt std, no build-std.
           - arch: armv7
             target: armv7-unknown-linux-musleabihf
-            toolchain: stable
+            toolchain: 1.97.0
           # x86_64-musl was missing while `qeli-openwrt/dist/qeli-client-openwrt-x86_64`
           # is PUBLISHED — a shipped artifact with no build gate at all. It is also the
           # only musl target where the x86-specific code paths get compiled against musl
           # rather than glibc. (Audit 2026-07-27, G2)
           - arch: x86_64-musl
             target: x86_64-unknown-linux-musl
-            toolchain: stable
+            toolchain: 1.97.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
@@ -605,30 +960,79 @@ jobs:
           # mipsel is tier-3: no prebuilt std, so build-std needs rust-src. aarch64 and
           # armv7 are tier-2: install the prebuilt std target instead.
           if [ "${{ matrix.arch }}" = "mipsel" ]; then
-            rustup component add rust-src
+            rustup component add rust-src --toolchain ${{ matrix.toolchain }}
           else
-            rustup target add ${{ matrix.target }}
+            rustup target add --toolchain ${{ matrix.toolchain }} ${{ matrix.target }}
           fi
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: qeli
       - name: Install cargo-zigbuild
-        run: cargo install cargo-zigbuild --version 0.23.0 --locked
+        run: cargo +${{ matrix.toolchain }} install cargo-zigbuild --version 0.23.0 --locked --jobs 1
+      - name: Canonical standalone router release profile
+        working-directory: .
+        run: python3 scripts/router_toolchain.py --print-release-profile >> "$GITHUB_ENV"
       - name: Cross-build qeli-client (${{ matrix.arch }})
         run: |
+          set -euo pipefail
+          unset CARGO_ENCODED_RUSTFLAGS RUSTC CARGO_BUILD_RUSTC CARGO_BUILD_RUSTFLAGS
+          export RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_INCREMENTAL=0
+          QELI_ROUTER_RUSTC="$(rustup which --toolchain ${{ matrix.toolchain }} rustc)"
+          test -x "$QELI_ROUTER_RUSTC"
+          export RUSTC="$QELI_ROUTER_RUSTC"
+          export CARGO_TARGET_DIR="$PWD/target" CARGO_BUILD_BUILD_DIR="$PWD/target"
           sed -i 's/^crate-type = \["rlib", "cdylib", "staticlib"\]$/crate-type = ["rlib"]/' Cargo.toml
           grep -qxF 'crate-type = ["rlib"]' Cargo.toml
           if [ "${{ matrix.arch }}" = "mipsel" ]; then
-            RUSTFLAGS='-C link-arg=-msoft-float' cargo zigbuild --locked -Z build-std=std,panic_abort \
+            RUSTFLAGS='-C link-arg=-msoft-float' cargo +${{ matrix.toolchain }} zigbuild --locked --jobs 1 -Z build-std=std,panic_abort \
               --release --bin qeli-client --no-default-features --features client-bin \
               --target ${{ matrix.target }}
           else
-            cargo zigbuild --locked \
+            RUSTFLAGS='' cargo +${{ matrix.toolchain }} zigbuild --locked --jobs 1 \
               --release --bin qeli-client --no-default-features --features client-bin \
               --target ${{ matrix.target }}
           fi
-      - name: Artifact info
-        run: file target/${{ matrix.target }}/release/qeli-client
+      - name: Verify static target ELF
+        env:
+          QELI_ROUTER_TARGET: ${{ matrix.target }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, sys
+          from pathlib import Path
+          sys.path.insert(0, '../scripts')
+          from router_artifact import validate_router_elf
+          target = os.environ['QELI_ROUTER_TARGET']
+          data = (Path('target') / target / 'release/qeli-client').read_bytes()
+          print(validate_router_elf(data, target))
+          print('sha256:', hashlib.sha256(data).hexdigest(), 'bytes:', len(data))
+          PY
+
+      - name: Verify embedded licenses on the target instruction set
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.arch }}" != "x86_64-musl" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends qemu-user
+          fi
+          runner=()
+          case "${{ matrix.arch }}" in
+            aarch64) runner=(qemu-aarch64) ;;
+            mipsel) runner=(qemu-mipsel) ;;
+            armv7) runner=(qemu-arm -cpu cortex-a15) ;;
+          esac
+          binary="target/${{ matrix.target }}/release/qeli-client"
+          exported="$RUNNER_TEMP/qeli-router-license-export"
+          "${runner[@]}" "$binary" licenses --export "$exported"
+          python3 ../scripts/embedded_licenses.py --verify-export "$exported"
+          "${runner[@]}" "$binary" licenses --file rust/Qeli-AGPL-3.0.txt | cmp - third-party-notices/rust/Qeli-AGPL-3.0.txt
+      - name: Retain validated router candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && contains(github.event.head_commit.message, '[candidate]')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: qeli-candidate-router-${{ matrix.arch }}-${{ github.sha }}
+          path: qeli/target/${{ matrix.target }}/release/qeli-client
+          if-no-files-found: error
+          retention-days: 7
 
   # Hard gate: build the fuzz harnesses and run a short smoke on each. Catches a
   # build break / API drift in the untrusted-input parsers (ClientHello, packet
@@ -636,54 +1040,104 @@ jobs:
   # short smoke is a merge blocker; full coverage-guided fuzzing runs nightly.
   fuzz-smoke:
     runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_JOBS: 1
     # Parser harness drift and a reproduced crash are release blockers, not advisory
     # telemetry; keep this job hard even though cargo-fuzz uses nightly. (R-04)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          toolchain: ${{ env.QELI_FUZZ_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: qeli
+      - name: Pin nested fuzz compiler processes
+        run: echo "RUSTUP_TOOLCHAIN=$QELI_FUZZ_TOOLCHAIN" >> "$GITHUB_ENV"
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        run: cargo +"$QELI_FUZZ_TOOLCHAIN" install cargo-fuzz --version "$QELI_CARGO_FUZZ_VERSION" --locked --jobs 1
+      - name: Fetch the reviewed fuzz dependency graph
+        id: fuzz-lock
+        run: |
+          set -euo pipefail
+          test -f fuzz/Cargo.lock
+          cargo +"$QELI_FUZZ_TOOLCHAIN" fetch --locked --manifest-path fuzz/Cargo.toml
+          sha256sum fuzz/Cargo.lock > "$RUNNER_TEMP/qeli-fuzz-lock.sha256"
       # Build first and report the outcome explicitly: an API drift that stops the
       # harnesses compiling is a genuine regression in the untrusted-input parsers, and
       # a soft job would otherwise bury it. This gate intentionally fails the run. (R-04)
       - name: Build the fuzz harnesses
+        env:
+          CARGO_NET_OFFLINE: true
         working-directory: qeli
         run: |
           set -euo pipefail
-          if ! cargo +nightly fuzz build; then
+          if ! cargo +"$QELI_FUZZ_TOOLCHAIN" fuzz build; then
             echo "::error::fuzz harnesses no longer build — the parser API drifted"
             exit 1
           fi
       - name: Smoke each target (30s)
+        env:
+          CARGO_NET_OFFLINE: true
         working-directory: qeli
         run: |
-          for t in clienthello client_config websocket_head packet_decrypt realtls_record obfs_datagram quic udp_frag data_frag roaming_wire ip_packet; do
+          set -euo pipefail
+          inventory="$(python3 ../scripts/fuzz_targets.py)"
+          mapfile -t targets <<< "$inventory"
+          for t in "${targets[@]}"; do
+            sha256sum --check "$RUNNER_TEMP/qeli-fuzz-lock.sha256"
             echo "=== fuzz $t ==="
-            cargo +nightly fuzz run "$t" -- -max_total_time=30
+            cargo +"$QELI_FUZZ_TOOLCHAIN" fuzz run "$t" -- -max_total_time=30
           done
+      - name: Refuse fuzz lockfile drift
+        if: always() && steps.fuzz-lock.outcome == 'success'
+        run: sha256sum --check "$RUNNER_TEMP/qeli-fuzz-lock.sha256"
 
   # Continuous fuzzing: a longer nightly run of each target with a corpus persisted
   # across runs, so coverage accumulates (the push `fuzz-smoke` above is only a 30s
   # build-break check with no corpus). Per-target matrix runs in parallel; a crash
   # fails that target and uploads the reproducer as an artifact. Scheduled/manual only.
-  fuzz-nightly:
+  # One manifest-derived matrix shared with smoke; no parallel manual target list.
+  fuzz-targets:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Read all registered fuzz targets
+        id: targets
+        run: python3 ../scripts/fuzz_targets.py --github-output "$GITHUB_OUTPUT"
+
+  fuzz-nightly:
+    needs: fuzz-targets
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_JOBS: 1
     strategy:
       fail-fast: false
       matrix:
-        target: [clienthello, client_config, websocket_head, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag, data_frag, roaming_wire, ip_packet]
+        target: ${{ fromJSON(needs.fuzz-targets.outputs.targets) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          toolchain: ${{ env.QELI_FUZZ_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: qeli
+      - name: Pin nested fuzz compiler processes
+        run: echo "RUSTUP_TOOLCHAIN=$QELI_FUZZ_TOOLCHAIN" >> "$GITHUB_ENV"
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        run: cargo +"$QELI_FUZZ_TOOLCHAIN" install cargo-fuzz --version "$QELI_CARGO_FUZZ_VERSION" --locked --jobs 1
+      - name: Fetch the reviewed fuzz dependency graph
+        id: fuzz-lock
+        run: |
+          set -euo pipefail
+          test -f fuzz/Cargo.lock
+          cargo +"$QELI_FUZZ_TOOLCHAIN" fetch --locked --manifest-path fuzz/Cargo.toml
+          sha256sum fuzz/Cargo.lock > "$RUNNER_TEMP/qeli-fuzz-lock.sha256"
       - name: Restore/seed corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -694,10 +1148,15 @@ jobs:
           restore-keys: |
             fuzz-corpus-${{ matrix.target }}-
       - name: Fuzz ${{ matrix.target }} (10 min)
-        run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=600
+        env:
+          CARGO_NET_OFFLINE: true
+        run: cargo +"$QELI_FUZZ_TOOLCHAIN" fuzz run ${{ matrix.target }} -- -max_total_time=600
+      - name: Refuse fuzz lockfile drift
+        if: always() && steps.fuzz-lock.outcome == 'success'
+        run: sha256sum --check "$RUNNER_TEMP/qeli-fuzz-lock.sha256"
       - name: Upload crash reproducer
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: fuzz-crash-${{ matrix.target }}
           path: qeli/fuzz/artifacts/${{ matrix.target }}
@@ -709,23 +1168,29 @@ jobs:
   # promoted. Audit 2026-07-27, Z5.)
   security-audit:
     runs-on: ubuntu-latest
-    # HARD GATE (R-04). Was `continue-on-error: true` with a note to promote it "once the
-    # tree is triaged clean" — it now is: `cargo audit` reports 0 vulnerabilities, only one
-    # allowed `unmaintained` warning (RUSTSEC-2025-0134, rustls-pemfile). A soft security
-    # gate reports a new CVE into a log nobody reads, which is the same as not having one.
-    # NB: cargo audit exits 0 on warnings and non-zero on VULNERABILITIES, so an
-    # unmaintained-crate advisory still does not block a merge — only a real CVE does.
+    # Known vulnerabilities and every selected warning class block this job.
+    # Keep tool versions explicit so policy updates are reviewed with the lockfile.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: qeli
+      - name: Android dependency audit fixtures
+        working-directory: .
+        run: python3 -m unittest discover -s scripts -p test_audit_android_dependencies.py
+      - name: Android locked Maven vulnerabilities
+        working-directory: .
+        run: python3 scripts/audit_android_dependencies.py
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        run: cargo install cargo-audit --version 0.22.2 --locked
       - name: cargo audit
-        run: cargo audit
+        run: cargo audit --deny warnings
+      - name: Audit the independent fuzz dependency graph
+        run: cargo audit --deny warnings --file fuzz/Cargo.lock
       - name: Install cargo-deny
         run: cargo install cargo-deny --version 0.18.4 --locked
-      - name: Dependency policy (bans and sources)
-        run: cargo deny check bans sources
+      - name: Dependency policy (licenses, bans and sources)
+        run: cargo deny --all-features --locked check licenses bans sources

@@ -1,0 +1,1066 @@
+{
+  "schema_version": 1,
+  "status": "PASS_Q20",
+  "executed_at": "2026-10-04T08:31:22.455993+00:00",
+  "artifact_sha256": "36a0e491f9437773b73b3e29f9c7ab0b7f624142e782dd78777f0c6168e6cef1",
+  "core_commit": "cb94f49bb884ee3e8575bb2104d57c534c38a5ab",
+  "fixes": [
+    "Q20-F001: complete packet and control-option validation before allocation; whole datagrams received",
+    "Q20-F002: full six-byte MAC rate key",
+    "Q20-F003: widened T2 arithmetic",
+    "Q20-F004: checked 63 IPv4 DNS single-option boundary in admission and encoder",
+    "Q20-F005: bounded option-overload file/sname parsing"
+  ],
+  "unit": {
+    "passed": 2383,
+    "ignored": 60,
+    "new": 7,
+    "groups": {
+      "server::dhcp::tests::": 16,
+      "config::server::dhcp_pool_tests::": 7,
+      "config::server_ini::tests::": 19,
+      "web::api::config::": 38
+    },
+    "baseline_passed": 10,
+    "baseline_failed": 4
+  },
+  "runtime": {
+    "semantic_checks": 35,
+    "rate_primers": 60,
+    "total_records": 95,
+    "result": {
+      "executed_at": "2026-10-04T08:31:22.455993+00:00",
+      "mode": "fixed",
+      "source_commit": "cb89f5d1b1440dc831a53a1133c943cf9c9845c2",
+      "host_before": {
+        "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+        "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+        "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+        "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+        "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+        "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall6_legacy": "",
+        "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+        "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+        "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+        "named_namespaces": ""
+      },
+      "service_before": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+      "working_before": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0  /root/qeli-src/target/release/qeli",
+      "binary_sha256": "36a0e491f9437773b73b3e29f9c7ab0b7f624142e782dd78777f0c6168e6cef1",
+      "fixture_sha256": "ceeaba9cfe8e4ba33b9beb014668fa8ca34cdd30926834a7498b83d6f20a02a3",
+      "command": "timeout --signal=TERM --kill-after=10 120 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-q20-runtime-fixed-r3-20261004/isolated.sh /var/tmp/qeli-q20-runtime-fixed-r3-20261004/private 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-q20-runtime-fixed-r3-20261004/run.sh",
+      "exit_code": 0,
+      "checks": [
+        {
+          "name": "INI admission DNS count=63 DHCP=True",
+          "passed": true,
+          "detail": null
+        },
+        {
+          "name": "INI admission DNS count=64 DHCP=True",
+          "passed": true,
+          "detail": null
+        },
+        {
+          "name": "INI admission DNS count=64 DHCP=False",
+          "passed": true,
+          "detail": null
+        },
+        {
+          "name": "real worker owns TAP and DHCP UDP/67",
+          "passed": true,
+          "detail": {
+            "links": [
+              {
+                "ifindex": 2,
+                "ifname": "qdhcp0",
+                "flags": [
+                  "BROADCAST",
+                  "MULTICAST",
+                  "UP",
+                  "LOWER_UP"
+                ],
+                "mtu": 1400,
+                "qdisc": "mq",
+                "operstate": "UNKNOWN",
+                "linkmode": "DEFAULT",
+                "group": "default",
+                "txqlen": 1000,
+                "link_type": "ether",
+                "address": "02:00:00:00:00:01",
+                "broadcast": "ff:ff:ff:ff:ff:ff",
+                "promiscuity": 0,
+                "allmulti": 0,
+                "min_mtu": 68,
+                "max_mtu": 65521,
+                "linkinfo": {
+                  "info_kind": "tun",
+                  "info_data": {
+                    "type": "tap",
+                    "pi": false,
+                    "vnet_hdr": false,
+                    "multi_queue": true,
+                    "numqueues": 1,
+                    "numdisabled": 0,
+                    "persist": false
+                  }
+                },
+                "inet6_addr_gen_mode": "eui64",
+                "num_tx_queues": 256,
+                "num_rx_queues": 256,
+                "gso_max_size": 65536,
+                "gso_max_segs": 65535,
+                "tso_max_size": 65536,
+                "tso_max_segs": 65535,
+                "gro_max_size": 65536,
+                "gso_ipv4_max_size": 65536,
+                "gro_ipv4_max_size": 65536
+              }
+            ],
+            "sockets": "State  Recv-Q Send-Q  Local Address:Port Peer Address:Port\nUNCONN 0      0      0.0.0.0%qdhcp0:67        0.0.0.0:*   \n"
+          }
+        },
+        {
+          "name": "malformed request 0 is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "malformed request 1 is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "malformed request 2 is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "malformed request 3 is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "malformed request 4 is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "malformed request 5 is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "malformed tail beyond old 1500-byte receive buffer is rejected",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "DISCOVER broadcast from 0.0.0.0 receives OFFER",
+          "passed": true,
+          "detail": [
+            {
+              "type": 2,
+              "ip": "10.91.0.100",
+              "options": {
+                "53": "02",
+                "1": "ffffff00",
+                "3": "0a5b0001",
+                "6": "0a5b00030a5b0004",
+                "51": "00000008",
+                "58": "00000004",
+                "59": "00000006",
+                "54": "0a5b0001",
+                "15": "71656c692e74657374"
+              },
+              "hex": "ffffffffffff020000000001080045000149288c4000401106bd0a5b0001ffffffff0043004401358c08020106007120000800008000000000000a5b00640a5b00010000000002540012000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000638253633501020104ffffff0003040a5b000106080a5b00030a5b00043304000000083a04000000043b040000000636040a5b00010f0971656c692e74657374ff"
+            }
+          ]
+        },
+        {
+          "name": "OFFER contains DNS, mask, gateway, domain and timers",
+          "passed": true,
+          "detail": null
+        },
+        {
+          "name": "duplicate xid and MAC receives OFFER",
+          "passed": true,
+          "detail": [
+            {
+              "type": 2,
+              "ip": "10.91.0.100",
+              "options": {
+                "53": "02",
+                "1": "ffffff00",
+                "3": "0a5b0001",
+                "6": "0a5b00030a5b0004",
+                "51": "00000008",
+                "58": "00000004",
+                "59": "00000006",
+                "54": "0a5b0001",
+                "15": "71656c692e74657374"
+              },
+              "hex": "ffffffffffff02000000000108004500014928a04000401106a90a5b0001ffffffff0043004401358c08020106007120000800008000000000000a5b00640a5b00010000000002540012000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000638253633501020104ffffff0003040a5b000106080a5b00030a5b00043304000000083a04000000043b040000000636040a5b00010f0971656c692e74657374ff"
+            }
+          ]
+        },
+        {
+          "name": "repeated MAC retains exact offered address",
+          "passed": true,
+          "detail": null
+        },
+        {
+          "name": "REQUEST selecting our server receives ACK",
+          "passed": true,
+          "detail": [
+            {
+              "type": 5,
+              "ip": "10.91.0.100",
+              "options": {
+                "53": "05",
+                "1": "ffffff00",
+                "3": "0a5b0001",
+                "6": "0a5b00030a5b0004",
+                "51": "00000008",
+                "58": "00000004",
+                "59": "00000006",
+                "54": "0a5b0001",
+                "15": "71656c692e74657374"
+              },
+              "hex": "ffffffffffff02000000000108004500014928ae40004011069b0a5b0001ffffffff0043004401358907020106007120000900008000000000000a5b00640a5b00010000000002540012000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000638253633501050104ffffff0003040a5b000106080a5b00030a5b00043304000000083a04000000043b040000000636040a5b00010f0971656c692e74657374ff"
+            }
+          ]
+        },
+        {
+          "name": "ACK commits exact offered address",
+          "passed": true,
+          "detail": null
+        },
+        {
+          "name": "ciaddr renewal receives ACK",
+          "passed": true,
+          "detail": [
+            {
+              "type": 5,
+              "ip": "10.91.0.100",
+              "options": {
+                "53": "05",
+                "1": "ffffff00",
+                "3": "0a5b0001",
+                "6": "0a5b00030a5b0004",
+                "51": "00000008",
+                "58": "00000004",
+                "59": "00000006",
+                "54": "0a5b0001",
+                "15": "71656c692e74657374"
+              },
+              "hex": "ffffffffffff02000000000108004500014928c34000401106860a5b0001ffffffff0043004401358906020106007120000a00008000000000000a5b00640a5b00010000000002540012000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000638253633501050104ffffff0003040a5b000106080a5b00030a5b00043304000000083a04000000043b040000000636040a5b00010f0971656c692e74657374ff"
+            }
+          ]
+        },
+        {
+          "name": "occupied exact REQUEST receives NAK",
+          "passed": true,
+          "detail": [
+            {
+              "type": 6,
+              "ip": "0.0.0.0",
+              "options": {
+                "53": "06",
+                "54": "0a5b0001"
+              },
+              "hex": "ffffffffffff02000000000108004500011628d54000401106a70a5b0001ffffffff00430044010299f0020106007120000b0000800000000000000000000a5b000100000000025400120002000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006382536335010636040a5b0001ff"
+            }
+          ]
+        },
+        {
+          "name": "out-of-pool REQUEST receives NAK",
+          "passed": true,
+          "detail": [
+            {
+              "type": 6,
+              "ip": "0.0.0.0",
+              "options": {
+                "53": "06",
+                "54": "0a5b0001"
+              },
+              "hex": "ffffffffffff02000000000108004500011628ec4000401106900a5b0001ffffffff00430044010299ef020106007120000c0000800000000000000000000a5b000100000000025400120002000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006382536335010636040a5b0001ff"
+            }
+          ]
+        },
+        {
+          "name": "selection of another server is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "foreign MAC RELEASE is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "foreign RELEASE did not free the address",
+          "passed": true,
+          "detail": [
+            {
+              "type": 6,
+              "ip": "0.0.0.0",
+              "options": {
+                "53": "06",
+                "54": "0a5b0001"
+              },
+              "hex": "ffffffffffff02000000000108004500011628ee40004011068e0a5b0001ffffffff00430044010299ec020106007120000f0000800000000000000000000a5b000100000000025400120002000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006382536335010636040a5b0001ff"
+            }
+          ]
+        },
+        {
+          "name": "owner RELEASE is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "released address can be requested by next owner",
+          "passed": true,
+          "detail": [
+            {
+              "type": 5,
+              "ip": "10.91.0.100",
+              "options": {
+                "53": "05",
+                "1": "ffffff00",
+                "3": "0a5b0001",
+                "6": "0a5b00030a5b0004",
+                "51": "00000008",
+                "58": "00000004",
+                "59": "00000006",
+                "54": "0a5b0001",
+                "15": "71656c692e74657374"
+              },
+              "hex": "ffffffffffff02000000000108004500014929114000401106380a5b0001ffffffff00430044013588fe020106007120001100008000000000000a5b00640a5b00010000000002540012000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000638253633501050104ffffff0003040a5b000106080a5b00030a5b00043304000000083a04000000043b040000000636040a5b00010f0971656c692e74657374ff"
+            }
+          ]
+        },
+        {
+          "name": "owner DECLINE is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "declined address is quarantined",
+          "passed": true,
+          "detail": [
+            {
+              "type": 6,
+              "ip": "0.0.0.0",
+              "options": {
+                "53": "06",
+                "54": "0a5b0001"
+              },
+              "hex": "ffffffffffff020000000001080045000116291e40004011065e0a5b0001ffffffff00430044010299e702010600712000130000800000000000000000000a5b000100000000025400120003000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006382536335010636040a5b0001ff"
+            }
+          ]
+        },
+        {
+          "name": "available pool slot 2",
+          "passed": true,
+          "detail": [
+            {
+              "type": 2,
+              "ip": "10.91.0.101",
+              "options": {
+                "53": "02",
+                "1": "ffffff00",
+                "3": "0a5b0001",
+                "6": "0a5b00030a5b0004",
+                "51": "00000008",
+                "58": "00000004",
+                "59": "00000006",
+                "54": "0a5b0001",
+                "15": "71656c692e74657374"
+              },
+              "hex": "ffffffffffff020000000001080045000149293c40004011060d0a5b0001ffffffff0043004401358bf9020106007120001400008000000000000a5b00650a5b00010000000002540012000300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000638253633501020104ffffff0003040a5b000106080a5b00030a5b00043304000000083a04000000043b040000000636040a5b00010f0971656c692e74657374ff"
+            }
+          ]
+        },
+        {
+          "name": "second slot commits a short lease",
+          "passed": true,
+          "detail": [
+            {
+              "type": 5,
+              "ip": "10.91.0.101",
+              "options": {
+                "53": "05",
+                "1": "ffffff00",
+                "3": "0a5b0001",
+                "6": "0a5b00030a5b0004",
+                "51": "00000008",
+                "58": "00000004",
+                "59": "00000006",
+                "54": "0a5b0001",
+                "15": "71656c692e74657374"
+              },
+              "hex": "ffffffffffff02000000000108004500014929544000401105f50a5b0001ffffffff00430044013588f8020106007120001500008000000000000a5b00650a5b00010000000002540012000300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000638253633501050104ffffff0003040a5b000106080a5b00030a5b00043304000000083a04000000043b040000000636040a5b00010f0971656c692e74657374ff"
+            }
+          ]
+        },
+        {
+          "name": "available pool slot 3",
+          "passed": true,
+          "detail": [
+            {
+              "type": 2,
+              "ip": "10.91.0.102",
+              "options": {
+                "53": "02",
+                "1": "ffffff00",
+                "3": "0a5b0001",
+                "6": "0a5b00030a5b0004",
+                "51": "00000008",
+                "58": "00000004",
+                "59": "00000006",
+                "54": "0a5b0001",
+                "15": "71656c692e74657374"
+              },
+              "hex": "ffffffffffff02000000000108004500014929584000401105f10a5b0001ffffffff0043004401358bf5020106007120001600008000000000000a5b00660a5b00010000000002540012000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000638253633501020104ffffff0003040a5b000106080a5b00030a5b00043304000000083a04000000043b040000000636040a5b00010f0971656c692e74657374ff"
+            }
+          ]
+        },
+        {
+          "name": "exhausted pool is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "expired committed lease frees a pool slot",
+          "passed": true,
+          "detail": [
+            {
+              "type": 2,
+              "ip": "10.91.0.101",
+              "options": {
+                "53": "02",
+                "1": "ffffff00",
+                "3": "0a5b0001",
+                "6": "0a5b00030a5b0004",
+                "51": "00000008",
+                "58": "00000004",
+                "59": "00000006",
+                "54": "0a5b0001",
+                "15": "71656c692e74657374"
+              },
+              "hex": "ffffffffffff0200000000010800450001492fb340004011ff950a5b0001ffffffff0043004401358bf3020106007120001800008000000000000a5b00650a5b00010000000002540012000500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000638253633501020104ffffff0003040a5b000106080a5b00030a5b00043304000000083a04000000043b040000000636040a5b00010f0971656c692e74657374ff"
+            }
+          ]
+        },
+        {
+          "name": "rate primer 0",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 1",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 2",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 3",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 4",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 5",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 6",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 7",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 8",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 9",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 10",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 11",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 12",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 13",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 14",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 15",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 16",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 17",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 18",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 19",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 20",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 21",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 22",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 23",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 24",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 25",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 26",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 27",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 28",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 29",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 30",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 31",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 32",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 33",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 34",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 35",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 36",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 37",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 38",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 39",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 40",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 41",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 42",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 43",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 44",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 45",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 46",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 47",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 48",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 49",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 50",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 51",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 52",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 53",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 54",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 55",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 56",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 57",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 58",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "rate primer 59",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "61st request from limited MAC is silent",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "option 50 in overloaded file field is parsed",
+          "passed": true,
+          "detail": [
+            {
+              "type": 6,
+              "ip": "0.0.0.0",
+              "options": {
+                "53": "06",
+                "54": "0a5b0001"
+              },
+              "hex": "ffffffffffff020000000001080045000116300f40004011ff6c0a5b0001ffffffff00430044010299a002010600712000560000800000000000000000000a5b000100000000025400120007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006382536335010636040a5b0001ff"
+            }
+          ]
+        },
+        {
+          "name": "profile stop removes TAP and DHCP listener",
+          "passed": true,
+          "detail": null
+        }
+      ],
+      "status": "PASS",
+      "host_after": {
+        "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+        "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+        "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+        "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+        "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+        "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall6_legacy": "",
+        "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}\n# Warning: table ip nat is managed by iptables-nft, do not touch!\n# Warning: table ip filter is managed by iptables-nft, do not touch!\n# Warning: table ip mangle is managed by iptables-nft, do not touch!",
+        "listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+        "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+        "named_namespaces": ""
+      },
+      "service_after": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+      "working_after": "a526c03bf0bae927828e91f11ac5d751c3a82e560a7f12ada3a6ab6b410cedb0  /root/qeli-src/target/release/qeli",
+      "host_restored": true
+    }
+  },
+  "vpn_smoke": {
+    "id": "linux.outer4.inner4.tcp.full",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 5.754,
+    "checks_passed": 13,
+    "checks_failed": 0,
+    "command": "timeout --signal=TERM --kill-after=10 210 unshare --net --mount --pid --fork --kill-child=KILL --mount-proc bash /var/tmp/qeli-release-matrix-20261004T082928135331Z/isolated.sh /var/tmp/qeli-release-matrix-20261004T082928135331Z/linux.outer4.inner4.tcp.full 'net:[4026531840]' 'mnt:[4026531841]' 'pid:[4026531836]' /var/tmp/qeli-release-matrix-20261004T082928135331Z/scripts/ipv6_netns_case.sh /var/tmp/qeli-q20-release-20261004/qeli 4 4 tcp fake-tls full",
+    "log": "linux.outer4.inner4.tcp.full.log"
+  },
+  "baselines": {
+    "wire": {
+      "result_sha256": "1af172eddfedea30a0d6d8324588a0ba00af573bbce1d68afc6e4db4de78035f",
+      "fixture_sha256": "8dd9ebb1db91f420d130e9c4ff1bd23dddbd62a0e0b47f45d2173fecaa9c6d75",
+      "scope": "Actual old binary replied OFFER to malformed message-type option; later duplicate-xid/CLI fixture extensions do not change this packet"
+    },
+    "admission": {
+      "result_sha256": "6be65b1bec3dbfa48175b04980696ca22ba6cb7218d0028243e5ebb501be3412",
+      "fixture_sha256": "ceeaba9cfe8e4ba33b9beb014668fa8ca34cdd30926834a7498b83d6f20a02a3",
+      "scope": "Exact final fixture; old binary accepts 64 DNS addresses"
+    }
+  },
+  "native": {
+    "desktop": {
+      "result_sha256": "98f273c29d98ac926cc8c22e842bc549415d41e5c6b6f3e7577a859cb1d24fb9",
+      "source_commit": "cb94f49bb884ee3e8575bb2104d57c534c38a5ab",
+      "host_restored": false,
+      "accepted_legacy_delta": [
+        "firewall4"
+      ],
+      "record": {
+        "artifacts": {
+          "native-libs/macos-universal/libqeli.dylib": {
+            "consumed": {
+              "qeli-mac/QeliMac/native/libqeli.dylib": "ff0ec4402735968c13a477ef20802b63ab9c604bc90bbaee6c33404b71ed7178"
+            },
+            "final_sha256": "ff0ec4402735968c13a477ef20802b63ab9c604bc90bbaee6c33404b71ed7178",
+            "pass_a_sha256": "ff0ec4402735968c13a477ef20802b63ab9c604bc90bbaee6c33404b71ed7178",
+            "pass_b_sha256": "ff0ec4402735968c13a477ef20802b63ab9c604bc90bbaee6c33404b71ed7178",
+            "reproducible": true
+          },
+          "native-libs/windows-x64/qeli.dll": {
+            "consumed": {
+              "qeli-win/QeliWin/native/qeli.dll": "29394f18067b6562c05b97df6f34a082d4ad994c4a8d477e759841120c59192e"
+            },
+            "final_sha256": "29394f18067b6562c05b97df6f34a082d4ad994c4a8d477e759841120c59192e",
+            "pass_a_sha256": "29394f18067b6562c05b97df6f34a082d4ad994c4a8d477e759841120c59192e",
+            "pass_b_sha256": "29394f18067b6562c05b97df6f34a082d4ad994c4a8d477e759841120c59192e",
+            "reproducible": true
+          }
+        },
+        "recipe": "qeli-native-repro-v1",
+        "schema": 1,
+        "source_commit": "cb94f49bb884ee3e8575bb2104d57c534c38a5ab",
+        "source_date_epoch": 1791101588,
+        "source_digest": "f04a25db47e932408823423b617e8c2ea8da2a145fe1cddc79750b4b3c3005dc",
+        "source_dirty": false,
+        "toolchain": {
+          "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+          "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+          "cargo_zigbuild_version": "0.23.0",
+          "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+          "rcodesign": "apple-codesign 0.29.0",
+          "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+          "rust_toolchain": "1.97.0",
+          "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+          "zig": "0.13.0"
+        }
+      }
+    },
+    "android": {
+      "result_sha256": "53387b898e19e71b0f9aad586db6da2d2184aecae8074a69415778465dee5d81",
+      "source_commit": "7329ed6ae2afbc524199e301b7d8ab579954d59a",
+      "host_restored": true,
+      "accepted_legacy_delta": [],
+      "record": {
+        "artifacts": {
+          "native-libs/android/arm64-v8a/libqeli.so": {
+            "consumed": {
+              "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "f2f4f5e4d4d0457f9acf6184e34333197f72093bf0fc4ebb24bdce1da43cf59a"
+            },
+            "final_sha256": "f2f4f5e4d4d0457f9acf6184e34333197f72093bf0fc4ebb24bdce1da43cf59a",
+            "pass_a_sha256": "f2f4f5e4d4d0457f9acf6184e34333197f72093bf0fc4ebb24bdce1da43cf59a",
+            "pass_b_sha256": "f2f4f5e4d4d0457f9acf6184e34333197f72093bf0fc4ebb24bdce1da43cf59a",
+            "reproducible": true
+          },
+          "native-libs/android/x86_64/libqeli.so": {
+            "consumed": {
+              "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "8ce438b82e93b4a2411256eac55765cbe0720eaf4c8da2e66aefb4004e5a19c1"
+            },
+            "final_sha256": "8ce438b82e93b4a2411256eac55765cbe0720eaf4c8da2e66aefb4004e5a19c1",
+            "pass_a_sha256": "8ce438b82e93b4a2411256eac55765cbe0720eaf4c8da2e66aefb4004e5a19c1",
+            "pass_b_sha256": "8ce438b82e93b4a2411256eac55765cbe0720eaf4c8da2e66aefb4004e5a19c1",
+            "reproducible": true
+          }
+        },
+        "recipe": "qeli-native-repro-v1",
+        "schema": 1,
+        "source_commit": "7329ed6ae2afbc524199e301b7d8ab579954d59a",
+        "source_date_epoch": 1791102254,
+        "source_digest": "f04a25db47e932408823423b617e8c2ea8da2a145fe1cddc79750b4b3c3005dc",
+        "source_dirty": false,
+        "toolchain": {
+          "android_ndk": "26.3.11579264",
+          "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+          "cargo_ndk": "cargo-ndk v4.1.2:",
+          "cargo_ndk_version": "4.1.2",
+          "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+          "rust_toolchain": "1.97.0",
+          "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+        }
+      }
+    }
+  },
+  "plan": {
+    "done": 20,
+    "total": 37,
+    "percent": 54.1,
+    "remaining": 17,
+    "next": "Q21 TUN/TAP and MTU/PMTU"
+  },
+  "limits": [
+    "95 records include 60 deliberate rate primers; they are not 95 independent coverage cases.",
+    "TAP queue injection qualifies real worker/kernel DHCP service, not VPN client AUTH, a platform DHCP daemon or installed-app E2E.",
+    "Leases are process-local; DHCPINFORM, client-identifier lease keys, persistence and external-LAN conflict probing are not implemented. Ethernet MAC is a spoofable DHCP identity.",
+    "Physical Mac/router/Windows VM runtime user-excluded. Cross/native A/B builds do not replace physical E2E.",
+    "No new benchmark, deployed binary replacement, service restart or push. Q25-A125 accepted WAN replacement limit remains.",
+    "60 ignored tests remain explicitly excluded.",
+    "Runtime-baseline-r1/r2/r3 were fixture calibration (namespace sysfs listing and outbound AF_PACKET protocol); r4 malformed cases were pool-exhausted and are not used as negative-packet qualification.",
+    "First two Android attempts refused before compilation due to the existing 8 GiB headroom guard. Only inactive private completed unit/Clippy cache files were removed; Android-r3 is the qualified build."
+  ],
+  "raw_root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q20-dhcp-20261004",
+  "raw_sha256": {
+    "baseline.py": "595522171c86f312f2ff777b83246786a50277c07f714730eff61bbbcdb7d2f3",
+    "build.py": "41070aebd43b64c0cdb09f3901a0ad8f6216031b5cc9256603199e688404bfd8",
+    "cache-cleanup.json": "d41f180cc3c8a2f8cf437c918f296b0eab70daac25d6f06eeb94f01a5df261a7",
+    "cleanup-clippy.py": "bc5f703efa5727044c39eb34de944000e8309066490ab12c900161ad2f5a9b09",
+    "cleanup-deps.py": "fdf6defef14f07caf5dd3e6bf2678134651a77bb1b986da9ab062115dcebcb1e",
+    "cleanup-extra.py": "28b4b278ca3bccad0589732655c561a1ae6e41d5d028975020a264dad3ab4431",
+    "cleanup-unit.py": "9aef4ca27dad9dea1ba840082f3f44dafb1e1cb60a8a4e27aead63453d03627e",
+    "dependency-cache-cleanup.json": "8fcd6e4735f4517d1159b958f164924bc683348f99c05424f8425fea7bc6ded3",
+    "dhcp-before.rs": "2a16b932f843a753a61d822770cf3b65e43ed1b62c5c0497a4afb561f6c7473c",
+    "dhcp-regression-before-fix.rs": "de6c099d43360818184dacea7bee242228c3ae3ee94b5bd6c9eb2d71c0a77b97",
+    "docs.py": "59911c7570eb6936af3fe507d649a7855e1a9a2540249fd7ff0ea4a7735574b0",
+    "extra-unit-cache-cleanup.json": "c2a02a895dbc9bf8f45146dabaaa7d4cab760e69fd67856856af6c59d90ad875",
+    "final-integrity.py": "dd73f3b225b2fa93ede23f838c3bc7e90302d9f2d8419d7a7d05f4819bf69d1d",
+    "native.py": "724bee72a4be571620a10f3e3e70d78eb3a1be6c92f6e6b2ce9686c68de2b718",
+    "prepare.py": "1a59cd620ef1362f410f3a88e319973f51329da64b65650a7a436fedf61c379f",
+    "report-eng.md": "49e5f14c3bb4657f2d1a3ed7239577ca2cdf3baa87225e3647a80abb3e1c62aa",
+    "report-ru.md": "153bc077e8054a0098a9dea54635a94107086de77935966ed41712e03266e3fa",
+    "runtime.py": "97e0ef8a7bded2c9b016a38b8bd74eaadc818fa191356e58519cfe48d29d4130",
+    "seal.py": "cccce05b81efeecee52d2caa7c5496db6e31c996f3e5318fbd0c10228dc61eac",
+    "transfer.py": "038bd74526b5dade2e9b4bc833c735da9e23b47724a50a09021bccaf3fb6e92a",
+    "unit-cache-cleanup.json": "6939f6db0e1b04ec2caef5a4b214ba98b68f117cf057d4b1389b966f4426ba4f",
+    "android/build.log": "0e2553ed5a85b90ef479da503c67fe23a6690412b72afbdfe59dda8692d9224a",
+    "android/result.json": "3bf632ce6aeb8704ccc8ae12d29a6473d2a5e7251e97e3a01ad45b222e7d6c92",
+    "android-r2/build.log": "373e26ef79404a0870b6f428e814158c8fed546d3851cdd46fb74029859843b5",
+    "android-r2/result.json": "761ea76fb3fc9ff10891e61939ba732d01d64a08241bf2b221c278b60b2202fe",
+    "android-r3/build.log": "b9146cafe17f3184dec0193d66c74c8332773454a0ae1db3b6b78eb20a674566",
+    "android-r3/result.json": "53387b898e19e71b0f9aad586db6da2d2184aecae8074a69415778465dee5d81",
+    "baseline/result.json": "e6378677c83aedcb411e66e75f674502fa972952fc296d3131e56551ba7841cf",
+    "baseline/unit.log": "5c1afe5b960d43901ab953e769770351a68df38b074c09fbd16580e4e14f240d",
+    "desktop/build.log": "22ae22a270f15ed0d2631813584cda05c6435bd0d30c671d62e15b73ff022afe",
+    "desktop/result.json": "98f273c29d98ac926cc8c22e842bc549415d41e5c6b6f3e7577a859cb1d24fb9",
+    "linux-build/clippy.log": "59d6a48dad608a3559f2e1a1e538d93f5de41d576afe76ffc6b9ac4c9203d880",
+    "linux-build/release.log": "929a5e5dacfd572843314d304c8f2089f2c7d6e2843c258ac0fd75eda286b584",
+    "linux-build/result.json": "d59fd6e1814e47077469448f9a204eaf63a1935b5d40fa7e69488b1492fa71a8",
+    "linux-build/unit.log": "9dd3bc2290e85a05f7936324ff48934ed7e1f44ed22afaa1052872a3955af519",
+    "runtime-baseline/result.json": "af07e42dc7587ed51b3cb96d204775901bcd53d2404f04ba5034136c485e0af1",
+    "runtime-baseline/runtime.log": "709fad856304a4ddd7555fdf4cdf96dea16aee03eec29bb4ccf7e0f6464cebd4",
+    "runtime-baseline-r2/result.json": "cd125eaeafd6b33c8bae016f15ac5e5ad18bfe52a1d96d5332180b770eff6656",
+    "runtime-baseline-r2/runtime.log": "b217574fc315c90501963359bc534fe21d7af61809dccf575bb165d03e995bdd",
+    "runtime-baseline-r3/result.json": "51273abbaac9d2bf3d32867c7e8b397b5127ae6a8ea61df42078aa444584c869",
+    "runtime-baseline-r3/runtime.log": "7c9a1a08a49bd675fc86541970e8f13abcf5c53fa935f1906cbe6b8c8e903c0f",
+    "runtime-baseline-r4/result.json": "e0428afb2ee9c4b58f5c3eaa8de41a67b0997218b67cc743ac968da0a3deffcf",
+    "runtime-baseline-r4/runtime.log": "5bcbbe386ab0af71116cdc6f0a516c1351eb182c75b612719e27b080f4e1b905",
+    "runtime-baseline-r5/result.json": "1af172eddfedea30a0d6d8324588a0ba00af573bbce1d68afc6e4db4de78035f",
+    "runtime-baseline-r5/runtime.log": "8a6f378e04fcdc5248beb246daa279a0c24e8ef6d3f983872612cd5ab84777f0",
+    "runtime-baseline-r6/result.json": "6be65b1bec3dbfa48175b04980696ca22ba6cb7218d0028243e5ebb501be3412",
+    "runtime-baseline-r6/runtime.log": "94a6ad3e5b6af775c5d308a10be1666bda3b5a1ccd9a4606b81d18c0f9101db9",
+    "runtime-fixed/result.json": "f78ed23844438032d939abcbb132d3db5775a1821a04282f775edb105a8390ca",
+    "runtime-fixed/runtime.log": "cc0d80f2e53182dd3339f834b601ca07f58ed8ae6e7902e2113c9e36bfb40d76",
+    "runtime-fixed-r2/result.json": "065c45cbe5fb065c60fae1f469e56c08879805fd89a0601607ed29fe110113d7",
+    "runtime-fixed-r2/runtime.log": "8ab1239de9ba2f4524e45c624400444bce966ae436401c87194424f695ef0b8b",
+    "runtime-fixed-r3/result.json": "684a13a5e4f1ab459f59730baf70e07521ec3af288a245a371453784970ae338",
+    "runtime-fixed-r3/runtime.log": "d9f9b999de1ce3b4facfa3f56a48b28d99413801ab4a53783f3bec692620a15d",
+    "vpn-smoke/linux.outer4.inner4.tcp.full.log": "74c9444879e760a565a47ea53f0cd8d82baecd6aa57348fbc1ec83eac6b1b83d",
+    "vpn-smoke/results.json": "e0cf057597375297a449ad9f2a34c537831233eb3daa840ade2fb210c678cea8",
+    "vpn-smoke/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-bVvJA3/add-user.log": "c00a522dd681148bbc7b28fd56871d467e2abe11932a167f5a2ba7eebb46708d",
+    "vpn-smoke/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-bVvJA3/client.log": "b14bf6610d62402e6d77e96e9d0eed356d0c536a3e62ebd806497ca599fec3fd",
+    "vpn-smoke/linux.outer4.inner4.tcp.full/tmp/qeli-ipv6-bVvJA3/server.log": "1dda10527ac2ce60d9014c84b9924d9d70e629d5d68bcd999588b53a97cef33b",
+    "runtime-fixed-r3/artifacts/admission-63-True.conf": "7b15e8871b2e91cf78b7e679daa18fe65a031c4d4722a592894ab5f1b96cea8b",
+    "runtime-fixed-r3/artifacts/admission-63-True.log": "804537c5308f91b71c63ed17f36e1160a38bea6926cf01d54f40d5f6b8086023",
+    "runtime-fixed-r3/artifacts/admission-64-False.conf": "1fa8d3b7d98109793755002f1e54ea1d9b0513efb6f59fe44e49424da637899b",
+    "runtime-fixed-r3/artifacts/admission-64-False.log": "29f6e7c75479a051c04bdb9af504b500e1c4f93622ddcc4d53203ec9ae06170f",
+    "runtime-fixed-r3/artifacts/admission-64-True.conf": "f6abf714bcd58bb5f89b8256028e3d1efebcdc8f3e3c81ba275c4aa5245ec868",
+    "runtime-fixed-r3/artifacts/admission-64-True.log": "e1e016d838ef3ce3e3bc8bc0390b3bb5ed7388ea2ab787a923fe59c1adfaf510",
+    "runtime-fixed-r3/artifacts/checks.json": "f50cb102c4f19f007a0b4d90428a8a48faa3ddbab1415f395cf5ff625fbb9da9",
+    "runtime-fixed-r3/artifacts/identity.key": "ea125096003380d4c14287af423f5bca2c7fad7592d6491921aabeeecea610eb",
+    "runtime-fixed-r3/artifacts/identity.key.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-fixed-r3/artifacts/packets.json": "b7806d17488fa6f7f5c36236dc880e11474a22b3faa08c00338949cbef65de5d",
+    "runtime-fixed-r3/artifacts/result.json": "a1b3878bd876553754ba565eb6523f23821c81ccd645868e97cbc343bbdeead3",
+    "runtime-fixed-r3/artifacts/server.conf": "bc7d533c1c0dc03a0fcaa69670bf6e64ddeefb61785a3de00c731795281a6675",
+    "runtime-fixed-r3/artifacts/server.log": "0b48f14635a0c1b0597d7305987dd99503a2a52e6541154a1b620ab8cca0dde2",
+    "runtime-fixed-r3/artifacts/users.conf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-fixed-r2/artifacts/checks.json": "bcf6c71b03113cbb171d8eefb09a8406145d592ca5f2dd0ae977579f0bac1f3b",
+    "runtime-fixed-r2/artifacts/identity.key": "330774331e0d7ff9da93886da53736e3738efc09a10fc60bd9c475f537f185e5",
+    "runtime-fixed-r2/artifacts/identity.key.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-fixed-r2/artifacts/packets.json": "10b1bd72fc6d265010ba81077f9050795b9b0de00bf5070cd05d6f3c06254d8a",
+    "runtime-fixed-r2/artifacts/result.json": "3257d7109a09f3dd15da22370645c9ce24dc6af4153e8f0b109dfb43eb5bc91a",
+    "runtime-fixed-r2/artifacts/server.conf": "ee03fc8445b3cab4e795aa1e80b1c59ae95971145e7d7d164bcebef5345d842b",
+    "runtime-fixed-r2/artifacts/server.log": "7710f258b6ab2cbeb44c454f4fc802734364d51995a2cd4e43088414dfde1a59",
+    "runtime-fixed-r2/artifacts/users.conf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-fixed/artifacts/checks.json": "6e68a9c1ecb7665c11c15bd9b439aaa75f7f072c425fbf0243e625a2114c1554",
+    "runtime-fixed/artifacts/identity.key": "57c6c0c718112a1281359a99dd7fe489418a67699db0a9669866d5955f46fc66",
+    "runtime-fixed/artifacts/identity.key.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-fixed/artifacts/packets.json": "008d57717b30d9edeccdb6cc0552b2b43347b6670c09e454958635cb3f9bc51f",
+    "runtime-fixed/artifacts/result.json": "3257d7109a09f3dd15da22370645c9ce24dc6af4153e8f0b109dfb43eb5bc91a",
+    "runtime-fixed/artifacts/server.conf": "6e4c22b9b2c5ecb42bbc2811d36e3bfc55263c0c50255408d17e7a9dde5108f0",
+    "runtime-fixed/artifacts/server.log": "c07cc2334edf116976fbd68c40e25eb89498076e737f5f8ea9b7c1b194abebe9",
+    "runtime-fixed/artifacts/users.conf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline-r6/artifacts/admission-63-True.conf": "f70751c2bd2ceb14bee1df3a1b4c69dd6f1736b18b083b1d81326ed9de031245",
+    "runtime-baseline-r6/artifacts/admission-63-True.log": "a8e78335cfc937ef1cd00a1be68a51f5c56ca438c45ffb83decc293fe1504427",
+    "runtime-baseline-r6/artifacts/admission-64-True.conf": "fb763ca14ac6d33c561f472c92ea72aa3148840212c3d48ade376deddf20efae",
+    "runtime-baseline-r6/artifacts/admission-64-True.log": "577f385f4d85778250d4a6333f0c199a7000d5f2eb90ec41239128435db18335",
+    "runtime-baseline-r6/artifacts/checks.json": "7e8d5234957b124c14d7c473e5c55411a735744e492977600fe01be8ef0508f4",
+    "runtime-baseline-r6/artifacts/server.conf": "8300f36f7fa68e0e5bdfb5a4697101fdf60a4bdb91c8f52c15385c17e1ecf7d4",
+    "runtime-baseline-r6/artifacts/users.conf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline-r5/artifacts/checks.json": "7b6b658e71941d6e255b7bccbef5c183d7b0d061074675723d6de681e8e6eea3",
+    "runtime-baseline-r5/artifacts/identity.key": "13130169e8bc962bd464b7d3b16baaf56d14319be961b97c2626ba02a73a2809",
+    "runtime-baseline-r5/artifacts/identity.key.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline-r5/artifacts/packets.json": "89fe29a594a92c7995fbf15810e7cf02d06708219c797625db8ce8e0671f1355",
+    "runtime-baseline-r5/artifacts/server.conf": "e7514057fdeff958c074d2cfd6d1f275adad3bac2dd3887c6163b498a1fd89a5",
+    "runtime-baseline-r5/artifacts/server.log": "e9449d7873caf519afad9bd0962cb2bddd7fb0a5834fe20140e078de21b9c892",
+    "runtime-baseline-r5/artifacts/users.conf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline-r4/artifacts/checks.json": "d5ed863784660285b4f029d0706a03bec114e85501b2ef69fccb99f2c333be02",
+    "runtime-baseline-r4/artifacts/identity.key": "8632016cd1ae09ea4a1569d460886d4e591ee3ece7855d30cfd3caeeca688b67",
+    "runtime-baseline-r4/artifacts/identity.key.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline-r4/artifacts/packets.json": "824522ff9b40aba8e21366d68db91bc3838d49b51388f42db2be5a8f4f4af764",
+    "runtime-baseline-r4/artifacts/server.conf": "28fbb19fe5529d4e91f34576a4d7e27b9273226ebe9110ba051b71e110bc27e5",
+    "runtime-baseline-r4/artifacts/server.log": "d4dfd2f01a495e314763abce697cff72888b00f9a3814ff7818abb23a8ad9981",
+    "runtime-baseline-r4/artifacts/users.conf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline-r3/artifacts/checks.json": "277e99d8f80fc5b16b0dddee9c0242440b6f2d8932daca20beec7a92765ffe1c",
+    "runtime-baseline-r3/artifacts/identity.key": "a8d3c8cc50c05f9cd4c8fefac0619d93937f6d870cb48f2e19f405f18aeb24af",
+    "runtime-baseline-r3/artifacts/identity.key.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline-r3/artifacts/packets.json": "0c74f77a8628bfafba3af88687f5d908d148531a65aa175140b3d28ed42726a2",
+    "runtime-baseline-r3/artifacts/server.conf": "080e9bb08d1673fc7722193e2c4fa055e3c92793830b9acc89c231b48d187a9e",
+    "runtime-baseline-r3/artifacts/server.log": "9939af8ec3c06ce100dd1a35ea4a1baea3d907f418f4d868708305dcb14fe42f",
+    "runtime-baseline-r3/artifacts/users.conf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline-r2/artifacts/checks.json": "a09a05168d582de232a9499f0be78f34c8d509a3e8f518b6833164bf4be668c7",
+    "runtime-baseline-r2/artifacts/identity.key": "26af5256cd4e4c62dbbef084c14f143ab5059b095ac10cfeb14da78d5c9cb74b",
+    "runtime-baseline-r2/artifacts/identity.key.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline-r2/artifacts/server.conf": "01597f7b13262c103cd36f354280d0e7602bc1577c678581274ec9d05e5360c5",
+    "runtime-baseline-r2/artifacts/server.log": "f00998d8847efaa0738a9b28d0dbbc1be8b522799e7a73b2e9efd46beee713f5",
+    "runtime-baseline-r2/artifacts/users.conf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline/artifacts/checks.json": "1fd8425d3725da3c1a835ed56773ce1dd86e266b1112eab95985d9312be2fd6f",
+    "runtime-baseline/artifacts/identity.key": "74854771ef934706d36ac4e9090640085876c3472261b641c8725745e1ee26e5",
+    "runtime-baseline/artifacts/identity.key.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-baseline/artifacts/server.conf": "abe2df9ead8a13bb4a771cf9a3626e302b383979b29354ccfcf10c3b4d09e0e9",
+    "runtime-baseline/artifacts/server.log": "c3c54501a53f6a4a5ae043a7fa2a1a2570bbb702036d94eb974cc8c22bc24f7c",
+    "runtime-baseline/artifacts/users.conf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

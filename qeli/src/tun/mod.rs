@@ -9,3 +9,6 @@ pub use tap::{
     mac_from_ip, prepend_ethernet_header, server_tap_control_reply, strip_ethernet_header,
     TapGateway,
 };
+
+#[cfg(target_os = "linux")]
+pub(crate) mod open;

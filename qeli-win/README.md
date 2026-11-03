@@ -1,7 +1,7 @@
 # qeli-win
 
 Нативный Windows-клиент для VPN **qeli** (Quick Easy Link IP): C# / .NET 10 + WPF
-как platform/UI слой и общее Rust transport-ядро ABI 1.15 (compatibility floor 1.11). Rust владеет
+как platform/UI слой и общее Rust transport-ядро ABI 1.16 (compatibility floor 1.16). Rust владеет
 DNS/connect, handshake, crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping, bonding и
 Wintun session/rings; C# управляет lifecycle/reconnect, созданием интерфейса,
 маршрутами/DNS/kill-switch, trust и UI. Только для per-app-профиля C# передаёт
@@ -18,7 +18,7 @@ handshake/framing. Внешний TLS и внутренний qeli AEAD сохр
 | Компонент            | Чем реализовано                                              |
 |----------------------|-------------------------------------------------------------|
 | TUN-устройство       | Wintun для `apps_mode=all`; WinDivert capture для `include`/`exclude` (обе пары DLL/драйверов вшиты в exe) |
-| Transport/crypto     | Rust `qeli.dll`, ABI 1.15 (`qeli_client_run` + native Wintun rings) |
+| Transport/crypto     | Rust `qeli.dll`, ABI 1.16 (`qeli_client_run` + native Wintun rings) |
 | Conformance/diagnostics | .NET wire/KAT и reachability tools; production fallback отсутствует |
 | GUI                  | WPF (.NET 10)                                                |
 | Маршруты / DNS / IP  | `iphlpapi` (LUID→index, gateway, `CreateIpForwardEntry2` для маршрутов) + `netsh` / `route` (fallback) |
@@ -29,7 +29,7 @@ handshake/framing. Внешний TLS и внутренний qeli AEAD сохр
 qeli-win/
 ├── QeliWin/
 │   ├── Model/         VpnConfig (flat-INI + qeli://), ProfileStore (profiles.json — внутреннее зашифрованное хранилище приложения)
-│   ├── Vpn/           Wintun lifecycle, NetworkConfigurator, ABI 1.15 adapter
+│   ├── Vpn/           Wintun lifecycle, NetworkConfigurator, ABI 1.16 adapter
 │   ├── App.xaml(.cs)  точка входа + headless CLI
 │   ├── MainWindow.*   интерфейс
 │   ├── InputDialog.cs модальный ввод
@@ -37,7 +37,7 @@ qeli-win/
 │   ├── Branding.cs    логотип + иконки (GDI+), NativeLoader (вшитый Wintun)
 │   ├── wintun/wintun.dll  (встраивается в exe как ресурс)
 │   └── windivert/         WinDivert.dll + WinDivert64.sys (встраиваются в exe)
-├── dist/              готовые сборки — QeliWin-standalone.exe / QeliWin-net-required.exe
+├── dist/              publish-каталоги и QeliWin-standalone.exe / QeliWin-net-required.exe
 └── ../qeli-shared/    production lifecycle/model + отдельный QeliConformance runner
 ```
 
@@ -45,25 +45,47 @@ qeli-win/
 
 VPN требует прав администратора (создание Wintun-адаптера, изменение маршрутов/DNS).
 
-Из релиза приходят **два варианта приложения** — выберите один. Рядом лежат общие
-`Wintun-LICENSE.txt`, `WinDivert-LICENSE.txt` и `WinDivert-NOTICE.txt`; они являются обязательной частью поставки встроенных драйверов:
+Для поставки 0.8.3 используются **два single-file EXE** — выберите один.
+Оригинальные лицензии Cargo/.NET, MPL/AGPL и Wintun/WinDivert notices встроены
+в каждый EXE. Просмотр: **О программе → Лицензии**; там же можно сохранить
+комплект текстов в ZIP. Отдельные `Legal/` и license ZIP для запуска не нужны.
 
-| Файл | Размер | Что нужно на машине |
-|---|---|---|
-| `QeliWin-standalone.exe` | ~77 МБ | **ничего** — рантайм вшит (проще всего) |
-| `QeliWin-net-required.exe` | ~11 МБ | **.NET 10 Desktop Runtime** |
+| Файл | Что нужно на машине |
+|---|---|
+| `QeliWin-standalone.exe` | Рантайм включён в EXE |
+| `QeliWin-net-required.exe` | **.NET 10 Desktop Runtime** |
 
 1. Только для `net-required`: `winget install Microsoft.DotNet.DesktopRuntime.10`.
    Для `standalone` этот шаг пропускается.
-2. Скопируйте выбранный файл куда угодно — он самодостаточный (`wintun.dll` вшита и
-   распаковывается при старте в `%LOCALAPPDATA%\QeliWin\native`).
-3. Запустите его (по запросу UAC согласитесь на повышение прав).
+2. Сохраните выбранный EXE в удобный каталог. `wintun.dll` вшита и
+   распаковывается перед загрузкой: elevated-приложение и служба используют защищённый
+   `%ProgramData%\QeliWin\native\<SHA256-комплекта>`, диагностический запуск без elevation —
+   `%LOCALAPPDATA%\QeliWin\native\<SHA256-комплекта>`. Разные комплекты DLL не
+   перезаписывают друг друга даже при одинаковом номере версии приложения.
+3. Запустите выбранный EXE (по запросу UAC согласитесь на повышение прав).
 4. Нажмите **Импорт** → вставьте `qeli://`-ссылку или **INI-конфиг** (`[qeli]`-секция) →
    **Подключить**.
 
 > Оба варианта собираются из одного исходника — см. раздел «Сборка из исходников».
 
-Профили сохраняются в `%APPDATA%\QeliWin\profiles.json`.
+Профили сохраняются в `%APPDATA%\QeliWin\profiles.json`, зашифрованном DPAPI
+для текущего пользователя. Это внутренний контейнер приложения; импорт и экспорт
+конфигов остаются INI и `qeli://`.
+
+Атомарная перезапись сохраняет предыдущую зашифрованную версию в `.bak`. При
+повреждении текущего архива он сначала переносится в `.corrupt-<GUID>`, затем
+проверенный backup восстанавливается и вновь шифруется. Если backup также повреждён,
+клиент открывает пустой список, сохранив оба файла. Ошибки quarantine, записи миграции
+или публикации восстановленного списка останавливают загрузку; исходник не заменяется
+пустым архивом. Резервная копия отражает предыдущую запись и может не содержать
+последнего изменения.
+
+Зашифрованное хранилище профилей ограничено 16 МиБ: файл большего размера
+не загружается и остаётся на диске для ручной проверки или восстановления.
+
+Если открыты два экземпляра Qeli, экземпляр с устаревшим состоянием откажется сохранять
+список профилей. Перезапустите его, чтобы заново загрузить актуальные профили.
+Файл `profiles.json.lock` используется для согласования записи между экземплярами.
 
 ### Раздельный туннель по приложениям
 
@@ -145,13 +167,61 @@ fragmentation, traffic-normalization и anti-fingerprinting настраиваю
 
 - Стартует **при загрузке Windows, до входа пользователя**, под учёткой **LocalSystem**
   (Wintun работает в сессии 0, как у WireGuard).
-- Сама поднимает выбранный профиль и переподключается (тот же `VpnTunnel`).
-- Обмен с GUI — через файлы в `%ProgramData%\QeliWin` (`service-profile.json`,
+- Поднимает выбранный профиль и переподключается (тот же `VpnTunnel`), только если
+  сохранено намерение подключения. Отключение записывается до остановки SCM; последующая
+  загрузка Windows запускает службу в ожидании, пока пользователь снова не подключится.
+- Обмен с GUI — через файлы в `%ProgramData%\QeliWin\service` (`service-profile.json`,
   `service-status.json`, `service.log`); GUI опрашивает статус и подтягивает лог,
-  а кнопка «Подключить» в этом режиме запускает/останавливает службу.
+  а кнопка «Подключить» меняет сохранённое намерение подключения и запускает/останавливает
+  службу. Каталог и файлы проверяются по владельцу, DACL и отсутствию reparse points;
+  доступ предназначен только LocalSystem и повышенным администраторам.
+- Служебный профиль зашифрован DPAPI LocalMachine; лимит **4 МиБ** включает envelope.
+  GUI отказывает до публикации слишком большого или структурно некорректного профиля.
+  LocalSystem не загружает plaintext legacy: такой профиль нужно пересохранить через GUI.
+  UTF-8 должен быть корректным; status ограничен 64 КиБ, connection flag — 16 байт.
 
 Включается галочкой «Запускать как службу Windows» + выбор профиля. Требуются права
 администратора (приложение уже запускается с ними).
+
+### Подготовка старого хранилища при переходе на 0.8.3
+
+Обычный ручной запуск GUI обнаруживает старые служебные файлы в корне
+`ProgramData\QeliWin` или недоверенные права и предлагает подготовку с подтверждением.
+До согласия штатно отключите VPN, завершите восстановление DNS/маршрутов/firewall,
+остановите `QeliWinSvc` и закройте остальные клиенты. При тайм-ауте остановки
+продолжать нельзя. GUI требует права администратора; служба и `--autostart`
+не выполняют скрытую миграцию.
+
+Старый каталог перемещается без чтения его профиля в уникальную приватную резервную
+копию рядом с ним (`QeliWin.backup-<UTC>-<GUID>\legacy`). Новое хранилище создаётся
+с закрытыми правами; старые profile/intent/DLL не импортируются. Повторно выберите
+доверенный профиль в настройках службы. Пользовательские `%APPDATA%\QeliWin` и
+recovery-журналы не перемещаются; автоматическое подключение в этом запуске пропускается.
+Резервная копия может содержать секреты — не публикуйте её.
+
+Проверки отказывают при активной службе/другом клиенте/владельце kill-switch,
+оставшемся recovery-журнале, правилах `qeli_ks` или Wintun-адаптере; отказ/тайм-аут
+проверки тоже блокирует переход. Проверка Wintun консервативна: адаптер другого VPN
+также блокирует подготовку; не удаляйте чужие адаптеры и правила ради обхода.
+Отсутствие этих объектов не доказывает восстановление произвольных DNS/маршрутов:
+пользователь отдельно подтверждает успешное штатное отключение. Старый и новый
+клиент не должны одновременно управлять VPN. Тайм-аут завершения за 8 секунд —
+отдельный дефект, разнесение каталогов не объявляется его исправлением.
+
+Изолированные регрессии без SCM/сети/реального хранилища:
+`dotnet QeliWin.dll selftest-storage`. Полный platform selftest также включает их.
+
+При смене профиля служба сначала останавливается, затем получает проверенный новый
+снимок и запускается снова, если до изменения было сохранено намерение подключения.
+Обычное сохранение настроек не подключает ранее отключённый VPN. Изменение профиля,
+сохранённого для установленной службы, применяет новый снимок с тем же правилом;
+изменение другого профиля службу не переключает. Если сохранённый для службы профиль
+нужно удалить, сначала отключите службу или выберите другой профиль службы в настройках.
+
+Неудачная остановка запрещает публикацию нового снимка; неудачная публикация оставляет
+службу отключённой и сообщает ошибку. Переходы SCM выполняются вне UI-потока;
+StartPending и StopPending не считаются подтверждением завершённой остановки.
+Это не проверка реального boot/sleep/network runtime.
 
 ### Остальное
 
@@ -163,13 +233,31 @@ fragmentation, traffic-normalization и anti-fingerprinting настраиваю
   `schtasks /SC ONLOGON /RL HIGHEST` — elevated без UAC-запроса), `--autostart`.
 - **Автоподключение при запуске** + профиль, **Запускать свёрнутым в трей**.
 
-> Служба и «автозапуск приложения» — взаимоисключающие способы держать VPN всегда
-> поднятым; служба надёжнее (работает до логина и для всех пользователей).
+Служба владеет туннелем до входа пользователя. Автозапуск GUI можно включить вместе
+с ней: приложение будет показывать состояние службы, а не создавать второй туннель.
+
+Операции автозапуска проверяют код завершения `schtasks` и сообщают ошибки создания
+или удаления задачи. Отсутствующая задача допускает повторное отключение. Ошибки
+проверки существования не выдаются за отсутствие; сохранение настроек повторяет
+применение желаемого состояния после сбоя. Команда имеет бюджет 10 секунд и ограниченный
+диагностический вывод; stdout и stderr читаются одновременно. Настройки GUI меняются
+в копии и становятся текущими только после успешной атомарной записи файла.
+Если применение автозапуска или службы не удалось, сохранённые предпочтения остаются
+желаемым состоянием, а предупреждение сообщает о неудаче внешней операции.
 
 ## Сборка из исходников
 
+Собирайте из полного checkout: корневые `global.json`, `Directory.Build.props`,
+`Directory.Build.targets` и `NuGet.Config` задают SDK, audit и выбор reviewed lockfile.
+Обычный restore/build/publish работает в locked mode. Изменение пакетов требует
+явного `-p:QeliUpdateDependencyLocks=true --force-evaluate` на restore с теми же
+RID и publish-параметрами; изменённые lockfiles проверяются и коммитятся вместе с
+исходниками. Single-file варианты используют отдельный lock с SDK ILLink package.
+Подробнее: [SDK и dependency locks](../docs/ru/reports/audit-0.8.2/AUDIT-Q34-SDK-LOCKS.md).
+
 ```powershell
-# нужен .NET 10 SDK (winget install Microsoft.DotNet.SDK.10)
+# нужен .NET SDK 10.0.401: точная версия закреплена в ../global.json
+# установка SDK: https://dotnet.microsoft.com/download/dotnet/10.0
 dotnet build QeliWin\QeliWin.csproj -c Debug
 
 # ── вариант A: framework-dependent (~11 МБ, нужен .NET 10 Desktop Runtime) ──
@@ -177,19 +265,23 @@ dotnet build QeliWin\QeliWin.csproj -c Debug
 # он наследуется QeliShared через ProjectReference, и NuGet видит два проекта с одним именем.
 dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained false `
   -p:PublishSingleFile=true -o dist\net-required
-Copy-Item dist\net-required\QeliWin.exe dist\QeliWin-net-required.exe
-Copy-Item dist\net-required\Wintun-LICENSE.txt dist\
-Copy-Item dist\net-required\WinDivert-LICENSE.txt dist\
-Copy-Item dist\net-required\WinDivert-NOTICE.txt dist\
+if ($LASTEXITCODE -ne 0) { throw "net-required publish failed" }
+Copy-Item -LiteralPath dist\net-required\QeliWin.exe -Destination dist\QeliWin-net-required.exe
 
 # ── вариант B: сжатый self-contained (~77 МБ, без установки .NET) ──
 dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained true `
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
   -p:EnableCompressionInSingleFile=true -o dist\standalone
-Copy-Item dist\standalone\QeliWin.exe dist\QeliWin-standalone.exe
+if ($LASTEXITCODE -ne 0) { throw "standalone publish failed" }
+Copy-Item -LiteralPath dist\standalone\QeliWin.exe -Destination dist\QeliWin-standalone.exe
 ```
 
-Wintun DLL вшита в exe как ресурс (`EmbeddedResource`), но `Wintun-LICENSE.txt` и notices WinDivert должны распространяться рядом с обоими вариантами приложения.
+Распространяется только выбранный EXE: полный комплект текстов встроен в сборку.
+Просмотр без VPN: `QeliWin-standalone.exe licenses --list` и `licenses --file PATH`.
+Экспорт в новый каталог: `QeliWin-standalone.exe licenses --export NEW_DIRECTORY`.
+Проверка экспорта из корня: `python scripts/embedded_licenses.py --windows --verify-export NEW_DIRECTORY`.
+CI также проверяет точные ресурсы внутри каждого готового EXE, а не только publish-каталог.
+См. [обновление комплекта](../LICENSING.md).
 
 ## Headless-режимы (для отладки/CI)
 
@@ -198,20 +290,26 @@ Wintun DLL вшита в exe как ресурс (`EmbeddedResource`), но `Win
 
 | Команда                                   | Что делает                                            | Админ |
 |-------------------------------------------|-------------------------------------------------------|-------|
-| `selftest`                                | WinDivert/Wintun/routes/DNS platform checks            | нет   |
+| `selftest`                                | DPAPI storage, service ACL/atomic files и WinDivert/Wintun/routes/DNS unit checks | нет |
 | `windivert-smoke`                         | Открывает и сразу закрывает production WinDivert filter | да    |
 | `handshake <link\|ini\|file>`             | TCP/UDP + полное рукопожатие, печатает выданный IP    | нет   |
 | `connect <link\|ini\|file> [секунды]`     | Поднимает полный туннель на N секунд                  | да    |
+
+`selftest` использует собственные временные файлы для DPAPI и не меняет профили
+пользователя, SCM или сетевые настройки. Загрузка Wintun DLL не подтверждает установку
+драйвера или реальное VPN-подключение.
 
 Managed crypto/codec/config KAT и benchmark вынесены из production EXE:
 `dotnet run --project ../qeli-shared/QeliConformance -c Release -- selftest` и
 `... -- packetbench --ci`.
 
-## Состояние сборки и release gate 0.8.0
+## Состояние сборки и release gate 0.8.2
 
-Windows-клиент сохраняет compatibility floor ABI 1.11, а fail-closed roaming использует
-типизированные path results ABI 1.14. Закоммиченная `qeli.dll` уже соответствует текущему
-Rust source digest и прошла reproducible A/B provenance. Перед выпуском 0.8.0 обязательно:
+Windows-клиент требует ABI 1.16 и использует типизированные path results для
+fail-closed roaming. Текущая `qeli.dll` пересобрана двумя независимыми проходами
+из исходника с digest, записанным в `native-libs/reproducibility/desktop.json`; canonical и EmbeddedResource-копии совпадают,
+`native-libs/provenance.py --check` проходит. После изменения Rust-исходника
+нужна новая A/B-пересборка. Перед публикацией 0.8.2 обязательно:
 
 - пересобрать core только если изменилось Rust-дерево, но всегда заново собрать оба EXE;
 - пройти `native-libs/provenance.py --check`, hash/ABI/package/signing gates;
@@ -221,3 +319,48 @@ Rust source digest и прошла reproducible A/B provenance. Перед вы�
 Публичный ключ сервера не копируют из этого README. Для каждого сервера получите актуальный
 pin командой `qeli show-identity` по доверенному каналу; отключение pinning допустимо только
 как осознанная временная диагностика, а не как инструкция для рабочего профиля.
+
+## Общее ядро конфигурации
+
+INI/URI, проверки, defaults и переносимые политики теперь выполняет Rust ABI 1.16.
+Модель клиента — тонкая проекция без местного парсера. Для разработки сначала выполните
+`python scripts/build_client_core.py --debug` из корня и задайте напечатанный
+`QeliNativeCorePath` перед `dotnet build`. Релизные библиотеки требуют штатных A/B-сборок.
+Подробности: [единая конфигурация](../docs/ru/plans/CLIENT-CONFIG-CORE.md).
+
+Сверка store 2 октября: [Q25-F210](../docs/ru/plans/AUDIT-DEBT.md). Прямая запись внешнего процесса в encrypted store в обход координации не поддерживается; после правки активного INI требуется явное переподключение.
+
+При применении к уже установленной службе проверяются её command, LocalSystem,
+тип процесса и права изменения регистрации, затем права установленного EXE и его
+каталогов. Используйте GUI из той же защищённой установленной копии; при несовпадении
+отключите службу и переустановите её. Qeli не меняет чужую регистрацию молча.
+Ошибки чтения SCM/невалидный или устаревший service status означают неизвестное
+состояние, а не успешное отключение. Ошибка незавершённой очистки остаётся видимой
+после SCM Stopped. Лог и его GUI view ограничены 256 КиБ, длинные строки — 4096 chars;
+после rotation отображается текущая история. Детали: [Q27 service observation](../docs/ru/reports/audit-0.8.2/AUDIT-Q27-WINDOWS-OBSERVATION.md).
+
+Остановка адаптера считается завершённой после подтверждённого выхода его потоков
+и закрытия принадлежащих Qeli handles. Ошибка/timeout сохраняет ownership для Stop
+retry и отображается как Error. Ошибка восстановления DNS или Dispose не снимает
+kill-switch. Незавершённый prewarm не применяется как готовый адаптер.
+WinDivert strict gate использует DROP (0x0002); журнал восстановления удаляется
+после успешного закрытия всех поколений gate. Подробности и ограничения проверки:
+[итог Q27](../docs/ru/reports/audit-0.8.2/AUDIT-Q27-WINDOWS-FINAL.md).
+
+
+## .NET legal resources
+
+Windows single-file EXEs embed the reviewed NuGet/runtime-pack, Cargo, driver and
+client/core legal resources. **About → Licenses** reads and exports them offline;
+`licenses --export NEW_DIRECTORY` exports their original bytes without starting VPN.
+No external `Legal` directory or release license ZIP is needed for Windows. macOS app
+assembly places it in `Contents/Resources/Legal/` and validates both bundles before
+assembly (Python 3.11+, select executable with `PYTHON`). Embedded Inter fonts
+have their own SIL OFL 1.1/copyright, separate from Avalonia code MIT.
+Validate and update the bundle as described in [LICENSING](../LICENSING.md).
+This is a full reviewed dependency superset, not a per-executable linkage list.
+
+The common native `rust/toolchains/` layer also preserves reviewed Rust
+stdlib, Zig, NDK and GCC/MinGW resources. Keep the entire native bundle. Its
+source/version catalog is checked offline; matching-source publication and
+per-binary runtime linkage remain separate qualification. See [maintenance](../LICENSING.md).

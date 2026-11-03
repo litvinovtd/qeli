@@ -1,0 +1,241 @@
+{
+  "status": "Q37_FIVE_CRITERIA_COMPLETE_IN_AGREED_SCOPE",
+  "source_commit": "2a7030a069cc14d2ef72a9aa0efa557d5cf6e309",
+  "criteria": [
+    {
+      "id": 1,
+      "status": "DONE_IN_AGREED_SCOPE",
+      "name": "Review and dead code",
+      "basis": "297 Rust modules/306 edges;59 actual Linux diagnostics in4 profiles;73 suppressions reviewed.41 retired bodies trimmed;external JNI/C/Swift/RAII boundaries retained. Current4 strict profiles and current native A/B cover subsequent feature changes."
+    },
+    {
+      "id": 2,
+      "status": "DONE_IN_AGREED_SCOPE",
+      "name": "Normal, boundary and negative cases",
+      "basis": "Complete84 client fields,134 server defaults,176 reader keys; executable39 client/134 server/82 collection admissions and original negatives retained. Updated client schema/doc checks executed separately at closure. Five CI refusal methods reused only after exact runner/test SHA match."
+    },
+    {
+      "id": 3,
+      "status": "DONE_IN_AGREED_SCOPE",
+      "name": "Failures and concurrency",
+      "basis": "Suite admission refuses empty/incomplete/skipped/expected-failure suites;24 manual imports refuse implicit side effects;CI child failures retained while independent checks continue. Existing network/file/process concurrency integration belongs to completed subsystem audits and fresh Linux matrix, not an invented new Q37 stress test."
+    },
+    {
+      "id": 4,
+      "status": "DONE_IN_AGREED_SCOPE",
+      "name": "Integration and target platform",
+      "basis": "Current4 native artifacts independent A/B,55 JNI/C exports per Android ABI,33 C exports per desktop slice;22 Windows C ABI,23 Android JNI,2 packaged INI checks;fresh20 required Linux criteria/409 assertions. Physical platforms remain user-skipped, Android whole VPN belongs to Q29."
+    },
+    {
+      "id": 5,
+      "status": "DONE_IN_AGREED_SCOPE",
+      "name": "Fixes, retesting and evidence",
+      "basis": "Q37 F001\u2013F013 and subsequent maintenance fixes have original failures and SHA-bound retests;source915/916 exact with2 explicit format edits,current provenance/package/source certification and owned cleanup proofs. Whole hosted release is separately Q34."
+    }
+  ],
+  "proofs": {
+    "q37-dead-code-diagnostics-20261012/review-seal.json": "1ca8558ddd51a06d616fad6854020f6db28db51691e00945484c9d0806662c77",
+    "q36-full-pool-build-r2-20261012/seal.json": "4c02b82ce0a016b90835640ac63ce29738cb5c2044148baf2f81a9c57594ff07",
+    "q37-linux-pool-certification-20261012/seal.json": "3a41c1e3c407f057a44bcd16730d8e0ef5dc1aa491fc2e03357cc205ff7b58a0",
+    "q36-pool-candidate-chain-20261012\\adoption.json": "c92e48ba4e2cd83e5c8291882d6aee9cefb28e44468602857710b9b18351f6da",
+    "q36-pool-candidate-chain-20261012\\format-amendment.json": "e15a03aa468c2cf2a625a2841fef5314f91a5c514c3a9ab58e318078c5060c85",
+    "q37-reachability-20261011/linux-linux-lab.json": "40ca009adc6a45780d2a0cae42582bb16d06d56fe4046f84993eafcb754a1e80",
+    "q37-reachability-20261011/portable-final.json": "fcb05cab7a1663354d05069b319fd15e1693dba5b22f070d04addee9f6318852",
+    "q37-reachability-20261011/manual-import-guards.json": "7503b2c485f96a127b098de8acb357e46ed3d52f2f774d4a491019faea3de422"
+  },
+  "unchanged_build_inputs": 915,
+  "format_only_build_inputs": 1,
+  "old_full_units_not_relabelled": true,
+  "ci_runner_fixtures_reused": 5,
+  "linux_fixture_methods_reused": 149,
+  "fixture_boundary_files": 465,
+  "fixture_boundary_changed_paths": [
+    "qeli-openwrt/INSTALL.md",
+    "qeli-openwrt/luci-app-qeli/Makefile",
+    "scripts/ci-check.sh",
+    "scripts/fixtures/benchmark_ping_deadline_oversend.txt",
+    "scripts/test_0712_features.py",
+    "scripts/test_audit_script_imports.py",
+    "scripts/test_blocked_ips.py",
+    "scripts/test_blocked_settings.py",
+    "scripts/test_config_rejection.py",
+    "scripts/test_disconnect2.py",
+    "scripts/test_disconnect_during_connect.py",
+    "scripts/test_download_bonding.py",
+    "scripts/test_gateway_nat.py",
+    "scripts/test_kick.py",
+    "scripts/test_l3_user_limits.py",
+    "scripts/test_live_tunnel.py",
+    "scripts/test_maxsessions.py",
+    "scripts/test_multidevice.py",
+    "scripts/test_multipath_allmodes.py",
+    "scripts/test_multipath_bonding.py",
+    "scripts/test_multipath_resilience.py",
+    "scripts/test_panel_ipv6_e2e.py",
+    "scripts/test_push_matrix.py",
+    "scripts/test_route_push.py",
+    "scripts/test_tun_reclaim.py",
+    "scripts/test_udp_reap.py",
+    "scripts/test_user_reload.py",
+    "scripts/test_web_reload.py"
+  ],
+  "old_runtime_timestamps_preserved": true,
+  "external_open_obligations": [
+    "Q29 Android SIGKILL recovery, auto/null DNS ENONET and full VPN data plane",
+    "Q31 SDK/bootstrap/source-cut integration",
+    "Q34 hosted exact-source CI and whole release/publication/supply-chain gates",
+    "Q35 historical performance FAIL and current immutable full endurance",
+    "Q36 TCP asymmetry cause/capacity and retained UDP P4 losses"
+  ],
+  "whole_audit_complete": false,
+  "full_release_pass": false,
+  "no_push_deploy_release": true,
+  "targeted_final_checks": {
+    "status": "PASS",
+    "checks": [
+      {
+        "name": "targeted-contracts",
+        "command": [
+          "C:\\Python314\\python.exe",
+          "-X",
+          "utf8",
+          "-B",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_native_config_keys.py",
+          "-v"
+        ],
+        "exit": 0,
+        "tests": 8,
+        "seconds": 0.10954030000721104,
+        "qualified": true,
+        "log_sha256": "1343a0b916f65467ab1bb7bb52b9c3e13cfe648d9ca2eed1dbf88be2a006d522"
+      },
+      {
+        "name": "admission-guard",
+        "command": [
+          "C:\\Python314\\python.exe",
+          "-X",
+          "utf8",
+          "-B",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_audit_test_suite.py",
+          "-v"
+        ],
+        "exit": 0,
+        "tests": 4,
+        "seconds": 0.2175660000066273,
+        "qualified": true,
+        "log_sha256": "6fe79ffc494ab3220f008063be5242f99980e392413e51c03dd6b3571b334d34"
+      },
+      {
+        "name": "manual-imports",
+        "command": [
+          "C:\\Python314\\python.exe",
+          "-X",
+          "utf8",
+          "-B",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_audit_script_imports.py",
+          "-v"
+        ],
+        "exit": 0,
+        "tests": 2,
+        "seconds": 0.2516290000057779,
+        "qualified": true,
+        "log_sha256": "c826c8553362c2edc5f66ae6d493427ccec830a774f2d28f535c1dddf0386289",
+        "qualification_amendment": "Existing raw execution contains2 actual passing methods;obsolete expected1 count corrected,no execution repeated."
+      },
+      {
+        "name": "native-provenance",
+        "command": [
+          "C:\\Python314\\python.exe",
+          "-X",
+          "utf8",
+          "-B",
+          "native-libs/provenance.py",
+          "--check"
+        ],
+        "exit": 0,
+        "tests": null,
+        "seconds": 0.1132561000122223,
+        "qualified": true,
+        "log_sha256": "b165a29977e1cecb8e8f970e280c7bf69e8a928730eea599b5b2ff31c15251b6"
+      },
+      {
+        "name": "docs",
+        "command": [
+          "C:\\Python314\\python.exe",
+          "-X",
+          "utf8",
+          "-B",
+          "scripts/check_docs.py"
+        ],
+        "exit": 0,
+        "tests": null,
+        "seconds": 1.1135851999861188,
+        "qualified": true,
+        "log_sha256": "efe19797589938e488316826fcc4cd5cb9205239d5a1d241d4fbcf271058eaf4"
+      },
+      {
+        "name": "version",
+        "command": [
+          "C:\\Python314\\python.exe",
+          "-X",
+          "utf8",
+          "-B",
+          "scripts/sync_version.py"
+        ],
+        "exit": 0,
+        "tests": null,
+        "seconds": 0.11072639998747036,
+        "qualified": true,
+        "log_sha256": "3000b741ba505c2ca3859b5810d69ae3f8de6f870cd79706e04c75e4d870ce0a"
+      },
+      {
+        "name": "strict-linux-certification",
+        "command": [
+          "C:\\Python314\\python.exe",
+          "-X",
+          "utf8",
+          "-B",
+          "scripts/release_certification.py"
+        ],
+        "exit": 0,
+        "tests": null,
+        "seconds": 0.21593380000558682,
+        "qualified": true,
+        "log_sha256": "38a17356ef8dbc839b35bf4737c4ed904d4642bfb42a9773bed5918276f155f5"
+      }
+    ],
+    "fresh_unit_methods": 14,
+    "original_count_refusal_sha256": "252ead3067ac146b299e755919b0f700d2c63ef15ec8f3dfc35b82102fc1e62f",
+    "raw_execution_repeated": false
+  },
+  "official_done": 32,
+  "total": 37,
+  "percent_done": 86.48648648648648,
+  "remaining_sections": [
+    "Q29",
+    "Q31",
+    "Q34",
+    "Q35",
+    "Q36"
+  ],
+  "runtime_limits_preserved": true,
+  "existing_subsystem_failures_retained": true
+}

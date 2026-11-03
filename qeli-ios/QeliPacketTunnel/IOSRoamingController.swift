@@ -30,32 +30,6 @@ private struct IOSPathProbeResult: Sendable {
     }
 }
 
-private final class IOSPathProbeCompletion: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Result<IOSPathProbeResult, Error>, Never>?
-    private var result: Result<IOSPathProbeResult, Error>?
-
-    func park(_ value: CheckedContinuation<Result<IOSPathProbeResult, Error>, Never>) {
-        let immediate = lock.withLock { () -> Result<IOSPathProbeResult, Error>? in
-            if let result { return result }
-            continuation = value
-            return nil
-        }
-        if let immediate { value.resume(returning: immediate) }
-    }
-
-    func finish(_ value: Result<IOSPathProbeResult, Error>) {
-        let pending = lock.withLock {
-            () -> CheckedContinuation<Result<IOSPathProbeResult, Error>, Never>? in
-            guard result == nil else { return nil }
-            result = value
-            defer { continuation = nil }
-            return continuation
-        }
-        pending?.resume(returning: value)
-    }
-}
-
 private enum IOSPathProbe {
     private static let timeoutMilliseconds = 10_000
 
@@ -71,51 +45,54 @@ private enum IOSPathProbe {
             port: NWEndpoint.Port(rawValue: port)!,
             using: parameters)
         let queue = DispatchQueue(label: "ru.qeli.ios.roaming.probe")
-        let completion = IOSPathProbeCompletion()
+        let completion = CancellableProbeCompletion<IOSPathProbeResult> {
+            connection.stateUpdateHandler = nil
+            connection.cancel()
+        }
         return try await withTaskCancellationHandler {
             let outcome: Result<IOSPathProbeResult, Error> = await withCheckedContinuation {
                 continuation in
                 completion.park(continuation)
-                connection.stateUpdateHandler = { state in
-                    switch state {
-                    case .ready:
-                        do {
-                            guard let path = connection.currentPath,
-                                  path.status == .satisfied,
-                                  path.availableInterfaces.contains(where: {
-                                      $0.index == interface.index && $0.name == interface.name
-                                  }),
-                                  let local = endpointAddress(path.localEndpoint),
-                                  let remote = endpointAddress(path.remoteEndpoint) else {
-                                throw IOSRoamingError.unavailable(
-                                    "physical DNS probe exposed no exact endpoints")
-                            }
-                            completion.finish(.success(IOSPathProbeResult(
-                                interfaceName: interface.name,
-                                interfaceIndex: UInt32(interface.index),
-                                localAddress: local,
-                                remoteAddress: remote)))
-                        } catch { completion.finish(.failure(error)) }
-                        connection.cancel()
-                    case .waiting(let error), .failed(let error):
-                        completion.finish(.failure(error))
-                        connection.cancel()
-                    case .cancelled:
-                        completion.finish(.failure(CancellationError()))
-                    default:
-                        break
+                completion.start {
+                    connection.stateUpdateHandler = { state in
+                        switch state {
+                        case .ready:
+                            do {
+                                guard let path = connection.currentPath,
+                                      path.status == .satisfied,
+                                      path.availableInterfaces.contains(where: {
+                                          $0.index == interface.index && $0.name == interface.name
+                                      }),
+                                      let local = endpointAddress(path.localEndpoint),
+                                      let remote = endpointAddress(path.remoteEndpoint) else {
+                                    throw IOSRoamingError.unavailable(
+                                        "physical DNS probe exposed no exact endpoints")
+                                }
+                                completion.finish(.success(IOSPathProbeResult(
+                                    interfaceName: interface.name,
+                                    interfaceIndex: UInt32(interface.index),
+                                    localAddress: local,
+                                    remoteAddress: remote)))
+                            } catch { completion.finish(.failure(error)) }
+                        case .waiting(let error), .failed(let error):
+                            completion.finish(.failure(error))
+                        case .cancelled:
+                            completion.finish(.failure(CancellationError()))
+                        default:
+                            break
+                        }
+                    }
+                    connection.start(queue: queue)
+                    queue.asyncAfter(deadline: .now() + .milliseconds(timeoutMilliseconds)) {
+                        completion.finish(.failure(IOSRoamingError.unavailable(
+                            "physical DNS/path probe timed out")))
                     }
                 }
-                connection.start(queue: queue)
-                queue.asyncAfter(deadline: .now() + .milliseconds(timeoutMilliseconds)) {
-                    completion.finish(.failure(IOSRoamingError.unavailable(
-                        "physical DNS/path probe timed out")))
-                    connection.cancel()
-                }
             }
+            try Task.checkCancellation()
             return try outcome.get()
         } onCancel: {
-            connection.cancel()
+            completion.finish(.failure(CancellationError()))
         }
     }
 
@@ -297,7 +274,7 @@ actor IOSRoamingController {
     private let serverPort: UInt16
     private let monitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "ru.qeli.ios.roaming.monitor")
-    private var monitoring = false
+    private var lifecycle = SingleUseResourceLifecycle()
     private var latestPath: NWPath?
     private var baselineSignature: String?
     private var active: Active?
@@ -310,15 +287,14 @@ actor IOSRoamingController {
     private var candidates: [UInt64: Candidate] = [:]
     private var rolledBack: [UInt64: QeliPathUpdate] = [:]
 
-    init(engine: QeliNativeTunnelEngine, serverAddress: String, serverPort: UInt16) {
-        self.engine = engine
+    init(serverAddress: String, serverPort: UInt16) {
         self.serverAddress = serverAddress
         self.serverPort = serverPort
     }
 
-    func start() {
-        guard !monitoring else { return }
-        monitoring = true
+    func start(engine: QeliNativeTunnelEngine) {
+        guard lifecycle.start() else { return }
+        self.engine = engine
         monitor.pathUpdateHandler = { [weak self] path in
             Task { await self?.observed(path) }
         }
@@ -336,16 +312,16 @@ actor IOSRoamingController {
         rolledBack.removeAll()
         latestPath = nil
         baselineSignature = nil
-        if monitoring {
+        if lifecycle.stop() {
             monitor.pathUpdateHandler = nil
             monitor.cancel()
-            monitoring = false
         }
     }
 
     func arm(
         transport: QeliNativeTransport, generation: UInt64, carrierAddresses: [String]
     ) {
+        guard lifecycle.active else { return }
         pendingUpdate?.cancel()
         pendingUpdate = nil
         waitingForReplacement = false
@@ -373,6 +349,7 @@ actor IOSRoamingController {
     }
 
     private func observed(_ path: NWPath) {
+        guard lifecycle.active else { return }
         latestPath = path
         guard active != nil else { return }
         guard let signature = IOSRoamingSocket.signature(for: path) else {
@@ -441,7 +418,7 @@ actor IOSRoamingController {
     /// its fail-closed routes until a Wi-Fi/cellular callback makes progress possible.
     func waitForUsablePath() async throws -> Bool {
         var waited = false
-        while monitoring {
+        while lifecycle.active {
             if latestPath.flatMap(IOSRoamingSocket.signature) != nil {
                 return waited
             }

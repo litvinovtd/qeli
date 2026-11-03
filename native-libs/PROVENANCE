@@ -7,10 +7,10 @@ the GUI clients silently carried an older realtls/FFI core than the repository d
 Nothing in review or CI could have caught that. This file records what the current
 binaries were actually built from, so the question has an answer.
 
-source-digest : c73f00afe1033e9e4c560fa0af9f42b486cb544a6ac06ec898173cc9f99c4ed4
-base-commit   : 98e251528b11574a9bacf196c8a71a1ab312c987
+source-digest : db81c0d0c813fd973fe0dc8c097c2650527408031d8362ee58f9b9a1c19dcee2
+base-commit   : 9667c1e46b700762efb74db43b229eb363ea8f5a
 dirty-sources : 0 file(s) modified vs base-commit at build time
-built-on      : lab .10 (win/mac), lab .11 (android)
+built-on      : lab .10/.11; independent Windows/macOS and Android A/B jobs; execution timestamps are retained in build journals
 toolchain     : pinned inventories in native-libs/reproducibility/{desktop,android}.json
 panic         : CARGO_PROFILE_RELEASE_PANIC=unwind  (REQUIRED — the catch_unwind guards in
                 protocol/realtls/{ffi,jni}.rs are inert under panic=abort)
@@ -18,7 +18,22 @@ targets       : x86_64-pc-windows-gnu · universal2-apple-darwin ·
                 aarch64-linux-android · x86_64-linux-android
 
 `source-digest` is SHA256 over `"<path> <sha256>
-"` for every `qeli/src/**/*.rs` plus
-`qeli/Cargo.toml` and `qeli/Cargo.lock`, paths sorted. Recompute it with
+"` for every `qeli/src/**/*.rs`,
+`qeli/Cargo.toml`, `qeli/Cargo.lock`, `qeli/.cargo/config.toml` and the executable
+native recipes listed in `scripts/native_repro.py` (`BUILD_INPUTS`), paths sorted.
+Recompute it with
 `python native-libs/provenance.py --check`: a mismatch means the cores are stale relative
 to the source in this tree and must be rebuilt before release.
+
+
+
+
+
+
+
+
+
+
+
+recorded-at   : 2026-10-26T12:24:16.849185+00:00 (provenance refresh, not compilation time)
+source-epoch  : desktop=1793015685, android=1793015685 (reproducibility input, not build time)

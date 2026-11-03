@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "kind": "q01-audit-criteria-reconciliation",
+  "captured_at": "2026-10-02T23:30:48.443150+00:00",
+  "status": "PASS",
+  "remaining": null,
+  "runtime_evidence": "release/certification/evidence/config-mixed-20261002.json",
+  "runtime_evidence_sha256": "7fdaec31ced5a361b186363d7cd43891e154ea8d31ad6f40d97307de61d33df3",
+  "matched_rust_inputs": 288,
+  "reused_unit": 201,
+  "reused_privileged_executions": 4,
+  "reused_runtime_checks": 44,
+  "new_runtime_execution": false,
+  "candidate_evidence": "release/certification/evidence/final-candidate-20261003.json",
+  "field_trace_reports": [
+    "AUDIT-Q25-SERVER-GLOBAL-FIELDS.md",
+    "AUDIT-Q25-SERVER-PROFILE-FOUNDATION.md",
+    "AUDIT-Q25-SERVER-PROFILE-OBF.md"
+  ],
+  "corrections": [
+    "Linux-unavailable blocker obsolete",
+    "Complete field tracing covered by D07",
+    "Failures/concurrency and Linux integration covered by Q25-F209",
+    "Native provenance and 20/20 candidate certification refreshed by D15"
+  ],
+  "review_completed_at": "2026-10-02T23:44:54.284619+00:00",
+  "review_source_commit": "13dc2922fd4cade482b0bd35cdfc8340d06f344d",
+  "review": {
+    "scope": "Server INI schema and entry points; client editor lifecycle is section 02, networking implementations remain separate sections",
+    "sources": [
+      "qeli/src/config/server_ini.rs",
+      "qeli/src/config/format.rs",
+      "qeli/src/config/mod.rs",
+      "qeli/src/config/server.rs",
+      "qeli/src/config/users.rs",
+      "qeli/src/main.rs",
+      "qeli/src/server/mod.rs"
+    ],
+    "entry_points": {
+      "ordinary_server_load": "parse_server_config -> parse_server_config_reporting -> from_ini -> bad_values + unknown_keys",
+      "diagnostic_cli": "CheckConfig -> from_ini -> shared validation/trust + bad_values + unread keys",
+      "users_load": "parse_strict -> instance validation -> from_ini -> bad_values + reject_unread_keys + network validation",
+      "users_update": "update_locked_checked -> sidecar lock -> strict current-file checks -> checked mutation -> validation -> atomic save",
+      "panel_form": "decode_server_form unknown-field rejection; shared save validators and serialized strict parse"
+    },
+    "decisions": [
+      "Serde default providers are references generated from attributes, not dead functions",
+      "Function-pointer uses of auth_from/web_from/logging_from/profile_from and OS/feature consumers are retained",
+      "UsersDb.set_bandwidth and notify.save_path are used by test fixtures; not active runtime paths, no exposed handler is inferred from their names",
+      "logging.format is documented legacy compatibility only; no JSON config loader",
+      "tun.netmask is read-only legacy with warning, deliberately absent from output",
+      "TCP/UDP-inactive fields are preserved on save for transport changes",
+      "AWG bounds are documented warning-and-clamp compatibility, not strict reject semantics",
+      "Low-level from_ini is a diagnostic builder; production callers validate document findings"
+    ],
+    "new_confirmed_findings": [],
+    "production_changes": false,
+    "check": {
+      "command": "python scripts/gen_roundtrip_fixture.py --check",
+      "exit_code": 0,
+      "output_sha256": "d3f966ba89243fe909adc8f6322feb69837afda60dc4e1a5b679ddf330c29429"
+    }
+  },
+  "review_source_sha256": {
+    "qeli/src/config/server_ini.rs": "1e928532fc24bb80e28338057ff784d32ad4b60d2d16b63a61324a4ffb22d842",
+    "qeli/src/config/format.rs": "d1a87b5d064eb51083110dcf73de626fa52b91d1cb157a2456d18ae979924f34",
+    "qeli/src/config/mod.rs": "c414698458e9e6fa9362cdf3008d91ebccb4711045c793894d11a4a56f0c91c2",
+    "qeli/src/config/server.rs": "94484ce676d563ed9fe6fd57335d5c7071a6fb5b853b2390fa45f054b72cb4b6",
+    "qeli/src/config/users.rs": "7fbf65d031afc4a3a68c954aae8e980df9f9a8ce4d7d2ad211238b2cd2838121",
+    "qeli/src/main.rs": "8b992522133ea1026970bd9db2d5549263706f8508a6f96973c3dbb09c15ca20",
+    "qeli/src/server/mod.rs": "2b3ec7d915c7c4f0bd46e086c7391aa41985151ccabfe7f3818aec786546fe3a"
+  }
+}

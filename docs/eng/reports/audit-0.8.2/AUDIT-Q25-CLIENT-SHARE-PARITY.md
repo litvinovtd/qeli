@@ -1,0 +1,5 @@
+# Q25-F196 — share URI password contract across adapters
+
+Status: 1 October 2026. After Q25-F194/F195, an old Android test still required exporting a profile with an empty password. The complete path is now explicit: importing an old `qeli://u:@host:443` remains valid as a draft, but re-issuing a link without an inline `pass` must fail. Android, .NET and iOS tests now pin that boundary. Fixtures with nonempty passwords were not changed.
+
+A **debug Windows host DLL** was rebuilt from current source with `build_client_core.py --debug --offline`; it is a test artifact, not a release core or D11 proof. Against that DLL, Android `testDebugUnitTest --offline`: 167 tests, zero failures/skips. .NET `QeliConformance selftest`: ALL PASS, including the new check. iOS XCTest was not run without Mac/Xcode. The configured `C:\Android\Sdk` has no NDK, so fresh Android JNI/APK was not built from this commit; emulator .11 instrumentation was not run in this package (previous SSH attempts were rejected). D08/D11/D12 stay open within these boundaries.

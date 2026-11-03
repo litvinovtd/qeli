@@ -1,0 +1,37 @@
+{
+  "status": "Q29_ACCEPTED_LIMITATION_DOCS_ONLY_APPLICABILITY",
+  "prior_commit": "2c0cfb4914af90dc962b4277d4365785a8533109",
+  "report_commit": "3ba4996a5bcc550f5e397c36815c93e3488e1e33",
+  "previous_source_digest": "2ab27de3b51311ee722e371a509619a92302d57029da239095d95c6292fa0a3a",
+  "source_digest": "ee418bb8b65243bf343d919c897e14c67f370e7ee198afbf3d353c8ede586948",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "exact_source_delta": {
+    "docs/eng/manuals/TROUBLESHOOTING.md": "e9f71b435a53a6efdb37a9b4ab5a831f25a218c430cc2ef3ba7d8681d5671c63",
+    "docs/eng/plans/AUDIT-DEBT.md": "d780b9b530b2bbb32413cf649c2546e36a042196ff83fb4f2cc75955a2ed30ae",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "a77ea146a7cd052d93818f9366d4a9de1e0518cfacfca6ce1dfa921c14f9ba16",
+    "docs/eng/reports/AUDIT-Q29-ANDROID-CURRENT-VPN.md": "db7a1b3f74d0c0cca4193a526e4076e9772b2ad16562a118e133a5b168b6b50c",
+    "docs/eng/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md": "46d854fcabcf368242680ae4caa22d279ddd6a1b8fc233f58a826d991f27965c",
+    "docs/ru/manuals/TROUBLESHOOTING.md": "e5049b211da950a2734f84e0b4b1b8e56597266411acc82678188a5a58084210",
+    "docs/ru/plans/AUDIT-DEBT.md": "1e5cd1d22365bccc7754fa5f408d9e94ae228e64f5d53a479564cc0358beec13",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "711587d38e95f3bf3aac342e2525af8a4f22053abff4831adcf41fa6b4a8045f",
+    "docs/ru/reports/AUDIT-Q29-ANDROID-CURRENT-VPN.md": "12566848eb24f54e855502c3f15f2061b98b46d384b9930fa50b8b10db6a0c28",
+    "docs/ru/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md": "dfb3b7b1fc005bd6d30d0d1ff38835b93509bef4c59d2591ed641ec5d295b772"
+  },
+  "user_acceptance_evidence": "release/certification/evidence/q29-dns-final-review-20261015.json",
+  "user_decision": {
+    "answer": "Принять ограничение и закрыть Q29",
+    "recorded_utc": "2026-10-15T15:29:48.720602+00:00",
+    "scope": "Observed generic automatic-family DnsResolver network=null ENONET on Android14/API34 x86_64 UE1A.230829.036.A1/11228894",
+    "disposition": "Accepted documented limitation of the measured image; Q29 complete within agreed audit scope",
+    "observed_failure_fixed": false,
+    "original_FAIL_preserved": true,
+    "protection": "Secure VpnService and Android system kill switch retained; no bypass",
+    "no_new_execution": true
+  },
+  "scope": "Ten RU/EN Markdown files document explicit human acceptance of the measured API34 generic/null DNS limitation and complete audit 37/37 in agreed scope. No product/native/workflow/runtime change or new execution. Original ENONET FAIL, actual Linux20 execution at 9fa0903a, all artifact/timestamp/qualification facts and 21 physical rows retained. Not full release or universal platform certification.",
+  "actual_runtime_evidence": "release/certification/evidence/q34-dev-linux-runtime-20261015.json",
+  "actual_CI": "https://github.com/litvinovtd/qeli/actions/runs/38754898316",
+  "execution_rows_preserved": 20,
+  "physical_rows_unchanged": 21,
+  "new_execution_count": 0
+}

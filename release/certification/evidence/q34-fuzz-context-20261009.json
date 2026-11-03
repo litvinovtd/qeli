@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_FUZZ_ACTIONS_CONTEXT_CORRECTION_SCOPED",
+  "source_digest": "d837b515d51a53f3a423c5ee1d81c2c6b6713a9dcb075d0176b2689ef85615bf",
+  "qualification_source_commit": "df2e3cac08c2ee8e9fd560e281d402fdf004ccd1",
+  "product_source_commit": "df2e3cac08c2ee8e9fd560e281d402fdf004ccd1",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F487/Q34-F041"
+  ],
+  "verification": {
+    "tool_identity": {
+      "status": "PASS",
+      "release": "v1.7.12",
+      "archive": "actionlint_1.7.12_windows_amd64.zip",
+      "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_windows_amd64.zip",
+      "sha256": "6e7241b51e6817ea6a047693d8e6fed13b31819c9a0dd6c5a726e1592d22f6e9",
+      "official_checksum": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_checksums.txt",
+      "binary_sha256": "54ca21be3de4c7cfa26914aa8b61bd76bf573ef3caac5f80d110558cdf241718"
+    },
+    "actions_semantics": {
+      "status": "PASS",
+      "results": {
+        "baseline": {
+          "rc": 1,
+          "output": "..\\audit-debt-20260924\\q34-fuzz-context-20261009\\baseline-ci.yml:816:29: context \"env\" is not allowed here. available contexts are \"github\", \"inputs\", \"matrix\", \"needs\", \"secrets\", \"strategy\", \"vars\". see https://docs.github.com/en/actions/learn-github-actions/contexts#context-availability for more details [expression]\n    |\n816 |       RUSTUP_TOOLCHAIN: ${{ env.QELI_FUZZ_TOOLCHAIN }}\n    |                             ^~~~~~~~~~~~~~~~~~~~~~~\n..\\audit-debt-20260924\\q34-fuzz-context-20261009\\baseline-ci.yml:888:29: context \"env\" is not allowed here. available contexts are \"github\", \"inputs\", \"matrix\", \"needs\", \"secrets\", \"strategy\", \"vars\". see https://docs.github.com/en/actions/learn-github-actions/contexts#context-availability for more details [expression]\n    |\n888 |       RUSTUP_TOOLCHAIN: ${{ env.QELI_FUZZ_TOOLCHAIN }}\n    |                             ^~~~~~~~~~~~~~~~~~~~~~~\n"
+        },
+        "final": {
+          "rc": 0,
+          "output": ""
+        }
+      },
+      "scope": "Official actionlint semantic workflow parsing;external ShellCheck/pyflakes explicitly not run;not hosted scheduling"
+    },
+    "environment_export": {
+      "status": "PASS",
+      "rc": 0,
+      "bytes": "RUSTUP_TOOLCHAIN=nightly-2026-06-10\n",
+      "scope": "Exact workflow bootstrap shell writes valid LF environment file;GitHub runner consumption follows official GITHUB_ENV contract,not hosted run"
+    },
+    "qualified_inputs": {
+      "status": "PASS",
+      "paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "normalization": "lf",
+          "sha256": "d1efe71dcfb67c4d719a28d99016fd0008d9db77567aaa825ae0ca6f9244dcfe"
+        },
+        {
+          "path": "docs/eng/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "b7e1ee10b487c394225c5992e0678c96cf8b39549f3a2b770904d1f0d19873d0"
+        },
+        {
+          "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "bec2ce97549c8b92fbe72d22ff4ab4924d4c23f18384f18f901249cb861c0cea"
+        },
+        {
+          "path": "docs/ru/plans/AUDIT-DEBT.md",
+          "normalization": "lf",
+          "sha256": "ab9569c1c3b09f1417f274270f6b91e9f51066242462408bca30f6a16c8773c9"
+        },
+        {
+          "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+          "normalization": "lf",
+          "sha256": "6ce30b36cc1ad260d607353a838fe1c57bb1f1b29d12ba64569c35967cc46ff9"
+        },
+        {
+          "path": "qeli-openwrt/Makefile",
+          "normalization": "lf",
+          "sha256": "de6d39eee20810e7262b4f146bb7103b0952088412617e67a1b6f46bb2cd8a17"
+        },
+        {
+          "path": "qeli/Cargo.lock",
+          "normalization": "lf",
+          "sha256": "dbe2e1297402d2b938bcf88f42b567374e6671189dc08472e2be464356692bf7"
+        },
+        {
+          "path": "qeli/Cargo.toml",
+          "normalization": "lf",
+          "sha256": "05b83390369a48f6c183e00989324b03afca4995daa74a6b1da2937d2145cecc"
+        },
+        {
+          "path": "qeli/fuzz/Cargo.lock",
+          "normalization": "lf",
+          "sha256": "cc451c34452ab43cdf475b7a915c8fbdc16b825d2ee262bd3903eeb6f92355f4"
+        },
+        {
+          "path": "qeli/fuzz/Cargo.toml",
+          "normalization": "lf",
+          "sha256": "fbd0cc114ab5c2a800fb93f1a994a641ff41d3f4483fd2c3f3751d471ed863a3"
+        },
+        {
+          "path": "qeli/fuzz/README.md",
+          "normalization": "lf",
+          "sha256": "88536fd8203e97f268eb469860826335d87ac246c3fae459faddbdf1fbfc7a97"
+        },
+        {
+          "path": "scripts/check_docs.py",
+          "normalization": "lf",
+          "sha256": "e260cb024b56fc6257108801d5dae01607dfadfb6cb5458669b3b2e25e808a10"
+        },
+        {
+          "path": "scripts/fuzz_targets.py",
+          "normalization": "lf",
+          "sha256": "356015d845f9542b4bb802b05c596c15eed11b65ab17718568426951e0569a6c"
+        },
+        {
+          "path": "scripts/native_repro.py",
+          "normalization": "lf",
+          "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+        },
+        {
+          "path": "scripts/openwrt_source_gate.py",
+          "normalization": "lf",
+          "sha256": "d22677508a027df9e2b717dae45553ba235d8e88417d14a0cf4fcb91d2cd8588"
+        },
+        {
+          "path": "scripts/release_certification.py",
+          "normalization": "lf",
+          "sha256": "d3dd7fe497da0df4519835decfadb4cb64abfa9c38f29e301ff4630b7e5885b5"
+        },
+        {
+          "path": "scripts/test_fuzz_targets.py",
+          "normalization": "lf",
+          "sha256": "51b8b36fa8f12172298ded416dbbd8abf5980f2c18f76686971f5f9239a94398"
+        }
+      ]
+    },
+    "local_checks": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-FUZZ-TOOLCHAIN.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-FUZZ-TOOLCHAIN.md",
+        "scripts/test_fuzz_targets.py"
+      ],
+      "native_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+        "qeli/src/web/assets/app.css": "c925399cb860bea80fcbc5d66dec7cf3ebb0740fbd8bb7489d211730bdc1d8bd"
+      },
+      "native_artifact_hashes": 14,
+      "checks": "actionlint baseline refusal/finalPASS,13Windows tests,exactBashGITHUB_ENV export,720docs9checks,diff,unchangednative/sourcegate",
+      "inherited_real_runtime": "q34-fuzz-toolchain-20261009;identicalsmokeBash/effectiveenv,noactualre-run/nohostedexecution",
+      "current_qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-fuzz-context-20261009",
+    "files": 33,
+    "bytes": 10154971,
+    "manifest_sha256": "a62231996d1d5eb1a0889cfde3ea4cd65f1121514ecf056cb17fa2282735c3c9",
+    "runtime_status": "PASS_ACTIONS_SEMANTIC_CONTEXT_FIX_NO_NEW_RUST_RUNTIME",
+    "path": "audit-debt-20260924/q34-fuzz-context-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F487/Q34-F041 corrective qualification: final official Actions context review identified a regression introduced in prior fuzz CI patch. env context is not available in job-level env;initial PyYAML validation did not detect it and no hosted CI was claimed. Official SHA-qualified actionlint1.7.12 Windows release reproduces exactly2 baseline context refusals;final workflow rc0 with external ShellCheck/pyflakes disabled explicitly. Single QELI_FUZZ_TOOLCHAIN pin exported via dedicated GITHUB_ENV step after compiler setup,validforinternalCargo/rustc.13 updated Windows regression methods and exact Git Bash LF environment export PASS;GitHub runner consumption follows official contract,not hosted scheduling. Actual previous15-target/defaultASan/85,930,590-run smoke commands,locked graph/tool/compiler/effectiveenvironment remain identical;that sealed real-runtime qualification is inherited,not repeated. Initial runtime scope and failures retained;this fixes our CI integration patch,not a parser defect.720trackedMarkdown9checks/diff/nativee3fb14SHA/protected unchanged;exact new SDK source cut746e09 and9b4b archive gatePASS reused unchanged qelitree,not new SDK execution. Labs untouched this corrective stage;previous owned root cleanup/service777845 retained in originalpacket. Separate correction sealed with raw credentialscan stdin only.41cases88prior supplements preserved modulo source_digest bookkeeping,append89scoped;prior workflow job-env binding superseded,other historical scopes not rewritten. Q34IN_PROGRESS30/37DONE81.1percent7remain;Q35TODO/fullfuzz/600snightly/concurrency/DoS/soak/currenthostedCI/signatures/sourcepublication/release OPEN;Q29SIGKILLFAIL/ENONET/Q30/Q31/F459braces/D06accepted/USER_EXCLUDED preserved.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

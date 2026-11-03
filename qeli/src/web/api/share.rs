@@ -74,6 +74,17 @@ pub async fn share_link(
     }
     let allow_reset = params.get("allow_reset").map(String::as_str) == Some("true");
 
+    // The profile's pinned static public key (loads the existing identity key).
+    let server_key = match crate::server::load_or_generate_profile_key(profile) {
+        Ok(kp) => kp
+            .public
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>(),
+        Err(e) => return Json(super::err_json(format!("identity key unavailable: {}", e))),
+    };
+
     // Resolve the password without admin input: decrypt the stored copy, else
     // (legacy / decrypt failure) reset on demand. `reset` is reported back so the
     // UI can warn that the old config was invalidated.
@@ -104,7 +115,7 @@ pub async fn share_link(
             }
             // Reset: new password, persisted (hash + encrypted copy), worker reloaded.
             let new_pw = super::users::gen_password(20);
-            let (hash, enc2) = match super::users::hash_and_enc(&new_pw) {
+            let (hash, enc2) = match super::users::hash_and_enc(&new_pw).await {
                 Ok(v) => v,
                 Err(e) => return Json(super::err_json(e)),
             };
@@ -145,7 +156,11 @@ pub async fn share_link(
                     }
                     Err(e) => {
                         log::error!("share/reset: failed to save users file: {}", e);
-                        return Json(super::err_json(format!("could not persist reset: {}", e)));
+                        drop(users);
+                        return Json(
+                            super::users::users_write_failure(&state, &config, &users_file, e)
+                                .await,
+                        );
                     }
                 }
             }
@@ -154,17 +169,6 @@ pub async fn share_link(
             }
             (new_pw, true)
         }
-    };
-
-    // The profile's pinned static public key (loads the existing identity key).
-    let server_key = match crate::server::load_or_generate_profile_key(profile) {
-        Ok(kp) => kp
-            .public
-            .as_bytes()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>(),
-        Err(e) => return Json(super::err_json(format!("identity key unavailable: {}", e))),
     };
 
     // Every profile-dependent field (wire mode, rsid, sni, obfs key, fronting, quic, awg)
@@ -219,6 +223,86 @@ fn render_qr_svg(data: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::render_qr_svg;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn share_rejects_untrusted_identity_path_before_key_or_password_work() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-share-path-trust-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let key = dir.join("profile.key");
+        let config_path = dir.join("server.conf");
+        let raw = format!("[profile:p]\nidentity_key = {}\n", key.display());
+        std::fs::write(&config_path, &raw).unwrap();
+        std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let config = crate::config::parse_server_config(&raw).unwrap();
+        let state = crate::server::test_api_state(config, &config_path);
+        let params = std::collections::HashMap::from([
+            ("profile".into(), "p".into()),
+            ("host".into(), "fixture.invalid".into()),
+            ("user".into(), "alice".into()),
+            ("allow_reset".into(), "true".into()),
+        ]);
+        let response = super::share_link(
+            axum::extract::State(state),
+            crate::server::web::auth::AuthGuard,
+            axum::Json(params),
+        )
+        .await
+        .0;
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().unwrap().contains("identity_key"));
+        assert!(!key.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn identity_failure_never_resets_the_users_password() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-share-identity-failure-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let users = dir.join("users.conf");
+        let identity = dir.join("profile.key");
+        let config_path = dir.join("server.conf");
+        let original = "[user:alice]\npassword_hash=original-fixture-hash\n";
+        std::fs::write(&users, original).unwrap();
+        std::fs::write(&identity, "corrupt").unwrap();
+        let mut config =
+            crate::config::parse_server_config("[profile:p]\nbind.port=443\n").unwrap();
+        config.auth.users_file = users.to_string_lossy().into_owned();
+        config.profiles[0].identity_key = Some(identity.to_string_lossy().into_owned());
+        std::fs::write(&config_path, config.to_ini_string()).unwrap();
+        let state = crate::server::test_api_state(config, &config_path);
+        let params = std::collections::HashMap::from([
+            ("profile".into(), "p".into()),
+            ("host".into(), "fixture.invalid".into()),
+            ("user".into(), "alice".into()),
+            ("allow_reset".into(), "true".into()),
+        ]);
+        let response = super::share_link(
+            axum::extract::State(state),
+            crate::server::web::auth::AuthGuard,
+            axum::Json(params),
+        )
+        .await
+        .0;
+        assert_eq!(response["ok"], false);
+        assert!(
+            response["error"]
+                .as_str()
+                .unwrap()
+                .contains("identity key unavailable"),
+            "{response}"
+        );
+        assert_eq!(std::fs::read_to_string(&users).unwrap(), original);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn renders_svg_qr_for_a_share_uri() {

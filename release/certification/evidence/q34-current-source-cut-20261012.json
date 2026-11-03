@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-12",
+  "status": "PASS_Q34_CURRENT_LOCAL_SOURCE_CUT_PUBLICATION_OPEN",
+  "source_archive_commit": "c71e4803cd086add92c066dd48a64af1fdb9dec0",
+  "source_tree": "c4ca195c49a9346f7abd6d7c0ed25a191c7052cc",
+  "qeli_tree": "450e1c879f94d273ce77947ef70f175e9e5c3a30",
+  "archive": {
+    "sha256": "2843576ae0eac173c95bb1f222d9459ef402ea992a0c43ff496e1e1f52ed8137",
+    "bytes": 28029607
+  },
+  "prepared_tracked_files": 3272,
+  "independent_git_blob_verification": true,
+  "actual_sdk_downloads": 2,
+  "private_urls": true,
+  "sdk_compile_executed": false,
+  "production_gate": {
+    "status": "PASS_FOUR_ACTUAL_SOURCE_GATE_ADMISSIONS",
+    "committed_recipe": "fe8a458d89aa01c43a9058841e3989121d8ac571",
+    "source_archive_commit": "c71e4803cd086add92c066dd48a64af1fdb9dec0",
+    "positive": [
+      "  OpenWrt source PASS: version=0.8.2, pin=c71e4803cd086add92c066dd48a64af1fdb9dec0, mirror=2843576ae0eac173c95bb1f222d9459ef402ea992a0c43ff496e1e1f52ed8137"
+    ],
+    "modified_archive_refusal": [
+      "OpenWrt source gate: SDK source archive SHA256 differs from PKG_MIRROR_HASH"
+    ],
+    "missing_argument_refusal": [
+      "OpenWrt source gate: QELI_OPENWRT_SOURCE_ARCHIVE must name the SDK-generated Source archive"
+    ],
+    "absent_file_refusal": [
+      "OpenWrt source gate: [Errno 2] No such file or directory: 'C:\\\\Users\\\\litvi\\\\OneDrive\\\\Documents\\\\qeli\\\\audit-debt-20260924\\\\q34-current-source-cut-20261012\\\\absent-archive.tar.zst'"
+    ],
+    "archive": {
+      "sha256": "2843576ae0eac173c95bb1f222d9459ef402ea992a0c43ff496e1e1f52ed8137",
+      "bytes": 28029607
+    },
+    "whole_release_preflight_pass": false
+  },
+  "source_gate_methods_pass": 25,
+  "source_gate_known_skips": 3,
+  "public_availability": {
+    "source_commit": "c71e4803cd086add92c066dd48a64af1fdb9dec0",
+    "queries": [
+      {
+        "command": [
+          "gh",
+          "api",
+          "repos/litvinovtd/qeli/commits/c71e4803cd086add92c066dd48a64af1fdb9dec0"
+        ],
+        "rc": 1,
+        "stdout": "{\"message\":\"No commit found for SHA: c71e4803cd086add92c066dd48a64af1fdb9dec0\",\"documentation_url\":\"https://docs.github.com/rest/commits/commits#get-a-commit\",\"status\":\"422\"}",
+        "stderr": "gh: No commit found for SHA: c71e4803cd086add92c066dd48a64af1fdb9dec0 (HTTP 422)\n"
+      },
+      {
+        "command": [
+          "gh",
+          "api",
+          "repos/litvinovtd/qeli/branches/dev",
+          "--jq",
+          ".commit.sha"
+        ],
+        "rc": 0,
+        "stdout": "83c07f5c31178c67a005f20f59975e14528ab73a\n",
+        "stderr": ""
+      },
+      {
+        "command": [
+          "gh",
+          "run",
+          "list",
+          "--repo",
+          "litvinovtd/qeli",
+          "--workflow",
+          "ci.yml",
+          "--commit",
+          "c71e4803cd086add92c066dd48a64af1fdb9dec0",
+          "--event",
+          "push",
+          "--limit",
+          "1",
+          "--json",
+          "headSha,event,status,conclusion,databaseId,url"
+        ],
+        "rc": 0,
+        "stdout": "[]\n",
+        "stderr": ""
+      }
+    ],
+    "read_only": true,
+    "push_dispatch_release": false
+  },
+  "host_preservation_and_cleanup": {
+    "status": "OWNED_SDK_ROOT_REMOVED_AFTER_PROCESS_FD_MOUNT_COOKIE_GUARDS",
+    "free_before": 6454865920,
+    "free_after": 7659573248,
+    "root": "/var/tmp/qeli-sdk-current-cut-856fcf5b44cb420bb041f0fe9aab03a8",
+    "host_preserved": true,
+    "after": {
+      "snapshot_schema": "all-firewall-v1",
+      "addresses": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "routes": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "qeli_listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "active": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n    PID COMMAND\n    777 qeli\n    845 qeli",
+      "boot_id": "cf76e1b8-67e1-4b9e-982b-7682921396a0",
+      "resolver": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "namespaces": "",
+      "iptables4": "# Warning: iptables-legacy tables present, use iptables-legacy-save to see them\n# Generated by iptables-save v1.8.11 (nf_tables) on Mon Oct 12 08:02:09 2026\n*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [16:1532]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n# Completed on Mon Oct 12 08:02:09 2026\n# Table `filter' is incompatible, use 'nft' tool.\n# Table `nat' contains incompatible base-chains, use 'nft' tool to list them.\n# Generated by iptables-save v1.8.11 (nf_tables) on Mon Oct 12 08:02:09 2026\n*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [52887:4296303]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT\n# Completed on Mon Oct 12 08:02:09 2026",
+      "iptables6": "# Generated by ip6tables-save v1.8.11 (nf_tables) on Mon Oct 12 08:02:09 2026\n*filter\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\nCOMMIT\n# Completed on Mon Oct 12 08:02:09 2026",
+      "legacy4": "# Generated by iptables-save v1.8.11 on Mon Oct 12 08:02:09 2026\n*filter\n:INPUT ACCEPT [9431641:13554468298]\n:FORWARD ACCEPT [16:1532]\n:OUTPUT ACCEPT [6308657:17799777048]\nCOMMIT\n# Completed on Mon Oct 12 08:02:09 2026\n# Generated by iptables-save v1.8.11 on Mon Oct 12 08:02:09 2026\n*nat\n:PREROUTING ACCEPT [3653:393228]\n:INPUT ACCEPT [3637:391696]\n:OUTPUT ACCEPT [52865:4294363]\n:POSTROUTING ACCEPT [52881:4295895]\nCOMMIT\n# Completed on Mon Oct 12 08:02:09 2026",
+      "legacy6": "",
+      "nft4": "# Warning: iptables-legacy tables present, use iptables-legacy-save to see them\n# Generated by iptables-nft-save v1.8.11 (nf_tables) on Mon Oct 12 08:02:10 2026\n*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [16:1532]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n# Completed on Mon Oct 12 08:02:10 2026\n# Table `filter' is incompatible, use 'nft' tool.\n# Table `nat' contains incompatible base-chains, use 'nft' tool to list them.\n# Generated by iptables-nft-save v1.8.11 (nf_tables) on Mon Oct 12 08:02:10 2026\n*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [52887:4296303]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT\n# Completed on Mon Oct 12 08:02:10 2026",
+      "nft6": "# Generated by ip6tables-nft-save v1.8.11 (nf_tables) on Mon Oct 12 08:02:10 2026\n*filter\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\nCOMMIT\n# Completed on Mon Oct 12 08:02:10 2026",
+      "nft": "{\"nftables\": [{\"metainfo\": {\"version\": \"1.1.3\", \"release_name\": \"Commodore Bullmoose #4\", \"json_schema_version\": 1}}, {\"table\": {\"family\": \"ip\", \"name\": \"nat\", \"handle\": 8}}, {\"chain\": {\"family\": \"ip\", \"table\": \"nat\", \"name\": \"postrouting\", \"handle\": 1, \"type\": \"nat\", \"hook\": \"postrouting\", \"prio\": 100, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip\", \"table\": \"nat\", \"name\": \"POSTROUTING\", \"handle\": 3, \"type\": \"nat\", \"hook\": \"postrouting\", \"prio\": 100, \"policy\": \"accept\"}}, {\"rule\": {\"family\": \"ip\", \"table\": \"nat\", \"chain\": \"postrouting\", \"handle\": 2, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"ens18\"}}, {\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": {\"prefix\": {\"addr\": \"10.8.0.0\", \"len\": 24}}}}, {\"masquerade\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"nat\", \"chain\": \"POSTROUTING\", \"handle\": 4, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": {\"prefix\": {\"addr\": \"10.9.0.0\", \"len\": 24}}}}, {\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"ens18\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"comment\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"xt\": {\"type\": \"target\", \"name\": \"MASQUERADE\"}}]}}, {\"table\": {\"family\": \"ip\", \"name\": \"filter\", \"handle\": 9}}, {\"chain\": {\"family\": \"ip\", \"table\": \"filter\", \"name\": \"forward\", \"handle\": 1, \"type\": \"filter\", \"hook\": \"forward\", \"prio\": 0, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip\", \"table\": \"filter\", \"name\": \"INPUT\", \"handle\": 2, \"type\": \"filter\", \"hook\": \"input\", \"prio\": 0, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip\", \"table\": \"filter\", \"name\": \"FORWARD\", \"handle\": 3, \"type\": \"filter\", \"hook\": \"forward\", \"prio\": 0, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip\", \"table\": \"filter\", \"name\": \"OUTPUT\", \"handle\": 4, \"type\": \"filter\", \"hook\": \"output\", \"prio\": 0, \"policy\": \"accept\"}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 5, \"expr\": [{\"match\": {\"op\": \"in\", \"left\": {\"ct\": {\"key\": \"state\"}}, \"right\": [\"established\", \"related\"]}}, {\"counter\": {\"packets\": 9373557, \"bytes\": 13548683477}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 6, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"iifname\"}}, \"right\": \"lo\"}}, {\"counter\": {\"packets\": 38486, \"bytes\": 3203176}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 7, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"icmp\", \"field\": \"type\"}}, \"right\": \"echo-reply\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 8, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"icmp\", \"field\": \"type\"}}, \"right\": \"destination-unreachable\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 9, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"icmp\", \"field\": \"type\"}}, \"right\": \"time-exceeded\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 10, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"icmp\", \"field\": \"type\"}}, \"right\": \"echo-request\"}}, {\"counter\": {\"packets\": 1, \"bytes\": 60}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 11, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"tcp\", \"field\": \"dport\"}}, \"right\": 80}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 12, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"tcp\", \"field\": \"dport\"}}, \"right\": 443}}, {\"counter\": {\"packets\": 99, \"bytes\": 5756}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 13, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"tcp\", \"field\": \"dport\"}}, \"right\": 8080}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 14, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": \"95.214.10.87\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 15, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": \"89.108.81.177\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 16, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": \"185.217.198.87\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 17, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": {\"prefix\": {\"addr\": \"10.66.0.0\", \"len\": 16}}}}, {\"counter\": {\"packets\": 10066, \"bytes\": 1526604}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 18, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": {\"prefix\": {\"addr\": \"192.168.50.0\", \"len\": 24}}}}, {\"counter\": {\"packets\": 2276, \"bytes\": 118220}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 19, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": {\"prefix\": {\"addr\": \"10.8.0.0\", \"len\": 24}}}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"FORWARD\", \"handle\": 20, \"expr\": [{\"match\": {\"op\": \"in\", \"left\": {\"ct\": {\"key\": \"state\"}}, \"right\": [\"established\", \"related\"]}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"FORWARD\", \"handle\": 21, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"iifname\"}}, \"right\": \"vpn0\"}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"FORWARD\", \"handle\": 22, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"vpn0\"}}, {\"match\": {\"op\": \"in\", \"left\": {\"ct\": {\"key\": \"state\"}}, \"right\": [\"established\", \"related\"]}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"FORWARD\", \"handle\": 24, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"iifname\"}}, \"right\": \"vpn0\"}}, {\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"ens18\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"comment\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"FORWARD\", \"handle\": 25, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"iifname\"}}, \"right\": \"ens18\"}}, {\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"vpn0\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"conntrack\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"comment\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"OUTPUT\", \"handle\": 23, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"lo\"}}, {\"counter\": {\"packets\": 490967, \"bytes\": 961166974}}, {\"accept\": null}]}}, {\"table\": {\"family\": \"ip6\", \"name\": \"filter\", \"handle\": 10}}, {\"chain\": {\"family\": \"ip6\", \"table\": \"filter\", \"name\": \"INPUT\", \"handle\": 1, \"type\": \"filter\", \"hook\": \"input\", \"prio\": 0, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip6\", \"table\": \"filter\", \"name\": \"OUTPUT\", \"handle\": 2, \"type\": \"filter\", \"hook\": \"output\", \"prio\": 0, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip6\", \"table\": \"filter\", \"name\": \"FORWARD\", \"handle\": 3, \"type\": \"filter\", \"hook\": \"forward\", \"prio\": 0, \"policy\": \"accept\"}}, {\"table\": {\"family\": \"ip\", \"name\": \"mangle\", \"handle\": 11}}, {\"chain\": {\"family\": \"ip\", \"table\": \"mangle\", \"name\": \"FORWARD\", \"handle\": 1, \"type\": \"filter\", \"hook\": \"forward\", \"prio\": -150, \"policy\": \"accept\"}}, {\"rule\": {\"family\": \"ip\", \"table\": \"mangle\", \"chain\": \"FORWARD\", \"handle\": 2, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"vpn0\"}}, {\"match\": {\"op\": \"==\", \"left\": {\"&\": [{\"payload\": {\"protocol\": \"tcp\", \"field\": \"flags\"}}, {\"|\": [\"syn\", \"rst\"]}]}, \"right\": \"syn\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"comment\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"xt\": {\"type\": \"target\", \"name\": \"TCPMSS\"}}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"mangle\", \"chain\": \"FORWARD\", \"handle\": 3, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"iifname\"}}, \"right\": \"vpn0\"}}, {\"match\": {\"op\": \"==\", \"left\": {\"&\": [{\"payload\": {\"protocol\": \"tcp\", \"field\": \"flags\"}}, {\"|\": [\"syn\", \"rst\"]}]}, \"right\": \"syn\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"comment\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"xt\": {\"type\": \"target\", \"name\": \"TCPMSS\"}}]}}]}"
+    },
+    "service_after": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+    "recovery_sha256": "f79bb8578f6a22d689a676b1aeb2f2fc4dd19d62d5b49bf3caf6df6f41242cc9"
+  },
+  "raw_packet": "audit-debt-20260924/q34-current-source-cut-20261012",
+  "whole_release_qualified": false,
+  "official_done": 32,
+  "total": 37,
+  "remaining": [
+    "Q29",
+    "Q31",
+    "Q34",
+    "Q35",
+    "Q36"
+  ],
+  "no_push_deploy_release": true
+}

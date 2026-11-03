@@ -16,6 +16,8 @@ pub struct IpPool {
     /// Reuse stack of released addresses — popped before scanning fresh ground, so
     /// a release/allocate churn stays O(1) and the pool stays compact.
     freed: Vec<u32>,
+    /// Deduplicate pending reuse entries under fixed and DHCP lease churn.
+    freed_set: HashSet<u32>,
     /// Next never-yet-tried address (u64 so an `end_ip` of 255.255.255.254 can't
     /// overflow). Replaces the old O(range) rescan-from-`start_ip` on every
     /// allocate; released addresses come back via `freed`, not by rewinding this.
@@ -36,6 +38,8 @@ pub struct Ipv6Pool {
     allocated: HashSet<u128>,
     user_allocations: HashMap<String, u128>,
     freed: Vec<u128>,
+    /// Deduplicate pending reuse entries under fixed and DHCP lease churn.
+    freed_set: HashSet<u128>,
     cursor: Option<u128>,
 }
 
@@ -127,6 +131,7 @@ impl Ipv6Pool {
             allocated: HashSet::new(),
             user_allocations: HashMap::new(),
             freed: Vec::new(),
+            freed_set: HashSet::new(),
             cursor: network.checked_add(1),
         })
     }
@@ -148,6 +153,7 @@ impl Ipv6Pool {
             return self.allocate_fixed(key, Ipv6Addr::from(address));
         }
         while let Some(value) = self.freed.pop() {
+            self.freed_set.remove(&value);
             if self.assign_dynamic(key, value) {
                 return Some(Ipv6Addr::from(value));
             }
@@ -189,7 +195,7 @@ impl Ipv6Pool {
                 return Some(address);
             }
             self.allocated.remove(&previous);
-            self.freed.push(previous);
+            self.remember_freed(previous);
         }
         self.user_allocations
             .retain(|holder, held| !(*held == value && holder != key));
@@ -201,6 +207,14 @@ impl Ipv6Pool {
     pub fn release(&mut self, key: &str) {
         if let Some(value) = self.user_allocations.remove(key) {
             self.allocated.remove(&value);
+            self.remember_freed(value);
+        }
+    }
+
+    fn remember_freed(&mut self, value: u128) {
+        // Reserved addresses cannot be dynamically reused. Fixed/range assignment does
+        // not consume the stack: retain just one entry until a dynamic pop rechecks it.
+        if !self.reserved.contains(&value) && self.freed_set.insert(value) {
             self.freed.push(value);
         }
     }
@@ -304,6 +318,7 @@ impl IpPool {
             allocated: HashSet::new(),
             user_allocations: HashMap::new(),
             freed: Vec::new(),
+            freed_set: HashSet::new(),
             cursor: start_ip as u64,
             ipv6: None,
         })
@@ -322,6 +337,7 @@ impl IpPool {
             allocated: HashSet::new(),
             user_allocations: HashMap::new(),
             freed: Vec::new(),
+            freed_set: HashSet::new(),
             cursor: 0,
             ipv6: Some(Ipv6Pool::new(config, tun_address)?),
         })
@@ -457,6 +473,7 @@ impl IpPool {
         // Dynamic allocation: reuse a released address first (compact + O(1)), else
         // advance the cursor over never-tried ground.
         while let Some(ip_val) = self.freed.pop() {
+            self.freed_set.remove(&ip_val);
             if !self.excluded.contains(&ip_val)
                 && !self.reserved.contains(&ip_val)
                 && !self.allocated.contains(&ip_val)
@@ -517,7 +534,7 @@ impl IpPool {
             // Held an address OUTSIDE the window (e.g. the VPN side allocated it first):
             // give it up so it can serve someone else rather than pinning two per client.
             self.allocated.remove(&cur);
-            self.freed.push(cur);
+            self.remember_freed(cur);
             self.user_allocations.remove(key);
         }
         // Linear scan of the window. `freed` is not consulted separately: an address released
@@ -594,7 +611,7 @@ impl IpPool {
                 return Some(ip_from_u32(ip_val)); // already ours — idempotent
             }
             self.allocated.remove(&prev);
-            self.freed.push(prev);
+            self.remember_freed(prev);
         }
         // Steal the address from any OTHER holder (its session is evicted by the caller).
         self.user_allocations
@@ -616,7 +633,15 @@ impl IpPool {
             self.allocated.remove(&ip_val);
             // Offer it back to the next allocate (re-checked against excluded/allocated
             // on pop, so a stale entry is harmless).
-            self.freed.push(ip_val);
+            self.remember_freed(ip_val);
+        }
+    }
+
+    fn remember_freed(&mut self, value: u32) {
+        // Reserved addresses cannot be dynamically reused. Fixed/range assignment does
+        // not consume the stack: retain just one entry until a dynamic pop rechecks it.
+        if !self.reserved.contains(&value) && self.freed_set.insert(value) {
+            self.freed.push(value);
         }
     }
 
@@ -665,6 +690,72 @@ mod tests {
             exclude: Vec::new(),
             static_reservations: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn fixed_and_range_churn_bounds_ipv4_reuse_entries() {
+        let mut config = pool_config("10.75.0.0/29");
+        config
+            .static_reservations
+            .insert("reserved".into(), "10.75.0.6".into());
+        let mut pool = IpPool::new(&config).unwrap();
+        let fixed: Ipv4Addr = "10.75.0.2".parse().unwrap();
+        let reserved: Ipv4Addr = "10.75.0.6".parse().unwrap();
+        let range = u32::from("10.75.0.4".parse::<Ipv4Addr>().unwrap());
+        for _ in 0..10_000 {
+            assert_eq!(pool.allocate_fixed("fixed", fixed), Some(fixed));
+            pool.release("fixed");
+            assert_eq!(pool.allocate_fixed("reserved", reserved), Some(reserved));
+            pool.release("reserved");
+            assert!(pool.allocate_in_range("dhcp", range, range).is_some());
+            pool.release("dhcp");
+        }
+        assert!(pool.user_allocations.is_empty());
+        assert_eq!(pool.freed.len(), 2);
+        assert_eq!(pool.freed_set.len(), 2);
+        assert!(!pool.freed_set.contains(&u32::from(reserved)));
+        assert_eq!(pool.allocate_fixed("fixed", fixed), Some(fixed));
+        let addresses: HashSet<_> = (0..3)
+            .map(|i| pool.allocate(&format!("dynamic-{i}")).unwrap())
+            .collect();
+        assert_eq!(addresses.len(), 3);
+        assert!(!addresses.contains(&fixed));
+        assert!(!addresses.contains(&reserved));
+        assert_eq!(pool.allocate("overflow"), None);
+        assert!(pool.freed.is_empty() && pool.freed_set.is_empty());
+        pool.release("fixed");
+        assert_eq!(pool.allocate("reused"), Some(fixed));
+    }
+
+    #[test]
+    fn fixed_churn_bounds_ipv6_reuse_entries() {
+        let mut config = ipv6_config("fd75::/125");
+        config
+            .static_reservations
+            .insert("reserved".into(), "fd75::7".into());
+        let mut pool = Ipv6Pool::new(&config, "fd75::1".parse().unwrap()).unwrap();
+        let fixed: Ipv6Addr = "fd75::2".parse().unwrap();
+        let reserved: Ipv6Addr = "fd75::7".parse().unwrap();
+        for _ in 0..10_000 {
+            assert_eq!(pool.allocate_fixed("fixed", fixed), Some(fixed));
+            pool.release("fixed");
+            assert_eq!(pool.allocate_fixed("reserved", reserved), Some(reserved));
+            pool.release("reserved");
+        }
+        assert!(pool.user_allocations.is_empty());
+        assert_eq!(pool.freed.len(), 1);
+        assert_eq!(pool.freed_set.len(), 1);
+        assert_eq!(pool.allocate_fixed("fixed", fixed), Some(fixed));
+        let addresses: HashSet<_> = (0..4)
+            .map(|i| pool.allocate(&format!("dynamic-{i}")).unwrap())
+            .collect();
+        assert_eq!(addresses.len(), 4);
+        assert!(!addresses.contains(&fixed));
+        assert!(!addresses.contains(&reserved));
+        assert_eq!(pool.allocate("overflow"), None);
+        assert!(pool.freed.is_empty() && pool.freed_set.is_empty());
+        pool.release("fixed");
+        assert_eq!(pool.allocate("reused"), Some(fixed));
     }
 
     #[test]

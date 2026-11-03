@@ -26,6 +26,7 @@ from native_lab import (
     pull_verified_artifact,
     remote_sha256,
     reset_repro_group,
+    REPRO_BUILD_ROOT,
     sync_qeli_source,
 )
 from native_repro import (
@@ -40,14 +41,14 @@ from native_repro import (
 
 REPO = Path(__file__).resolve().parent.parent
 LOCAL_QELI = REPO / "qeli"
-REMOTE_SOURCE = "/root/qeli-src"
-REMOTE_BUILD_ROOT = "/tmp/qeli-native-repro"
+REMOTE_SOURCE = f"{REPRO_BUILD_ROOT}/android-source"
+REMOTE_BUILD_ROOT = REPRO_BUILD_ROOT
 NDK = f"/root/android-sdk/ndk/{DEFAULT_ANDROID_NDK}"
 HOST = ("10.66.116.11", os.environ.get("QELI_LAB_USER", "root"))
 ABIS = ("arm64-v8a", "x86_64")
 EXPECTED_REALITY_EXPORTS = "6"
 EXPECTED_CLIENT_EXPORTS = "22"
-EXPECTED_JNI_EXPORTS = "21"
+EXPECTED_JNI_EXPORTS = "22"
 
 ARTIFACTS = {
     f"native-libs/android/{abi}/libqeli.so": {
@@ -137,7 +138,7 @@ def build_pass(
     command = (
         f"{environment}cd {shlex.quote(REMOTE_SOURCE)} && cargo +{toolchain} ndk "
         f"-t arm64-v8a -t x86_64 -o {shlex.quote(output_dir(pass_name))} "
-        "build --locked --release --no-default-features --features transport-core-ffi --lib 2>&1"
+        "build --locked --release --jobs 1 --no-default-features --features transport-core-ffi --lib 2>&1"
     )
     print(f"=== pass {pass_name}: Android arm64-v8a + x86_64 ===")
     output, return_code = client.run(command)
@@ -175,6 +176,16 @@ def verify_exports(client: LabConnection) -> None:
             "| grep -c 'Java_com_qeli_TransportCore_' || true",
             f"{abi} JNI exports",
         )
+        editor = client.checked(
+            f"nm -D {shlex.quote(artifact)} 2>/dev/null | grep -c ' qeli_config_request$' || true",
+            f"{abi} configuration editor export",
+        )
+        editor_jni = client.checked(
+            f"nm -D {shlex.quote(artifact)} 2>/dev/null | grep -c 'Java_com_qeli_ConfigCore_nativeRequest$' || true",
+            f"{abi} configuration JNI export",
+        )
+        if editor.strip() != "1" or editor_jni.strip() != "1":
+            raise RuntimeError(f"{abi} artifact lacks the ABI 1.16 configuration API")
         print(
             f"[{abi}] libqeli.so={size} bytes, qeli_realtls exports={reality}, "
             f"qeli_client exports={core}, TransportCore JNI exports={jni}"
@@ -198,7 +209,7 @@ def main() -> int:
         sftp = client.open_sftp()
         try:
             count = sync_qeli_source(client, sftp, LOCAL_QELI, REMOTE_SOURCE)
-            print(f"[sync] {count} source/assets files + Cargo.toml/.lock -> {HOST[0]}:{REMOTE_SOURCE}")
+            print(f"[sync] {count} source/assets files + Cargo.toml/.lock + .cargo/config.toml -> {HOST[0]}:{REMOTE_SOURCE}")
             pass_hashes = collect_reproducible_hashes(
                 ARTIFACTS,
                 lambda pass_name: build_pass(

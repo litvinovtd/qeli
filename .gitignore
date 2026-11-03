@@ -104,6 +104,12 @@ qeli-android/*.apk
 # Local compact source snapshots used for offline review
 /qeli-compact-src.tar.gz
 
+# Local CSS compiler diagnostics
+/qeli/web-assets/.css-build.json
+
+# Private audit originals; never publish development performance measurements.
+/.local-audit/
+
 qeli-linux/dist/
 qeli-linux/packages/
 

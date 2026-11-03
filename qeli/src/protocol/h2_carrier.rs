@@ -13,9 +13,11 @@ use http::{Method, Request, Response, StatusCode};
 use rand::RngExt;
 use std::future::poll_fn;
 use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::io::{
-    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadHalf, WriteHalf,
+    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf, ReadHalf, WriteHalf,
 };
 
 /// RFC 9113 client connection preface.  The server uses this only after the
@@ -29,14 +31,143 @@ const H2_WINDOW: u32 = 2 * 1024 * 1024;
 const CARRIER_PATH: &str = "/v1/events/stream";
 const GRPC_MEDIA_TYPE: &str = "application/grpc";
 
+// A generation retains joins after Carrier Drop requests cancellation. Standalone
+// callers keep their existing cancellation behavior without a generation registry.
+#[derive(Default)]
+enum TaskSpawner {
+    #[default]
+    Standalone,
+    #[cfg(any(
+        test,
+        all(target_os = "linux", feature = "client"),
+        feature = "transport-core-ffi"
+    ))]
+    Connection(crate::transport_core::tasks::Spawner),
+    #[cfg(any(test, all(target_os = "linux", feature = "server")))]
+    Profile(crate::profile_tasks::ProfileSpawner),
+}
+
+impl TaskSpawner {
+    fn spawn(
+        &self,
+        future: impl std::future::Future<Output = ()> + Send + 'static,
+    ) -> io::Result<tokio::task::AbortHandle> {
+        let abort = match self {
+            Self::Standalone => Some(tokio::spawn(future).abort_handle()),
+            #[cfg(any(
+                test,
+                all(target_os = "linux", feature = "client"),
+                feature = "transport-core-ffi"
+            ))]
+            Self::Connection(owner) => owner.spawn_abortable(future),
+            #[cfg(any(test, all(target_os = "linux", feature = "server")))]
+            Self::Profile(owner) => owner.spawn_abortable(future),
+        };
+        abort.ok_or_else(|| {
+            io::Error::new(io::ErrorKind::Interrupted, "HTTP/2 task owner has stopped")
+        })
+    }
+}
+
+/// Cancels the bridge AND connection driver, including while connect is pending.
+#[derive(Default, Debug)]
+struct Tasks(Vec<tokio::task::AbortHandle>);
+
+impl Drop for Tasks {
+    fn drop(&mut self) {
+        for task in &self.0 {
+            task.abort();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Carrier {
+    application: DuplexStream,
+    _tasks: Tasks,
+}
+
+impl crate::protocol::obfs::SplitStream for Carrier {
+    type R = ReadHalf<Self>;
+    type W = WriteHalf<Self>;
+    fn split_io(self) -> (Self::R, Self::W) {
+        tokio::io::split(self)
+    }
+}
+
+impl AsyncRead for Carrier {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.application).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Carrier {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.application).poll_write(cx, buf)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.application).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.application).poll_shutdown(cx)
+    }
+}
+
 fn h2_error(context: &str, error: impl std::fmt::Display) -> io::Error {
     io::Error::other(format!("{context}: {error}"))
+}
+
+async fn ping_once(ping: &mut h2::PingPong, deadline: Duration) -> io::Result<()> {
+    tokio::time::timeout(deadline, ping.ping(h2::Ping::opaque()))
+        .await
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::TimedOut,
+                "HTTP/2 PING acknowledgement timed out",
+            )
+        })?
+        .map_err(|error| h2_error("HTTP/2 PING failed", error))?;
+    Ok(())
+}
+
+/// Standard h2 connection health, independent of the application writer and of
+/// qeli cover/heartbeat policy. An ACK proves only the outer connection is alive;
+/// it never renews a DATA flow-control deadline. One outstanding probe at a time.
+async fn connection_health(mut ping: h2::PingPong) -> io::Result<()> {
+    loop {
+        let delay = Duration::from_secs(rand::rng().random_range(20..=30));
+        tokio::time::sleep(delay).await;
+        ping_once(&mut ping, crate::protocol::stream_io::WRITE_STALL_TIMEOUT).await?;
+    }
 }
 
 async fn send_with_flow_control(
     stream: &mut SendStream<Bytes>,
     data: Bytes,
     end_of_stream: bool,
+) -> io::Result<()> {
+    send_with_flow_control_budget(
+        stream,
+        data,
+        end_of_stream,
+        crate::protocol::stream_io::WRITE_STALL_TIMEOUT,
+    )
+    .await
+}
+
+async fn send_with_flow_control_budget(
+    stream: &mut SendStream<Bytes>,
+    mut data: Bytes,
+    end_of_stream: bool,
+    budget: Duration,
 ) -> io::Result<()> {
     if data.is_empty() {
         stream
@@ -45,24 +176,50 @@ async fn send_with_flow_control(
         return Ok(());
     }
 
-    stream.reserve_capacity(data.len());
-    while stream.capacity() < data.len() {
-        match poll_fn(|cx| stream.poll_capacity(cx)).await {
-            Some(Ok(_)) => {}
-            Some(Err(error)) => {
-                return Err(h2_error("HTTP/2 flow-control wait failed", error));
-            }
-            None => {
+    // Capacity belongs to this stream, not to a healthy sibling or to the local
+    // DuplexStream. Zero/spurious notifications must not renew this deadline.
+    let mut deadline = tokio::time::Instant::now() + budget;
+    while !data.is_empty() {
+        stream.reserve_capacity(data.len());
+        while stream.capacity() == 0 {
+            if tokio::time::Instant::now() >= deadline {
                 return Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "HTTP/2 stream closed while waiting for flow-control capacity",
+                    io::ErrorKind::TimedOut,
+                    "HTTP/2 stream made no DATA progress while waiting for capacity",
                 ));
             }
+            let capacity =
+                tokio::time::timeout_at(deadline, poll_fn(|cx| stream.poll_capacity(cx)))
+                    .await
+                    .map_err(|_| {
+                        io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "HTTP/2 stream made no DATA progress while waiting for capacity",
+                        )
+                    })?;
+            match capacity {
+                Some(Ok(_)) => {}
+                Some(Err(error)) => {
+                    return Err(h2_error("HTTP/2 flow-control wait failed", error));
+                }
+                None => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "HTTP/2 stream closed while waiting for flow-control capacity",
+                    ));
+                }
+            }
         }
+        let size = stream.capacity().min(data.len());
+        let part = data.split_to(size);
+        stream
+            .send_data(part, end_of_stream && data.is_empty())
+            .map_err(|error| h2_error("HTTP/2 DATA send failed", error))?;
+        // Enqueued to h2, not proof of peer delivery. The underlying TLS socket
+        // has its own write-progress guard for a blocked connection driver.
+        deadline = tokio::time::Instant::now() + budget;
     }
-    stream
-        .send_data(data, end_of_stream)
-        .map_err(|error| h2_error("HTTP/2 DATA send failed", error))
+    Ok(())
 }
 
 /// Read the private byte stream, then jointly randomize the carrier's DATA size
@@ -128,20 +285,31 @@ async fn inbound(mut stream: RecvStream, mut sink: WriteHalf<DuplexStream>) -> i
     sink.shutdown().await
 }
 
-fn bridge(send: SendStream<Bytes>, recv: RecvStream) -> DuplexStream {
+fn bridge(
+    send: SendStream<Bytes>,
+    recv: RecvStream,
+    mut tasks: Tasks,
+    spawner: &TaskSpawner,
+) -> io::Result<Carrier> {
     let (application, worker) = tokio::io::duplex(BRIDGE_CAPACITY);
     let (source, sink) = tokio::io::split(worker);
-    tokio::spawn(async move {
-        if let Err(error) = outbound(source, send).await {
-            log::debug!("HTTP/2 carrier outbound ended: {error}");
+    let driver = Tasks(tasks.0.clone());
+    let worker = spawner.spawn(async move {
+        let mut driver = driver;
+        // A failure in either direction drops the other future and the driver.
+        // A clean half-close may still receive a reply until the owner is dropped.
+        match tokio::try_join!(outbound(source, send), inbound(recv, sink)) {
+            Err(error) => log::warn!("HTTP/2 carrier ended: {error}"),
+            // Both halves ended cleanly. Leave the owner in charge so the driver can
+            // flush the queued END_STREAM before the application drops the carrier.
+            Ok(_) => driver.0.clear(),
         }
-    });
-    tokio::spawn(async move {
-        if let Err(error) = inbound(recv, sink).await {
-            log::debug!("HTTP/2 carrier inbound ended: {error}");
-        }
-    });
-    application
+    })?;
+    tasks.0.push(worker);
+    Ok(Carrier {
+        application,
+        _tasks: tasks,
+    })
 }
 
 fn configure_client() -> h2::client::Builder {
@@ -211,19 +379,53 @@ fn carrier_rejection(request: &Request<RecvStream>) -> Option<(StatusCode, &'sta
 
 /// Establish the client side of a genuine h2 streaming exchange over an already
 /// authenticated REALITY-TLS stream.
-pub async fn connect<S>(io: S, authority: &str) -> io::Result<DuplexStream>
+pub async fn connect<S>(io: S, authority: &str) -> io::Result<Carrier>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let (send_request, connection) = configure_client()
+    connect_with_tasks(io, authority, TaskSpawner::default()).await
+}
+
+/// Keep every spawned worker in the generation registry, including during a pending response.
+#[cfg(any(
+    test,
+    all(target_os = "linux", feature = "client"),
+    feature = "transport-core-ffi"
+))]
+pub(crate) async fn connect_owned<S>(
+    io: S,
+    authority: &str,
+    owner: &crate::transport_core::tasks::Spawner,
+) -> io::Result<Carrier>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    connect_with_tasks(io, authority, TaskSpawner::Connection(owner.clone())).await
+}
+
+async fn connect_with_tasks<S>(io: S, authority: &str, spawner: TaskSpawner) -> io::Result<Carrier>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (send_request, mut connection) = configure_client()
         .handshake::<_, Bytes>(io)
         .await
         .map_err(|error| h2_error("HTTP/2 client handshake failed", error))?;
-    tokio::spawn(async move {
-        if let Err(error) = connection.await {
-            log::debug!("HTTP/2 client connection ended: {error}");
+    let ping = connection
+        .ping_pong()
+        .ok_or_else(|| io::Error::other("HTTP/2 PING owner unavailable"))?;
+    let driver = spawner.spawn(async move {
+        tokio::select! {
+            biased;
+            result = connection_health(ping) => {
+                if let Err(error) = result { log::warn!("HTTP/2 client health failed: {error}"); }
+            }
+            result = connection => {
+                if let Err(error) = result { log::debug!("HTTP/2 client connection ended: {error}"); }
+            }
         }
-    });
+    })?;
+    let tasks = Tasks(vec![driver]);
 
     let mut send_request = send_request
         .ready()
@@ -251,16 +453,67 @@ where
             format!("HTTP/2 carrier returned status {}", response.status()),
         ));
     }
-    Ok(bridge(send, response.into_body()))
+    bridge(send, response.into_body(), tasks, &spawner)
 }
 
 /// Accept the first h2 request on an already authenticated REALITY-TLS stream.
 /// Later streams receive a normal 404 response; the tunnel itself uses exactly
 /// one bidirectional streaming request, which keeps connection-level h2 state
 /// and flow-control genuine for its whole lifetime.
-pub async fn accept<S>(io: S) -> io::Result<DuplexStream>
+pub async fn accept<S>(io: S) -> io::Result<Carrier>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    accept_with_tasks(io, TaskSpawner::default(), ())
+        .await
+        .map(|(carrier, ())| carrier)
+}
+
+/// Keep the driver, bridge and bounded rejection flush in the profile's task registry.
+#[cfg(any(test, all(target_os = "linux", feature = "server")))]
+pub(crate) async fn accept_owned<S, G>(
+    io: S,
+    owner: &crate::profile_tasks::ProfileSpawner,
+    admission: G,
+) -> io::Result<(Carrier, G)>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    G: Send + 'static,
+{
+    // Success hands admission to the inner authentication handler. Rejection transfers
+    // it to the bounded response flush, so a live pre-auth socket remains accounted for.
+    accept_with_tasks(io, TaskSpawner::Profile(owner.clone()), admission).await
+}
+
+// Field order releases the connection before its admission guard, including when the
+// registered future is cancelled before its first poll or rejected by a closed profile.
+struct RejectionFlush<S, G> {
+    connection: h2::server::Connection<S, Bytes>,
+    _admission: G,
+}
+
+async fn flush_rejection<S, G>(mut pending: RejectionFlush<S, G>)
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let _ = tokio::time::timeout(Duration::from_secs(1), async {
+        while let Some(next) = pending.connection.accept().await {
+            if next.is_err() {
+                break;
+            }
+        }
+    })
+    .await;
+}
+
+async fn accept_with_tasks<S, G>(
+    io: S,
+    spawner: TaskSpawner,
+    admission: G,
+) -> io::Result<(Carrier, G)>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    G: Send + 'static,
 {
     let mut connection = configure_server()
         .handshake::<_, Bytes>(io)
@@ -288,16 +541,10 @@ where
         // `send_response` only queues the frame. Keep polling the connection briefly so
         // an authenticated but invalid request receives the deliberate HTTP status rather
         // than an incidental reset when this function returns its local validation error.
-        tokio::spawn(async move {
-            let _ = tokio::time::timeout(Duration::from_secs(1), async {
-                while let Some(next) = connection.accept().await {
-                    if next.is_err() {
-                        break;
-                    }
-                }
-            })
-            .await;
-        });
+        spawner.spawn(flush_rejection(RejectionFlush {
+            connection,
+            _admission: admission,
+        }))?;
         return Err(io::Error::new(io::ErrorKind::InvalidData, message));
     }
 
@@ -312,31 +559,140 @@ where
         .map_err(|error| h2_error("HTTP/2 response send failed", error))?;
     let recv = request.into_body();
 
-    tokio::spawn(async move {
-        while let Some(next) = connection.accept().await {
-            match next {
-                Ok((_request, mut respond)) => {
-                    if let Ok(response) = Response::builder()
-                        .status(StatusCode::NOT_FOUND)
-                        .header("content-length", "0")
-                        .body(())
-                    {
-                        let _ = respond.send_response(response, true);
+    let ping = connection
+        .ping_pong()
+        .ok_or_else(|| io::Error::other("HTTP/2 PING owner unavailable"))?;
+    let driver = spawner.spawn(async move {
+        let requests = async {
+            while let Some(next) = connection.accept().await {
+                match next {
+                    Ok((_request, mut respond)) => {
+                        if let Ok(response) = Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .header("content-length", "0")
+                            .body(())
+                        {
+                            let _ = respond.send_response(response, true);
+                        }
+                    }
+                    Err(error) => {
+                        log::debug!("HTTP/2 server connection ended: {error}");
+                        break;
                     }
                 }
-                Err(error) => {
-                    log::debug!("HTTP/2 server connection ended: {error}");
-                    break;
-                }
             }
+        };
+        tokio::select! {
+            biased;
+            result = connection_health(ping) => {
+                if let Err(error) = result { log::warn!("HTTP/2 server health failed: {error}"); }
+            }
+            _ = requests => {},
         }
-    });
-    Ok(bridge(send, recv))
+        // Dropping the connection fails both body handles and wakes the bridge.
+    })?;
+    bridge(send, recv, Tasks(vec![driver]), &spawner).map(|carrier| (carrier, admission))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn healthy_connection_pings_do_not_renew_a_stalled_stream_window() {
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let server = tokio::spawn(async move {
+            let mut builder = h2::server::Builder::new();
+            builder.initial_window_size(0);
+            let mut connection = builder.handshake::<_, Bytes>(server_io).await.unwrap();
+            let (request, mut respond) = connection.accept().await.unwrap().unwrap();
+            let _send = respond.send_response(Response::new(()), false).unwrap();
+            let _body = request.into_body();
+            // Poll connection control traffic while intentionally retaining the
+            // zero receive window for this in-memory application stream.
+            while connection.accept().await.is_some() {}
+        });
+        let (send, mut connection) = configure_client()
+            .handshake::<_, Bytes>(client_io)
+            .await
+            .unwrap();
+        let mut ping = connection.ping_pong().unwrap();
+        let driver = tokio::spawn(connection);
+        let mut send = send.ready().await.unwrap();
+        let (response, mut body) = send
+            .send_request(
+                Request::builder()
+                    .uri("https://example.com/")
+                    .body(())
+                    .unwrap(),
+                false,
+            )
+            .unwrap();
+        let _response = response.await.unwrap();
+        // Quiet but healthy connection still responds. These outer ACKs are not
+        // credited to DATA and must not suppress the stream-capacity deadline.
+        let pings = async {
+            for _ in 0..3 {
+                ping_once(&mut ping, Duration::from_secs(1)).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+        let sending = send_with_flow_control_budget(
+            &mut body,
+            Bytes::from_static(b"data"),
+            false,
+            Duration::from_millis(100),
+        );
+        let (_, result) = tokio::join!(pings, sending);
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        server.abort();
+        driver.abort();
+        let _ = server.await;
+        let _ = driver.await;
+    }
+
+    #[tokio::test]
+    async fn missing_ping_ack_has_a_bounded_deadline() {
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let server = tokio::spawn(async move {
+            let mut connection = configure_server()
+                .handshake::<_, Bytes>(server_io)
+                .await
+                .unwrap();
+            let (request, respond) = connection.accept().await.unwrap().unwrap();
+            // Return ownership without driving it: the socket remains open but
+            // cannot ACK a subsequent probe. No external network is involved.
+            (connection, request, respond)
+        });
+        let (send, mut connection) = configure_client()
+            .handshake::<_, Bytes>(client_io)
+            .await
+            .unwrap();
+        let mut ping = connection.ping_pong().unwrap();
+        let driver = tokio::spawn(connection);
+        let mut send = send.ready().await.unwrap();
+        let (_response, _body) = send
+            .send_request(
+                Request::builder()
+                    .uri("https://example.com/")
+                    .body(())
+                    .unwrap(),
+                false,
+            )
+            .unwrap();
+        let held_server = server.await.unwrap();
+        let error = tokio::time::timeout(
+            Duration::from_secs(2),
+            ping_once(&mut ping, Duration::from_millis(30)),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        drop(held_server);
+        driver.abort();
+        let _ = driver.await;
+    }
 
     #[tokio::test]
     async fn bidirectional_stream_round_trip() {
@@ -388,6 +744,9 @@ mod tests {
             let mut request = vec![0u8; 25_000];
             carrier.read_exact(&mut request).await.unwrap();
             carrier.write_all(&request).await.unwrap();
+            // Drop now cancels the buffered bridge; keep ownership until the peer
+            // acknowledges receiving the echo (AsyncWrite::write_all is not an ACK).
+            carrier.read_u8().await.unwrap();
             request
         });
 
@@ -416,9 +775,19 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(response, request);
+        carrier.write_u8(1).await.unwrap();
         assert_eq!(server.await.unwrap(), request);
     }
 }
 
 #[cfg(test)]
 mod hardening_tests;
+
+#[cfg(test)]
+mod ownership_tests;
+
+#[cfg(test)]
+mod test_support;
+
+#[cfg(test)]
+mod server_ownership_tests;

@@ -1,0 +1,38 @@
+[
+  {
+    "password": "plain",
+    "raw": "[qeli]\nserver = fixture.invalid:443\nuser = alice\npass = plain\n"
+  },
+  {
+    "password": "a\"b",
+    "raw": "[qeli]\nserver = fixture.invalid:443\nuser = alice\npass = \"a\\\"b\"\n"
+  },
+  {
+    "password": "\"secret\"",
+    "raw": "[qeli]\nserver = fixture.invalid:443\nuser = alice\npass = \"\\\"secret\\\"\"\n"
+  },
+  {
+    "password": "a\\\"b",
+    "raw": "[qeli]\nserver = fixture.invalid:443\nuser = alice\npass = \"a\\\\\"b\"\n"
+  },
+  {
+    "password": "a\\b\"c",
+    "raw": "[qeli]\nserver = fixture.invalid:443\nuser = alice\npass = \"a\\b\\\"c\"\n"
+  },
+  {
+    "password": " secret ",
+    "raw": "[qeli]\nserver = fixture.invalid:443\nuser = alice\npass = \" secret \"\n"
+  },
+  {
+    "password": "\tsecret\t",
+    "raw": "[qeli]\nserver = fixture.invalid:443\nuser = alice\npass = \"\tsecret\t\"\n"
+  },
+  {
+    "password": " secret ",
+    "raw": "[qeli]\nserver = fixture.invalid:443\nuser = alice\npass = \" secret \"\n"
+  },
+  {
+    "password": "#;=",
+    "raw": "[qeli]\nserver = fixture.invalid:443\nuser = alice\npass = \"#;=\"\n"
+  }
+]

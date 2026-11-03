@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS",
+  "source_digest": "bcbaaad010ff8e94da6d266cdf148936b523f016b745842ba72e3b506880bd3d",
+  "qualification_source_commit": "958a9052eeac4643189df489cd1f0a22aece6b5d",
+  "product_source_commit": "958a9052eeac4643189df489cd1f0a22aece6b5d",
+  "verification_id": "Q35-V003",
+  "findings_closed": [
+    "F510/Q35-F007 fuzz oracle coverage gap"
+  ],
+  "verification": {
+    "targets": [
+      {
+        "target": "data_frag",
+        "runs": 9630,
+        "seconds": 61,
+        "asan": true,
+        "binary_sha256": "e5db62dd7ebce460985ff1c8369ee03ebeda6024c1f19d7c3df351d2183a77c3",
+        "seed_count": 14,
+        "corpus_count": 98,
+        "final_stats": []
+      },
+      {
+        "target": "udp_frag",
+        "runs": 237183,
+        "seconds": 61,
+        "asan": true,
+        "binary_sha256": "722a490e115aa5c3ada46decb4751edec98a087bbe52725679bba29db1537402",
+        "seed_count": 14,
+        "corpus_count": 170,
+        "final_stats": []
+      }
+    ],
+    "total_runs": 246813,
+    "lock_sha256": "cc451c34452ab43cdf475b7a915c8fbdc16b825d2ee262bd3903eeb6f92355f4",
+    "first_failure": "RecordTooLarge invalid 32KiB harness record; retained",
+    "intermediate_failure": "FileExistsError existing corpus; retained",
+    "selected_backup_sha256": "d1e45801720fc07b1d278e4ba8d624fddfc3cd9fa73978e04faf95a0423aab83",
+    "selected_files": 300,
+    "cleanup": {
+      "status": "PASS",
+      "root": "/var/tmp/qeli-fragment-oracles.d9MJwBB3",
+      "absent": true,
+      "files": 8547,
+      "dirs": 2350,
+      "symlinks": 0,
+      "free_before": 7959678976,
+      "free_after": 9537015808,
+      "service": "MainPID=777 ActiveState=active"
+    },
+    "service": "MainPID=777\nActiveState=active\n",
+    "processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+  },
+  "raw_packet": {
+    "name": "q35-fragment-oracles-20261010",
+    "files": 45,
+    "bytes": 4263533,
+    "manifest_sha256": "07a731fc42eafe986f3b8cd66568e06cfb76be0e732883bd017e63b4951068ba",
+    "runtime_status": "PASS",
+    "path": "audit-debt-20260924/q35-fragment-oracles-20261010",
+    "status": "SEALED"
+  },
+  "scope": "F510/Q35 two changed fuzz targets with structured valid fragments and exact output oracles: data_frag forward/reverse/duplicates/completed-ID reuse/authenticated conflict/invalid-MAC and 32record/512KiB resource recovery;udp_frag up to24parts/reorder/duplicates/historical1200B acceptance/oversize refusal/recovery. Actual pinned nightly-2026-06-10 cargo-fuzz0.13.2 ASan builds;14 initial seeds each and 9630 data_frag+237183 udp_frag runs over61s each, zero new crash artifacts, lock unchanged. First harness RecordTooLarge (32KiB>16645B) and intermediate FileExistsError retained, final valid 16385B pressure. Two target source SHA matches qualified lab;300 selected files corpus/logs SHA backed up; own root8547 files+2350 dirs deleted after process/fd/mount guards, .11 service777/845 CLI75bc retained. Other13 targets unchanged inherited85,930,590 earlier runs, no full nightly/long VPN soak/wholeDoS claim. RU/EN report/plan/index and fuzzREADME docs9 pass. Q35 IN_PROGRESS,30/37 DONE, remaining7 Q29/Q30/Q31/Q34/Q35/Q36/Q37; F459/D06accepted/USER_EXCLUDED retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_PASS_Q31_V003_Q31_IN_PROGRESS",
+  "source_digest": "a06379527b0cfd2c897901a420d87a7f169fe2a836b9a6b068b5b43ff79fc8c1",
+  "base_worktree_commit": "2feda1b9a4dfd96f7f19acdc711455cb5951a904",
+  "base_dev_commit": "33ba002d551ec36b0e515de52c6c66a8998a52ff",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-openwrt-opkg-20261007",
+  "raw_seal_sha256": "2a052402cdff12c2dd22d66c803b16217d148a079e410c42c7de5be82e8fbe9b",
+  "scope": "Q31-V003: actual SDK Package/qeli/install/BuildPackage packaging of retained standalone musl client; explicit audit overlay bypasses source download/SDK Rust compile. Original recipe restored; 317/317 previous fixed build inputs match current Git. SDK strip transforms input ec567377e46cd8a2ed629bccfb83318fba4e19bf26905df3f49ca77c254a5925 to packaged 915b113abcb47ce37f40c79be70927b8d330217cb075ae161fc36ae9fffeac24. Genuine OpenWrt24.10.4 rootfs/opkg:7methods PASS no skips, nft/legacy virtual providers, exact payload/modes/root/UCI0600, native --version, missing dependencies/corrupt archive refusals, modified/unmodified UCI upgrade and removal dependency guard/config retention. Audit-only r2 default-comment fixture built by SDK ipkg-build; product version unchanged. 3official feed index signatures verified with genuine usign/release keys,22dependency IPK hashes match signed indexes; genuine installed records, no force-depends. Rootfs959regular/215links and6source transfers verified. Correct offline /target chroot/mount/network/PID namespaces; no host proc/dev mounts/module loading/VPN/service changes. Initial harness overlay/download, copytree symlink, feed/lock/config/root/error-text/locale timestamp failures retained; no new product bug. Final7suite repeated after timestamp fix and backup mode assertion.37recipes/14LuCI/docs9/bindings/diff PASS. No final owned case/smoke/process/mount roots. Rust/core/native/ABI/published artifacts unchanged.41historic case/acceptance fields preserved except source_digest; scoped supplement only. Q31 IN_PROGRESS28/37(75.7%),9remain; Q29SIGKILLFAIL/ENONET,Q30callbackdrainOPEN/Appleexclusions,D06ACCEPTED retained. Full SDK Rust build/compiler compatibility/source release-cut,core generation/ABA/admin replacement,full hermetic Qeli A/B/powerloss transactions OPEN; physicalrouter USER_EXCLUDED. No .10/host services/network/firewall changes, no push/deploy.",
+  "checks": {
+    "native_opkg_methods": 7,
+    "skipped": 0,
+    "rootfs_regular_files": 959,
+    "rootfs_links": 215,
+    "transferred_sources": 6,
+    "retained_compile_inputs": 317,
+    "signed_indexes": 3,
+    "official_dependencies": 22,
+    "recipes": 37,
+    "luci": 14,
+    "docs": 9,
+    "bindings": "PASS",
+    "diff": "PASS"
+  },
+  "opkg_version": "opkg version 38eccbb1fd694d4798ac1baf88f9ba83d1eac616 (2024-10-16)",
+  "artifacts": [
+    {
+      "path": "rootfs-template/fixtures/luci.ipk",
+      "sha256": "ca64037fadcc6f1d218400db8a3223b7c6f265a7e0285a62664e6d25e0a64e95",
+      "size": 6573
+    },
+    {
+      "path": "rootfs-template/fixtures/qeli-upgrade.ipk",
+      "sha256": "452135c06123ae2df0b46d4b2b64ce3e450e8e2f14616e0a55eb9754804517fe",
+      "size": 2556998
+    },
+    {
+      "path": "rootfs-template/fixtures/qeli.ipk",
+      "sha256": "2c8513898d0308d1514d80b808b8bcaa98e2589b006e1d52dad0eefd21f2cb78",
+      "size": 2557024
+    }
+  ],
+  "binary": {
+    "retained_sha256": "ec567377e46cd8a2ed629bccfb83318fba4e19bf26905df3f49ca77c254a5925",
+    "sdk_stripped_sha256": "915b113abcb47ce37f40c79be70927b8d330217cb075ae161fc36ae9fffeac24",
+    "fresh_sdk_rust_build": "NOT_RUN"
+  },
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "q31": "IN_PROGRESS"
+  },
+  "remaining": [
+    "Full SDK Rust compile and compiler compatibility",
+    "Source/mirror release cut",
+    "Core plan generation/ABA/admin path replacement",
+    "Full hermetic configuration/cache/PATH and clean Qeli A/B",
+    "SIGKILL/power-loss bundle transaction",
+    "Firmware runtime USER_EXCLUDED"
+  ]
+}

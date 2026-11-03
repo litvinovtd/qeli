@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "status": "DOCUMENTATION_ONLY_SOURCE_APPLICABILITY",
+  "source_commit": "ad3d638261a7d130f11f4599c949a9c9c3596832",
+  "source_digest": "179c45228621457f7af996cbe7b2fb8bb4ccadf7d0dbd5cea6c47e14dfc0b635",
+  "prior_qualified_commit": "9ab788e5d5e7aaddb3d82220bb6ebdb9da8cacd2",
+  "prior_source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+  "changed_paths": [
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/plans/AUDIT-DEBT.md",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/plans/AUDIT-DEBT.md"
+  ],
+  "source_diff_assertion": "Only the four explicitly listed Markdown plans differ. No executable source, recipe, dependency, native library, release note or distribution asset changes.",
+  "qualified_runtime": "release/certification/evidence/n04-cli-runtime-20261019.json",
+  "qualified_packaged_UDP": "release/certification/evidence/n04-cli-packaged-udp-20261019.json",
+  "qualified_assets": "release/certification/evidence/n04-cli-assets-20261019.json",
+  "runtime_executions_repeated": false,
+  "packaged_measurements_repeated": false,
+  "native_builds_repeated": false,
+  "asset_sha256_unchanged": {
+    "install-keenetic.sh": "2c8f695d7509651d49db6986183d5fcb876554a490200f084e12c3068d969429",
+    "qeli-android-0.8.2.apk": "ee242813ad57348419ef37cb43df770c7c15ed52ba71a59fea247ecbc16f07b8",
+    "qeli-client-keenetic-aarch64": "476ce6548201dbb76f878fca2c0419ff1f8aca2d655b56c20c9ddfc40196d6f5",
+    "qeli-client-keenetic-mipsel": "172cfe0e7eaa6faae3384033a83a60441815d8c818228a79e9f124bd6158d6d1",
+    "qeli-client-openwrt-aarch64": "476ce6548201dbb76f878fca2c0419ff1f8aca2d655b56c20c9ddfc40196d6f5",
+    "qeli-client-openwrt-armv7": "3479ed22c69e861b22212a519f311fd140d033b8fc39ebd8729514320e162d6b",
+    "qeli-client-openwrt-mipsel": "172cfe0e7eaa6faae3384033a83a60441815d8c818228a79e9f124bd6158d6d1",
+    "qeli-client-openwrt-x86_64": "9e513bcc32aa238ab7f01b71ca96a375f2b31854cf29d5291df8d619acf2680d",
+    "qeli-keenetic-files.tar.gz": "e6e7059bf861358e5318d4330cb93a2004b7b5f41c753bab73ce55fc66f63264",
+    "qeli-linux-amd64": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+    "Qeli-macOS-universal.zip": "582cc41fb25fa348f6e704246dc5828673f282750230878a219a969042a58d37",
+    "qeli-openwrt-files.tar.gz": "5219c750c05290b03c4e52d75533d9d4bda1b7051eb940eac82fe13ede2ca859",
+    "QeliWin-net-required.exe": "78da978d353c52a53f6811766e717adc03cfe193cc04f740a80f40157df69b81",
+    "QeliWin-standalone.exe": "23cbc8117496c01e30bcf4c9f1582d39b79b95a9649c13fb19ebb9a829de7726",
+    "qeli_0.8.2_amd64.deb": "77d873e66183d6d730d0c2182953a1a90bbd3581a6ea52c859213f307a40fdb7",
+    "SHA256SUMS": "47d74a07e5fa6c05471344ffb8e16f27391beea59d5e66b4c1d2bc13815f6c0e"
+  },
+  "accepted_advisories_unchanged": true,
+  "future_exact_CI_and_preflight": "Mandatory before private draft refresh; no future success claimed.",
+  "published": false,
+  "original_case_execution_references": [
+    {
+      "id": "linux.outer4.inner4.tcp.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer4.inner6.tcp.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer6.inner4.tcp.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer6.inner6.tcp.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-fake-tls.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-fake-tls.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-fake-tls.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-fake-tls.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer4.inner4.udp-quic.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer4.inner6.udp-quic.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer6.inner4.udp-quic.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.outer6.inner6.udp-quic.full",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.dual.tcp.split",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.dual.udp.split",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.tap.ndp-ra",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.dns.ipv4-ipv6",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.mtu.1280-pmtu-ptb",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.legacy-peer",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.roaming-flap-soak",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    },
+    {
+      "id": "linux.leak.ipv4-ipv6",
+      "evidence": "release/certification/evidence/n04-cli-runtime-20261019.json",
+      "source_digest": "9b15b47c969a876827fe3911e97894baa6ac494c3b30ea177f31f9107f72d3d7",
+      "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+      "executed_at": "2026-10-19T09:23:15.725436+00:00"
+    }
+  ]
+}

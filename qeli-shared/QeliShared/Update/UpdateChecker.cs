@@ -35,6 +35,7 @@ public static class UpdateChecker
     private const string GenericUserAgent = "Mozilla/5.0";
 
     private static readonly System.TimeSpan Timeout = System.TimeSpan.FromSeconds(10);
+    internal const int MaximumMetadataBytes = 1024 * 1024;
 
     /// <summary>Fetch the newest non-draft release and compare it to <paramref name="currentVersion"/>.
     /// Returns null on any failure (fail-soft) — the caller treats null as "no update info".
@@ -47,18 +48,23 @@ public static class UpdateChecker
             // so the request follows the OS route table (i.e. the tunnel) and nothing else.
             using var handler = new HttpClientHandler { UseProxy = false, AllowAutoRedirect = true };
             using var http = new HttpClient(handler) { Timeout = Timeout };
+            // ResponseHeadersRead ends HttpClient.Timeout at the headers. Keep a single
+            // deadline through the body too, so a stalled feed cannot outlive this check.
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(Timeout);
+            var requestToken = deadline.Token;
 
             using var req = new HttpRequestMessage(HttpMethod.Get, ReleasesUrl);
             req.Headers.TryAddWithoutValidation("User-Agent", GenericUserAgent);
             req.Headers.TryAddWithoutValidation("Accept", "application/vnd.github+json");
             req.Headers.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
 
-            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct)
+            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, requestToken)
                 .ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) return null; // incl. 403 rate-limit — fail soft
 
-            await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
+            await using var stream = await resp.Content.ReadAsStreamAsync(requestToken).ConfigureAwait(false);
+            using var doc = await ReadMetadataAsync(stream, requestToken).ConfigureAwait(false);
 
             var latest = SelectLatest(doc.RootElement);
             if (latest is null) return null;
@@ -72,6 +78,25 @@ public static class UpdateChecker
         {
             return null; // network/parse/timeout — no update info, no user-visible error
         }
+    }
+
+    /// <summary>Read public release metadata within a fixed memory budget and deadline.</summary>
+    internal static async Task<JsonDocument> ReadMetadataAsync(Stream stream, CancellationToken ct)
+    {
+        using var body = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        while (true)
+        {
+            // Read only one byte beyond the budget even if the remote stream never ends.
+            int capacity = (int)Math.Min(buffer.Length, MaximumMetadataBytes - body.Length + 1);
+            int count = await stream.ReadAsync(buffer.AsMemory(0, capacity), ct).ConfigureAwait(false);
+            if (count == 0) break;
+            if (body.Length + count > MaximumMetadataBytes)
+                throw new InvalidDataException("Release metadata exceeds 1 MiB.");
+            body.Write(buffer, 0, count);
+        }
+        body.Position = 0;
+        return await JsonDocument.ParseAsync(body, cancellationToken: ct).ConfigureAwait(false);
     }
 
     /// <summary>The release URL, constrained to an https:// link on the project's own host.

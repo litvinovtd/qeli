@@ -1,0 +1,5 @@
+All reviewed desktop NuGet lock graphs plus reviewed default publish runtime packs.
+Includes debug, tools, Linux and other-RID packages; not a per-binary linkage claim.
+Archive and upstream text bytes are preserved; embedded font names are decoded UTF-16BE.
+MicroCom.Runtime uses the packaged VCS commit for its upstream MIT supplement.
+SDK overrides, trust/revocation, other toolchain notices and source publication need separate review.

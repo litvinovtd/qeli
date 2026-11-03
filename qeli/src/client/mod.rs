@@ -3,11 +3,27 @@ pub mod dns;
 #[cfg(target_os = "linux")]
 pub mod gateway;
 #[cfg(target_os = "linux")]
+mod identity_files;
+#[cfg(target_os = "linux")]
+mod identity_worker;
+#[cfg(all(test, target_os = "linux"))]
+use identity_files::{device_id_at, trust_on_first_use_at};
+#[cfg(target_os = "linux")]
 pub mod killswitch;
+#[cfg(target_os = "linux")]
+mod network_lease;
+#[cfg(target_os = "linux")]
+mod network_task;
+#[cfg(target_os = "linux")]
+mod plan_publication;
 #[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
 mod roaming_linux;
 #[cfg(target_os = "linux")]
 pub mod route;
+#[cfg(target_os = "linux")]
+mod status_writer;
+#[cfg(target_os = "linux")]
+mod tun_recovery;
 
 use crate::crypto::{
     derive_data_frag_key, derive_keys, derive_keys_bound, derive_keys_hybrid,
@@ -31,7 +47,7 @@ mod trace {
     #[inline]
     pub(crate) fn record(_direction: Dir, _label: &str, _bytes: usize, _stream: u8) {}
 }
-use crate::transport_core::buffer_pool::PooledBuffer;
+use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
 #[cfg(target_os = "linux")]
 use crate::transport_core::linux_tun::LinuxTunPumpStop;
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
@@ -42,6 +58,8 @@ use crate::transport_core::linux_tun::{
 use crate::transport_core::packet_tun::TunWriter;
 #[cfg(target_os = "ios")]
 type TunPacket = PooledBuffer;
+use crate::transport_core::client_downlink::DownlinkDrop;
+use crate::transport_core::client_uplink::{UplinkCounters, UplinkDrop};
 #[cfg(target_os = "linux")]
 use crate::transport_core::network::is_full_tunnel;
 use crate::transport_core::network::{build_network_plan, server_push_log_lines, HandshakeNetwork};
@@ -81,14 +99,13 @@ const UDP_CONTROL_REPORT_RESENDS: u8 = 3;
 /// used only to translate the existing inner-MTU-shaped probe into the independently tracked
 /// UDP payload budget that the probe actually certified.
 const UDP_RECORD_PROBE_OVERHEAD: usize = crate::protocol::udp_frag::UDP_RECORD_PROBE_OVERHEAD;
-/// A widened mobile/Wi-Fi path should not remain pinned to the conservative startup budget
-/// for the lifetime of a long session. Re-probing is sparse and uses the one existing socket
-/// receive loop, so it neither creates a competing reader nor loses ordinary data records.
-const UDP_MTU_REPROBE_INTERVAL: Duration = Duration::from_secs(10 * 60);
-const UDP_MTU_REPROBE_TICK: Duration = Duration::from_millis(250);
-const UDP_MTU_REPROBE_REPLY_TIMEOUT: Duration = Duration::from_millis(500);
+/// Confirmation catches same-endpoint PMTU shrink; discovery remains sparse.
+const UDP_MTU_REPROBE_INTERVAL: Duration = crate::protocol::pmtu::CONFIRM_INTERVAL;
+const UDP_MTU_REPROBE_TICK: Duration = crate::protocol::pmtu::TICK;
+#[cfg(test)]
+const UDP_MTU_REPROBE_REPLY_TIMEOUT: Duration = crate::protocol::pmtu::INITIAL_TIMEOUT;
+#[cfg(test)]
 const UDP_MTU_REPROBE_SENDS: u8 = 2;
-const UDP_MTU_REPROBE_CONFIRMATIONS: u8 = 3;
 /// Kept equal to the server's experimental grace. The attempt itself is bounded by the
 /// remaining budget; expiry falls back to the ordinary full reconnect and NetworkPlan cycle.
 const TCP_RESUME_GRACE: Duration = Duration::from_secs(30);
@@ -106,91 +123,50 @@ const TCP_HANDOVER_POLL: Duration = Duration::from_millis(100);
 #[cfg(feature = "experimental-roaming")]
 const PATH_ACK_TIMEOUT: Duration = Duration::from_secs(45);
 
-#[derive(Debug, Clone, Copy)]
-struct UdpMtuChallenge {
-    candidate: i32,
-    token: u128,
-    probe_payload_size: u16,
-    sends: u8,
-    deadline: tokio::time::Instant,
-}
-
 #[derive(Debug, Default)]
 struct LiveUdpMtuProbe {
-    candidates: std::collections::VecDeque<i32>,
-    challenge: Option<UdpMtuChallenge>,
-    confirmations: u8,
+    search: crate::protocol::pmtu::ProbeSearch,
+    path_epoch: u64,
+    budget_revision: u64,
+    confirmation: bool,
 }
 
 impl LiveUdpMtuProbe {
     fn start(&mut self, candidates: impl IntoIterator<Item = i32>) {
-        self.candidates = candidates.into_iter().collect();
-        self.challenge = None;
-        self.confirmations = 0;
+        self.search.start(
+            candidates
+                .into_iter()
+                .filter_map(|value| usize::try_from(value).ok()),
+        );
     }
 
     fn is_active(&self) -> bool {
-        self.challenge.is_some() || !self.candidates.is_empty()
+        self.search.is_active()
     }
 
     fn clear(&mut self) {
-        self.candidates.clear();
-        self.challenge = None;
-        self.confirmations = 0;
+        self.search.clear();
     }
 
-    /// Return the next challenge that must be sent. A candidate gets two sends with one
-    /// correlation token; a certified candidate then needs three independently random tokens.
     fn next_send(&mut self, now: tokio::time::Instant) -> Option<(u128, i32)> {
-        loop {
-            if self.challenge.is_none() {
-                let candidate = self.candidates.pop_front()?;
-                self.challenge = Some(UdpMtuChallenge {
-                    candidate,
-                    token: rand::random(),
-                    probe_payload_size: u16::try_from(
-                        candidate.max(0) as usize + UDP_RECORD_PROBE_OVERHEAD,
-                    )
-                    .ok()?,
-                    sends: 0,
-                    deadline: now,
-                });
-            }
-            let challenge = self.challenge.as_mut()?;
-            if challenge.sends != 0 && now < challenge.deadline {
-                return None;
-            }
-            if challenge.sends >= UDP_MTU_REPROBE_SENDS {
-                // This rung did not answer. Continue down the already descending ladder.
-                self.challenge = None;
-                self.confirmations = 0;
-                continue;
-            }
-            challenge.sends += 1;
-            challenge.deadline = now + UDP_MTU_REPROBE_REPLY_TIMEOUT;
-            return Some((challenge.token, challenge.candidate));
-        }
+        let challenge = self.search.next_send(now)?;
+        Some((challenge.token, i32::try_from(challenge.budget).ok()?))
     }
 
-    /// Accept only an exact token+size echo. `Some(candidate)` means the third independent
-    /// confirmation completed and the live data-plane budget may be widened.
+    fn matches(&self, token: u128, size: u16, epoch: u64, revision: u64) -> bool {
+        self.path_epoch == epoch
+            && self.budget_revision == revision
+            && self.search.challenge.is_some_and(|challenge| {
+                challenge.token == token
+                    && challenge.budget + UDP_RECORD_PROBE_OVERHEAD == usize::from(size)
+            })
+    }
+
     fn acknowledge(&mut self, token: u128, probe_payload_size: u16) -> Option<i32> {
-        let challenge = self.challenge?;
-        if challenge.token != token || challenge.probe_payload_size != probe_payload_size {
-            return None;
-        }
-        self.confirmations = self.confirmations.saturating_add(1);
-        if self.confirmations >= UDP_MTU_REPROBE_CONFIRMATIONS {
-            self.clear();
-            return Some(challenge.candidate);
-        }
-        self.challenge = Some(UdpMtuChallenge {
-            token: rand::random(),
-            sends: 0,
-            deadline: tokio::time::Instant::now(),
-            ..challenge
-        });
-        None
+        let candidate = usize::from(probe_payload_size).checked_sub(UDP_RECORD_PROBE_OVERHEAD)?;
+        self.search
+            .acknowledge(token, candidate, tokio::time::Instant::now())
+            .and_then(|value| i32::try_from(value).ok())
     }
 }
 
@@ -456,18 +432,6 @@ fn pinned_carrier_socket_addresses(port: u16) -> Option<Vec<std::net::SocketAddr
     })
 }
 
-/// The peer address to pin, as a literal; falls back to the configured address when the
-/// socket never reported one (should not happen after a successful connect).
-#[cfg(target_os = "linux")]
-fn pin_target(config: &crate::config::client::ClientConfig) -> String {
-    CONNECTED_PEER
-        .lock()
-        .ok()
-        .and_then(|g| *g)
-        .map(|ip| ip.to_string())
-        .unwrap_or_else(|| config.server.address.clone())
-}
-
 #[cfg(all(test, target_os = "linux"))]
 mod carrier_pin_tests {
     use super::{select_carrier_pin_targets, CarrierCandidateState};
@@ -528,10 +492,12 @@ use std::os::fd::OwnedFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 // `portable_atomic::AtomicU64` so the data-plane byte counters compile on 32-bit
 // mipsel routers (no native 64-bit atomics); native instruction on aarch64/x86_64.
+use crate::protocol::stream_io::WriteAllFlush;
+use crate::transport_core::tcp_carrier_metrics::{CarrierMetrics, CloseGuard, InFlight, Ticket};
 use portable_atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::net::UdpSocket;
 #[cfg(target_os = "linux")]
 use tokio::net::{TcpSocket, TcpStream};
@@ -540,41 +506,643 @@ use tokio::sync::mpsc;
 pub(crate) type IdentityFuture =
     std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'static>>;
 pub(crate) type IdentityVerifier = Arc<dyn Fn([u8; 32]) -> IdentityFuture + Send + Sync + 'static>;
-pub(crate) type PendingLifecycleHook = (String, Vec<(String, String)>);
+#[cfg(target_os = "linux")]
+pub(crate) struct PendingLifecycleHook {
+    command: String,
+    environment: Vec<(String, String)>,
+    positional_arguments: Vec<String>,
+    context_json: String,
+}
+#[cfg(not(target_os = "linux"))]
+pub(crate) struct PendingLifecycleHook;
+
+/// Stable, secret-free process-lifecycle snapshot supplied to Linux client hooks.
+///
+/// The connection can rebuild its TUN several times while the outer client process remains
+/// alive. `post_up` consumes the first committed snapshot; this value is refreshed after every
+/// later committed NetworkPlan so the eventual `post_down` sees the latest generation.
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone)]
+struct ClientHookContext {
+    profile: String,
+    config_path: String,
+    if_name: String,
+    if_index: String,
+    device_type: String,
+    tun_reused: bool,
+    server_host: String,
+    server_port: u16,
+    protocol: String,
+    wire_mode: String,
+    fronting: String,
+    roaming_policy: String,
+    configured_carrier_local_address: String,
+    carrier_if_name: String,
+    carrier_if_index: String,
+    carrier_gateway: String,
+    carrier_local_address: String,
+    route_local: bool,
+    gateway_nat: bool,
+    forward: bool,
+    exit_node: bool,
+    allow_ipv4_leak: bool,
+    allow_ipv6_leak: bool,
+    lan_subnet: String,
+    lan_subnet_ipv6: String,
+    include: Vec<String>,
+    exclude: Vec<String>,
+    plan: Option<NetworkPlan>,
+}
 
 #[cfg(target_os = "linux")]
-fn cleanup_routing_features(
+fn hook_bool(value: bool) -> String {
+    value.to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn hook_if_index(if_name: &str) -> String {
+    crate::network_interface::index(if_name)
+        .ok()
+        .flatten()
+        .map(|value| value.to_string())
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "linux")]
+fn hook_address_cidr(address: &crate::transport_core::NetworkAddress) -> String {
+    format!("{}/{}", address.address, address.prefix_len)
+}
+
+#[cfg(target_os = "linux")]
+fn hook_address_subnet(address: &crate::transport_core::NetworkAddress) -> String {
+    address
+        .address
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .and_then(|value| ipnet::IpNet::new(value, address.on_link_prefix_len).ok())
+        .map(|network| network.trunc().to_string())
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "linux")]
+fn hook_family_name(family: crate::transport_core::NetworkAddressFamily) -> &'static str {
+    match family {
+        crate::transport_core::NetworkAddressFamily::Ipv4 => "ipv4",
+        crate::transport_core::NetworkAddressFamily::Ipv6 => "ipv6",
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn hook_family_mode(mode: crate::transport_core::NetworkFamilyMode) -> &'static str {
+    match mode {
+        crate::transport_core::NetworkFamilyMode::Ipv4 => "ipv4",
+        crate::transport_core::NetworkFamilyMode::Dual => "dual",
+        crate::transport_core::NetworkFamilyMode::Ipv6 => "ipv6",
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn hook_recordizer_mode(plan: Option<&NetworkPlan>) -> String {
+    plan.and_then(|plan| plan.data_plane.recordizer_mode)
+        .map(|mode| match mode {
+            crate::transport_core::NetworkRecordizerMode::LegacyPacketPerRecord => {
+                "legacy_packet_per_record"
+            }
+            crate::transport_core::NetworkRecordizerMode::PacketMuxV1 => "packet_mux_v1",
+        })
+        .unwrap_or("")
+        .to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn hook_roaming_mode(plan: Option<&NetworkPlan>) -> String {
+    plan.and_then(|plan| plan.data_plane.roaming_mode)
+        .map(|mode| match mode {
+            crate::transport_core::NetworkRoamingMode::Reconnect => "reconnect",
+            crate::transport_core::NetworkRoamingMode::UdpRoamV1 => "udp_roam_v1",
+            crate::transport_core::NetworkRoamingMode::TcpResumeV2 => "tcp_resume_v2",
+            crate::transport_core::NetworkRoamingMode::TcpHandoverV2 => "tcp_handover_v2",
+        })
+        .unwrap_or("")
+        .to_string()
+}
+
+#[cfg(target_os = "linux")]
+impl ClientHookContext {
+    fn new(config: &crate::config::client::ClientConfig, config_path: &str) -> Self {
+        let canonical_path = std::fs::canonicalize(config_path)
+            .unwrap_or_else(|_| std::path::PathBuf::from(config_path));
+        let profile = canonical_path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("default")
+            .to_string();
+        Self {
+            profile,
+            config_path: canonical_path.to_string_lossy().into_owned(),
+            if_name: config.tun.name.clone(),
+            if_index: hook_if_index(&config.tun.name),
+            device_type: config.tun.device_type.to_ascii_lowercase(),
+            tun_reused: config.tun.attach_existing,
+            server_host: config.server.address.clone(),
+            server_port: config.server.port,
+            protocol: config.server.protocol.clone(),
+            wire_mode: config.obfuscation.mode.clone(),
+            fronting: config.obfuscation.fronting.clone(),
+            roaming_policy: config.roaming.to_string(),
+            configured_carrier_local_address: config
+                .server
+                .local_address
+                .clone()
+                .unwrap_or_default(),
+            carrier_if_name: String::new(),
+            carrier_if_index: String::new(),
+            carrier_gateway: String::new(),
+            carrier_local_address: String::new(),
+            route_local: config.routing.route_local_networks,
+            gateway_nat: config.routing.gateway_nat,
+            forward: config.routing.forward,
+            exit_node: config.routing.exit_node,
+            allow_ipv4_leak: config.routing.allow_ipv4_leak,
+            allow_ipv6_leak: config.routing.allow_ipv6_leak,
+            lan_subnet: config.routing.lan_subnet.clone(),
+            lan_subnet_ipv6: config.routing.lan_subnet_ipv6.clone(),
+            include: config.routing.include.clone(),
+            exclude: config.routing.exclude.clone(),
+            plan: None,
+        }
+    }
+
+    fn refresh(&mut self, plan: &NetworkPlan, if_name: &str) {
+        self.if_name = if_name.to_string();
+        self.if_index = hook_if_index(if_name);
+        self.carrier_if_name.clear();
+        self.carrier_if_index.clear();
+        self.carrier_gateway.clear();
+        self.carrier_local_address = self.configured_carrier_local_address.clone();
+
+        if let Some(carrier) = plan
+            .carrier_address
+            .as_deref()
+            .and_then(|value| value.parse::<std::net::IpAddr>().ok())
+        {
+            let requested_source = self
+                .configured_carrier_local_address
+                .parse::<std::net::IpAddr>()
+                .ok();
+            if let Some(path) = route::hook_physical_path_for(carrier, if_name, requested_source) {
+                self.carrier_if_index = hook_if_index(&path.device);
+                self.carrier_if_name = path.device;
+                self.carrier_gateway = path.gateway.unwrap_or_default();
+                if let Some(source) = path.source {
+                    self.carrier_local_address = source;
+                }
+            }
+        }
+        self.plan = Some(plan.clone());
+    }
+
+    fn primary_gateway(&self) -> String {
+        let Some(plan) = self.plan.as_ref() else {
+            return String::new();
+        };
+        plan.addresses
+            .iter()
+            .find(|address| {
+                address.family == crate::transport_core::NetworkAddressFamily::Ipv4
+                    && address.gateway.is_some()
+            })
+            .or_else(|| {
+                plan.addresses
+                    .iter()
+                    .find(|address| address.gateway.is_some())
+            })
+            .and_then(|address| address.gateway.clone())
+            .unwrap_or_else(|| plan.tunnel_gateway.clone())
+    }
+
+    fn invocation(
+        &self,
+        command: String,
+        event: &str,
+        reason: &str,
+        error_code: &str,
+        error_message: &str,
+        session_duration_seconds: u64,
+    ) -> PendingLifecycleHook {
+        let plan = self.plan.as_ref();
+        let primary_gateway = self.primary_gateway();
+        let server_endpoint = crate::util::join_host_port(&self.server_host, self.server_port);
+        let carrier_address = plan
+            .and_then(|plan| plan.carrier_address.clone())
+            .unwrap_or_default();
+        let carrier_endpoint = if carrier_address.is_empty() {
+            String::new()
+        } else {
+            crate::util::join_host_port(&carrier_address, self.server_port)
+        };
+        let ipv4 = plan.and_then(|plan| {
+            plan.addresses
+                .iter()
+                .find(|address| address.family == crate::transport_core::NetworkAddressFamily::Ipv4)
+        });
+        let ipv6 = plan.and_then(|plan| {
+            plan.addresses
+                .iter()
+                .find(|address| address.family == crate::transport_core::NetworkAddressFamily::Ipv6)
+        });
+        let value = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address
+                .map(|address| address.address.clone())
+                .unwrap_or_default()
+        };
+        let prefix = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address
+                .map(|address| address.prefix_len.to_string())
+                .unwrap_or_default()
+        };
+        let on_link_prefix = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address
+                .map(|address| address.on_link_prefix_len.to_string())
+                .unwrap_or_default()
+        };
+        let gateway = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address
+                .and_then(|address| address.gateway.clone())
+                .unwrap_or_default()
+        };
+        let cidr = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address.map(hook_address_cidr).unwrap_or_default()
+        };
+        let subnet = |address: Option<&crate::transport_core::NetworkAddress>| {
+            address.map(hook_address_subnet).unwrap_or_default()
+        };
+
+        let mut environment = vec![
+            ("QELI_HOOK_API".into(), "1".into()),
+            ("QELI_EVENT".into(), event.into()),
+            ("QELI_PROFILE".into(), self.profile.clone()),
+            ("QELI_PROFILE_NAME".into(), self.profile.clone()),
+            ("QELI_CONFIG_PATH".into(), self.config_path.clone()),
+            ("QELI_PID".into(), std::process::id().to_string()),
+            ("QELI_PLAN_AVAILABLE".into(), hook_bool(plan.is_some())),
+            (
+                "QELI_PLAN_GENERATION".into(),
+                plan.map(|plan| plan.generation.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_FAMILY_MODE".into(),
+                plan.map(|plan| hook_family_mode(plan.family_mode).to_string())
+                    .unwrap_or_default(),
+            ),
+            ("QELI_TUN".into(), self.if_name.clone()),
+            ("QELI_IFNAME".into(), self.if_name.clone()),
+            ("QELI_IFINDEX".into(), self.if_index.clone()),
+            ("QELI_DEVICE_TYPE".into(), self.device_type.clone()),
+            ("QELI_TUN_MODE".into(), self.device_type.clone()),
+            ("QELI_TUN_REUSED".into(), hook_bool(self.tun_reused)),
+            (
+                "QELI_MTU".into(),
+                plan.map(|plan| plan.mtu.to_string()).unwrap_or_default(),
+            ),
+            (
+                "QELI_TUNNEL_ADDRESS".into(),
+                plan.map(|plan| plan.tunnel_address.clone())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_PREFIX_LEN".into(),
+                plan.map(|plan| plan.prefix_len.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_TUNNEL_GATEWAY".into(),
+                plan.map(|plan| plan.tunnel_gateway.clone())
+                    .unwrap_or_default(),
+            ),
+            ("QELI_GATEWAY".into(), primary_gateway.clone()),
+            ("QELI_IPV4_ADDRESS".into(), value(ipv4)),
+            ("QELI_IPV4_PREFIX".into(), prefix(ipv4)),
+            ("QELI_IPV4_PREFIX_LEN".into(), prefix(ipv4)),
+            ("QELI_IPV4_ON_LINK_PREFIX_LEN".into(), on_link_prefix(ipv4)),
+            ("QELI_IPV4_CIDR".into(), cidr(ipv4)),
+            ("QELI_IPV4_SUBNET".into(), subnet(ipv4)),
+            ("QELI_IPV4_GATEWAY".into(), gateway(ipv4)),
+            ("QELI_IPV6_ADDRESS".into(), value(ipv6)),
+            ("QELI_IPV6_PREFIX".into(), prefix(ipv6)),
+            ("QELI_IPV6_PREFIX_LEN".into(), prefix(ipv6)),
+            ("QELI_IPV6_ON_LINK_PREFIX_LEN".into(), on_link_prefix(ipv6)),
+            ("QELI_IPV6_CIDR".into(), cidr(ipv6)),
+            ("QELI_IPV6_SUBNET".into(), subnet(ipv6)),
+            ("QELI_IPV6_GATEWAY".into(), gateway(ipv6)),
+            ("QELI_SERVER".into(), self.server_host.clone()),
+            ("QELI_SERVER_HOST".into(), self.server_host.clone()),
+            ("QELI_SERVER_PORT".into(), self.server_port.to_string()),
+            ("QELI_SERVER_ENDPOINT".into(), server_endpoint),
+            ("QELI_CARRIER_ADDRESS".into(), carrier_address),
+            ("QELI_CARRIER_ENDPOINT".into(), carrier_endpoint),
+            (
+                "QELI_CARRIER_LOCAL_ADDRESS".into(),
+                self.carrier_local_address.clone(),
+            ),
+            ("QELI_CARRIER_IFNAME".into(), self.carrier_if_name.clone()),
+            ("QELI_CARRIER_IFINDEX".into(), self.carrier_if_index.clone()),
+            ("QELI_CARRIER_GATEWAY".into(), self.carrier_gateway.clone()),
+            ("QELI_PROTOCOL".into(), self.protocol.clone()),
+            ("QELI_WIRE_MODE".into(), self.wire_mode.clone()),
+            ("QELI_FRONTING".into(), self.fronting.clone()),
+            (
+                "QELI_ROUTING_MODE".into(),
+                plan.map(|plan| if plan.full_tunnel { "full" } else { "split" })
+                    .unwrap_or("")
+                    .to_string(),
+            ),
+            (
+                "QELI_FULL_TUNNEL".into(),
+                hook_bool(plan.is_some_and(|plan| plan.full_tunnel)),
+            ),
+            (
+                "QELI_KILL_SWITCH".into(),
+                hook_bool(plan.is_some_and(|plan| plan.kill_switch)),
+            ),
+            ("QELI_ROUTE_LOCAL".into(), hook_bool(self.route_local)),
+            ("QELI_GATEWAY_NAT".into(), hook_bool(self.gateway_nat)),
+            ("QELI_FORWARD".into(), hook_bool(self.forward)),
+            ("QELI_EXIT_NODE".into(), hook_bool(self.exit_node)),
+            (
+                "QELI_ALLOW_IPV4_LEAK".into(),
+                hook_bool(self.allow_ipv4_leak),
+            ),
+            (
+                "QELI_ALLOW_IPV6_LEAK".into(),
+                hook_bool(self.allow_ipv6_leak),
+            ),
+            ("QELI_LAN_SUBNET".into(), self.lan_subnet.clone()),
+            ("QELI_LAN_SUBNET_IPV6".into(), self.lan_subnet_ipv6.clone()),
+            (
+                "QELI_ADDRESS_COUNT".into(),
+                plan.map(|plan| plan.addresses.len())
+                    .unwrap_or(0)
+                    .to_string(),
+            ),
+            (
+                "QELI_DNS_COUNT".into(),
+                plan.map(|plan| plan.dns_servers.len())
+                    .unwrap_or(0)
+                    .to_string(),
+            ),
+            (
+                "QELI_ROUTE_COUNT".into(),
+                plan.map(|plan| plan.routes.len()).unwrap_or(0).to_string(),
+            ),
+            (
+                "QELI_PUSHED_ROUTE_COUNT".into(),
+                plan.map(|plan| plan.pushed_routes.len())
+                    .unwrap_or(0)
+                    .to_string(),
+            ),
+            ("QELI_INCLUDE_COUNT".into(), self.include.len().to_string()),
+            ("QELI_EXCLUDE_COUNT".into(), self.exclude.len().to_string()),
+            (
+                "QELI_MAX_STREAMS".into(),
+                plan.map(|plan| plan.max_streams.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_ADAPTIVE".into(),
+                hook_bool(plan.is_some_and(|plan| plan.adaptive)),
+            ),
+            ("QELI_ROAMING_POLICY".into(), self.roaming_policy.clone()),
+            ("QELI_ROAMING_MODE".into(), hook_roaming_mode(plan)),
+            ("QELI_RECORDIZER_MODE".into(), hook_recordizer_mode(plan)),
+            (
+                "QELI_RECORDIZER_POLICY".into(),
+                plan.and_then(|plan| plan.data_plane.recordizer_policy.clone())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_PADDING_ENABLED".into(),
+                hook_bool(plan.is_some_and(|plan| plan.data_plane.padding_enabled)),
+            ),
+            (
+                "QELI_PADDING_MIN".into(),
+                plan.map(|plan| plan.data_plane.padding_min.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_PADDING_MAX".into(),
+                plan.map(|plan| plan.data_plane.padding_max.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_NORMALIZATION_MAX".into(),
+                plan.map(|plan| plan.data_plane.normalization_max.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_HEARTBEAT_ENABLED".into(),
+                hook_bool(plan.is_some_and(|plan| plan.data_plane.heartbeat_enabled)),
+            ),
+            (
+                "QELI_HEARTBEAT_INTERVAL_MS".into(),
+                plan.map(|plan| plan.data_plane.heartbeat_interval_ms.to_string())
+                    .unwrap_or_default(),
+            ),
+            (
+                "QELI_SHAPING_ENABLED".into(),
+                hook_bool(plan.is_some_and(|plan| plan.data_plane.shaping_enabled)),
+            ),
+            ("QELI_REASON".into(), reason.into()),
+            ("QELI_STOP_REASON".into(), reason.into()),
+            ("QELI_ERROR_CODE".into(), error_code.into()),
+            ("QELI_ERROR_MESSAGE".into(), error_message.into()),
+            (
+                "QELI_SESSION_DURATION_SECONDS".into(),
+                session_duration_seconds.to_string(),
+            ),
+        ];
+
+        if let Some(plan) = plan {
+            for (index, address) in plan.addresses.iter().enumerate() {
+                let base = format!("QELI_ADDRESS_{index}");
+                environment.push((
+                    format!("{base}_FAMILY"),
+                    hook_family_name(address.family).into(),
+                ));
+                environment.push((format!("{base}_ADDRESS"), address.address.clone()));
+                environment.push((format!("{base}_PREFIX_LEN"), address.prefix_len.to_string()));
+                environment.push((
+                    format!("{base}_ON_LINK_PREFIX_LEN"),
+                    address.on_link_prefix_len.to_string(),
+                ));
+                environment.push((
+                    format!("{base}_GATEWAY"),
+                    address.gateway.clone().unwrap_or_default(),
+                ));
+                environment.push((format!("{base}_CIDR"), hook_address_cidr(address)));
+                environment.push((format!("{base}_SUBNET"), hook_address_subnet(address)));
+            }
+            for (index, dns) in plan.dns_servers.iter().enumerate() {
+                let base = format!("QELI_DNS_{index}");
+                environment.push((
+                    base.clone(),
+                    crate::util::join_host_port(&dns.address, dns.port),
+                ));
+                environment.push((format!("{base}_ADDRESS"), dns.address.clone()));
+                environment.push((format!("{base}_PORT"), dns.port.to_string()));
+            }
+            for (index, route) in plan.routes.iter().enumerate() {
+                let base = format!("QELI_ROUTE_{index}");
+                environment.push((format!("{base}_CIDR"), route.cidr.clone()));
+                environment.push((format!("{base}_GATEWAY"), route.gateway.clone()));
+                environment.push((format!("{base}_METRIC"), route.metric.to_string()));
+            }
+            for (index, route) in plan.pushed_routes.iter().enumerate() {
+                environment.push((format!("QELI_PUSHED_ROUTE_{index}"), route.clone()));
+            }
+        }
+        for (index, route) in self.include.iter().enumerate() {
+            environment.push((format!("QELI_INCLUDE_{index}"), route.clone()));
+        }
+        for (index, route) in self.exclude.iter().enumerate() {
+            environment.push((format!("QELI_EXCLUDE_{index}"), route.clone()));
+        }
+
+        let context_json = serde_json::to_string_pretty(&serde_json::json!({
+            "hook_api": 1,
+            "event": event,
+            "profile": self.profile,
+            "config_path": self.config_path,
+            "process_id": std::process::id(),
+            "interface": {
+                "name": self.if_name,
+                "index": self.if_index,
+                "device_type": self.device_type,
+                "reused": self.tun_reused,
+            },
+            "server": {
+                "configured_host": self.server_host,
+                "port": self.server_port,
+                "endpoint": crate::util::join_host_port(&self.server_host, self.server_port),
+                "protocol": self.protocol,
+                "wire_mode": self.wire_mode,
+                "fronting": self.fronting,
+            },
+            "carrier": {
+                "address": plan.and_then(|plan| plan.carrier_address.as_deref()),
+                "interface": self.carrier_if_name,
+                "interface_index": self.carrier_if_index,
+                "local_address": self.carrier_local_address,
+                "gateway": self.carrier_gateway,
+            },
+            "routing": {
+                "route_local": self.route_local,
+                "gateway_nat": self.gateway_nat,
+                "forward": self.forward,
+                "exit_node": self.exit_node,
+                "allow_ipv4_leak": self.allow_ipv4_leak,
+                "allow_ipv6_leak": self.allow_ipv6_leak,
+                "lan_subnet": self.lan_subnet,
+                "lan_subnet_ipv6": self.lan_subnet_ipv6,
+                "include": self.include,
+                "exclude": self.exclude,
+            },
+            "lifecycle": {
+                "reason": reason,
+                "error_code": error_code,
+                "error_message": error_message,
+                "session_duration_seconds": session_duration_seconds,
+            },
+            "network_plan": plan,
+        }))
+        .unwrap_or_else(|error| {
+            log::warn!("could not serialize client hook context: {error}");
+            String::new()
+        });
+
+        PendingLifecycleHook {
+            command,
+            environment,
+            positional_arguments: vec![self.if_name.clone(), primary_gateway],
+            context_json,
+        }
+    }
+}
+
+/// Observe the exit uplink independently of the VPN carrier. The connection task
+/// group joins this worker before its NetworkPlan owner or TUN is cleaned up.
+#[cfg(target_os = "linux")]
+fn spawn_exit_wan_monitor(tun_if: String, tasks: &crate::transport_core::tasks::Spawner) {
+    tasks.spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        tick.tick().await; // The authenticated plan installed the initial rules.
+        let mut last_refreshed = None;
+        let cancel = Arc::new(AtomicBool::new(false));
+        loop {
+            tick.tick().await;
+            let name = tun_if.clone();
+            let snapshot = network_task::run(cancel.clone(), move || {
+                gateway::exit_wan_snapshot_if_active(&name)
+            })
+            .await;
+            let snapshot = match snapshot {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    log::warn!("exit-node WAN observation failed: {error}");
+                    continue;
+                }
+            };
+            if snapshot == last_refreshed {
+                continue;
+            }
+            if snapshot.is_none() {
+                last_refreshed = None;
+                continue;
+            }
+            let name = tun_if.clone();
+            match network_task::run(cancel.clone(), move || {
+                gateway::refresh_exit_paths_if_active(&name)
+            })
+            .await
+            {
+                Ok(()) => last_refreshed = snapshot,
+                Err(error) => log::warn!("exit-node WAN refresh failed; will retry: {error}"),
+            }
+        }
+    });
+}
+
+#[cfg(target_os = "linux")]
+async fn cleanup_routing_features(
+    failures: &crate::client_cleanup::Failures,
+    checks: impl Into<crate::client_cleanup::Checks>,
     kill_switch: bool,
     gateway_enabled: bool,
     exit_node: bool,
     tun_if: &str,
-    lan_subnet: &str,
-    lan_subnet_ipv6: &str,
 ) -> anyhow::Result<()> {
-    let mut errors = Vec::new();
-    // Keep the kill-switch in place until forwarding/NAT state has been removed. This
-    // preserves fail-closed egress throughout teardown instead of opening the host first.
-    if gateway_enabled || exit_node {
-        if let Err(error) = gateway::disengage_plan(
-            tun_if,
-            lan_subnet,
-            lan_subnet_ipv6,
-            gateway_enabled,
-            exit_node,
-        ) {
-            errors.push(error.to_string());
-        }
-    }
-    if kill_switch {
-        if let Err(error) = killswitch::disengage(tun_if) {
-            errors.push(error.to_string());
-        }
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        anyhow::bail!("host firewall cleanup failed: {}", errors.join("; "))
-    }
+    let checks = checks.into();
+    let until = failures.cleanup_deadline();
+    let tun_if = tun_if.to_owned();
+    network_task::run(Arc::new(AtomicBool::new(false)), move || {
+        let _budget = crate::operation_budget::Scope::enter(until);
+        crate::client_cleanup::routing(
+            checks,
+            kill_switch,
+            || {
+                if gateway_enabled || exit_node {
+                    gateway::disengage_plan(&tun_if)
+                } else {
+                    Ok(())
+                }
+            },
+            || killswitch::disengage(&tun_if),
+        )
+    })
+    .await
 }
 
 /// The packet/session code is platform-neutral. This is the deliberately small boundary
@@ -714,11 +1282,37 @@ fn linux_path_command_outcome(execution: &anyhow::Result<()>) -> PathCommandOutc
 }
 
 #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+// MIPS has no native AtomicU64; preserve the lease width with the shared fallback.
+static NEXT_ROAM_RPF_LEASE: portable_atomic::AtomicU64 = portable_atomic::AtomicU64::new(1);
+
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+struct CandidateRpfLease {
+    scope: String,
+}
+
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+impl Drop for CandidateRpfLease {
+    fn drop(&mut self) {
+        if let Err(error) = crate::sysctl::release_scope(&self.scope) {
+            log::error!("could not restore roaming candidate rp_filter: {error}");
+        }
+    }
+}
+
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+struct PreparedLinuxPath {
+    routes: route::LinuxPreparedPathRoutes,
+    // Held only while the old /32 carrier bypass can make the new path asymmetric.
+    _rpf: Option<CandidateRpfLease>,
+}
+
+#[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
 pub(crate) struct LinuxPathController {
     core: Arc<std::sync::Mutex<ClientCore>>,
     shared: CorePathController,
     tunnel_interface: String,
-    prepared_routes: std::sync::Mutex<Option<route::LinuxPreparedPathRoutes>>,
+    prepared_routes: std::sync::Mutex<Option<PreparedLinuxPath>>,
+    route_owner: std::sync::Mutex<Option<route::RouteScope>>,
     same_network_nat_failure_tx: std::sync::Mutex<Option<tokio::sync::mpsc::Sender<()>>>,
     dispatch_lock: std::sync::Mutex<()>,
 }
@@ -731,6 +1325,7 @@ impl LinuxPathController {
             core,
             tunnel_interface,
             prepared_routes: std::sync::Mutex::new(None),
+            route_owner: std::sync::Mutex::new(None),
             same_network_nat_failure_tx: std::sync::Mutex::new(None),
             dispatch_lock: std::sync::Mutex::new(()),
         }
@@ -759,19 +1354,63 @@ impl LinuxPathController {
         match command.action {
             PathCommandAction::PreparePath => {
                 let candidate = Self::command_candidate(command);
-                let prepared =
-                    route::prepare_candidate_path_routes(&candidate, &self.tunnel_interface)?;
+                let owner = crate::util::lock_or_recover(&self.route_owner, "client::route_owner")
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Linux path has no managed route owner"))?
+                    .upgrade()?;
+                let prepared = route::prepare_candidate_path_routes(&candidate, &owner)?;
                 let mut current = crate::util::lock_or_recover(
                     &self.prepared_routes,
                     "client::linux_prepared_routes",
                 );
                 if current.as_ref().is_some_and(|active| {
-                    active.generation != command.generation
-                        || active.candidate_id != command.candidate_id
+                    active.routes.generation != command.generation
+                        || active.routes.candidate_id != command.candidate_id
                 }) {
                     anyhow::bail!("Linux path executor already owns another prepared candidate");
                 }
-                *current = Some(prepared);
+                // The old carrier's /32 remains pinned until COMMIT. Strict IPv4
+                // reverse-path filtering drops replies on a different candidate interface
+                // before the candidate can authenticate. Loose mode still checks source
+                // reachability; this lease restores the value on COMMIT or ABORT.
+                let rpf = if let Some(route) =
+                    prepared.routes.iter().find(|route| route.remote.is_ipv4())
+                {
+                    let path = format!("/proc/sys/net/ipv4/conf/{}/rp_filter", route.interface);
+                    let all = std::fs::read_to_string("/proc/sys/net/ipv4/conf/all/rp_filter")
+                        .map(|value| value.trim().to_string());
+                    let interface =
+                        std::fs::read_to_string(&path).map(|value| value.trim().to_string());
+                    // Avoid a conflicting lease when the gateway already disabled filtering.
+                    let already_compatible = matches!(all.as_deref(), Ok("2"))
+                        || matches!((all.as_deref(), interface.as_deref()), (Ok("0"), Ok("0")));
+                    if already_compatible {
+                        None
+                    } else {
+                        let id = NEXT_ROAM_RPF_LEASE
+                            .fetch_update(
+                                std::sync::atomic::Ordering::Relaxed,
+                                std::sync::atomic::Ordering::Relaxed,
+                                |id| id.checked_add(1),
+                            )
+                            .map_err(|_| {
+                                anyhow::anyhow!("roaming rp_filter lease counter exhausted")
+                            })?;
+                        let scope = format!("roam-rpf-{id:016x}");
+                        crate::sysctl::acquire_checked(&path, "2", &scope)
+                            .map_err(|error| anyhow::anyhow!(
+                                "cannot relax reverse-path filtering for roaming candidate {}: {error}",
+                                route.interface
+                            ))?;
+                        Some(CandidateRpfLease { scope })
+                    }
+                } else {
+                    None
+                };
+                *current = Some(PreparedLinuxPath {
+                    routes: prepared,
+                    _rpf: rpf,
+                });
                 Ok(())
             }
             PathCommandAction::BindSocket => {
@@ -783,8 +1422,8 @@ impl LinuxPathController {
                     let prepared = current.as_ref().ok_or_else(|| {
                         anyhow::anyhow!("BIND_SOCKET has no prepared Linux route projection")
                     })?;
-                    if prepared.generation != command.generation
-                        || prepared.candidate_id != command.candidate_id
+                    if prepared.routes.generation != command.generation
+                        || prepared.routes.candidate_id != command.candidate_id
                     {
                         anyhow::bail!("BIND_SOCKET does not match the prepared Linux candidate");
                     }
@@ -807,8 +1446,8 @@ impl LinuxPathController {
                 let prepared = current.as_ref().ok_or_else(|| {
                     anyhow::anyhow!("COMMIT_PATH has no prepared Linux route projection")
                 })?;
-                if prepared.generation != command.generation
-                    || prepared.candidate_id != command.candidate_id
+                if prepared.routes.generation != command.generation
+                    || prepared.routes.candidate_id != command.candidate_id
                 {
                     anyhow::bail!("COMMIT_PATH does not match the prepared Linux candidate");
                 }
@@ -826,8 +1465,9 @@ impl LinuxPathController {
                 // the authenticated carrier route; those interfaces may differ from the
                 // carrier and from each other. Failure leaves the previous route active and
                 // makes the core enqueue ABORT/reconnect.
-                gateway::refresh_exit_paths_if_active(&self.tunnel_interface)?;
-                prepared.commit(&previous_carriers)?;
+                prepared.routes.commit_with(&previous_carriers, || {
+                    gateway::refresh_exit_paths_if_active(&self.tunnel_interface)
+                })?;
                 mark_carrier_candidates_pinned(&[address]);
                 note_connected_peer(address);
                 *current = None;
@@ -839,8 +1479,8 @@ impl LinuxPathController {
                     "client::linux_prepared_routes",
                 );
                 if current.as_ref().is_some_and(|prepared| {
-                    prepared.generation != command.generation
-                        || prepared.candidate_id != command.candidate_id
+                    prepared.routes.generation != command.generation
+                        || prepared.routes.candidate_id != command.candidate_id
                 }) {
                     anyhow::bail!("ABORT_PATH does not match the prepared Linux candidate");
                 }
@@ -1067,12 +1707,11 @@ pub(crate) trait ClientPlatform {
     }
     fn device_id(&self) -> anyhow::Result<[u8; crate::protocol::DEVICE_ID_LEN]>;
     fn identity_verifier(&self, config: &crate::config::client::ClientConfig) -> IdentityVerifier;
-    fn prepare_tunnel(
-        &mut self,
-        config: &crate::config::client::ClientConfig,
+    fn prepare_tunnel<'a>(
+        &'a mut self,
+        config: &'a crate::config::client::ClientConfig,
         plan: NetworkPlan,
-        network: &HandshakeNetwork<'_>,
-    ) -> anyhow::Result<TunnelSetup>;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<TunnelSetup>> + 'a>>;
     fn fallback_dns_servers(&self) -> &[String];
     fn cancel_token(&self) -> Arc<AtomicBool>;
     fn counters(&self) -> Arc<RuntimeCounters>;
@@ -1098,19 +1737,41 @@ pub(crate) trait ClientPlatform {
 }
 
 async fn run_pending_post_up(core: &mut dyn ClientPlatform) {
-    let Some((command, environment)) = core.take_post_up() else {
+    let Some(hook) = core.take_post_up() else {
         return;
     };
     #[cfg(target_os = "linux")]
-    {
-        let hook_environment = environment
-            .iter()
-            .map(|(key, value)| (key.as_str(), value.clone()))
-            .collect::<Vec<_>>();
-        crate::hooks::run("post_up", &command, &hook_environment).await;
-    }
+    crate::hooks::run_with_context(
+        "post_up",
+        &hook.command,
+        &hook.environment,
+        &hook.positional_arguments,
+        (!hook.context_json.is_empty()).then_some(hook.context_json.as_str()),
+    )
+    .await;
     #[cfg(not(target_os = "linux"))]
-    let _ = (command, environment);
+    let _ = hook;
+}
+
+#[cfg(target_os = "linux")]
+async fn run_client_post_down(
+    core: &LinuxCoreAdapter,
+    command: &str,
+    reason: &str,
+    error_code: &str,
+    error_message: &str,
+) {
+    let Some(hook) = core.post_down_invocation(command, reason, error_code, error_message) else {
+        return;
+    };
+    crate::hooks::run_with_context(
+        "post_down",
+        &hook.command,
+        &hook.environment,
+        &hook.positional_arguments,
+        (!hook.context_json.is_empty()).then_some(hook.context_json.as_str()),
+    )
+    .await;
 }
 
 /// In-process Linux adapter for the same lifecycle contract exported over the C ABI.
@@ -1125,7 +1786,15 @@ struct LinuxCoreAdapter {
     cancel: Arc<AtomicBool>,
     counters: Arc<RuntimeCounters>,
     diagnostics: ClientStatusReporter,
-    post_up: Option<PendingLifecycleHook>,
+    device_identity: Option<[u8; crate::protocol::DEVICE_ID_LEN]>,
+    identity_verifier: Option<identity_worker::Verifier>,
+    identity_worker: Option<identity_worker::Worker>,
+    diagnostic_writer: Option<status_writer::Writer<serde_json::Value>>,
+    cleanup_failures: crate::client_cleanup::Failures,
+    post_up: Option<String>,
+    hook_context: Option<ClientHookContext>,
+    connected_since: Option<std::time::Instant>,
+    attempt_connected_since: Option<std::time::Instant>,
     #[cfg(feature = "experimental-roaming")]
     path_controller: Arc<LinuxPathController>,
 }
@@ -1137,7 +1806,7 @@ struct LinuxCoreAdapter {
 #[cfg(target_os = "linux")]
 #[derive(Clone)]
 struct ClientStatusReporter {
-    path: Option<Arc<std::path::PathBuf>>,
+    sender: Option<status_writer::Sender<serde_json::Value>>,
     state: Arc<std::sync::Mutex<ClientDiagnosticState>>,
 }
 
@@ -1155,27 +1824,51 @@ struct ClientDiagnosticState {
 
 #[cfg(target_os = "linux")]
 impl ClientStatusReporter {
-    fn from_env() -> Self {
+    fn from_env() -> (Self, Option<status_writer::Writer<serde_json::Value>>) {
         let path = std::env::var("QELI_CLIENT_STATUS")
             .ok()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
-            .map(std::path::PathBuf::from)
-            .map(Arc::new);
+            .map(std::path::PathBuf::from);
         let profile =
             std::env::var("QELI_CLIENT_PROFILE").unwrap_or_else(|_| "standalone".to_string());
-        Self {
-            path,
-            state: Arc::new(std::sync::Mutex::new(ClientDiagnosticState {
-                profile,
-                state: "created".to_string(),
-                generation: 0,
-                reconnects: 0,
-                retry_in_secs: None,
-                last_error: None,
-                plan: None,
-            })),
-        }
+        let (sender, writer) = match path {
+            Some(path) => match status_writer::Writer::start(move |body: serde_json::Value| {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Ok(encoded) = serde_json::to_vec(&body) {
+                    if let Err(error) = crate::util::write_atomic_private(&path, &encoded) {
+                        log::debug!(
+                            "cannot publish client diagnostics {}: {error}",
+                            path.display()
+                        );
+                    }
+                }
+            }) {
+                Ok((sender, writer)) => (Some(sender), Some(writer)),
+                Err(error) => {
+                    log::warn!("cannot start client diagnostics writer: {error}");
+                    (None, None)
+                }
+            },
+            None => (None, None),
+        };
+        (
+            Self {
+                sender,
+                state: Arc::new(std::sync::Mutex::new(ClientDiagnosticState {
+                    profile,
+                    state: "created".to_string(),
+                    generation: 0,
+                    reconnects: 0,
+                    retry_in_secs: None,
+                    last_error: None,
+                    plan: None,
+                })),
+            },
+            writer,
+        )
     }
 
     fn state_name(state: ClientState) -> &'static str {
@@ -1252,11 +1945,11 @@ impl ClientStatusReporter {
     }
 
     fn publish(&self, counters: &RuntimeCounters) {
-        let Some(path) = self.path.as_deref() else {
+        let Some(sender) = &self.sender else {
             return;
         };
         let current = match self.state.lock() {
-            Ok(current) => current.clone(),
+            Ok(current) => current,
             Err(_) => return,
         };
         let udp = counters.udp.snapshot();
@@ -1288,27 +1981,29 @@ impl ClientStatusReporter {
                 "udp_drops_tun_write": udp.tun_write_drops,
                 "udp_buffer_grows": udp.grow_events,
                 "udp_recv_buffer_bytes": udp.granted_recv_bytes,
+                "udp_receive_queue": udp.receive_queue,
+                "udp_data_fragmentation": udp.path,
+                "tcp_uplink_drops": counters.tcp_uplink.snapshot(),
+                "tcp_downlink_drops": counters.tcp_downlink.snapshot(),
+                "tcp_carriers": serde_json::from_slice::<serde_json::Value>(
+                    &counters.tcp_carriers.diagnostics_json()).ok(),
             },
         });
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Ok(encoded) = serde_json::to_vec(&body) {
-            if let Err(error) = crate::util::write_atomic_private(path, &encoded) {
-                log::debug!(
-                    "cannot publish client diagnostics {}: {error}",
-                    path.display()
-                );
-            }
-        }
+        // Keep the state lock until enqueue: an older sampled state must never be
+        // submitted after a newer event. The worker performs all file I/O unlocked.
+        sender.submit(body);
     }
 
-    fn start_sampler(&self, counters: Arc<RuntimeCounters>) {
-        if self.path.is_none() {
+    fn start_sampler(
+        &self,
+        counters: Arc<RuntimeCounters>,
+        tasks: &mut crate::client_tasks::Owner,
+    ) {
+        if self.sender.is_none() {
             return;
         }
         let reporter = self.clone();
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             loop {
                 reporter.publish(&counters);
                 tokio::time::sleep(Duration::from_secs(2)).await;
@@ -1324,6 +2019,7 @@ fn linux_roaming_path_supported(config: &crate::config::client::ClientConfig) ->
     let transport_supported = matches!(config.server.protocol.as_str(), "tcp" | "udp");
     // Explicit source settings are operator pins, not a path the observer may replace.
     config.roaming != ClientRoamingPolicy::Off
+        && !config.tun.attach_existing
         && transport_supported
         && config.server.local_address.is_none()
         && config.server.local_port == 0
@@ -1331,6 +2027,47 @@ fn linux_roaming_path_supported(config: &crate::config::client::ClientConfig) ->
 
 #[cfg(target_os = "linux")]
 impl LinuxCoreAdapter {
+    /// All startup file work and capability probes run on the admitted worker.
+    fn load_startup(
+        config_path: &str,
+    ) -> anyhow::Result<(
+        Self,
+        crate::config::client::ClientConfig,
+        crate::config_source::CommandTrust,
+    )> {
+        let (snapshot, mode) = crate::config_source::load_client(config_path)?;
+        let (contents, trust) = snapshot.into_parts();
+        let (mut adapter, config) = Self::new(&contents)?;
+        adapter.hook_context = Some(ClientHookContext::new(&config, config_path));
+        if config
+            .auth
+            .password
+            .as_deref()
+            .is_some_and(|p| !p.is_empty())
+            && mode & 0o077 != 0
+        {
+            log::warn!("config '{config_path}' is mode {mode:o} — it contains the VPN password in cleartext and other local accounts can read it. chmod 600 {config_path}");
+        }
+        Ok((adapter, config, trust))
+    }
+
+    async fn load_device_identity(
+        &mut self,
+        path: String,
+        stop: impl std::future::Future<Output = ()>,
+    ) -> anyhow::Result<bool> {
+        if self.device_identity.is_some() {
+            return Ok(true);
+        }
+        let loaded = network_task::prepared(
+            async move { Ok(move || Ok(identity_files::device_id_at(&path))) },
+            stop,
+        )
+        .await?;
+        self.device_identity = loaded;
+        Ok(loaded.is_some())
+    }
+
     fn with_core<T>(&self, action: impl FnOnce(&mut ClientCore) -> T) -> T {
         let mut core = crate::util::lock_or_recover(&self.core, "client::linux_core");
         action(&mut core)
@@ -1374,7 +2111,19 @@ impl LinuxCoreAdapter {
             config.tun.name.clone(),
         ));
         let counters = Arc::new(RuntimeCounters::default());
-        let diagnostics = ClientStatusReporter::from_env();
+        let (identity_verifier, identity_worker) = if config.auth.server_public_key.is_none() {
+            let path = known_hosts_path();
+            let server_id = format!("{}:{}", config.server.address, config.server.port);
+            let allow_unpinned = config.auth.allow_unpinned_tofu;
+            let (verifier, worker) = identity_worker::Worker::start(move |received| {
+                let hex: String = received.iter().map(|b| format!("{b:02x}")).collect();
+                identity_files::trust_on_first_use_at(&path, &server_id, &hex, allow_unpinned)
+            })?;
+            (Some(verifier), Some(worker))
+        } else {
+            (None, None)
+        };
+        let (diagnostics, diagnostic_writer) = ClientStatusReporter::from_env();
         diagnostics.publish(&counters);
         Ok((
             Self {
@@ -1383,7 +2132,15 @@ impl LinuxCoreAdapter {
                 cancel: Arc::new(AtomicBool::new(false)),
                 counters,
                 diagnostics,
+                device_identity: None,
+                identity_verifier,
+                identity_worker,
+                diagnostic_writer,
+                cleanup_failures: crate::client_cleanup::Failures::default(),
                 post_up: None,
+                hook_context: None,
+                connected_since: None,
+                attempt_connected_since: None,
                 #[cfg(feature = "experimental-roaming")]
                 path_controller,
             },
@@ -1399,6 +2156,7 @@ impl LinuxCoreAdapter {
             self.with_core(|core| core.stop())?;
             self.drain_events(None)?;
         }
+        self.attempt_connected_since = None;
         if reconnect {
             self.with_core(ClientCore::record_reconnect);
         }
@@ -1417,23 +2175,40 @@ impl LinuxCoreAdapter {
         generation
     }
 
-    fn arm_post_up(&mut self, command: String, environment: &[(&str, String)]) {
-        if command.trim().is_empty() {
-            return;
-        }
-        self.post_up = Some((
-            command,
-            environment
-                .iter()
-                .map(|(key, value)| ((*key).to_string(), value.clone()))
-                .collect(),
-        ));
+    fn configure_hooks(&mut self, post_up: String) {
+        self.post_up = (!post_up.trim().is_empty()).then_some(post_up);
     }
 
-    fn apply_network_plan<T>(
+    fn post_down_invocation(
+        &self,
+        command: &str,
+        reason: &str,
+        error_code: &str,
+        error_message: &str,
+    ) -> Option<PendingLifecycleHook> {
+        if command.trim().is_empty() {
+            return None;
+        }
+        let duration = self
+            .connected_since
+            .map(|started| started.elapsed().as_secs())
+            .unwrap_or(0);
+        self.hook_context.as_ref().map(|context| {
+            context.invocation(
+                command.to_string(),
+                "post_down",
+                reason,
+                error_code,
+                error_message,
+                duration,
+            )
+        })
+    }
+
+    async fn apply_network_plan<T: Send + 'static>(
         &mut self,
         plan: NetworkPlan,
-        apply: impl FnOnce(&NetworkPlan) -> anyhow::Result<T>,
+        apply: impl FnOnce(&NetworkPlan) -> anyhow::Result<T> + Send + 'static,
     ) -> anyhow::Result<T> {
         let generation = plan.generation;
         self.with_core(|core| core.publish_network_plan(plan))?;
@@ -1441,10 +2216,32 @@ impl LinuxCoreAdapter {
             anyhow::anyhow!("core emitted no network plan for generation {generation}")
         })?;
 
-        match apply(&executable) {
+        match network_task::run(self.cancel.clone(), move || apply(&executable)).await {
             Ok(value) => {
-                self.with_core(|core| core.ack_network_plan(generation, true, None))?;
-                self.drain_events(None)?;
+                let acknowledged = if self.cancel.load(Ordering::Acquire) {
+                    Err(anyhow::anyhow!(
+                        "client stopped before NetworkPlan acknowledgement"
+                    ))
+                } else {
+                    self.with_core(|core| core.ack_network_plan(generation, true, None))
+                        .map_err(anyhow::Error::from)
+                        .and_then(|()| self.drain_events(None).map(|_| ()))
+                };
+                if let Err(error) = acknowledged {
+                    // The unapplied ACK never strips ownership from a completed platform result.
+                    // Join its rollback before returning to the outer network-lease owner.
+                    let rollback = network_task::run(Arc::new(AtomicBool::new(false)), move || {
+                        drop(value);
+                        Ok(())
+                    })
+                    .await;
+                    return Err(match rollback {
+                        Ok(()) => error,
+                        Err(rollback) => {
+                            error.context(format!("network rollback also failed: {rollback}"))
+                        }
+                    });
+                }
                 Ok(value)
             }
             Err(error) => {
@@ -1462,6 +2259,10 @@ impl LinuxCoreAdapter {
             match event.kind {
                 EventKind::StateChanged => {
                     log::debug!("transport core state: {:?}", event.state);
+                    if event.state == ClientState::Running {
+                        self.attempt_connected_since
+                            .get_or_insert_with(std::time::Instant::now);
+                    }
                     let reconnects = self.with_core(|core| core.stats().reconnects);
                     self.diagnostics.update_state(event.state, reconnects);
                     self.diagnostics.publish(&self.counters);
@@ -1553,27 +2354,72 @@ impl ClientPlatform for LinuxCoreAdapter {
     }
 
     fn device_id(&self) -> anyhow::Result<[u8; crate::protocol::DEVICE_ID_LEN]> {
-        Ok(device_id())
+        self.device_identity
+            .ok_or_else(|| anyhow::anyhow!("client device identity was not initialized"))
     }
 
     fn identity_verifier(&self, config: &crate::config::client::ClientConfig) -> IdentityVerifier {
         let expected = config.auth.server_public_key.clone();
-        let server_id = format!("{}:{}", config.server.address, config.server.port);
-        let allow_tofu = config.auth.allow_unpinned_tofu;
+        let verifier = self.identity_verifier.clone();
+        let cancel = self.cancel.clone();
+        let timeout = Duration::from_secs(config.server.connection_timeout_secs.max(1));
         Arc::new(move |received| {
             let expected = expected.clone();
-            let server_id = server_id.clone();
-            Box::pin(async move { verify_server_key(&received, &expected, &server_id, allow_tofu) })
+            let verifier = verifier.clone();
+            let cancel = cancel.clone();
+            Box::pin(async move {
+                if let Some(expected) = expected {
+                    return verify_pinned_key(&received, &expected);
+                }
+                let verifier =
+                    verifier.ok_or_else(|| anyhow::anyhow!("TOFU worker is unavailable"))?;
+                tokio::time::timeout(timeout, verifier.verify(received, cancel))
+                    .await
+                    .map_err(|_| {
+                        anyhow::anyhow!(
+                            "server identity verification timed out after {}s",
+                            timeout.as_secs()
+                        )
+                    })?
+            })
         })
     }
 
-    fn prepare_tunnel(
-        &mut self,
-        config: &crate::config::client::ClientConfig,
+    fn prepare_tunnel<'a>(
+        &'a mut self,
+        config: &'a crate::config::client::ClientConfig,
         plan: NetworkPlan,
-        network: &HandshakeNetwork<'_>,
-    ) -> anyhow::Result<TunnelSetup> {
-        self.apply_network_plan(plan, |plan| setup_tunnel(config, plan, network))
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<TunnelSetup>> + 'a>>
+    {
+        Box::pin(async move {
+            let mut hook_context = self.hook_context.clone();
+            let cleanup_failures = self.cleanup_failures.clone();
+            let owned_config = config.clone();
+            let (tunnel, hook_context) = self
+                .apply_network_plan(plan, move |plan| {
+                    let tunnel = setup_tunnel(&owned_config, plan, cleanup_failures)?;
+                    if let Some(context) = hook_context.as_mut() {
+                        context.refresh(plan, &tunnel.if_name);
+                    }
+                    Ok((tunnel, hook_context))
+                })
+                .await?;
+            #[cfg(feature = "experimental-roaming")]
+            {
+                *crate::util::lock_or_recover(
+                    &self.path_controller.prepared_routes,
+                    "client::linux_prepared_routes",
+                ) = None;
+                *crate::util::lock_or_recover(
+                    &self.path_controller.route_owner,
+                    "client::route_owner",
+                ) = (!config.tun.attach_existing).then(|| tunnel.guard.routes.scope());
+            }
+            self.hook_context = hook_context;
+            self.connected_since
+                .get_or_insert_with(std::time::Instant::now);
+            Ok(tunnel)
+        })
     }
 
     fn fallback_dns_servers(&self) -> &[String] {
@@ -1589,7 +2435,14 @@ impl ClientPlatform for LinuxCoreAdapter {
     }
 
     fn take_post_up(&mut self) -> Option<PendingLifecycleHook> {
-        self.post_up.take()
+        let command = self.post_up.take()?;
+        let duration = self
+            .connected_since
+            .map(|started| started.elapsed().as_secs())
+            .unwrap_or(0);
+        self.hook_context
+            .as_ref()
+            .map(|context| context.invocation(command, "post_up", "connected", "", "", duration))
     }
 }
 
@@ -1615,6 +2468,165 @@ static DELIBERATE_CYCLE: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 struct ServerKickError {
     message: String,
     reconnect_allowed: bool,
+}
+
+// A received terminal policy must outlive socket EOF and platform-event delivery errors.
+fn management_result(
+    event: crate::protocol::control_v2::ManagementEvent,
+    delivered: anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    if let crate::protocol::control_v2::ManagementEvent::Kick(kick) = event {
+        if delivered.is_err() {
+            log::warn!("Could not publish terminal management event to the platform");
+        }
+        Err(ServerKickError {
+            message: kick.message,
+            reconnect_allowed: kick.reconnect_allowed,
+        }
+        .into())
+    } else {
+        delivered
+    }
+}
+
+fn apply_server_management(
+    core: &mut dyn ClientPlatform,
+    event: crate::protocol::control_v2::ManagementEvent,
+) -> anyhow::Result<()> {
+    let delivered = core.management_event(&event);
+    management_result(event, delivered)
+}
+
+enum TcpLifecycleEvent {
+    Management(Option<crate::protocol::control_v2::ManagementEvent>),
+    Disconnected,
+}
+
+async fn next_tcp_lifecycle_event(
+    management: &mut tokio::sync::watch::Receiver<
+        Option<crate::protocol::control_v2::ManagementEvent>,
+    >,
+    dead: &mut mpsc::Receiver<()>,
+) -> TcpLifecycleEvent {
+    tokio::select! {
+        biased;
+        changed = management.changed() => {
+            if changed.is_err() {
+                TcpLifecycleEvent::Disconnected
+            } else {
+                TcpLifecycleEvent::Management(management.borrow_and_update().clone())
+            }
+        }
+        _ = dead.recv() => TcpLifecycleEvent::Disconnected,
+    }
+}
+
+fn finish_pending_management(
+    core: &mut dyn ClientPlatform,
+    receiver: &tokio::sync::watch::Receiver<Option<crate::protocol::control_v2::ManagementEvent>>,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    if result
+        .as_ref()
+        .is_err_and(|error| error.downcast_ref::<ServerKickError>().is_some())
+    {
+        return result;
+    }
+    // Producers have been joined: this snapshot cannot be replaced during teardown.
+    let event = receiver.borrow().clone();
+    if let Some(event @ crate::protocol::control_v2::ManagementEvent::Kick(_)) = event {
+        apply_server_management(core, event)
+    } else {
+        result
+    }
+}
+
+#[cfg(test)]
+mod terminal_cleanup_tests {
+    use super::ServerKickError;
+
+    #[test]
+    fn terminal_kick_survives_dns_and_route_cleanup_failure() {
+        let kick = ServerKickError {
+            message: "profile disabled".to_string(),
+            reconnect_allowed: false,
+        };
+        let cleanup = crate::client_cleanup::with_cleanup_error(
+            Err(anyhow::anyhow!("DNS revert failed")),
+            Err(anyhow::anyhow!("route delete failed")),
+        );
+        let error =
+            crate::client_cleanup::with_cleanup_error(Err(kick.into()), cleanup).unwrap_err();
+        let kick = error
+            .downcast_ref::<ServerKickError>()
+            .expect("terminal policy must survive cleanup");
+        assert!(!kick.reconnect_allowed);
+        let message = error.to_string();
+        assert!(message.contains("profile disabled"));
+        assert!(message.contains("DNS revert failed"));
+        assert!(message.contains("route delete failed"));
+    }
+}
+
+#[cfg(test)]
+mod terminal_lifecycle_tests {
+    use super::*;
+    use crate::protocol::control_v2::{Kick, KickReason, ManagementEvent};
+
+    fn kick() -> ManagementEvent {
+        ManagementEvent::Kick(Kick {
+            reason: KickReason::Administrative,
+            message: "Session replaced".into(),
+            reconnect_allowed: false,
+        })
+    }
+
+    #[tokio::test]
+    async fn received_kick_wins_when_eof_is_also_ready() {
+        let (sender, mut receiver) = tokio::sync::watch::channel(None);
+        let (dead_tx, mut dead_rx) = mpsc::channel(1);
+        sender.send(Some(kick())).unwrap();
+        dead_tx.send(()).await.unwrap();
+        let TcpLifecycleEvent::Management(Some(event)) =
+            next_tcp_lifecycle_event(&mut receiver, &mut dead_rx).await
+        else {
+            panic!("EOF discarded a received terminal policy")
+        };
+        let error = management_result(event, Ok(())).unwrap_err();
+        assert!(
+            !error
+                .downcast_ref::<ServerKickError>()
+                .unwrap()
+                .reconnect_allowed
+        );
+        assert!(matches!(
+            next_tcp_lifecycle_event(&mut receiver, &mut dead_rx).await,
+            TcpLifecycleEvent::Disconnected
+        ));
+    }
+
+    #[tokio::test]
+    async fn ordinary_eof_does_not_invent_a_terminal_policy() {
+        let (_sender, mut receiver) = tokio::sync::watch::channel(None);
+        let (dead_tx, mut dead_rx) = mpsc::channel(1);
+        dead_tx.send(()).await.unwrap();
+        assert!(matches!(
+            next_tcp_lifecycle_event(&mut receiver, &mut dead_rx).await,
+            TcpLifecycleEvent::Disconnected
+        ));
+    }
+
+    #[test]
+    fn platform_delivery_failure_cannot_enable_reconnect_after_kick() {
+        let error =
+            management_result(kick(), Err(anyhow::anyhow!("event queue full"))).unwrap_err();
+        assert!(
+            !error
+                .downcast_ref::<ServerKickError>()
+                .unwrap()
+                .reconnect_allowed
+        );
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1658,7 +2670,7 @@ fn consume_authenticated_management(
         requested_ack = (frame.flags & crate::protocol::control_v2::FLAG_ACK_REQUIRED != 0)
             .then_some(frame.message_id);
         crate::util::lock_or_recover(reassembler, "client::management_reassembler")
-            .push(std::time::Instant::now(), frame)
+            .push_management(std::time::Instant::now(), frame)
     });
     let mut ack_message_id = None;
     match outcome {
@@ -1716,70 +2728,134 @@ fn consume_authenticated_management(
     }
 }
 
-/// Desynchronise clients that lose the same server/carrier at once. Jitter only shortens the
-/// scheduled delay (by at most 20%), so the configured maximum is never exceeded.
+/// A stop signal must interrupt even a day-long configured backoff. The atomic flag
+/// handles cancellation before registration; Notify handles it while the timer is pending.
 #[cfg(any(target_os = "linux", test))]
-fn jitter_reconnect_delay(scheduled: Duration) -> Duration {
-    let millis = u64::try_from(scheduled.as_millis()).unwrap_or(u64::MAX);
-    let spread = millis / 5;
-    if spread == 0 {
-        return scheduled;
+async fn wait_for_reconnect(delay: Duration, shutdown: &AtomicBool, wakeup: &tokio::sync::Notify) {
+    if shutdown.load(Ordering::Acquire) {
+        return;
     }
-    let reduction = rand::rng().random_range(0..=spread);
-    Duration::from_millis(millis.saturating_sub(reduction))
+    tokio::select! {
+        _ = wakeup.notified() => {},
+        _ = tokio::time::sleep(delay) => {},
+    }
 }
 
 #[cfg(target_os = "linux")]
-pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
-    // SIGUSR1 dumps the packet trace, when one is armed (no-op otherwise).
-    tokio::spawn(trace::watch());
+async fn wait_for_shutdown(shutdown: &AtomicBool, wakeup: &tokio::sync::Notify) {
+    if !shutdown.load(Ordering::Acquire) {
+        wakeup.notified().await;
+    }
+}
 
-    let config_content = std::fs::read_to_string(config_path)?;
-    // STRICT: a misspelled key name and an unreadable value both used to fail open here —
-    // only `check-config` reported them, while the real start substituted defaults in silence.
-    // See `config::parse_client_config_strict`. (Audit 2026-08-01, §4/§5.)
-    let (mut core_adapter, config) = LinuxCoreAdapter::new(&config_content)?;
-    core_adapter
-        .diagnostics
-        .start_sampler(core_adapter.counters.clone());
-    // Warn when a config holding a cleartext password is readable by other local accounts.
-    //
-    // Nothing on the LOAD path ever looked at the file mode. `pass = <vpn password>` and a
-    // pinned `key` sit in this file verbatim, and the ordinary way to create it is to paste a
-    // `qeli://` link into an editor under the default umask — which yields 0644. The client
-    // then started without a word, and any local user could read the credential. Permissions
-    // are narrowed on WRITE (`write_atomic_private`), so this only ever bit hand-made files —
-    // i.e. the common case. The only existing mode check, `hooks::config_is_trusted`, looks
-    // at WRITABILITY and runs only when hooks are configured.
-    //
-    // A warning rather than a refusal: an operator with a 0644 config and no better option
-    // should still be able to bring the tunnel up, and OpenSSH's precedent (refuse) applies
-    // to keys the daemon can regenerate, not to a user's only way in. (Audit 2026-08-04.)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let has_secret = config
-            .auth
-            .password
-            .as_deref()
-            .is_some_and(|p| !p.is_empty());
-        if has_secret {
-            if let Ok(md) = std::fs::metadata(config_path) {
-                let mode = md.permissions().mode() & 0o777;
-                if mode & 0o077 != 0 {
-                    log::warn!(
-                        "config '{config_path}' is mode {mode:o} — it contains the VPN password \
-                         in cleartext and every local account can read it. `chmod 600 \
-                         {config_path}`."
-                    );
-                }
+/// Run one Linux client per process, including startup and terminal cleanup.
+/// Concurrent calls fail before reading config or registering signal handlers.
+/// Dropping this future before completion requires a process restart, because Drop
+/// cannot join every nested transport task. Signal-driven stop waits for cleanup.
+/// Use separate processes for independent clients; shared transport-core adapters
+/// are not governed by this Linux runtime entry point.
+#[cfg(target_os = "linux")]
+pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
+    let mut client_tasks = crate::client_tasks::Owner::acquire()?;
+    reset_carrier_candidates(0);
+    DELIBERATE_CYCLE.store(false, Ordering::Release);
+    let mut final_report = None;
+    let mut result = run_client_inner(config_path, &mut client_tasks, &mut final_report).await;
+    if let Some(report) = final_report.as_mut() {
+        if let Some(worker) = report.identity_worker.as_mut() {
+            result = crate::client_cleanup::with_cleanup_error(result, worker.finish().await);
+        }
+    }
+    client_tasks.finish().await;
+    if let Some(mut report) = final_report {
+        report.reporter.terminal(result.as_ref().err());
+        report.reporter.publish(&report.counters);
+        if let Some(writer) = report.writer.as_mut() {
+            if let Err(error) = writer.finish().await {
+                // Diagnostics remain best effort; their failure cannot change the
+                // transport result or cause a reconnect after successful cleanup.
+                log::warn!("cannot finish client diagnostics: {error}");
             }
         }
     }
-    let password = zeroize::Zeroizing::new(if let Some(ref pw) = config.auth.password {
-        pw.clone()
+    client_tasks.complete();
+    result
+}
+
+#[cfg(target_os = "linux")]
+struct ClientFinalReport {
+    reporter: ClientStatusReporter,
+    counters: Arc<RuntimeCounters>,
+    writer: Option<status_writer::Writer<serde_json::Value>>,
+    identity_worker: Option<identity_worker::Worker>,
+}
+
+#[cfg(target_os = "linux")]
+async fn run_client_inner(
+    config_path: &str,
+    client_tasks: &mut crate::client_tasks::Owner,
+    final_report: &mut Option<ClientFinalReport>,
+) -> anyhow::Result<()> {
+    // SIGUSR1 dumps the packet trace, when one is armed (no-op otherwise).
+    client_tasks.spawn(trace::watch());
+
+    // Register before config open/read or any worker/credential command. The token
+    // survives adapter creation and is shared by startup, carriers and backoff.
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut term = signal(SignalKind::terminate())?;
+    let mut interrupt = signal(SignalKind::interrupt())?;
+    let shutdown_requested = Arc::new(AtomicBool::new(false));
+    let signal_cancel = shutdown_requested.clone();
+    let shutdown_wakeup = Arc::new(tokio::sync::Notify::new());
+    let signal_wakeup = shutdown_wakeup.clone();
+    client_tasks.spawn(async move {
+        tokio::select! {
+            _ = interrupt.recv() => {},
+            _ = term.recv() => {},
+        }
+        log::info!("Shutdown signal received — stopping the client cleanly");
+        signal_cancel.store(true, Ordering::Release);
+        signal_wakeup.notify_one();
+    });
+    // Keep the reservation alive until every network owner has been dropped.
+    let _network_lease;
+    let startup_path = config_path.to_string();
+    let loaded = network_task::prepared(
+        async move { Ok(move || LinuxCoreAdapter::load_startup(&startup_path)) },
+        wait_for_shutdown(&shutdown_requested, &shutdown_wakeup),
+    )
+    .await?;
+    let Some((mut core_adapter, config, config_command_trust)) = loaded else {
+        return Ok(());
+    };
+    core_adapter.cancel = shutdown_requested.clone();
+    // Transfer worker ownership even if stop arrived during loading: the outer
+    // wrapper joins them asynchronously and publishes the final outcome.
+    *final_report = Some(ClientFinalReport {
+        reporter: core_adapter.diagnostics.clone(),
+        counters: core_adapter.counters.clone(),
+        writer: core_adapter.diagnostic_writer.take(),
+        identity_worker: core_adapter.identity_worker.take(),
+    });
+    if shutdown_requested.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    core_adapter
+        .diagnostics
+        .start_sampler(core_adapter.counters.clone(), client_tasks);
+    let password = if let Some(ref pw) = config.auth.password {
+        zeroize::Zeroizing::new(pw.clone())
     } else if let Some(ref pw_file) = config.auth.password_file {
-        std::fs::read_to_string(pw_file)?.trim().to_string()
+        let stop = async {
+            if !shutdown_requested.load(Ordering::Acquire) {
+                shutdown_wakeup.notified().await;
+            }
+        };
+        match crate::credential_file::password(pw_file, stop).await {
+            Ok(password) => password,
+            Err(crate::credential_file::FileError::Cancelled) => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
     } else if let Some(ref pw_cmd) = config.auth.password_command {
         // SECURITY: password_command runs `sh -c` as us (typically root). Honour it
         // ONLY from a trusted (not group/world-writable) config file, exactly like
@@ -1787,24 +2863,24 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         // execution. Fail closed (the user explicitly asked to source the password this
         // way, so a refusal must be loud, not a silent skip). The panel never persists
         // this field; see web/api/client.rs::persist.
-        crate::hooks::config_is_trusted(config_path)
+        config_command_trust
+            .check()
             .map_err(|why| anyhow::anyhow!("refusing to run auth.password_command — {why}"))?;
-        let output = std::process::Command::new("sh")
-            .args(["-c", pw_cmd])
-            .output()?;
-        if !output.status.success() {
-            anyhow::bail!(
-                "auth.password_command failed with {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
+        let stop = async {
+            if !shutdown_requested.load(Ordering::Acquire) {
+                shutdown_wakeup.notified().await;
+            }
+        };
+        match crate::hook_process::secret::password(pw_cmd, stop).await {
+            Ok(password) => password,
+            Err(crate::hook_process::secret::SecretError::Cancelled) => return Ok(()),
+            Err(error) => return Err(error.into()),
         }
-        String::from_utf8(output.stdout)?.trim().to_string()
     } else {
         return Err(anyhow::anyhow!(
             "auth.password, auth.password_file or auth.password_command required"
         ));
-    });
+    };
     // Bound the EFFECTIVE credential, not just the inline one.
     //
     // `config.validate()` above already checked `pass`, but it ran before this block — the
@@ -1821,24 +2897,71 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     };
     config.check_credential_size(&password, pw_source)?;
 
-    // Repair any DNS state left behind by a previous run that died without
-    // restoring (SIGKILL / power loss / panic). Must run before we touch DNS.
-    dns::recover_stale()?;
+    if shutdown_requested.load(Ordering::Acquire) {
+        return Ok(());
+    }
 
-    // Whether to run the firewall kill-switch for this config (enabled + full-tunnel).
+    // Initialize once, before the first carrier/handshake timeout exists. Even a
+    // nonpersistent fallback must stay stable across reconnects within this run.
+    // Stop awaits an admitted write; no background identity mutation outlives startup.
+    let identity_path = std::env::var("QELI_DEVICE_ID_FILE")
+        .unwrap_or_else(|_| "/var/lib/qeli/device-id".to_string());
+    if !core_adapter
+        .load_device_identity(
+            identity_path,
+            wait_for_shutdown(&shutdown_requested, &shutdown_wakeup),
+        )
+        .await?
+        || shutdown_requested.load(Ordering::Acquire)
+    {
+        return Ok(());
+    }
+
+    // Reserve the configured TUN for every client, including gateway/exit without
+    // a kill-switch. Protected clients additionally claim the namespace-wide policy.
+    // Both guards survive reconnect and all terminal cleanup/post_down paths.
     let ks_on = killswitch::should_engage(&config.routing);
+    let recovery_tun = config.tun.name.clone();
+    let attach_existing = config.tun.attach_existing;
+    let recovered = network_task::prepared(
+        async move {
+            Ok(move || {
+                // The same worker owns admission and all recovery, including blocking
+                // journal locks/I/O. Once admitted, stop must join its actual outcome.
+                let lease = network_lease::acquire(&recovery_tun, ks_on)?;
+                if !attach_existing {
+                    // Physical routes outlive the TUN fd. Repair them before resolving
+                    // or dialing the server; attached interfaces retain their routes.
+                    route::recover_stale(&recovery_tun)?;
+                }
+                // Only retire eligible stale markers; never revert a live resolver
+                // from a durable marker alone. Preserve ambiguous state for recovery.
+                dns::recover_stale()?;
+                Ok(lease)
+            })
+        },
+        wait_for_shutdown(&shutdown_requested, &shutdown_wakeup),
+    )
+    .await?;
+    let Some(lease) = recovered else {
+        return Ok(());
+    };
+    _network_lease = lease;
+    // A stop during admitted recovery still observes its errors, but successful
+    // recovery must not proceed to hooks, firewall preparation or a new connection.
+    if shutdown_requested.load(Ordering::Acquire) {
+        return Ok(());
+    }
 
     // Gateway/router NAT + lifecycle hooks (Linux). Resolve the tun interface name
     // once — both the kill-switch and the gateway NAT key their rules on it.
     let gw_on = gateway::should_engage(&config.routing);
     // Exit-node: this client is an internet EXIT for OTHER tunnel clients (mirror of
     // gateway_nat — masquerade tun-forwarded traffic out the physical WAN). Independent of
-    // gw_on: exit uses its own engage/disengage, so both can be off, one on, or (unusually)
-    // both.
+    // gw_on: exit uses its own engage/disengage. Validation rejects combining it
+    // with gateway/forward on the same TUN because their egress policies conflict.
     let exit_on = config.routing.exit_node;
     let tun_if = config.tun.name.clone();
-    let lan_subnet = config.routing.lan_subnet.clone();
-    let lan_subnet_ipv6 = config.routing.lan_subnet_ipv6.clone();
     // Config validation already rejects exit_node + every full-tunnel spelling. Its own
     // internet must remain on the physical WAN so forwarded traffic has an egress path.
 
@@ -1849,7 +2972,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         if config.routing.post_up.is_empty() && config.routing.post_down.is_empty() {
             (String::new(), String::new())
         } else {
-            match crate::hooks::config_is_trusted(config_path) {
+            match config_command_trust.check() {
                 Ok(()) => (
                     config.routing.post_up.clone(),
                     config.routing.post_down.clone(),
@@ -1861,78 +2984,176 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             }
         };
 
-    // Env passed to hooks (wg-quick-style context).
-    let hook_env: Vec<(&str, String)> = vec![
-        ("QELI_TUN", tun_if.clone()),
-        ("QELI_SERVER", config.server.address.clone()),
-        ("QELI_SERVER_PORT", config.server.port.to_string()),
-        ("QELI_LAN_SUBNET", lan_subnet.clone()),
-    ];
-    // Unlike `post_down`, `post_up` is tied to a successfully created tunnel. Keep the
-    // already-vetted command in the platform adapter and consume it after the first
-    // authenticated NetworkPlan has installed the TUN and its active-family firewall.
-    core_adapter.arm_post_up(post_up.clone(), &hook_env);
-
-    // SIGINT/SIGTERM must enter the same cooperative cancellation path as GUI/native stop.
-    // The previous signal task called process::exit after doing its own partial cleanup. That
-    // skipped data-plane destructors and, for roaming, made it impossible to send authenticated
-    // CLOSE_SESSION before the socket disappeared. Keep one cancellation token alive for the
-    // whole CLI retry loop; after the active generation unwinds, the ordinary teardown below
-    // restores DNS, routes, firewall state and lifecycle hooks exactly once.
-    let shutdown_requested = core_adapter.cancel_token();
-    let signal_cancel = shutdown_requested.clone();
-    tokio::spawn(async move {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut term = signal(SignalKind::terminate()).ok();
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            _ = async {
-                match term.as_mut() {
-                    Some(t) => { let _ = t.recv().await; }
-                    None => std::future::pending::<()>().await,
-                }
-            } => {}
-        }
-        log::info!("Shutdown signal received — stopping the active tunnel cleanly");
-        signal_cancel.store(true, Ordering::Release);
-    });
+    // Build a secret-free hook context before the first dial. It starts with configured
+    // values, then each committed authenticated NetworkPlan refreshes the actual interface,
+    // address, gateway, DNS, route, data-plane and physical-carrier facts. `post_up` consumes
+    // the first committed snapshot; `post_down` receives the latest one.
+    core_adapter.configure_hooks(post_up.clone());
 
     // Engage the kill-switch BEFORE the first connect, so even the first attempt
     // and every reconnect window is leak-proof. It stays up across reconnects and
     // is torn down only on a clean stop. If the user asked for it but it can't be
     // installed (no iptables / unresolvable server), refuse to run unprotected.
     if ks_on {
-        killswitch::engage(
-            &config.server.address,
-            config.server.port,
-            &tun_if,
-            config.routing.allow_ipv4_leak,
-            config.routing.allow_ipv6_leak,
-            gw_on,
-        )?;
+        let applied = network_task::prepared(
+            killswitch::prepare_engage(
+                &config.server.address,
+                config.server.port,
+                &tun_if,
+                config.routing.allow_ipv4_leak,
+                config.routing.allow_ipv6_leak,
+                gw_on,
+            ),
+            wait_for_shutdown(&shutdown_requested, &shutdown_wakeup),
+        )
+        .await?;
+        if applied.is_none() {
+            return Ok(()); // Only read-only preparation was cancelled.
+        }
     }
     // Gateway and exit-node firewalling are installed by `setup_tunnel` only after the
     // authenticated NetworkPlan identifies the active families. This keeps an IPv6-only
     // router independent from IPv4 iptables/sysctls (and vice versa). `post_up` is consumed
     // immediately afterwards by the data-plane setup, once on the first successful plan.
 
-    let mut retry_count = 0u64;
+    let mut retry_count = 0i64;
+    let mut carrier_generation = 0usize;
 
     loop {
-        core_adapter.begin_connection(retry_count > 0)?;
-        // A reconnect generation gets a fresh DNS candidate set. Bonded streams inside
-        // that generation are restricted to the set pinned by its authenticated plan.
-        reset_carrier_candidates(usize::try_from(retry_count).unwrap_or(usize::MAX));
+        core_adapter.cleanup_failures.start_attempt();
         let started = std::time::Instant::now();
-        let result = if config.server.protocol == "udp" {
-            connect_and_run_udp(&config, &password, &mut core_adapter).await
-        } else {
-            connect_and_run_tcp(&config, &password, &mut core_adapter).await
-        };
-        if let Err(error) = core_adapter.finish_connection() {
-            log::error!("transport core teardown error: {error}");
+        // Re-resolve the server so a rotated (DDNS / round-robin) address is allowed
+        // through the kill-switch before the next attempt — otherwise a stale
+        // allow-list would block every reconnect. Verify the barrier before retrying.
+        if ks_on && !shutdown_requested.load(Ordering::Acquire) {
+            let refresh = network_task::prepared(
+                killswitch::prepare_refresh(&config.server.address, config.server.port, &tun_if),
+                wait_for_shutdown(&shutdown_requested, &shutdown_wakeup),
+            )
+            .await;
+            if let Err(error) = refresh {
+                let message = format!("kill-switch verification/address refresh failed: {error}");
+                log::error!("{message}; stopping reconnect and retaining protection");
+                let cleanup = cleanup_routing_features(
+                    &core_adapter.cleanup_failures,
+                    crate::client_cleanup::Checks {
+                        core: Ok(()),
+                        network: Err(anyhow::anyhow!("{message}")),
+                    },
+                    ks_on,
+                    gw_on,
+                    exit_on,
+                    &tun_if,
+                )
+                .await;
+                run_client_post_down(
+                    &core_adapter,
+                    &post_down,
+                    "kill_switch_failed",
+                    "kill_switch",
+                    &message,
+                )
+                .await;
+                return crate::client_cleanup::with_cleanup_error(
+                    Err(error.context(message)),
+                    cleanup,
+                );
+            }
         }
-        let ran = started.elapsed();
+
+        let mut start_failed = false;
+        let result = if shutdown_requested.load(Ordering::Acquire) {
+            // Backoff was interrupted. Reuse the ordinary teardown below without dialing.
+            Ok(())
+        } else {
+            match core_adapter.begin_connection(carrier_generation > 0) {
+                Err(error) => {
+                    start_failed = true;
+                    let message = format!("transport core startup failed: {error}");
+                    Err(error.context(message))
+                }
+                Ok(()) => {
+                    // Carrier generations rotate independently of the unstable-attempt budget.
+                    reset_carrier_candidates(carrier_generation);
+                    carrier_generation = carrier_generation.saturating_add(1);
+                    if config.server.protocol == "udp" {
+                        connect_and_run_udp(&config, &password, &mut core_adapter).await
+                    } else {
+                        connect_and_run_tcp(&config, &password, &mut core_adapter).await
+                    }
+                }
+            }
+        };
+        // Transport task groups have stopped all handshake waiters. Retain the
+        // namespace lease and egress protection while admitted TOFU work finishes.
+        let identity_outcome = if let Some(verifier) = &core_adapter.identity_verifier {
+            verifier.drain().await
+        } else {
+            Ok(())
+        };
+        let connected_ms = core_adapter
+            .attempt_connected_since
+            .map(|started| i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX));
+        let core_stop = core_adapter.finish_connection().map_err(|error| {
+            let message = format!("transport core teardown failed: {error}");
+            error.context(message)
+        });
+        let checks = crate::client_cleanup::Checks {
+            core: core_stop,
+            network: core_adapter.cleanup_failures.result(),
+        };
+        let failure_reason = checks.failure_reason();
+        if start_failed || failure_reason.is_some() {
+            // Cleanup faults outrank signal-success and reconnect. This includes failures
+            // reported by Drop guards before the connection future returned.
+            let (reason, error_code) =
+                failure_reason.unwrap_or(("core_start_failed", "core_start"));
+            let cleanup = cleanup_routing_features(
+                &core_adapter.cleanup_failures,
+                checks,
+                ks_on,
+                gw_on,
+                exit_on,
+                &tun_if,
+            )
+            .await;
+            let result = crate::client_cleanup::with_cleanup_error(result, identity_outcome);
+            let terminal = crate::client_cleanup::with_cleanup_error(result, cleanup);
+            let message = terminal
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            run_client_post_down(&core_adapter, &post_down, reason, error_code, &message).await;
+            return terminal;
+        }
+
+        if let Err(error) = identity_outcome {
+            // A late disk/trust error must not become signal-success or be hidden
+            // by reconnect after the handshake's timeout discarded its receiver.
+            let message = match &result {
+                Err(connection) => format!("{error:#}; connection ended: {connection:#}"),
+                Ok(()) => format!("{error:#}"),
+            };
+            let cleanup = cleanup_routing_features(
+                &core_adapter.cleanup_failures,
+                Ok(()),
+                ks_on,
+                gw_on,
+                exit_on,
+                &tun_if,
+            )
+            .await;
+            run_client_post_down(
+                &core_adapter,
+                &post_down,
+                "identity_failed",
+                "identity",
+                &message,
+            )
+            .await;
+            return crate::client_cleanup::with_cleanup_error(Err(error.context(message)), cleanup);
+        }
 
         if let Err(error) = &result {
             if error
@@ -1940,69 +3161,100 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 .is_some_and(|kick| !kick.reconnect_allowed)
             {
                 let cleanup = cleanup_routing_features(
+                    &core_adapter.cleanup_failures,
+                    Ok(()),
                     ks_on,
                     gw_on,
                     exit_on,
                     &tun_if,
-                    &lan_subnet,
-                    &lan_subnet_ipv6,
-                );
-                crate::hooks::run("post_down", &post_down, &hook_env).await;
+                )
+                .await;
+                run_client_post_down(
+                    &core_adapter,
+                    &post_down,
+                    "server_kick",
+                    "server_kick",
+                    &error.to_string(),
+                )
+                .await;
                 let terminal = match cleanup {
                     Ok(()) => anyhow::anyhow!("{error}"),
                     Err(cleanup) => anyhow::anyhow!("{error}; teardown also failed: {cleanup}"),
                 };
-                core_adapter.diagnostics.terminal(Some(&terminal));
-                core_adapter.diagnostics.publish(&core_adapter.counters);
                 return Err(terminal);
             }
         }
 
         if shutdown_requested.load(Ordering::Acquire) {
             let cleanup = cleanup_routing_features(
+                &core_adapter.cleanup_failures,
+                Ok(()),
                 ks_on,
                 gw_on,
                 exit_on,
                 &tun_if,
-                &lan_subnet,
-                &lan_subnet_ipv6,
-            );
-            crate::hooks::run("post_down", &post_down, &hook_env).await;
+            )
+            .await;
+            let transport_error = result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            run_client_post_down(
+                &core_adapter,
+                &post_down,
+                "shutdown_signal",
+                "shutdown",
+                &transport_error,
+            )
+            .await;
             let result = cleanup
                 .map_err(|error| anyhow::anyhow!("shutdown network cleanup failed: {error}"));
-            core_adapter.diagnostics.terminal(result.as_ref().err());
-            core_adapter.diagnostics.publish(&core_adapter.counters);
             return result;
         }
 
         let deliberate = DELIBERATE_CYCLE.swap(false, std::sync::atomic::Ordering::AcqRel);
         match &result {
-            Ok(_) => {
-                log::info!("Connection closed, reconnecting...");
-                // Reset the backoff ONLY when the session was STABLE (ran a while):
-                // only *consecutive* connect/auth failures should escalate the delay
-                // (a flapping cell / Wi-Fi↔LTE link shouldn't crawl to max_delay). But
-                // a server that accepts auth then INSTANTLY drops must keep escalating,
-                // or we'd hot-loop at the floor delay with a full teardown each cycle.
-                if deliberate || ran >= Duration::from_secs(30) {
-                    retry_count = 0;
-                }
-            }
+            Ok(_) => log::info!("Connection closed"),
             Err(e) => log::error!("Connection error: {}", e),
         }
+        retry_count = crate::config::policy::reconnect_next_attempt(
+            retry_count,
+            connected_ms.is_some(),
+            deliberate,
+            connected_ms.unwrap_or(0),
+        );
+        let max_retries = config.server.reconnect.max_retries;
+        let stop_reason = crate::config::policy::reconnect_stop_reason(
+            config.server.reconnect.enabled,
+            i64::from(max_retries),
+            retry_count,
+        );
 
-        if !config.server.reconnect.enabled {
+        if stop_reason == Some("disabled") {
             // Clean exit (reconnect disabled): lift the kill-switch / gateway NAT so
             // the host isn't left firewalled or NAT'ing after the client returns.
             let cleanup = cleanup_routing_features(
+                &core_adapter.cleanup_failures,
+                Ok(()),
                 ks_on,
                 gw_on,
                 exit_on,
                 &tun_if,
-                &lan_subnet,
-                &lan_subnet_ipv6,
-            );
-            crate::hooks::run("post_down", &post_down, &hook_env).await;
+            )
+            .await;
+            let (error_code, error_message) = match result.as_ref() {
+                Ok(()) => ("", String::new()),
+                Err(error) => ("transport_error", error.to_string()),
+            };
+            run_client_post_down(
+                &core_adapter,
+                &post_down,
+                "reconnect_disabled",
+                error_code,
+                &error_message,
+            )
+            .await;
             let result = match (result, cleanup) {
                 (Ok(()), Ok(())) => Ok(()),
                 (Err(error), Ok(())) => Err(error),
@@ -2011,22 +3263,32 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                     Err(anyhow::anyhow!("{error}; teardown also failed: {cleanup}"))
                 }
             };
-            core_adapter.diagnostics.terminal(result.as_ref().err());
-            core_adapter.diagnostics.publish(&core_adapter.counters);
             return result;
         }
 
-        let max_retries = config.server.reconnect.max_retries;
-        if max_retries >= 0 && retry_count >= max_retries as u64 {
+        if stop_reason == Some("retry_limit") {
             let cleanup = cleanup_routing_features(
+                &core_adapter.cleanup_failures,
+                Ok(()),
                 ks_on,
                 gw_on,
                 exit_on,
                 &tun_if,
-                &lan_subnet,
-                &lan_subnet_ipv6,
-            );
-            crate::hooks::run("post_down", &post_down, &hook_env).await;
+            )
+            .await;
+            let transport_error = result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| format!("max retries ({max_retries}) reached"));
+            run_client_post_down(
+                &core_adapter,
+                &post_down,
+                "max_retries",
+                "max_retries",
+                &transport_error,
+            )
+            .await;
             let error = match cleanup {
                 Ok(()) => anyhow::anyhow!("max retries ({}) reached", max_retries),
                 Err(cleanup) => anyhow::anyhow!(
@@ -2035,39 +3297,20 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                     cleanup
                 ),
             };
-            core_adapter.diagnostics.terminal(Some(&error));
-            core_adapter.diagnostics.publish(&core_adapter.counters);
             return Err(error);
         }
 
-        // Exponential backoff from the base delay. Compute BEFORE incrementing so the
-        // first retry uses the configured base (retry_count 0 → base * 2^0), not
-        // double it (the previous off-by-one skipped the base step).
-        let multiplier = 1u64
-            .checked_shl(retry_count as u32)
-            .unwrap_or(u64::MAX)
-            .min(100);
-        let scheduled_delay = std::cmp::min(
-            config
-                .server
-                .reconnect
-                .base_delay_secs
-                .saturating_mul(multiplier),
-            config.server.reconnect.max_delay_secs,
+        let delay_ms = crate::config::policy::reconnect_delay(
+            retry_count,
+            i64::try_from(config.server.reconnect.base_delay_secs.saturating_mul(1000))
+                .unwrap_or(i64::MAX),
+            i64::try_from(config.server.reconnect.max_delay_secs.saturating_mul(1000))
+                .unwrap_or(i64::MAX),
+            i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
+            None,
+            None,
         );
-        let delay = jitter_reconnect_delay(Duration::from_secs(scheduled_delay));
-        retry_count += 1;
-
-        // Re-resolve the server so a rotated (DDNS / round-robin) address is allowed
-        // through the kill-switch before the next attempt — otherwise a stale
-        // allow-list would block every reconnect (add-only, no leak window).
-        if ks_on {
-            if let Err(error) =
-                killswitch::refresh_server_ips(&config.server.address, config.server.port, &tun_if)
-            {
-                log::error!("kill-switch address refresh failed: {error}");
-            }
-        }
+        let delay = Duration::from_millis(delay_ms as u64);
 
         let retry_in_secs =
             u64::try_from(delay.as_millis().saturating_add(999) / 1000).unwrap_or(u64::MAX);
@@ -2076,11 +3319,13 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             delay.as_secs_f64(),
             retry_count
         );
-        core_adapter
-            .diagnostics
-            .retrying(result.as_ref().err(), retry_count, retry_in_secs);
+        core_adapter.diagnostics.retrying(
+            result.as_ref().err(),
+            carrier_generation as u64,
+            retry_in_secs,
+        );
         core_adapter.diagnostics.publish(&core_adapter.counters);
-        tokio::time::sleep(delay).await;
+        wait_for_reconnect(delay, &shutdown_requested, &shutdown_wakeup).await;
     }
 }
 
@@ -2139,6 +3384,87 @@ mod management_event_tests {
     }
 
     #[test]
+    fn partial_kick_retransmission_is_not_a_message_receipt() {
+        let reassembler = std::sync::Mutex::new(Reassembler::new());
+        let (sender, receiver) = tokio::sync::watch::channel(None);
+        let kick = ManagementEvent::Kick(Kick {
+            reason: KickReason::Administrative,
+            message: "Session stopped".to_string(),
+            reconnect_allowed: false,
+        });
+        let wire = crate::protocol::control_v2::management_frames(&kick, 31)
+            .unwrap()
+            .remove(0);
+        let frame = crate::protocol::control_v2::decode(&wire).unwrap();
+        let cut = frame.payload.len() / 2;
+        let first = Frame {
+            part_count: 2,
+            payload: &frame.payload[..cut],
+            ..frame
+        }
+        .encode()
+        .unwrap();
+        let last = Frame {
+            part_index: 1,
+            part_count: 2,
+            payload: &frame.payload[cut..],
+            ..frame
+        }
+        .encode()
+        .unwrap();
+        for _ in 0..2 {
+            let result =
+                consume_authenticated_management(&first, true, &reassembler, &sender, None);
+            assert_eq!(result.ack_message_id, None);
+            assert!(receiver.borrow().is_none());
+        }
+        assert_eq!(
+            consume_authenticated_management(&last, true, &reassembler, &sender, None)
+                .ack_message_id,
+            Some(31)
+        );
+        assert_eq!(receiver.borrow().as_ref(), Some(&kick));
+        assert_eq!(
+            consume_authenticated_management(&first, true, &reassembler, &sender, None)
+                .ack_message_id,
+            Some(31)
+        );
+    }
+
+    #[test]
+    fn completed_notice_id_does_not_ack_a_conflicting_kick() {
+        let reassembler = std::sync::Mutex::new(Reassembler::new());
+        let (sender, receiver) = tokio::sync::watch::channel(None);
+        let notice = ManagementEvent::Notice(Notice {
+            kind: NoticeKind::Administrative,
+            severity: NoticeSeverity::Info,
+            message: "Maintenance".to_string(),
+            value: None,
+            deadline_unix: None,
+        });
+        let wire = crate::protocol::control_v2::management_frames(&notice, 32)
+            .unwrap()
+            .remove(0);
+        consume_authenticated_management(&wire, true, &reassembler, &sender, None);
+        let bad = Frame {
+            message_type: TYPE_KICK,
+            flags: FLAG_ACK_REQUIRED,
+            message_id: 32,
+            part_index: 0,
+            part_count: 1,
+            payload: b"{}",
+        }
+        .encode()
+        .unwrap();
+        assert_eq!(
+            consume_authenticated_management(&bad, true, &reassembler, &sender, None)
+                .ack_message_id,
+            None
+        );
+        assert_eq!(receiver.borrow().as_ref(), Some(&notice));
+    }
+
+    #[test]
     fn valid_kick_queues_exact_ack_but_invalid_payload_is_never_acknowledged() {
         let reassembler = std::sync::Mutex::new(Reassembler::new());
         let (sender, receiver) = tokio::sync::watch::channel(None);
@@ -2182,29 +3508,62 @@ mod management_event_tests {
         }
         .encode()
         .unwrap();
-        let malformed_result = consume_authenticated_management(
-            &malformed,
-            true,
-            &reassembler,
-            &sender,
-            Some(&terminal_sender),
-        );
-        assert!(malformed_result.consumed);
-        assert_eq!(malformed_result.ack_message_id, None);
-        assert!(terminal_receiver.try_recv().is_err());
+        for _ in 0..2 {
+            let malformed_result = consume_authenticated_management(
+                &malformed,
+                true,
+                &reassembler,
+                &sender,
+                Some(&terminal_sender),
+            );
+            assert!(malformed_result.consumed);
+            assert_eq!(malformed_result.ack_message_id, None);
+            assert!(terminal_receiver.try_recv().is_err());
+        }
     }
 }
 
 #[cfg(test)]
 mod reconnect_jitter_tests {
-    use super::jitter_reconnect_delay;
+    #[tokio::test]
+    async fn shutdown_interrupts_a_pending_long_reconnect_delay() {
+        let shutdown = super::AtomicBool::new(false);
+        let wakeup = tokio::sync::Notify::new();
+        let wait =
+            super::wait_for_reconnect(std::time::Duration::from_secs(86_400), &shutdown, &wakeup);
+        tokio::pin!(wait);
+        tokio::select! {
+            biased;
+            _ = &mut wait => panic!("retry delay ended before cancellation"),
+            _ = tokio::task::yield_now() => {},
+        }
+        shutdown.store(true, super::Ordering::Release);
+        wakeup.notify_one();
+        tokio::time::timeout(std::time::Duration::from_secs(1), wait)
+            .await
+            .expect("shutdown must wake the pending retry timer");
+    }
+
+    #[tokio::test]
+    async fn shutdown_before_reconnect_wait_does_not_require_a_notification() {
+        let shutdown = super::AtomicBool::new(true);
+        let wakeup = tokio::sync::Notify::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            super::wait_for_reconnect(std::time::Duration::from_secs(86_400), &shutdown, &wakeup),
+        )
+        .await
+        .expect("a stopped client must not start another retry timer");
+    }
+
+    use crate::config::policy::reconnect_jitter;
     use std::time::Duration;
 
     #[test]
     fn reconnect_jitter_stays_within_eighty_to_one_hundred_percent() {
         let scheduled = Duration::from_secs(60);
         for _ in 0..256 {
-            let delay = jitter_reconnect_delay(scheduled);
+            let delay = Duration::from_millis(reconnect_jitter(60_000, None) as u64);
             assert!(delay >= Duration::from_secs(48));
             assert!(delay <= scheduled);
         }
@@ -2420,20 +3779,14 @@ async fn connect_tcp_candidates(
         // published A/AAAA record has no safe physical route in this generation.
         pinned
     } else {
-        let resolved =
-            match tokio::time::timeout(total, tokio::net::lookup_host((host, port))).await {
-                Ok(result) => result.map_err(|error| {
-                    anyhow::anyhow!("{label} DNS lookup for {host}:{port} failed: {error}")
-                })?,
-                Err(_) => {
-                    return Err(anyhow::anyhow!(
-                        "{label} DNS lookup for {host}:{port} timed out after {}s",
-                        total.as_secs()
-                    ));
-                }
-            };
+        let resolved = crate::transport_core::resolver::lookup(host, port, deadline)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!("{label} DNS lookup for {host}:{port} failed: {error}")
+            })?;
         let mut seen = std::collections::HashSet::new();
         resolved
+            .into_iter()
             .map(|address| {
                 std::net::SocketAddr::new(
                     crate::transport_core::carrier::canonical_carrier_ip(address.ip()),
@@ -2679,7 +4032,8 @@ async fn connect_reality(
     config: &crate::config::client::ClientConfig,
     primary: bool,
     context: LinuxStreamConnectContext,
-) -> anyhow::Result<tokio::io::DuplexStream> {
+    tasks: &crate::transport_core::tasks::Spawner,
+) -> anyhow::Result<crate::protocol::h2_carrier::Carrier> {
     // Bound connect + the TLS 1.3 handshake (reads) by connection_timeout_secs: a server
     // that accepts TCP then stalls the TLS handshake would otherwise hang here forever.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
@@ -2773,15 +4127,18 @@ async fn connect_reality(
         }
     };
     let tls = crate::protocol::realtls::stream::RealTlsStream::new(stream, est);
-    let h2 = tokio::time::timeout(to, crate::protocol::h2_carrier::connect(tls, &server_name))
-        .await
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "reality-tls HTTP/2 carrier timed out after {}s",
-                to.as_secs()
-            )
-        })?
-        .map_err(|error| anyhow::anyhow!("reality-tls HTTP/2 carrier failed: {error}"))?;
+    let h2 = tokio::time::timeout(
+        to,
+        crate::protocol::h2_carrier::connect_owned(tls, &server_name, tasks),
+    )
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "reality-tls HTTP/2 carrier timed out after {}s",
+            to.as_secs()
+        )
+    })?
+    .map_err(|error| anyhow::anyhow!("reality-tls HTTP/2 carrier failed: {error}"))?;
     log::info!("REALITY-TLS carrier: genuine HTTP/2 stream");
     Ok(h2)
 }
@@ -2854,11 +4211,52 @@ async fn connect_bare_tcp(
     Ok(stream)
 }
 
+// This cancellation boundary owns only initial carrier sockets/handshake work. It
+// never drops an in-progress NetworkPlan mutation; the TCP task owner still joins
+// H2 drivers/bridges after an interrupted initial connection.
+#[cfg(any(target_os = "linux", test))]
+async fn connect_before_tunnel<T>(
+    cancel: Arc<AtomicBool>,
+    connect: impl std::future::Future<Output = anyhow::Result<T>>,
+) -> anyhow::Result<T> {
+    tokio::select! {
+        biased;
+        _ = async {
+            while !cancel.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        } => anyhow::bail!("client stopped during initial carrier connection"),
+        result = connect => result,
+    }
+}
+
+#[cfg(test)]
+mod carrier_cancel_tests;
+
 #[cfg(target_os = "linux")]
 async fn connect_and_run_tcp(
     config: &crate::config::client::ClientConfig,
     password: &str,
     core: &mut LinuxCoreAdapter,
+) -> anyhow::Result<()> {
+    let mut tasks = crate::transport_core::tasks::TaskGroup::default();
+    let result = tasks
+        .spawner()
+        .scope(connect_and_run_tcp_owned(
+            config, password, core, &mut tasks,
+        ))
+        .await;
+    // Also cover errors before the data loop exists, including a pending H2 response.
+    tasks.finish().await;
+    result
+}
+
+#[cfg(target_os = "linux")]
+async fn connect_and_run_tcp_owned(
+    config: &crate::config::client::ClientConfig,
+    password: &str,
+    core: &mut LinuxCoreAdapter,
+    tasks: &mut crate::transport_core::tasks::TaskGroup,
 ) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.server.address, config.server.port);
     log::info!(
@@ -2877,7 +4275,11 @@ async fn connect_and_run_tcp(
             ));
         }
         log::info!("Wire mode: obfs (ChaCha20 stream obfuscation)");
-        let first = connect_obfs(config, true, LinuxStreamConnectContext::default()).await?;
+        let first = connect_before_tunnel(
+            core.cancel_token(),
+            connect_obfs(config, true, LinuxStreamConnectContext::default()),
+        )
+        .await?;
         // Connector clones the config so it outlives this scope and can be called
         // by the data-plane to open bonded streams (fixed open / adaptive ramp).
         let cfg = std::sync::Arc::new(config.clone());
@@ -2895,10 +4297,20 @@ async fn connect_and_run_tcp(
             };
             Box::pin(async move { connect_obfs(&cfg, false, context).await })
         });
-        run_tcp_tunnel(first, connector, config, password, core).await
+        run_tcp_tunnel(first, connector, config, password, core, tasks).await
     } else if config.obfuscation.mode == "reality-tls" {
         log::info!("Wire mode: reality-tls (real TLS 1.3 carrying the tunnel)");
-        let first = connect_reality(config, true, LinuxStreamConnectContext::default()).await?;
+        let carrier_tasks = tasks.spawner();
+        let first = connect_before_tunnel(
+            core.cancel_token(),
+            connect_reality(
+                config,
+                true,
+                LinuxStreamConnectContext::default(),
+                &carrier_tasks,
+            ),
+        )
+        .await?;
         // Connector clones the config so it outlives this scope and can be called
         // by the data-plane (fixed open / adaptive ramp).
         let cfg = std::sync::Arc::new(config.clone());
@@ -2914,14 +4326,19 @@ async fn connect_and_run_tcp(
                 #[cfg(feature = "experimental-roaming")]
                 path_controller: controller.clone(),
             };
-            Box::pin(async move { connect_reality(&cfg, false, context).await })
+            let carrier_tasks = carrier_tasks.clone();
+            Box::pin(async move { connect_reality(&cfg, false, context, &carrier_tasks).await })
         });
-        run_tcp_tunnel(first, connector, config, password, core).await
+        run_tcp_tunnel(first, connector, config, password, core, tasks).await
     } else {
         // fake-tls / plain: bare TCP transport; the qeli handshake applies the
         // fake-TLS mimicry or the raw framing. Both support stream bonding.
         log::info!("Wire mode: {} (TCP)", config.obfuscation.mode);
-        let first = connect_bare_tcp(config, true, LinuxStreamConnectContext::default()).await?;
+        let first = connect_before_tunnel(
+            core.cancel_token(),
+            connect_bare_tcp(config, true, LinuxStreamConnectContext::default()),
+        )
+        .await?;
         let cfg = std::sync::Arc::new(config.clone());
         #[cfg(feature = "experimental-roaming")]
         let controller = path_controller.clone();
@@ -2937,7 +4354,7 @@ async fn connect_and_run_tcp(
             };
             Box::pin(async move { connect_bare_tcp(&cfg, false, context).await })
         });
-        run_tcp_tunnel(first, connector, config, password, core).await
+        run_tcp_tunnel(first, connector, config, password, core, tasks).await
     }
 }
 
@@ -2973,6 +4390,7 @@ struct StreamPump {
 
     /// Aggregate client→server cover budget shared by every bonded stream.
     cover_budget: crate::protocol::SharedCoverBudget,
+    uplink_queue_capacity: usize,
     /// reality-tls only: run the receive side as a 2-stage pipeline so the outer
     /// TLS AES-GCM (done in `read_record`) and the inner qeli ChaCha
     /// (`decrypt_packet`) overlap across cores instead of running serially in one
@@ -2986,9 +4404,38 @@ struct StreamPump {
 
 /// Plaintext queued for one TCP stream. TUN packets retain their reusable backing
 /// allocation until encryption finishes; small control frames keep ordinary owned storage.
+const CLIENT_BONDED_UPLINK_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+/// Keep slot metadata bounded even when an authenticated peer advertises a tiny MTU.
+const CLIENT_BONDED_UPLINK_MIN_SLOT_BYTES: usize = 2 * 1024;
+
+/// Packet storage follows the already accepted wire contract. Legacy AEAD records cannot
+/// carry more than MAX_TUNNEL_MTU; the mux can fragment packets up to its negotiated bound.
+/// The shared byte budget and other-carrier/resume-candidate queue reserves stay unchanged.
+fn bonded_uplink_pool_layout(
+    recordizer: Option<&crate::protocol::recordizer::RuntimeConfig>,
+) -> (usize, usize) {
+    let packet_bound = recordizer.map_or(crate::protocol::packet::MAX_TUNNEL_MTU, |mux| {
+        mux.max_packet_bytes
+    });
+    let slot_bytes = packet_bound.clamp(CLIENT_BONDED_UPLINK_MIN_SLOT_BYTES, u16::MAX as usize);
+    (CLIENT_BONDED_UPLINK_BUFFER_BYTES / slot_bytes, slot_bytes)
+}
+
 enum ClientUplink {
     Tun(TunPacket),
+    Bonded(PooledBuffer),
     Owned(Vec<u8>),
+}
+
+struct QueuedUplink {
+    packet: ClientUplink,
+    ticket: Option<Ticket>,
+}
+
+impl AsRef<[u8]> for QueuedUplink {
+    fn as_ref(&self) -> &[u8] {
+        self.packet.as_ref()
+    }
 }
 
 struct ClientTerminalControl {
@@ -2999,8 +4446,9 @@ struct ClientTerminalControl {
 #[derive(Clone)]
 struct ClientStreamSender {
     logical_slot_id: u32,
-    sender: mpsc::Sender<ClientUplink>,
+    sender: mpsc::Sender<QueuedUplink>,
     terminal_sender: mpsc::Sender<ClientTerminalControl>,
+    metrics: Option<Arc<CarrierMetrics>>,
 }
 
 impl ClientStreamSender {
@@ -3008,7 +4456,27 @@ impl ClientStreamSender {
         &self,
         packet: ClientUplink,
     ) -> Result<(), mpsc::error::TrySendError<ClientUplink>> {
-        self.sender.try_send(packet)
+        // Reserve before admission: a failed try_send is not an accepted packet,
+        // and a fast writer cannot finish a ticket before its counters exist.
+        match self.sender.try_reserve() {
+            Ok(permit) => {
+                let ticket = self
+                    .metrics
+                    .as_ref()
+                    .map(|row| row.admit(packet.as_ref().len()));
+                permit.send(QueuedUplink { packet, ticket });
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Full(())) => {
+                if let Some(row) = &self.metrics {
+                    row.queue_full(packet.as_ref().len());
+                }
+                Err(mpsc::error::TrySendError::Full(packet))
+            }
+            Err(mpsc::error::TrySendError::Closed(())) => {
+                Err(mpsc::error::TrySendError::Closed(packet))
+            }
+        }
     }
 
     fn is_closed(&self) -> bool {
@@ -3054,6 +4522,244 @@ fn select_tcp_stream_index(
             (slot + width - desired) % width
         })
         .map(|(index, _)| index)
+}
+
+fn prepare_bonded_uplink(
+    bytes: &[u8],
+    pool: &BufferPool,
+    counters: &UplinkCounters,
+) -> Option<PooledBuffer> {
+    let Some(mut packet) = pool.try_acquire() else {
+        counters.note(UplinkDrop::PoolExhausted);
+        return None;
+    };
+    if bytes.len() > packet.capacity() {
+        counters.note(UplinkDrop::Oversize);
+        return None;
+    }
+    packet.as_vec_mut().extend_from_slice(bytes);
+    Some(packet)
+}
+
+fn queue_tcp_uplink(
+    streams: &mut Vec<ClientStreamSender>,
+    mut packet: ClientUplink,
+    flow: u64,
+    stable_width: Option<u32>,
+    counters: &UplinkCounters,
+) {
+    while let Some(index) = select_tcp_stream_index(streams, flow, stable_width) {
+        match streams[index].try_send(packet) {
+            Ok(()) => return,
+            // Preserve flow pinning: a full live queue drops once, without rerouting.
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                counters.note(UplinkDrop::QueueFull);
+                return;
+            }
+            Err(mpsc::error::TrySendError::Closed(value)) => {
+                packet = value;
+                streams.remove(index);
+            }
+        }
+    }
+    counters.note(UplinkDrop::NoCarrier);
+}
+
+#[cfg(test)]
+mod tcp_uplink_tests {
+    use super::*;
+
+    fn stream(slot: u32) -> (ClientStreamSender, mpsc::Receiver<QueuedUplink>) {
+        let (sender, receiver) = mpsc::channel(1);
+        let (terminal_sender, _terminal_receiver) = mpsc::channel(1);
+        (
+            ClientStreamSender {
+                logical_slot_id: slot,
+                sender,
+                terminal_sender,
+                metrics: None,
+            },
+            receiver,
+        )
+    }
+
+    #[test]
+    fn bonded_packet_contract_preserves_bounds_and_byte_budget() {
+        let config = crate::config::RecordizerConfig::default();
+        for packet_bound in [64, 1464, 9064, u16::MAX as usize, u16::MAX as usize + 1] {
+            let mux = crate::protocol::recordizer::RuntimeConfig::from_config(
+                &config,
+                crate::protocol::packet::MAX_TUNNEL_MTU,
+                packet_bound,
+            )
+            .unwrap();
+            let (count, slot) = bonded_uplink_pool_layout(Some(&mux));
+            assert!(slot >= packet_bound.min(u16::MAX as usize));
+            assert!(slot >= CLIENT_BONDED_UPLINK_MIN_SLOT_BYTES);
+            assert!(count <= 2048);
+            assert!(count * slot <= CLIENT_BONDED_UPLINK_BUFFER_BYTES);
+        }
+        let (count, slot) = bonded_uplink_pool_layout(None);
+        assert_eq!(slot, crate::protocol::packet::MAX_TUNNEL_MTU);
+        assert!(count * slot <= CLIENT_BONDED_UPLINK_BUFFER_BYTES);
+    }
+
+    #[test]
+    fn bonded_reader_burst_keeps_pinned_data_and_ack_packets_without_drops() {
+        let mux = crate::protocol::recordizer::RuntimeConfig::from_config(
+            &crate::config::RecordizerConfig::default(),
+            crate::protocol::packet::MAX_TUNNEL_MTU,
+            1464,
+        )
+        .unwrap();
+        let (count, slot) = bonded_uplink_pool_layout(Some(&mux));
+        let pool = BufferPool::new(count, slot).unwrap();
+        let capacity = crate::transport_core::buffer_pool::bonded_queue_capacity(count, 2);
+        let (sender, mut receiver) = mpsc::channel(capacity);
+        let (terminal_sender, _terminal_receiver) = mpsc::channel(1);
+        let mut streams = vec![ClientStreamSender {
+            logical_slot_id: 0,
+            sender,
+            terminal_sender,
+            metrics: None,
+        }];
+        let counters = UplinkCounters::default();
+        // Two 64-packet reader bursts collide on one pinned carrier before it drains.
+        // Include small ACK-sized packets instead of requiring bulk-payload-only fairness.
+        for index in 0..128 {
+            let bytes = vec![index as u8; if index % 2 == 0 { 1400 } else { 40 }];
+            let packet = prepare_bonded_uplink(&bytes, &pool, &counters).unwrap();
+            queue_tcp_uplink(
+                &mut streams,
+                ClientUplink::Bonded(packet),
+                0,
+                Some(2),
+                &counters,
+            );
+        }
+        assert_eq!(counters.snapshot().total, 0);
+        for index in 0..128 {
+            let packet = receiver.try_recv().unwrap();
+            assert_eq!(packet.as_ref()[0], index as u8);
+            assert_eq!(
+                packet.as_ref().len(),
+                if index % 2 == 0 { 1400 } else { 40 }
+            );
+        }
+        assert!(receiver.try_recv().is_err());
+        // A stalled pinned carrier still cannot take the whole shared pool.
+        for _ in 0..capacity {
+            let packet = prepare_bonded_uplink(b"stalled", &pool, &counters).unwrap();
+            streams[0]
+                .try_send(ClientUplink::Bonded(packet))
+                .ok()
+                .unwrap();
+        }
+        assert!(pool.try_acquire().is_some());
+        assert!(capacity * 3 < count);
+    }
+
+    #[test]
+    fn pool_refusal_and_oversize_are_distinct_and_release_the_slot() {
+        let pool = BufferPool::new(1, 64).unwrap();
+        let counters = UplinkCounters::default();
+        let held = pool.try_acquire().unwrap();
+        assert!(prepare_bonded_uplink(b"data", &pool, &counters).is_none());
+        drop(held);
+        assert!(prepare_bonded_uplink(&[0; 65], &pool, &counters).is_none());
+        let accepted = prepare_bonded_uplink(b"data", &pool, &counters).unwrap();
+        assert_eq!(accepted.as_ref(), b"data");
+        let snapshot = counters.snapshot();
+        assert_eq!(
+            (snapshot.total, snapshot.pool_exhausted, snapshot.oversize),
+            (2, 1, 1)
+        );
+    }
+
+    #[test]
+    fn full_pinned_queue_drops_once_and_releases_buffer_without_repinning() {
+        let (pinned, mut pinned_rx) = stream(0);
+        let (other, mut other_rx) = stream(1);
+        pinned
+            .try_send(ClientUplink::Owned(b"held".to_vec()))
+            .ok()
+            .unwrap();
+        let mut streams = vec![pinned, other];
+        let counters = UplinkCounters::default();
+        let pool = BufferPool::new(1, 64).unwrap();
+        let packet = prepare_bonded_uplink(b"discard", &pool, &counters).unwrap();
+        queue_tcp_uplink(
+            &mut streams,
+            ClientUplink::Bonded(packet),
+            0,
+            Some(2),
+            &counters,
+        );
+        assert!(matches!(
+            other_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+        assert!(pinned_rx.try_recv().is_ok());
+        assert!(pool.try_acquire().is_some());
+        assert_eq!(
+            (counters.snapshot().total, counters.snapshot().queue_full),
+            (1, 1)
+        );
+        assert_eq!(streams.len(), 2);
+    }
+
+    #[test]
+    fn closed_carrier_retries_a_live_slot_without_counting_a_packet_drop() {
+        for stable_width in [None, Some(2)] {
+            let (closed, closed_rx) = stream(0);
+            drop(closed_rx);
+            let (live, mut live_rx) = stream(1);
+            let mut streams = vec![closed, live];
+            let counters = UplinkCounters::default();
+            queue_tcp_uplink(
+                &mut streams,
+                ClientUplink::Owned(b"delivered".to_vec()),
+                0,
+                stable_width,
+                &counters,
+            );
+            let ClientUplink::Owned(packet) = live_rx.try_recv().unwrap().packet else {
+                panic!("wrong packet");
+            };
+            assert_eq!(packet, b"delivered");
+            assert_eq!(counters.snapshot().total, 0);
+            assert_eq!(streams.len(), 1);
+        }
+    }
+
+    #[test]
+    fn missing_or_all_closed_carriers_count_one_drop_per_packet() {
+        let counters = UplinkCounters::default();
+        queue_tcp_uplink(
+            &mut vec![],
+            ClientUplink::Owned(vec![1]),
+            0,
+            None,
+            &counters,
+        );
+        let (first, first_rx) = stream(0);
+        drop(first_rx);
+        let (second, second_rx) = stream(1);
+        drop(second_rx);
+        let mut streams = vec![first, second];
+        queue_tcp_uplink(
+            &mut streams,
+            ClientUplink::Owned(vec![2]),
+            0,
+            Some(2),
+            &counters,
+        );
+        assert!(streams.is_empty());
+        assert_eq!(
+            (counters.snapshot().total, counters.snapshot().no_carrier),
+            (2, 2)
+        );
+    }
 }
 
 #[cfg(feature = "experimental-roaming")]
@@ -3142,11 +4848,10 @@ fn decode_hex_array<const N: usize>(value: &str) -> Option<[u8; N]> {
 mod tcp_resume_client_tests {
     use super::{
         decode_hex_array, mark_tcp_slot_started, mark_tcp_slot_stopped, path_ack_future,
-        path_ack_is_explicit_rejection, publish_tcp_path_handover, register_tcp_stream_task,
-        select_tcp_stream_index, should_defer_tcp_resume_for_handover, tcp_handover_failure_action,
-        ClientStreamSender, PathCommandFailure, TcpActiveSlots, TcpHandoverCommitPhase,
-        TcpHandoverFailureAction, TcpResumeContext, TcpSecondaryAttach, PATH_ACK_TIMEOUT,
-        TCP_HANDOVER_PREPARE_GRACE,
+        path_ack_is_explicit_rejection, publish_tcp_path_handover, select_tcp_stream_index,
+        should_defer_tcp_resume_for_handover, tcp_handover_failure_action, ClientStreamSender,
+        PathCommandFailure, TcpActiveSlots, TcpHandoverCommitPhase, TcpHandoverFailureAction,
+        TcpResumeContext, TcpSecondaryAttach, PATH_ACK_TIMEOUT, TCP_HANDOVER_PREPARE_GRACE,
     };
     use portable_atomic::AtomicU64;
     use std::{sync::Arc, time::Duration};
@@ -3218,16 +4923,19 @@ mod tcp_resume_client_tests {
                 logical_slot_id: 0,
                 sender: old_zero,
                 terminal_sender: terminal_sender.clone(),
+                metrics: None,
             },
             ClientStreamSender {
                 logical_slot_id: 1,
                 sender: old_one,
                 terminal_sender: terminal_sender.clone(),
+                metrics: None,
             },
             ClientStreamSender {
                 logical_slot_id: 2,
                 sender: old_two,
                 terminal_sender: terminal_sender.clone(),
+                metrics: None,
             },
         ];
         let retired = publish_tcp_path_handover(
@@ -3236,6 +4944,7 @@ mod tcp_resume_client_tests {
                 logical_slot_id: 0,
                 sender: new_zero,
                 terminal_sender,
+                metrics: None,
             },
         );
         assert_eq!(retired, 3);
@@ -3253,6 +4962,7 @@ mod tcp_resume_client_tests {
                 logical_slot_id,
                 sender,
                 terminal_sender: terminal_sender.clone(),
+                metrics: None,
             }
         };
         let mut outputs = vec![sender(0), sender(1), sender(2), sender(3)];
@@ -3269,40 +4979,6 @@ mod tcp_resume_client_tests {
         outputs.sort_unstable_by_key(|entry| entry.logical_slot_id);
         assert_eq!(selected_slot(&outputs, 2), 2);
         assert_eq!(selected_slot(&outputs, 1), 1);
-    }
-
-    #[tokio::test]
-    async fn replacement_stream_reaps_completed_task_handles() {
-        let tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
-        register_tcp_stream_task(&tasks, tokio::spawn(async {}));
-
-        for _ in 0..100 {
-            if crate::util::lock_or_recover(&tasks, "test::stream_tasks")[0].is_finished() {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-        assert!(crate::util::lock_or_recover(&tasks, "test::stream_tasks")[0].is_finished());
-
-        register_tcp_stream_task(&tasks, tokio::spawn(std::future::pending::<()>()));
-        let registered = crate::util::lock_or_recover(&tasks, "test::stream_tasks");
-        assert_eq!(
-            registered.len(),
-            1,
-            "a completed carrier task must not remain registered until tunnel teardown"
-        );
-        drop(registered);
-
-        register_tcp_stream_task(&tasks, tokio::spawn(std::future::pending::<()>()));
-        let mut registered = crate::util::lock_or_recover(&tasks, "test::stream_tasks");
-        assert_eq!(
-            registered.len(),
-            2,
-            "active carrier tasks must remain registered for safe tunnel teardown"
-        );
-        for task in registered.drain(..) {
-            task.abort();
-        }
     }
 
     #[test]
@@ -3415,6 +5091,7 @@ impl AsRef<[u8]> for ClientUplink {
     fn as_ref(&self) -> &[u8] {
         match self {
             Self::Tun(packet) => packet,
+            Self::Bonded(packet) => packet,
             Self::Owned(packet) => packet,
         }
     }
@@ -3451,7 +5128,7 @@ fn encrypt_client_payload(
             cfg.padding_prob,
             padding,
         );
-        if normalization_padding != 0 {
+        if cfg.norm_enabled && !cfg.norm_sizes.is_empty() {
             obf.append_normalization_padding_into(
                 data.len(),
                 &cfg.norm_sizes,
@@ -3473,28 +5150,25 @@ async fn write_client_wire_record<W: AsyncWrite + Unpin>(
 ) -> bool {
     let delay = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
     if shaper.stealth() && !delay.is_zero() {
-        let mut remaining = delay;
-        while remaining > Duration::from_millis(6) {
+        let pacing = crate::protocol::shaper::StealthPacing::new(delay);
+        while let Some(step) = pacing.next_step() {
             let size = shaper.next_size(&mut rand::rng());
-            let cover_ready = if shaper.try_spend(size, std::time::Instant::now()) {
+            let cover_ready = if step.cover && shaper.try_spend(size, std::time::Instant::now()) {
                 let mut obf = Obfuscator::new();
                 obf.generate_padding_into(size as u16, size as u16, padding);
                 tx.encrypt_packet_into(&[], padding, cover_record).is_ok()
             } else {
                 false
             };
-            if cover_ready && write_half.write_all(cover_record).await.is_err() {
+            if cover_ready && write_half.write_all_flush(cover_record).await.is_err() {
                 return false;
             }
-            let step = Duration::from_millis(rand::rng().random_range(4..=18));
-            let sleep = step.min(remaining);
-            tokio::time::sleep(sleep).await;
-            remaining = remaining.saturating_sub(sleep);
+            tokio::time::sleep_until(step.resume_at).await;
         }
     } else if !delay.is_zero() {
         tokio::time::sleep(delay).await;
     }
-    write_half.write_all(wire_record).await.is_ok()
+    write_half.write_all_flush(wire_record).await.is_ok()
 }
 
 /// Deliver one authenticated plaintext record. With PACKET_MUX_V1 it may yield
@@ -3576,6 +5250,10 @@ fn deliver_client_tcp_plaintext(
                 continue;
             }
             let Some(mut packet) = tun.try_acquire() else {
+                metrics
+                    .runtime
+                    .tcp_downlink
+                    .note(DownlinkDrop::PoolExhausted);
                 continue;
             };
             packet.as_vec_mut().extend_from_slice(&bytes);
@@ -3590,8 +5268,16 @@ fn deliver_client_tcp_plaintext(
             trace::record(trace::Dir::Rx, "client.tcp", bytes.len(), 0);
             match tun.try_send(packet) {
                 Ok(()) => {}
-                Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return false,
+                Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                    metrics.runtime.tcp_downlink.note(DownlinkDrop::QueueFull);
+                }
+                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                    metrics
+                        .runtime
+                        .tcp_downlink
+                        .note(DownlinkDrop::Disconnected);
+                    return false;
+                }
             }
         }
         return true;
@@ -3618,22 +5304,182 @@ fn deliver_client_tcp_plaintext(
     trace::record(trace::Dir::Rx, "client.tcp", record.len(), 0);
     match tun.try_send(record) {
         Ok(()) => true,
-        Err(std::sync::mpsc::TrySendError::Full(_)) => true,
-        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => false,
+        Err(std::sync::mpsc::TrySendError::Full(_)) => {
+            metrics.runtime.tcp_downlink.note(DownlinkDrop::QueueFull);
+            true
+        }
+        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+            metrics
+                .runtime
+                .tcp_downlink
+                .note(DownlinkDrop::Disconnected);
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tcp_downlink_tests {
+    use super::*;
+    use crate::protocol::recordizer::{Reassembler, Recordizer, RuntimeConfig};
+
+    fn packet() -> Vec<u8> {
+        let mut bytes = vec![0; 20];
+        bytes[0] = 0x45;
+        bytes[2..4].copy_from_slice(&20u16.to_be_bytes());
+        bytes
+    }
+
+    fn deliver(
+        bytes: &[u8],
+        muxed: bool,
+        tun: &TunWriter,
+        records: &BufferPool,
+        counters: &RuntimeCounters,
+    ) -> bool {
+        let runtime =
+            RuntimeConfig::from_config(&crate::config::RecordizerConfig::default(), 512, 128)
+                .unwrap();
+        let mut mux = muxed.then(|| Reassembler::new(runtime.clone()));
+        let payload = if muxed {
+            let mut encoder = Recordizer::new(runtime);
+            let mut ready = encoder.push(bytes, std::time::Instant::now()).unwrap();
+            ready.extend(encoder.flush());
+            assert_eq!(ready.len(), 1);
+            ready.remove(0)
+        } else {
+            bytes.to_vec()
+        };
+        let mut record = records.try_acquire().unwrap();
+        record.as_vec_mut().extend_from_slice(&payload);
+        let reassembler = std::sync::Mutex::new(crate::protocol::control_v2::Reassembler::new());
+        let (sender, _) = tokio::sync::watch::channel(None);
+        let (terminal_sender, _) = mpsc::channel(1);
+        let last_rx = AtomicU64::new(0);
+        let total_rx = AtomicU64::new(0);
+        let mut unsupported = 0;
+        deliver_client_tcp_plaintext(
+            record,
+            &mut mux,
+            tun,
+            crate::transport_core::NetworkFamilyMode::Ipv4,
+            ClientManagementRx {
+                negotiated: false,
+                reassembler: &reassembler,
+                sender: &sender,
+                terminal_sender: &terminal_sender,
+            },
+            ClientTcpRxMetrics {
+                last_rx: &last_rx,
+                base: tokio::time::Instant::now(),
+                total_rx: &total_rx,
+                runtime: counters,
+                unsupported_drops: &mut unsupported,
+            },
+        )
+    }
+
+    #[test]
+    fn raw_and_mux_full_queue_count_once_continue_and_return_buffers() {
+        for muxed in [false, true] {
+            let pool = BufferPool::new(2, 512).unwrap();
+            let records = BufferPool::new(2, 512).unwrap();
+            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            let tun = TunWriter::from_parts(sender, pool.clone());
+            let counters = RuntimeCounters::default();
+            assert!(deliver(&packet(), muxed, &tun, &records, &counters));
+            assert!(deliver(&packet(), muxed, &tun, &records, &counters));
+            assert_eq!(
+                (
+                    counters.tcp_downlink.snapshot().total,
+                    counters.tcp_downlink.snapshot().queue_full
+                ),
+                (1, 1)
+            );
+            assert_eq!(counters.rx_packets.load(Ordering::Relaxed), 2);
+            assert_eq!(counters.tcp_uplink.snapshot().total, 0);
+            let queued = receiver.try_recv().unwrap();
+            assert_eq!(queued.as_ref(), packet());
+            drop(queued);
+            let first = pool.try_acquire().unwrap();
+            let second = pool.try_acquire().unwrap();
+            assert!(pool.try_acquire().is_none());
+            drop((first, second));
+            let first = records.try_acquire().unwrap();
+            let second = records.try_acquire().unwrap();
+            assert!(records.try_acquire().is_none());
+            drop((first, second));
+        }
+    }
+
+    #[test]
+    fn raw_and_mux_disconnected_queue_count_once_stop_and_return_buffers() {
+        for muxed in [false, true] {
+            let pool = BufferPool::new(1, 512).unwrap();
+            let records = BufferPool::new(1, 512).unwrap();
+            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            drop(receiver);
+            let tun = TunWriter::from_parts(sender, pool.clone());
+            let counters = RuntimeCounters::default();
+            assert!(!deliver(&packet(), muxed, &tun, &records, &counters));
+            assert_eq!(
+                (
+                    counters.tcp_downlink.snapshot().total,
+                    counters.tcp_downlink.snapshot().disconnected
+                ),
+                (1, 1)
+            );
+            assert!(pool.try_acquire().is_some());
+            assert!(records.try_acquire().is_some());
+        }
+    }
+
+    #[test]
+    fn mux_pool_refusal_counts_one_packet_then_recovers_without_rx_overcount() {
+        let pool = BufferPool::new(1, 512).unwrap();
+        let records = BufferPool::new(1, 512).unwrap();
+        let held = pool.try_acquire().unwrap();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let tun = TunWriter::from_parts(sender, pool.clone());
+        let counters = RuntimeCounters::default();
+        assert!(deliver(&packet(), true, &tun, &records, &counters));
+        assert_eq!(
+            (
+                counters.tcp_downlink.snapshot().total,
+                counters.tcp_downlink.snapshot().pool_exhausted
+            ),
+            (1, 1)
+        );
+        assert_eq!(counters.rx_packets.load(Ordering::Relaxed), 0);
+        assert!(receiver.try_recv().is_err());
+        assert!(records.try_acquire().is_some());
+        drop(held);
+        assert!(deliver(&packet(), true, &tun, &records, &counters));
+        assert_eq!(receiver.try_recv().unwrap().as_ref(), packet());
+        assert_eq!(counters.rx_packets.load(Ordering::Relaxed), 1);
+        assert_eq!(counters.tcp_downlink.snapshot().total, 1);
+    }
+
+    #[test]
+    fn empty_and_unsupported_plaintext_are_not_tun_handoff_losses() {
+        let pool = BufferPool::new(1, 512).unwrap();
+        let records = BufferPool::new(1, 512).unwrap();
+        let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
+        let tun = TunWriter::from_parts(sender, pool.clone());
+        let counters = RuntimeCounters::default();
+        assert!(deliver(&[], false, &tun, &records, &counters));
+        for muxed in [false, true] {
+            assert!(deliver(&[0], muxed, &tun, &records, &counters));
+        }
+        assert_eq!(counters.tcp_downlink.snapshot().total, 0);
+        assert_eq!(counters.rx_packets.load(Ordering::Relaxed), 0);
+        assert!(pool.try_acquire().is_some());
+        assert!(records.try_acquire().is_some());
     }
 }
 
 type TcpActiveSlots = Arc<std::sync::Mutex<std::collections::BTreeMap<u32, usize>>>;
-type TcpStreamTasks = Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>;
-
-fn register_tcp_stream_task(tasks: &TcpStreamTasks, task: tokio::task::JoinHandle<()>) {
-    let mut registered = crate::util::lock_or_recover(tasks, "client::stream_tasks");
-    // A successful handover deliberately keeps the tunnel generation alive, so teardown cannot
-    // be the only place that drops completed task allocations. Tasks still finishing after their
-    // sender was retired stay registered and are collected by the following carrier spawn.
-    registered.retain(|registered_task| !registered_task.is_finished());
-    registered.push(task);
-}
+type TcpStreamTasks = crate::transport_core::tasks::Spawner;
 
 #[cfg(feature = "experimental-roaming")]
 fn publish_tcp_path_handover(
@@ -3756,7 +5602,7 @@ fn mark_tcp_stream_stopped(
 #[allow(clippy::too_many_arguments)]
 fn spawn_stream<R, W>(
     mut read_half: R,
-    mut write_half: W,
+    write_half: W,
     rx_codec: PacketCodec,
     tx_codec: PacketCodec,
     tun_write_tx: TunWriter,
@@ -3768,29 +5614,32 @@ fn spawn_stream<R, W>(
     logical_slot_id: u32,
     active_slots: Option<TcpActiveSlots>,
     last_live_lost_at: Option<Arc<std::sync::Mutex<Option<tokio::time::Instant>>>>,
-    // Every task this stream spawns is registered here so the teardown can abort them.
-    // Without it the caller had no handle at all: a reader parked in `read_record` on a
-    // half-open connection outlived its connection generation, retaining its socket,
-    // codecs and outbound channel. The shared TUN pump can now stop despite sender
-    // clones, but the obsolete stream tasks still must not survive a reconnect.
+    // The generation owns reader, writer and optional decrypt pipeline through shutdown.
     tasks: TcpStreamTasks,
     cfg: StreamPump,
 ) -> ClientStreamSender
 where
     R: AsyncRead + Unpin + Send + 'static,
-    W: AsyncWrite + Unpin + Send + 'static,
+    W: crate::protocol::obfs::CarrierWriteControl + Unpin + Send + 'static,
 {
-    let (out_tx, mut out_rx) = mpsc::channel::<ClientUplink>(4096);
+    let progress = write_half.write_progress();
+    let mut write_half = crate::protocol::stream_io::StallGuard::observing(write_half, progress);
+    let write_progress = write_half.progress();
+    let carrier_metrics = runtime
+        .tcp_carriers
+        .register(logical_slot_id, write_progress.clone());
+    let (out_tx, mut out_rx) = mpsc::channel::<QueuedUplink>(cfg.uplink_queue_capacity);
     let (terminal_tx, mut terminal_rx) = mpsc::channel::<ClientTerminalControl>(4);
     let stream_sender = ClientStreamSender {
         logical_slot_id,
         sender: out_tx,
         terminal_sender: terminal_tx.clone(),
+        metrics: Some(carrier_metrics.clone()),
     };
     let base = tokio::time::Instant::now();
     let last_rx = Arc::new(AtomicU64::new(0));
-    // This stream counts itself as live; its first dying task (reader/writer)
-    // decrements and, only if it was the last, signals a full-tunnel teardown.
+    // The reader owns the live-count transition after draining received records.
+    // A stopped writer requests reader shutdown without racing queued terminal policy.
     let previous_live = live.fetch_add(1, Ordering::AcqRel);
     if let Some(active_slots) = &active_slots {
         mark_tcp_slot_started(active_slots, logical_slot_id);
@@ -3802,6 +5651,7 @@ where
     }
     let stream_dead = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let (stream_stop_tx, _) = tokio::sync::watch::channel(false);
+    let (writer_stopped_tx, writer_stopped_rx) = tokio::sync::oneshot::channel();
 
     // Reader: socket → decrypt → TUN writer.
     //
@@ -3854,8 +5704,11 @@ where
             Pipe(mpsc::Sender<PooledBuffer>),
         }
 
+        let mut pipeline_drained = None;
         let mut sink = if cfg.pipeline_rx {
             let (rec_tx, mut rec_rx) = mpsc::channel::<PooledBuffer>(1024);
+            let (drained_tx, drained_rx) = tokio::sync::oneshot::channel();
+            pipeline_drained = Some(drained_rx);
             let mut inner_rx_codec = rx;
             let inner_tun = tun_write_tx;
             let inner_total_rx = total_rx.clone();
@@ -3871,7 +5724,7 @@ where
             // `rec_tx`. Never blocks (the TUN send is drop-on-full), so it always
             // drains the FIFO — the reader's backpressure send can therefore
             // always make progress (no deadlock).
-            let __h = tokio::spawn(async move {
+            tasks.spawn(async move {
                 let mut unsupported_downlink_drops = 0u64;
                 while let Some(mut record) = rec_rx.recv().await {
                     match inner_rx_codec.decrypt_packet_in_place(record.as_vec_mut()) {
@@ -3901,8 +5754,8 @@ where
                         Err(e) => log::debug!("Decrypt error: {}", e),
                     }
                 }
+                let _ = drained_tx.send(());
             });
-            register_tcp_stream_task(&tasks, __h);
             RxSink::Pipe(rec_tx)
         } else {
             RxSink::Inline {
@@ -3913,10 +5766,15 @@ where
         };
 
         // Stage A: socket read (+ outer decrypt/framing for reality-tls) → sink.
-        let __h = tokio::spawn(async move {
+        tasks.spawn(async move {
             let mut unsupported_downlink_drops = 0u64;
             loop {
-                let mut record = match record_pool.acquire().await {
+                let acquired = tokio::select! {
+                    biased;
+                    _ = stream_stop_rx.changed() => break,
+                    record = record_pool.acquire() => record,
+                };
+                let mut record = match acquired {
                     Some(record) => record,
                     None => break,
                 };
@@ -3985,10 +5843,21 @@ where
                     }
                 }
             }
-            // Stream lost (read side): tear down the whole tunnel only if this was
-            // the last live stream; otherwise the tunnel keeps running on the rest.
-            // Dropping `sink` here (its `Pipe` sender, if any) ends the inner task.
+            // Close the bounded FIFO and join its finite, non-blocking decrypt drain
+            // before EOF can tear down the actor. Otherwise a final KICK can be aborted
+            // while still queued. Generation cancellation still aborts both tasks.
+            drop(sink);
+            if let Some(drained) = pipeline_drained {
+                let _ = drained.await;
+            }
             let _ = stream_stop_tx.send(true);
+            // A replacement must not reuse this logical slot while its old
+            // writer still owns a socket or a partially serialized record.
+            if writer_stopped_rx.await.is_err() {
+                log::warn!("TCP writer ended without completion; stopping connection generation");
+                let _ = dead_tx.try_send(());
+                return;
+            }
             mark_tcp_stream_stopped(
                 logical_slot_id,
                 &stream_dead,
@@ -3998,24 +5867,16 @@ where
                 last_live_lost_at.as_ref(),
             );
         });
-        register_tcp_stream_task(&tasks, __h);
     }
 
     // Writer + heartbeat: outgoing plaintext → encrypt → socket.
     {
         let mut tx = tx_codec;
-        let dead_tx = dead_tx.clone();
-        let stream_dead = stream_dead.clone();
-        let live = live.clone();
-        let active_slots = active_slots.clone();
-        let last_live_lost_at = last_live_lost_at.clone();
         let stream_stop_tx = stream_stop_tx.clone();
         let mut stream_stop_rx = stream_stop_tx.subscribe();
-        let __h = tokio::spawn(async move {
-            let mut idle_tick = tokio::time::interval(Duration::from_secs(5));
-            idle_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            let mut last_tick_wall = std::time::SystemTime::now();
-            let mut last_tick_inst = tokio::time::Instant::now();
+        let diagnostics_close = CloseGuard(carrier_metrics.clone());
+        tasks.spawn(async move {
+            let _diagnostics_close = diagnostics_close;
             let idle_ms = cfg.idle_timeout.as_millis() as u64;
             let mut last_tx_ms: u64 = 0;
             // Flow-shaping: when enabled, idle cover at exponential (non-periodic)
@@ -4039,6 +5900,45 @@ where
                 Duration::from_millis(cfg.shaping.idle_gap_max_ms),
             )
             .map(|deadline| u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX));
+            // Supervise the entire pump, including blocked writes and pacing.
+            let health = async move {
+                let mut tick = tokio::time::interval(Duration::from_secs(5));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                let mut wall = std::time::SystemTime::now();
+                let mut instant = tokio::time::Instant::now();
+                let mut previous_progress = write_progress.snapshot();
+                let mut last_write_ms = 0;
+                loop {
+                    tick.tick().await;
+                    if stream_dead.load(Ordering::Relaxed) { break; }
+                    let wall_gap = wall.elapsed().unwrap_or_default();
+                    let tick_gap = instant.elapsed();
+                    wall = std::time::SystemTime::now();
+                    instant = tokio::time::Instant::now();
+                    if wall_gap.saturating_sub(tick_gap) > Duration::from_secs(10) {
+                        log::warn!("TCP: resumed from suspend (~{}s) — reconnecting", wall_gap.as_secs());
+                        DELIBERATE_CYCLE.store(true, std::sync::atomic::Ordering::Release);
+                        break;
+                    }
+                    let now = base.elapsed().as_millis() as u64;
+                    let current_progress = write_progress.snapshot();
+                    if current_progress != previous_progress {
+                        last_write_ms = now;
+                        previous_progress = current_progress;
+                    }
+                    let received = last_rx.load(Ordering::Relaxed);
+                    // Silence is valid unless the peer promises liveness traffic.
+                    if rx_dead_ms.is_some_and(|deadline| now.saturating_sub(received) > deadline) {
+                        log::info!("TCP carrier closed: inbound liveness deadline expired");
+                        break;
+                    }
+                    if idle_ms > 0 && now.saturating_sub(last_write_ms.max(received)) > idle_ms {
+                        break;
+                    }
+                }
+            };
+            {
+            let pump = async move {
             let mut cover_deadline =
                 tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
             // One real record may have to stay intact while stealth pacing emits cover
@@ -4053,6 +5953,9 @@ where
                 .recordizer
                 .clone()
                 .map(crate::protocol::recordizer::Recordizer::new);
+            let ledger_capacity = cfg.recordizer.as_ref()
+                .map_or(1, crate::protocol::recordizer::pending_packet_capacity);
+            let mut in_flight = InFlight::new(carrier_metrics, ledger_capacity);
             'writer: loop {
                 let mux_deadline = recordizer
                     .as_ref()
@@ -4061,6 +5964,10 @@ where
                     .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400));
                 tokio::select! {
                     biased;
+
+                    control = std::future::poll_fn(|cx| crate::protocol::obfs::CarrierWriteControl::poll_control(&mut write_half,cx)) => {
+                        if control.is_err() {break;}
+                    }
 
                     terminal = terminal_rx.recv() => {
                         let Some(terminal) = terminal else { break };
@@ -4095,10 +6002,10 @@ where
                         break 'writer;
                     }
 
-                    _ = stream_stop_rx.changed() => break,
-
                     pt = out_rx.recv() => {
                         let Some(pt) = pt else { break };
+                        let QueuedUplink { packet: pt, ticket } = pt;
+                        if let Some(ticket) = ticket { in_flight.push(ticket); }
                         let data_len = pt.as_ref().len();
                         if let Some(mux) = recordizer.as_mut() {
                             let ready = mux.push(pt.as_ref(), std::time::Instant::now());
@@ -4109,11 +6016,16 @@ where
                                     payloads
                                 }
                                 Err(error) => {
+                                    // A rejected push can have mutated pending mux
+                                    // state; stop claiming exact completion thereafter.
+                                    in_flight.invalidate();
                                     log::debug!("TCP recordizer dropped a packet: {error}");
                                     continue;
                                 }
                             };
                             for payload in payloads {
+                                let payload_bytes = crate::protocol::recordizer::encoded_payload_len(&payload);
+                                if payload_bytes.is_none() { in_flight.invalidate(); }
                                 if !encrypt_client_payload(
                                     &mut tx,
                                     &payload,
@@ -4122,6 +6034,7 @@ where
                                     &mut wire_record,
                                     &mut padding,
                                 ) {
+                                    if let Some(bytes) = payload_bytes { in_flight.finish_bytes(bytes, false); }
                                     continue;
                                 }
                                 if !write_client_wire_record(
@@ -4134,6 +6047,7 @@ where
                                 ).await {
                                     break 'writer;
                                 }
+                                if let Some(bytes) = payload_bytes { in_flight.finish_bytes(bytes, true); }
                                 last_tx_ms = base.elapsed().as_millis() as u64;
                                 heartbeat_deadline = tokio::time::Instant::now()
                                     + crate::protocol::randomized_heartbeat_delay(
@@ -4163,12 +6077,15 @@ where
                                 ).await {
                                     break;
                                 }
+                                in_flight.finish_bytes(data_len, true);
                                 last_tx_ms = base.elapsed().as_millis() as u64;
                                 heartbeat_deadline = tokio::time::Instant::now()
                                     + crate::protocol::randomized_heartbeat_delay(
                                         cfg.heartbeat_interval,
                                         Duration::from_millis(cfg.hb_jitter),
                                     );
+                            } else {
+                                in_flight.finish_bytes(data_len, false);
                             }
                         }
                     }
@@ -4180,6 +6097,8 @@ where
                             .as_mut()
                             .and_then(|mux| mux.flush_due(std::time::Instant::now()))
                         {
+                            let payload_bytes = crate::protocol::recordizer::encoded_payload_len(&payload);
+                            if payload_bytes.is_none() { in_flight.invalidate(); }
                             let encrypted = encrypt_client_payload(
                                 &mut tx,
                                 &payload,
@@ -4198,6 +6117,7 @@ where
                             ).await {
                                 break;
                             }
+                            if let Some(bytes) = payload_bytes { in_flight.finish_bytes(bytes, encrypted); }
                             last_tx_ms = base.elapsed().as_millis() as u64;
                             heartbeat_deadline = tokio::time::Instant::now()
                                 + crate::protocol::randomized_heartbeat_delay(
@@ -4217,7 +6137,7 @@ where
                             );
                             tx.encrypt_packet_into(&[], &padding, &mut cover_record).is_ok()
                         };
-                        if hb_ready && write_half.write_all(&cover_record).await.is_err() {
+                        if hb_ready && write_half.write_all_flush(&cover_record).await.is_err() {
                             break;
                         }
                         last_tx_ms = base.elapsed().as_millis() as u64;
@@ -4244,7 +6164,7 @@ where
                                     tx.encrypt_packet_into(&[], &padding, &mut cover_record).is_ok()
                                 };
                                 if cover_ready {
-                                    if write_half.write_all(&cover_record).await.is_err() { break; }
+                                    if write_half.write_all_flush(&cover_record).await.is_err() { break; }
                                     last_tx_ms = base.elapsed().as_millis() as u64;
                                 }
                             }
@@ -4253,57 +6173,22 @@ where
                             + shaper.next_gap(&mut rand::rng());
                     }
 
-                    _ = idle_tick.tick() => {
-                        // Propagate a read-side death (e.g. decrypt desync while the
-                        // socket write side still looks alive) so this writer exits too.
-                        if stream_dead.load(Ordering::Relaxed) { break; }
-                        // `tokio::Instant` may freeze while a laptop sleeps whereas wall
-                        // time keeps advancing. Cycle a half-open TCP carrier promptly on
-                        // resume instead of waiting for the OS retransmit timeout.
-                        let wall_gap = last_tick_wall.elapsed().unwrap_or_default();
-                        last_tick_wall = std::time::SystemTime::now();
-                        let tick_gap = last_tick_inst.elapsed();
-                        last_tick_inst = tokio::time::Instant::now();
-                        if wall_gap.saturating_sub(tick_gap) > Duration::from_secs(10) {
-                            log::warn!(
-                                "TCP: resumed from suspend (~{}s) — reconnecting",
-                                wall_gap.as_secs()
-                            );
-                            // Our decision, not a fault: don't let it escalate the backoff.
-                            DELIBERATE_CYCLE.store(true, std::sync::atomic::Ordering::Release);
-                            break;
-                        }
-                        let now = base.elapsed().as_millis() as u64;
-                        // An RX deadline is meaningful only when the peer promises
-                        // inbound liveness traffic. With heartbeat and shaping disabled a
-                        // healthy TCP tunnel may legitimately be silent for hours.
-                        if let Some(rx_dead) = rx_dead_ms {
-                            if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
-                                break;
-                            }
-                        }
-                        let last_activity = last_tx_ms.max(last_rx.load(Ordering::Relaxed));
-                        if idle_ms > 0 && now.saturating_sub(last_activity) > idle_ms {
-                            break;
-                        }
-                    }
-
                     else => break,
                 }
             }
-            // Stream lost (write side): tear down the whole tunnel only if this was
-            // the last live stream; otherwise keep running on the remaining streams.
+            };
+            tokio::select! {
+                biased;
+                _ = stream_stop_rx.wait_for(|stopped| *stopped) => {},
+                _ = health => {},
+                _ = pump => {},
+            }
+            } // Drop the writer and any partial record before stopping its reader.
+            // The reader reports loss after processing all already-received records.
+            // Wake it even when it is waiting for a recycled TUN buffer.
             let _ = stream_stop_tx.send(true);
-            mark_tcp_stream_stopped(
-                logical_slot_id,
-                &stream_dead,
-                &live,
-                &dead_tx,
-                active_slots.as_ref(),
-                last_live_lost_at.as_ref(),
-            );
+            let _ = writer_stopped_tx.send(());
         });
-        register_tcp_stream_task(&tasks, __h);
     }
 
     stream_sender
@@ -4315,6 +6200,7 @@ pub(crate) async fn run_tcp_tunnel<S>(
     config: &crate::config::client::ClientConfig,
     password: &str,
     core: &mut dyn ClientPlatform,
+    connection_tasks: &mut crate::transport_core::tasks::TaskGroup,
 ) -> anyhow::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static + crate::protocol::obfs::SplitStream,
@@ -4480,12 +6366,72 @@ where
         mtu: tun_mtu,
         fallback_dns_servers: &fallback_dns_servers,
     };
+    let validated_tun_mtu = usize::try_from(tun_mtu)
+        .map_err(|_| anyhow::anyhow!("authenticated TUN MTU is negative"))?;
+    let recordizer = pushed_obf
+        .as_ref()
+        .and_then(|pushed| pushed.recordizer.as_ref())
+        .map(|config| {
+            crate::protocol::recordizer::RuntimeConfig::from_config(
+                config,
+                crate::protocol::packet::MAX_TUNNEL_MTU,
+                validated_tun_mtu.saturating_add(64),
+            )
+        })
+        .transpose()
+        .map_err(|error| anyhow::anyhow!("invalid negotiated recordizer: {error}"))?;
+    // Stream-bonding plan. `max_streams` is the server's hard ceiling.
+    let target = if max_streams > 1 {
+        max_streams as usize
+    } else {
+        1
+    };
+    // TCP_RESUME_V2 gives both peers the same stable logical-slot namespace. Keep that fixed
+    // width for flow placement even while the live carrier set temporarily shrinks or grows.
+    let stable_stream_width = tcp_resume
+        .as_ref()
+        .map(|_| u32::try_from(target).unwrap_or(u32::MAX).max(1));
+    let token_bytes = hex_to_bytes(&session_token);
+    let bonding = target > 1 && !token_bytes.is_empty();
+    // Snapshot bonded packets into one fixed pool before queuing them. Queues must
+    // release TUN buffers (and FIFO Wintun ring reservations) even when one writer
+    // is blocked. One 4 MiB budget serves all streams; there is no fallback allocation.
+    let bonded_uplink_pool = if bonding {
+        let (buffer_count, slot_bytes) = bonded_uplink_pool_layout(recordizer.as_ref());
+        Some(crate::transport_core::buffer_pool::BufferPool::new(
+            buffer_count,
+            slot_bytes,
+        )?)
+    } else {
+        None
+    };
+    let uplink_queue_capacity = bonded_uplink_pool.as_ref().map_or(4096, |pool| {
+        crate::transport_core::buffer_pool::bonded_queue_capacity(pool.buffer_count(), max_streams)
+    });
+
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
+    #[cfg(target_os = "linux")]
+    {
+        // Linux owns the socket and therefore knows the literal peer selected by DNS. Export
+        // that authoritative value in the NetworkPlan used by hooks instead of forcing scripts
+        // to resolve the configured hostname again (which can select another GSLB address).
+        plan.carrier_address = CONNECTED_PEER
+            .lock()
+            .ok()
+            .and_then(|peer| *peer)
+            .map(|peer| peer.to_string());
+    }
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
     let path_generation = plan.generation;
     plan.max_streams = max_streams;
     plan.adaptive = adaptive;
     plan.data_plane = crate::transport_core::NetworkDataPlaneFacts::from_obfuscation(&eff_obf);
+    // Genuine HTTP/2/TCP provides its own liveness and the runtime intentionally suppresses
+    // qeli's periodic heartbeat on Reality-TLS. Keep the exported NetworkPlan/hook fact equal
+    // to what the data plane will actually do rather than merely echoing the pushed setting.
+    if config.obfuscation.mode == "reality-tls" {
+        plan.data_plane.heartbeat_enabled = false;
+    }
     #[cfg(feature = "experimental-roaming")]
     let negotiated_roaming_mode = if tcp_handover_enabled {
         crate::transport_core::NetworkRoamingMode::TcpHandoverV2
@@ -4522,7 +6468,8 @@ where
     #[cfg(any(target_os = "android", target_os = "macos"))]
     let (tap_gateway_ipv4, tap_ipv4_prefix_len, tap_gateway_ipv6, tap_ipv6_prefix_len) =
         (None, 0, None, 0);
-    let tunnel = core.prepare_tunnel(config, plan, &network)?;
+    // Validate data-plane parameters before acquiring platform resources or invoking hooks.
+    let tunnel = core.prepare_tunnel(config, plan).await?;
     run_pending_post_up(core).await;
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let reader_fd = tunnel.reader_fd;
@@ -4534,10 +6481,6 @@ where
     let is_tap = tunnel.is_tap;
     #[cfg(target_os = "macos")]
     let is_tap = false;
-    #[cfg(target_os = "linux")]
-    let server_addr = pin_target(config);
-    #[cfg(target_os = "linux")]
-    let tunnel_tun = tunnel.tun;
     #[cfg(target_os = "linux")]
     let tap_mac = tunnel.tap_mac;
     #[cfg(not(target_os = "linux"))]
@@ -4603,39 +6546,31 @@ where
     // `EAGAIN`/`ENOBUFS` drop is observable.
     let runtime_counters = core.counters();
 
-    // Everything below can bail out through `?`, which would skip the teardown at the
-    // end of this function; from here on the guard covers that (see `TunGuard`).
-    #[cfg(target_os = "linux")]
-    let mut tun_guard = TunGuard::new(
-        tun_name.clone(),
-        !config.tun.attach_existing,
-        server_addr.clone(),
-        config.routing.exclude.clone(),
-    );
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
-    let mut tun_pump = LinuxTunPump::start(
-        reader_fd,
-        writer_fd,
-        LinuxTunPumpConfig {
-            buffer_size: tun_buf_size,
-            downlink_record_bytes: downlink_record_budget(tun_mtu, padding_max, norm_sizes),
-            write_drops: Some(runtime_counters.udp.sink(InternalDrop::TunWrite)),
-            framing: if cfg!(target_os = "macos") {
-                TunFraming::Utun
-            } else if is_tap {
-                TunFraming::Tap(TapHeaders {
-                    client_mac: tap_mac,
-                    gateway_mac,
-                    gateway_ipv4: tap_gateway_ipv4,
-                    ipv4_prefix_len: tap_ipv4_prefix_len,
-                    gateway_ipv6: tap_gateway_ipv6,
-                    ipv6_prefix_len: tap_ipv6_prefix_len,
-                })
-            } else {
-                TunFraming::Raw
-            },
+    let pump_config = LinuxTunPumpConfig {
+        buffer_size: tun_buf_size,
+        downlink_record_bytes: downlink_record_budget(tun_mtu, padding_max, norm_sizes),
+        write_drops: Some(runtime_counters.udp.sink(InternalDrop::TunWrite)),
+        framing: if cfg!(target_os = "macos") {
+            TunFraming::Utun
+        } else if is_tap {
+            TunFraming::Tap(TapHeaders {
+                client_mac: tap_mac,
+                gateway_mac,
+                gateway_ipv4: tap_gateway_ipv4,
+                ipv4_prefix_len: tap_ipv4_prefix_len,
+                gateway_ipv6: tap_gateway_ipv6,
+                ipv6_prefix_len: tap_ipv6_prefix_len,
+            })
+        } else {
+            TunFraming::Raw
         },
-    )?;
+    };
+    #[cfg(target_os = "linux")]
+    let (tun_guard, mut tun_pump) =
+        start_linux_tun_pump(tunnel.guard, reader_fd, writer_fd, pump_config, None).await?;
+    #[cfg(any(target_os = "android", target_os = "macos"))]
+    let mut tun_pump = LinuxTunPump::start(reader_fd, writer_fd, pump_config)?;
     #[cfg(target_os = "windows")]
     let mut tun_pump = match tunnel.windows_tun {
         WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(
@@ -4647,8 +6582,6 @@ where
     };
     #[cfg(target_os = "ios")]
     let mut tun_pump = tunnel.packet_tun;
-    #[cfg(target_os = "linux")]
-    tun_guard.attach_pump(tun_pump.stop_handle());
     let tun_write_tx = tun_pump.sender_to_tun();
     let cancel = core.cancel_token();
     // Keep one timer across select iterations. Recreating `sleep(100ms)` inside the loop
@@ -4686,8 +6619,9 @@ where
     let (dead_tx, mut dead_rx) = mpsc::channel::<()>(1);
     // Live outgoing channels — one per active stream; the distributor round-robins
     // across them. The adaptive ramp task grows this Vec at runtime.
-    // Handles for every task the bonded streams spawn, so the teardown can stop them.
-    let stream_tasks: TcpStreamTasks = Arc::new(std::sync::Mutex::new(Vec::new()));
+    // The caller creates this owner before connect, so H2 drivers/bridges already belong
+    // to it. Stream tasks, producers and Linux path workers share the same teardown.
+    let stream_tasks = connection_tasks.spawner();
     let outs: Arc<std::sync::Mutex<Vec<ClientStreamSender>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
     let active_slots = tcp_resume.as_ref().map(|_| {
@@ -4711,20 +6645,6 @@ where
 
     let shaping = eff_obf.traffic_shaping.to_shaping();
     let cover_budget = crate::protocol::Shaper::shared_budget(&shaping, std::time::Instant::now());
-    let recordizer = pushed_obf
-        .as_ref()
-        .and_then(|pushed| pushed.recordizer.as_ref())
-        .map(|config| {
-            crate::protocol::recordizer::RuntimeConfig::from_config(
-                config,
-                crate::protocol::packet::MAX_TUNNEL_MTU,
-                usize::try_from(tun_mtu)
-                    .unwrap_or_default()
-                    .saturating_add(64),
-            )
-        })
-        .transpose()
-        .map_err(|error| anyhow::anyhow!("invalid negotiated recordizer: {error}"))?;
     if recordizer.is_some() {
         log::info!("Packet recordizer: PACKET_MUX_V1 active on TCP");
     }
@@ -4739,8 +6659,7 @@ where
         heartbeat_enabled,
         heartbeat_interval,
         idle_timeout,
-        tun_mtu: usize::try_from(tun_mtu)
-            .map_err(|_| anyhow::anyhow!("authenticated TUN MTU is negative"))?,
+        tun_mtu: validated_tun_mtu,
         hb_data: hb_config.data_size_bytes,
         hb_jitter: hb_config.jitter_ms,
         padding_enabled,
@@ -4753,6 +6672,7 @@ where
         shaping,
         recordizer,
         cover_budget,
+        uplink_queue_capacity,
         // Only reality-tls pays a second (outer TLS AES-GCM) AEAD on the read
         // side; pipeline its two decrypt layers across cores. Other modes decrypt
         // inline (unchanged path).
@@ -4814,19 +6734,6 @@ where
         }
     }
 
-    // Stream-bonding plan. `max_streams` is the server's hard ceiling.
-    let target = if max_streams > 1 {
-        max_streams as usize
-    } else {
-        1
-    };
-    // TCP_RESUME_V2 gives both peers the same stable logical-slot namespace. Keep that fixed
-    // width for flow placement even while the live carrier set temporarily shrinks or grows.
-    let stable_stream_width = tcp_resume
-        .as_ref()
-        .map(|_| u32::try_from(target).unwrap_or(u32::MAX).max(1));
-    let token_bytes = hex_to_bytes(&session_token);
-    let bonding = target > 1 && !token_bytes.is_empty();
     // The adaptive ramp decides the desired width; a separate maintainer restores
     // that width after individual bonded streams die. Fixed mode wants the full
     // configured width from the start (including retrying initial JOIN failures).
@@ -4835,10 +6742,6 @@ where
     ));
     let next_join_index = Arc::new(std::sync::atomic::AtomicUsize::new(target.max(1)));
     let join_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
-
-    // Handle of the adaptive ramp task (if any) so teardown can abort it. Otherwise it
-    // keeps opening bonded streams for an obsolete connection generation.
-    let mut ramp_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     if bonding && !adaptive {
         // FIXED: open the remaining streams now.
@@ -4916,7 +6819,7 @@ where
         let resume_r = tcp_resume.clone();
         let active_slots_r = active_slots.clone();
         let last_live_lost_at_r = last_live_lost_at.clone();
-        ramp_handle = Some(tokio::spawn(async move {
+        stream_tasks.spawn(async move {
             let mut last_bytes = 0u64;
             let mut best_rate = 0u64;
             let mut grace = 0u32;
@@ -5009,13 +6912,13 @@ where
                 }
                 joining_r.store(false, Ordering::Release);
             }
-        }));
+        });
     }
 
     // Restore lost members of an established bond. Previously a dead secondary
     // merely reduced `live`; once the ramp task had ended nothing ever recreated
     // it, so a long-lived multipath session silently degraded to one stream.
-    let maintenance_handle = if bonding || tcp_resume.is_some() {
+    if bonding || tcp_resume.is_some() {
         let outs_m = outs.clone();
         let stream_tasks_m = stream_tasks.clone();
         let total_m = total_tx.clone();
@@ -5039,7 +6942,7 @@ where
         let path_controller_m = path_controller.clone();
         #[cfg(feature = "experimental-roaming")]
         let handover_enabled_m = tcp_handover_enabled;
-        Some(tokio::spawn(async move {
+        stream_tasks.spawn(async move {
             let mut tick = tokio::time::interval(TCP_RESUME_MAINTENANCE_TICK);
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
@@ -5186,13 +7089,11 @@ where
                     break;
                 }
             }
-        }))
-    } else {
-        None
-    };
+        });
+    }
 
     #[cfg(feature = "experimental-roaming")]
-    let handover_handle = path_controller.map(|path_controller| {
+    if let Some(path_controller) = path_controller {
         let handover_enabled = tcp_handover_enabled;
         let outs_h = outs.clone();
         let stream_tasks_h = stream_tasks.clone();
@@ -5211,7 +7112,7 @@ where
         let resume_h = tcp_resume.clone();
         let active_slots_h = active_slots.clone();
         let last_live_lost_at_h = last_live_lost_at.clone();
-        tokio::spawn(async move {
+        stream_tasks.spawn(async move {
             let mut tick = tokio::time::interval(TCP_HANDOVER_POLL);
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
@@ -5388,34 +7289,43 @@ where
                 }
                 joining_h.store(false, Ordering::Release);
             }
-        })
-    });
+        });
+    }
 
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-    let path_monitor_handle = linux_path_controller.map(|path_controller| {
-        roaming_linux::spawn(path_controller, tun_name.clone(), path_generation)
-    });
+    if let Some(path_controller) = linux_path_controller {
+        stream_tasks.spawn(roaming_linux::run(
+            path_controller,
+            tun_name.clone(),
+            path_generation,
+            stream_tasks.clone(),
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    if config.routing.exit_node {
+        spawn_exit_wan_monitor(tun_name.clone(), &stream_tasks);
+    }
 
     // Distributor: FLOW-PIN TUN packets across the live bonded streams (by inner
     // 5-tuple) so each connection stays in order. Each stream's tasks own
     // encrypt/heartbeat/idle; a dead stream fires dead_rx.
     let mut unsupported_inner_drops = 0u64;
-    let mut terminal_kick: Option<crate::protocol::control_v2::Kick> = None;
+    let mut result = Ok(());
     loop {
         tokio::select! {
             biased;
 
-            _ = dead_rx.recv() => { break; }
-
-            changed = management_rx.changed() => {
-                if changed.is_err() { break; }
-                let event = management_rx.borrow_and_update().clone();
-                if let Some(event) = event {
-                    core.management_event(&event)?;
-                    if let crate::protocol::control_v2::ManagementEvent::Kick(kick) = event {
-                        terminal_kick = Some(kick);
-                        break;
+            event = next_tcp_lifecycle_event(&mut management_rx, &mut dead_rx) => {
+                match event {
+                    TcpLifecycleEvent::Disconnected => break,
+                    TcpLifecycleEvent::Management(Some(event)) => {
+                        if let Err(error) = apply_server_management(core, event) {
+                            result = Err(error);
+                            break;
+                        }
                     }
+                    TcpLifecycleEvent::Management(None) => {}
                 }
             }
 
@@ -5449,30 +7359,22 @@ where
                 // not reorder healthy flows. Legacy sessions retain modulo-live-width.
                 let mut g = crate::util::lock_or_recover(&outs, "client::outs");
                 let h = crate::protocol::flow_hash(ip_packet.as_ref());
-                let mut pkt = ClientUplink::Tun(ip_packet);
-                while !g.is_empty() {
-                    let Some(i) = select_tcp_stream_index(&g, h, stable_stream_width) else {
-                        break;
+                let pkt = if let Some(pool) = &bonded_uplink_pool {
+                    let Some(packet) = prepare_bonded_uplink(ip_packet.as_ref(), pool, &runtime_counters.tcp_uplink) else {
+                        continue;
                     };
-                    match g[i].try_send(pkt) {
-                        Ok(()) => break,
-                        // Backpressure on the pinned stream: drop (inner TCP retransmits).
-                        Err(mpsc::error::TrySendError::Full(_)) => break,
-                        // Dead stream: remove it and re-pin to the next stable live slot.
-                        Err(mpsc::error::TrySendError::Closed(v)) => {
-                            pkt = v;
-                            g.remove(i);
-                        }
-                    }
-                }
+                    drop(ip_packet);
+                    ClientUplink::Bonded(packet)
+                } else {
+                    ClientUplink::Tun(ip_packet)
+                };
+                queue_tcp_uplink(&mut g, pkt, h, stable_stream_width, &runtime_counters.tcp_uplink);
             }
 
             else => break,
         }
     }
 
-    // Stop the adaptive ramp task first: it loops indefinitely trying to add bonded
-    // streams and must not create sockets for an obsolete connection generation.
     // Only an intentional application shutdown is terminal. A carrier failure must retain the
     // server session so hard resume can reuse the existing NetworkPlan and TUN.
     #[cfg(feature = "experimental-roaming")]
@@ -5480,117 +7382,23 @@ where
         send_tcp_close_session(&outs).await;
     }
 
-    if let Some(h) = ramp_handle {
-        h.abort();
-    }
-    if let Some(h) = maintenance_handle {
-        h.abort();
-    }
-    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-    if let Some(h) = path_monitor_handle {
-        h.abort();
-    }
-    #[cfg(feature = "experimental-roaming")]
-    if let Some(h) = handover_handle {
-        h.abort();
-    }
-    // Same reasoning for the per-stream tasks. A reader can sit in `read_record` on a
-    // half-open socket forever; abort cancels it at that await point before the shared
-    // TUN backend releases this generation's descriptors.
-    for h in crate::util::lock_or_recover(&stream_tasks, "client::stream_tasks").drain(..) {
-        h.abort();
-    }
-    #[cfg(target_os = "linux")]
-    let dns_cleanup_error = dns::restore_dns_for(&tun_name).err();
-    drop(tun_write_tx);
-    tun_pump.shutdown().await;
-    // Closes the TUN fd: `TunInterface` holds it as a `File`. (Do NOT also close the raw
-    // number — that would be a double close, and the freed number can already have been
-    // handed to another thread's socket.)
-    #[cfg(target_os = "linux")]
-    drop(tunnel_tun);
-    // Attach mode: the interface + routes belong to an external owner — leave them
-    // (we only borrowed the fd). Otherwise remove the device + routes we created.
-    #[cfg(target_os = "linux")]
-    let tun_cleanup_error = if !config.tun.attach_existing {
-        cleanup_owned_tun(&tun_name, &server_addr, &config.routing.exclude).err()
-    } else {
-        None
+    // Seal admission before aborting producers and streams together. Await every task
+    // (including Linux path workers) before restoring DNS or releasing the TUN.
+    connection_tasks.finish().await;
+    let result = finish_pending_management(core, &management_rx, result);
+    let pump_shutdown = async move {
+        drop(tun_write_tx);
+        tun_pump.shutdown().await;
     };
     #[cfg(target_os = "linux")]
-    match (dns_cleanup_error, tun_cleanup_error) {
-        (None, None) => {}
-        (Some(dns), None) => return Err(anyhow::anyhow!("DNS cleanup failed: {dns}")),
-        (None, Some(tun)) => return Err(tun),
-        (Some(dns), Some(tun)) => {
-            return Err(anyhow::anyhow!("DNS cleanup failed: {dns}; {tun}"));
-        }
+    let result =
+        crate::client_cleanup::with_cleanup_error(result, tun_guard.shutdown(pump_shutdown).await);
+    #[cfg(not(target_os = "linux"))]
+    pump_shutdown.await;
+    if result.is_ok() {
+        log::info!("Client disconnected");
     }
-    #[cfg(target_os = "linux")]
-    tun_guard.disarm(); // graceful teardown done — nothing left for `Drop` to repeat
-    log::info!("Client disconnected");
-    if let Some(kick) = terminal_kick {
-        return Err(ServerKickError {
-            message: kick.message,
-            reconnect_allowed: kick.reconnect_allowed,
-        }
-        .into());
-    }
-    Ok(())
-}
-
-/// Load (or first-time generate + persist) this client's stable device id. Stored
-/// at a fixed state path; an unwritable host falls back to a per-run random id
-/// (still works — just not stable across restarts there).
-#[cfg(target_os = "linux")]
-fn device_id() -> [u8; crate::protocol::DEVICE_ID_LEN] {
-    // `QELI_DEVICE_ID_FILE` overrides the path (lets several instances on one host —
-    // or tests — keep distinct device ids).
-    let path = std::env::var("QELI_DEVICE_ID_FILE")
-        .unwrap_or_else(|_| "/var/lib/qeli/device-id".to_string());
-    device_id_at(&path)
-}
-
-#[cfg(target_os = "linux")]
-fn device_id_at(path: &str) -> [u8; crate::protocol::DEVICE_ID_LEN] {
-    let read_valid = || {
-        let bytes = std::fs::read(path).ok()?;
-        let id: [u8; crate::protocol::DEVICE_ID_LEN] = bytes
-            .get(..crate::protocol::DEVICE_ID_LEN)?
-            .try_into()
-            .ok()?;
-        (id != [0u8; crate::protocol::DEVICE_ID_LEN]).then_some(id)
-    };
-    if let Some(id) = read_valid() {
-        return id;
-    }
-    if let Some(parent) = std::path::Path::new(path).parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    // Serialize first creation across processes, then re-read after taking the
-    // lock in case another client won the race while we were waiting.
-    let lock = match crate::util::FileLock::acquire(path) {
-        Ok(lock) => Some(lock),
-        Err(error) => {
-            log::warn!("device id will be per-run because '{path}' cannot be locked: {error}");
-            None
-        }
-    };
-    if lock.is_some() {
-        if let Some(id) = read_valid() {
-            return id;
-        }
-    }
-
-    use rand::prelude::*;
-    let mut id = [0u8; crate::protocol::DEVICE_ID_LEN];
-    rand::rng().fill_bytes(&mut id);
-    if lock.is_some() {
-        if let Err(error) = crate::util::write_atomic_private(path, &id) {
-            log::warn!("device id could not be persisted at '{path}': {error}");
-        }
-    }
-    id
+    result
 }
 
 async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
@@ -5762,7 +7570,7 @@ async fn finish_tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let commit = pending
         .tx
         .encrypt_packet(crate::protocol::roaming::TCP_RESUME_COMMIT, &[])?;
-    stream.write_all(&commit).await?;
+    stream.write_all_flush(&commit).await?;
     let ack_record = read_record(stream, pending.framing)
         .await
         .map_err(|error| anyhow::anyhow!("TCP resume commit acknowledgement: {error}"))?;
@@ -5794,7 +7602,9 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     // the JOIN token instead of credentials, mirroring the corresponding primary
     // handshake branch.
     if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {
-        stream.write_all(client_kp.public().as_bytes()).await?;
+        stream
+            .write_all_flush(client_kp.public().as_bytes())
+            .await?;
         let mut sp = [0u8; 32];
         stream
             .read_exact(&mut sp)
@@ -5825,7 +7635,7 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         identity_verifier(server_static_pub_bytes).await?;
         let join = attach.first_message(transcript_hash);
         let join_packet = client_tx.encrypt_packet(&join, &[])?;
-        stream.write_all(&join_packet).await?;
+        stream.write_all_flush(&join_packet).await?;
         let ack_record = read_record(stream, Framing::Raw)
             .await
             .map_err(|e| anyhow::anyhow!("JOIN(plain): ack: {}", e))?;
@@ -5876,7 +7686,7 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         0,
         reality_sid.as_ref(),
     );
-    stream.write_all(&client_hello).await?;
+    stream.write_all_flush(&client_hello).await?;
     let server_hello_record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: ServerHello: {}", e))?;
@@ -5936,7 +7746,7 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     // Present an authenticated resume proof, or the legacy token for an old session.
     let join = attach.first_message(transcript_hash);
     let join_packet = client_tx.encrypt_packet(&join, &[])?;
-    stream.write_all(&join_packet).await?;
+    stream.write_all_flush(&join_packet).await?;
 
     let ack_record = read_tls_record(stream)
         .await
@@ -5969,7 +7779,7 @@ pub(crate) enum WindowsTunSetup {
 
 pub(crate) struct TunnelSetup {
     #[cfg(target_os = "linux")]
-    tun: TunInterface,
+    guard: TunGuard,
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     reader_fd: OwnedFd,
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
@@ -6017,40 +7827,139 @@ impl TunnelSetup {
     }
 }
 
-/// Unconditional TUN teardown, for the paths the graceful one cannot reach.
+/// Start packet workers with the platform guard on an owning network worker. A
+/// partial pump failure joins its threads before guard rollback. Keep ordinary pump
+/// errors distinct from worker/context/panic failures that make cleanup uncertain.
+/// UDP supplies its runtime for raw input; TCP retains its established reader worker.
+#[cfg(target_os = "linux")]
+async fn start_linux_tun_pump(
+    mut guard: TunGuard,
+    reader_fd: OwnedFd,
+    writer_fd: OwnedFd,
+    config: LinuxTunPumpConfig,
+    runtime: Option<tokio::runtime::Handle>,
+) -> anyhow::Result<(TunGuard, LinuxTunPump)> {
+    let failures = guard.failures.clone();
+    let started = network_task::run(Arc::new(AtomicBool::new(false)), move || {
+        let created = match runtime {
+            Some(runtime) => LinuxTunPump::start_pollable(reader_fd, writer_fd, config, runtime),
+            None => LinuxTunPump::start(reader_fd, writer_fd, config),
+        };
+        let pump = match created {
+            Ok(pump) => pump,
+            Err(error) => {
+                let message = format!("TUN packet pump startup failed: {error}");
+                return Ok(Err(anyhow::Error::new(error).context(message)));
+            }
+        };
+        guard.attach_pump(pump.stop_handle());
+        // A rejected result must drop/join the pump before releasing the original TUN.
+        // Tuple fields drop in order; successful adoption unpacks them without an await.
+        Ok(Ok((pump, guard)))
+    })
+    .await;
+    let (pump, guard) =
+        failures.observe(crate::client_cleanup::Resource::Transaction, started)??;
+    Ok((guard, pump))
+}
+
+/// Fallback platform cleanup when a joined graceful teardown cannot be reached.
+/// Normal data-plane exits await shutdown; pump-start failure drops this guard on
+/// the startup worker. Unwinding or abandoning earlier futures may still use Drop
+/// on the caller. The pump owns duplicate descriptors, not DNS/routes/forwarding.
 ///
-/// The cleanup at the end of `run_tcp_tunnel` / `connect_and_run_udp` runs only when
-/// the data plane exits NORMALLY. Every `?` in those functions — the uplink dying when
-/// a modem is power-cycled, say — returns early and skips the route/DNS/device teardown.
-/// The shared TUN pump releases its `OwnedFd` workers on `Drop`, but it deliberately does
-/// not own these platform resources.
-///
-/// This guard carries the platform parts that must happen no matter how we leave: request
-/// pump cancellation before touching the device, restore the resolver, and remove the
-/// interface and routes we installed. The normal path `disarm()`s it after the fuller
-/// graceful sequence, whose `.await`s are impossible in `Drop`.
+/// The guard requests pump stop before restoring network resources and keeps the
+/// original TUN descriptor alive throughout cleanup. TunnelSetup owns it before
+/// core ACK, the startup worker then transfers it with the pump, and successful
+/// graceful cleanup disarms it. Failures remain sticky even after a later retry.
 #[cfg(target_os = "linux")]
 struct TunGuard {
+    // A field stays alive throughout Drop, including retries after failed graceful cleanup.
+    // Closing this owned File releases only this queue; never reopen a name for deletion.
+    _tun: std::sync::Arc<TunInterface>,
+    dns: Option<dns::DnsLease>,
+    failures: crate::client_cleanup::Failures,
     if_name: String,
     stop: Option<LinuxTunPumpStop>,
     /// Attach mode borrows an externally-owned device: pump packets, never tear down.
     owns_device: bool,
-    server_addr: String,
-    exclude: Vec<String>,
+    routes: route::RouteOwner,
     armed: bool,
 }
 
 #[cfg(target_os = "linux")]
 impl TunGuard {
-    fn new(if_name: String, owns_device: bool, server_addr: String, exclude: Vec<String>) -> Self {
+    fn new(
+        tun: std::sync::Arc<TunInterface>,
+        dns: Option<dns::DnsLease>,
+        if_name: String,
+        owns_device: bool,
+        routes: route::RouteOwner,
+        failures: crate::client_cleanup::Failures,
+    ) -> Self {
         Self {
+            _tun: tun,
+            dns,
+            failures,
             if_name,
             stop: None,
             owns_device,
-            server_addr,
-            exclude,
+            routes,
             armed: true,
         }
+    }
+
+    async fn shutdown(
+        self,
+        pump_shutdown: impl std::future::Future<Output = ()>,
+    ) -> anyhow::Result<()> {
+        let failures = self.failures.clone();
+        let until = failures.cleanup_deadline();
+        let result = network_task::teardown(
+            self,
+            move |guard| {
+                let budget = crate::operation_budget::Scope::enter(until);
+                (budget, guard.restore_dns())
+            },
+            pump_shutdown,
+            |guard, (_budget, dns_cleanup)| {
+                let dns_cleanup =
+                    dns_cleanup.map_err(|error| anyhow::anyhow!("DNS cleanup failed: {error}"));
+                let routes_cleanup = if guard.owns_device {
+                    cleanup_owned_routes(&guard.routes, &guard._tun, &guard.failures)
+                } else {
+                    Ok(())
+                };
+                let cleanup =
+                    crate::client_cleanup::with_cleanup_error(dns_cleanup, routes_cleanup);
+                let cleanup =
+                    crate::client_cleanup::with_cleanup_error(cleanup, guard.restore_router());
+                if cleanup.is_ok() {
+                    guard.disarm();
+                }
+                cleanup
+            },
+        )
+        .await;
+        // Thread creation/context errors and panics are cleanup failures too. Keeping
+        // them sticky prevents reconnect or release of the kill-switch after uncertainty.
+        failures.observe(crate::client_cleanup::Resource::Transaction, result)?
+    }
+
+    fn restore_dns(&mut self) -> anyhow::Result<()> {
+        let result = self
+            .dns
+            .as_mut()
+            .map_or(Ok(()), |lease| lease.restore(&self._tun));
+        self.failures
+            .observe(crate::client_cleanup::Resource::Dns, result)
+    }
+
+    fn restore_router(&self) -> anyhow::Result<()> {
+        self.failures.observe(
+            crate::client_cleanup::Resource::Forwarding,
+            gateway::disengage_owned(&self.routes),
+        )
     }
 
     fn attach_pump(&mut self, stop: LinuxTunPumpStop) {
@@ -6063,22 +7972,19 @@ impl TunGuard {
     }
 }
 
-/// Remove every host resource owned by a non-attach client generation. Attempt both halves
-/// even when one fails: routes on the physical interface can survive a failed TUN deletion,
-/// while deleting the interface does not prove that independently installed bypass routes
-/// were removed.
+/// Remove owned routes while TunGuard retains the original queue descriptor. Physical
+/// bypass routes require explicit cleanup even though the kernel retires TUN routes when
+/// the last descriptor closes. Cleanup errors remain sticky and retryable.
 #[cfg(target_os = "linux")]
-fn cleanup_owned_tun(if_name: &str, server_addr: &str, exclude: &[String]) -> anyhow::Result<()> {
-    let route_error = route::cleanup_routes(if_name, server_addr, exclude).err();
-    let tun_error = TunInterface::delete(if_name).err();
-    match (route_error, tun_error) {
-        (None, None) => Ok(()),
-        (Some(routes), None) => Err(anyhow::anyhow!("route cleanup failed: {routes}")),
-        (None, Some(tun)) => Err(anyhow::anyhow!("TUN deletion failed: {tun}")),
-        (Some(routes), Some(tun)) => Err(anyhow::anyhow!(
-            "route cleanup failed: {routes}; TUN deletion failed: {tun}"
-        )),
-    }
+fn cleanup_owned_routes(
+    routes: &route::RouteOwner,
+    tun: &TunInterface,
+    failures: &crate::client_cleanup::Failures,
+) -> anyhow::Result<()> {
+    failures.observe(
+        crate::client_cleanup::Resource::Routes,
+        route::cleanup_routes_for_tun(routes, tun),
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -6087,165 +7993,29 @@ impl Drop for TunGuard {
         if !self.armed {
             return;
         }
+        let _budget = crate::operation_budget::Scope::enter(self.failures.cleanup_deadline());
         log::warn!(
             "connection ended on an error path — releasing TUN {}",
             self.if_name
         );
-        // Ask both workers to stop before deleting the device. The descriptors are not
+        // Ask both workers to stop before releasing our descriptor. Worker descriptors are not
         // closed here directly: their OwnedFd values live in the workers and closing a
         // raw number concurrently with read/write could target a subsequently reused fd.
         if let Some(stop) = &self.stop {
             stop.request_stop();
         }
-        if let Err(error) = dns::restore_dns_for(&self.if_name) {
+        if let Err(error) = self.restore_dns() {
             log::error!("TUN guard DNS cleanup failed: {error}");
         }
+        if let Err(error) = self.restore_router() {
+            log::error!("TUN guard router cleanup failed: {error}");
+        }
         if self.owns_device {
-            if let Err(error) = cleanup_owned_tun(&self.if_name, &self.server_addr, &self.exclude) {
+            if let Err(error) = cleanup_owned_routes(&self.routes, &self._tun, &self.failures) {
                 log::error!("TUN guard cleanup failed: {error}");
             }
         }
     }
-}
-
-/// PIDs holding an open `/dev/net/tun` fd attached to `if_name`.
-///
-/// A tun fd's `/proc/<pid>/fdinfo/<fd>` carries an `iff:` line naming the device it is
-/// attached to — the only reliable way to tell who owns an interface. Needs root (the
-/// client already requires it for TUN); entries we cannot read are skipped, so the
-/// result is "who we can PROVE holds it", which is why the caller treats an empty
-/// answer as "not ours" rather than "free to take".
-#[cfg(target_os = "linux")]
-fn tun_fd_holders(if_name: &str) -> Vec<u32> {
-    let mut pids = Vec::new();
-    let Ok(procs) = std::fs::read_dir("/proc") else {
-        return pids;
-    };
-    for proc in procs.flatten() {
-        let Some(pid) = proc
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue; // not a pid entry
-        };
-        let Ok(fds) = std::fs::read_dir(format!("/proc/{}/fd", pid)) else {
-            continue; // process vanished mid-scan, or not inspectable
-        };
-        for fd in fds.flatten() {
-            // Cheap filter first: only a /dev/net/tun fd can be attached to a device,
-            // and a readlink is far cheaper than reading every fdinfo in the system.
-            if std::fs::read_link(fd.path())
-                .map(|t| t != std::path::Path::new("/dev/net/tun"))
-                .unwrap_or(true)
-            {
-                continue;
-            }
-            let Some(fd_num) = fd.file_name().to_str().map(str::to_string) else {
-                continue;
-            };
-            let Ok(info) = std::fs::read_to_string(format!("/proc/{}/fdinfo/{}", pid, fd_num))
-            else {
-                continue;
-            };
-            if info.lines().any(|l| {
-                l.strip_prefix("iff:")
-                    .map(|v| v.trim() == if_name)
-                    .unwrap_or(false)
-            }) {
-                pids.push(pid);
-                break; // one attached fd is enough to call this pid a holder
-            }
-        }
-    }
-    pids
-}
-
-/// Decide what to do about an interface that is already present when we are about to
-/// create one, and reclaim it when it is provably our own leftover.
-///
-/// This used to be an unconditional error, reasoning that our device is non-persistent
-/// and so cannot outlive us. That misses the case it most needs to handle: an in-process
-/// reconnect after the data plane exited on an error path, where a leaked reader thread
-/// in THIS process still holds the fd. The device is then very much alive, and refusing
-/// it means every later reconnect fails identically — forever.
-///
-/// The ownership test follows from non-persistence:
-///   * not a tuntap device -> someone else's (ethernet/WireGuard/…) -> refuse
-///   * held by another pid -> another app, or a second qeli -> refuse
-///   * held by nobody -> only a PERSISTENT device survives with no fd, and ours never
-///     are, so it was created by someone else -> refuse
-///   * held only by us -> our own leftover -> reclaim
-#[cfg(target_os = "linux")]
-fn reclaim_stale_tun(if_name: &str) -> anyhow::Result<()> {
-    let advice = "Set 'dev=<name>' in [qeli] to use a different interface name (or \
-                  'dev_attach=true' to attach to an externally-owned interface).";
-    // Only tuntap devices expose tun_flags, so its absence settles the question.
-    if !std::path::Path::new(&format!("/sys/class/net/{}/tun_flags", if_name)).exists() {
-        anyhow::bail!(
-            "interface '{}' already exists and is not a TUN/TAP device — refusing to touch \
-             it. {}",
-            if_name,
-            advice
-        );
-    }
-    let me = std::process::id();
-    let holders = tun_fd_holders(if_name);
-    let foreign: Vec<u32> = holders.iter().copied().filter(|&p| p != me).collect();
-    if !foreign.is_empty() {
-        anyhow::bail!(
-            "interface '{}' already exists and is held by another process (pid {:?}) — \
-             refusing to take it over. {}",
-            if_name,
-            foreign,
-            advice
-        );
-    }
-    if holders.is_empty() {
-        anyhow::bail!(
-            "interface '{}' already exists with no process attached, so it is a persistent \
-             device someone else created (ours never are) — refusing to delete it. {}",
-            if_name,
-            advice
-        );
-    }
-
-    // Held only by us: a previous connection in this process leaked it.
-    log::warn!(
-        "interface '{}' is left over from a previous connection in this process — reclaiming it",
-        if_name
-    );
-    // Best effort only: `ip tuntap del` fails with EINVAL while a queue is still attached,
-    // which is precisely the state we are in — the previous reader has not let go yet. It
-    // is the LAST fd closing that removes a non-persistent device, so this is a nudge (and
-    // clears the persist flag in the odd case one got set), not the mechanism.
-    if let Err(e) = TunInterface::delete(if_name) {
-        log::debug!(
-            "reclaiming '{}': still attached ({}) — waiting for the previous reader to \
-             close its fd",
-            if_name,
-            e
-        );
-    }
-
-    // The device goes away once its last fd closes, which the teardown guard guarantees by
-    // stopping that reader — so wait for it instead of racing it. Attaching while it still
-    // holds a queue would be worse than failing: the kernel would split arriving packets
-    // between the live reader and the dead one, silently blackholing half the tunnel.
-    // Blocking here is safe: what we wait on are plain threads, not tasks.
-    let sysfs = format!("/sys/class/net/{}", if_name);
-    for _ in 0..120 {
-        if !std::path::Path::new(&sysfs).exists() {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    anyhow::bail!(
-        "interface '{}' is still held open after reclaiming it (a previous reader thread has \
-         not exited) — not attaching, as sharing the device would blackhole traffic. {}",
-        if_name,
-        advice
-    )
 }
 
 /// Set the family-matched `IP*_MTU_DISCOVER` option. `PROBE` sets DF and ignores the
@@ -6597,16 +8367,17 @@ async fn probe_udp_mtu(
 /// Select the inner MTU after a successful UDP path probe.
 ///
 /// With DATA_FRAG_V1 the inner interface and the outer datagram budget are independent. For a
-/// legacy peer they are not: lowering an IPv4 TUN to the certified record size avoids oversized
-/// sends. IPv6 interfaces may not advertise less than 1280, so dual/IPv6 sessions retain that
-/// floor and rely on the fragmentation-enabled outer socket for the remaining compatibility gap.
+/// legacy peer an automatic IPv4 TUN can use the certified record size to avoid oversized
+/// sends. An explicit inner MTU always wins; legacy sockets retain IP fragmentation. IPv6
+/// interfaces may not advertise less than 1280, so automatic dual/IPv6 sessions keep that floor.
 fn udp_inner_mtu_after_probe(
     base_mtu: i32,
     probed_mtu: i32,
     data_frag_enabled: bool,
     family_mode: crate::transport_core::NetworkFamilyMode,
+    explicit_inner_mtu: bool,
 ) -> i32 {
-    if data_frag_enabled {
+    if explicit_inner_mtu || data_frag_enabled {
         return base_mtu;
     }
     match family_mode {
@@ -6860,7 +8631,7 @@ mod mtu_ladder_tests {
     #[test]
     fn negotiated_record_fragmentation_keeps_inner_and_outer_mtu_independent() {
         assert_eq!(
-            udp_inner_mtu_after_probe(1400, 1160, true, NetworkFamilyMode::Dual),
+            udp_inner_mtu_after_probe(1400, 1160, true, NetworkFamilyMode::Dual, false),
             1400
         );
     }
@@ -6868,17 +8639,36 @@ mod mtu_ladder_tests {
     #[test]
     fn legacy_udp_peer_uses_probe_without_breaking_ipv6_minimum_mtu() {
         assert_eq!(
-            udp_inner_mtu_after_probe(1400, 1160, false, NetworkFamilyMode::Ipv4),
+            udp_inner_mtu_after_probe(1400, 1160, false, NetworkFamilyMode::Ipv4, false),
             1160
         );
         assert_eq!(
-            udp_inner_mtu_after_probe(1400, 1160, false, NetworkFamilyMode::Ipv6),
+            udp_inner_mtu_after_probe(1400, 1160, false, NetworkFamilyMode::Ipv6, false),
             1280
         );
         assert_eq!(
-            udp_inner_mtu_after_probe(1400, 1320, false, NetworkFamilyMode::Dual),
+            udp_inner_mtu_after_probe(1400, 1320, false, NetworkFamilyMode::Dual, false),
             1320
         );
+    }
+
+    #[test]
+    fn explicit_inner_mtu_is_preserved_after_a_smaller_probe() {
+        for family in [
+            NetworkFamilyMode::Ipv4,
+            NetworkFamilyMode::Ipv6,
+            NetworkFamilyMode::Dual,
+        ] {
+            for data_frag in [false, true] {
+                for (configured, probed) in [(1400, 1160), (9000, 1400), (1280, 576)] {
+                    assert_eq!(
+                        udp_inner_mtu_after_probe(configured, probed, data_frag, family, true),
+                        configured,
+                        "an explicit inner MTU must not become the probed outer-path size"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -6938,6 +8728,25 @@ mod mtu_ladder_tests {
             1461 + crate::protocol::quic::QUIC_SHORT_HEADER_MIN
         );
     }
+
+    #[test]
+    fn live_probe_echo_is_bound_to_path_and_budget_revision() {
+        let mut probe = super::LiveUdpMtuProbe {
+            path_epoch: 7,
+            budget_revision: 4,
+            ..Default::default()
+        };
+        probe.start([1400]);
+        let (token, _) = probe.next_send(tokio::time::Instant::now()).unwrap();
+        let size = (1400 + super::UDP_RECORD_PROBE_OVERHEAD) as u16;
+        assert!(probe.matches(token, size, 7, 4));
+        assert!(!probe.matches(token, size, 8, 4));
+        assert!(!probe.matches(token, size, 7, 5));
+        probe.clear();
+        probe.start([500]);
+        probe.next_send(tokio::time::Instant::now()).unwrap();
+        assert!(!probe.matches(token, size, 7, 4));
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -6966,36 +8775,37 @@ async fn probe_udp_mtu(
 }
 
 #[cfg(target_os = "linux")]
-struct NetworkPlanApplyGuard {
+struct NetworkPlanApplyGuard<'a> {
+    // The rollback must finish before the original queue can be closed.
+    _tun: &'a TunInterface,
+    failures: crate::client_cleanup::Failures,
     if_name: String,
     owns_device: bool,
-    server_addr: String,
-    exclude: Vec<String>,
-    gateway_lan_ipv4: String,
-    gateway_lan_ipv6: String,
-    gateway_enabled: bool,
-    exit_enabled: bool,
+    routes: route::RouteOwner,
     platform_state_touched: bool,
     routes_started: bool,
-    dns_started: bool,
+    dns: Option<dns::DnsLease>,
     armed: bool,
 }
 
 #[cfg(target_os = "linux")]
-impl NetworkPlanApplyGuard {
-    fn new(config: &crate::config::client::ClientConfig, if_name: &str, owns_device: bool) -> Self {
+impl<'a> NetworkPlanApplyGuard<'a> {
+    fn new(
+        tun: &'a TunInterface,
+        if_name: &str,
+        owns_device: bool,
+        routes: route::RouteOwner,
+        failures: crate::client_cleanup::Failures,
+    ) -> Self {
         Self {
+            _tun: tun,
+            failures,
             if_name: if_name.to_string(),
             owns_device,
-            server_addr: pin_target(config),
-            exclude: config.routing.exclude.clone(),
-            gateway_lan_ipv4: config.routing.lan_subnet.clone(),
-            gateway_lan_ipv6: config.routing.lan_subnet_ipv6.clone(),
-            gateway_enabled: config.routing.gateway_nat || config.routing.forward,
-            exit_enabled: config.routing.exit_node,
+            routes,
             platform_state_touched: false,
             routes_started: false,
-            dns_started: false,
+            dns: None,
             armed: true,
         }
     }
@@ -7008,34 +8818,35 @@ impl NetworkPlanApplyGuard {
         self.routes_started = true;
     }
 
-    fn start_dns(&mut self) {
-        self.dns_started = true;
-    }
-
     fn disarm(&mut self) {
         self.armed = false;
     }
 }
 
 #[cfg(target_os = "linux")]
-impl Drop for NetworkPlanApplyGuard {
+impl Drop for NetworkPlanApplyGuard<'_> {
     fn drop(&mut self) {
         if !self.armed {
             return;
         }
+        let _budget = crate::operation_budget::Scope::enter(self.failures.cleanup_deadline());
         log::warn!(
             "Linux NetworkPlan failed before commit — rolling back platform state for {}",
             self.if_name
         );
-        if self.dns_started {
-            if let Err(error) = dns::restore_dns_for(&self.if_name) {
+        if let Some(lease) = self.dns.as_mut() {
+            if let Err(error) = self.failures.observe(
+                crate::client_cleanup::Resource::Dns,
+                lease.restore(self._tun),
+            ) {
                 log::warn!("DNS rollback after NetworkPlan failure also failed: {error}");
             }
         }
         if self.routes_started && self.owns_device {
-            if let Err(error) =
-                route::cleanup_routes(&self.if_name, &self.server_addr, &self.exclude)
-            {
+            if let Err(error) = self.failures.observe(
+                crate::client_cleanup::Resource::Routes,
+                route::cleanup_routes_for_tun(&self.routes, self._tun),
+            ) {
                 log::warn!("route rollback after NetworkPlan failure also failed: {error}");
             }
         }
@@ -7043,35 +8854,69 @@ impl Drop for NetworkPlanApplyGuard {
             // A rejected reconnect generation must not leave old router permits active
             // while there is no acknowledged TUN plan. Both teardown functions are
             // idempotent and remove their IPv4 and IPv6 family halves independently.
-            if let Err(error) = gateway::disengage_plan(
-                &self.if_name,
-                &self.gateway_lan_ipv4,
-                &self.gateway_lan_ipv6,
-                self.gateway_enabled,
-                self.exit_enabled,
+            if let Err(error) = self.failures.observe(
+                crate::client_cleanup::Resource::Forwarding,
+                gateway::disengage_owned(&self.routes),
             ) {
                 log::warn!("router rollback after NetworkPlan failure also failed: {error}");
-            }
-        }
-        if self.owns_device {
-            if let Err(error) = TunInterface::delete(&self.if_name) {
-                log::warn!("TUN rollback after NetworkPlan failure also failed: {error}");
             }
         }
     }
 }
 
-#[cfg(target_os = "linux")]
-fn publish_network_plan_state(plan: &NetworkPlan) -> anyhow::Result<()> {
-    let Ok(path) = std::env::var("QELI_TUNIP_FILE") else {
-        return Ok(());
-    };
-    if path.is_empty() {
-        return Ok(());
+/// Inspect gateway ownership through the same bounded file loader and strict INI
+/// service used at Linux startup. This command performs no platform/network work.
+#[cfg(all(target_os = "linux", feature = "client-bin"))]
+pub fn inspect_gateway_owner(config_path: &std::path::Path) -> anyhow::Result<&'static str> {
+    inspect_gateway_owner_with_router_expectation(config_path, None)
+}
+
+/// Router wrappers can require the configured TUN and L3 owner without parsing INI.
+/// This checks one file snapshot before launch; it does not pin later reloads.
+#[cfg(all(target_os = "linux", feature = "client-bin"))]
+pub fn inspect_gateway_owner_with_router_expectation(
+    config_path: &std::path::Path,
+    expected: Option<(&str, bool)>,
+) -> anyhow::Result<&'static str> {
+    let (snapshot, _) = crate::config_source::load_client(config_path)?;
+    let (contents, _) = snapshot.into_parts();
+    let config = crate::config::parse_client_config_strict(&contents)?;
+    if let Some((device, attach)) = expected {
+        anyhow::ensure!(
+            config.tun.name == device,
+            "router template TUN does not match configured dev"
+        );
+        anyhow::ensure!(
+            config.tun.device_type == "tun",
+            "router template requires device_type=tun"
+        );
+        anyhow::ensure!(
+            config.tun.attach_existing == attach,
+            "router template attachment mode does not match configured dev_attach"
+        );
+        anyhow::ensure!(
+            !attach
+                || !(config.routing.gateway_nat
+                    || config.routing.forward
+                    || config.routing.exit_node),
+            "attached router interface requires gateway_nat/forward/exit_node disabled"
+        );
     }
+    Ok(
+        if config.routing.gateway_nat || config.routing.forward || config.routing.exit_node {
+            "core"
+        } else {
+            "legacy"
+        },
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn network_plan_state(plan: &NetworkPlan) -> String {
     // First line remains compatible with the original attach-mode contract. Named
     // family lines let interface owners and legacy router wrappers consume the exact
-    // authenticated family set without guessing from `ipv6=auto`.
+    // authenticated family set without guessing from `ipv6=auto`. Generation
+    // also distinguishes reauthentication with the same addresses within an adapter.
     let mut state = format!("{}\n", plan.tunnel_address);
     for address in &plan.addresses {
         let family = match address.family {
@@ -7084,6 +8929,23 @@ fn publish_network_plan_state(plan: &NetworkPlan) -> anyhow::Result<()> {
         ));
     }
     state.push_str(&format!("mtu={}\n", plan.mtu));
+    state.push_str(&format!("generation={}\n", plan.generation));
+    state
+}
+
+#[cfg(target_os = "linux")]
+fn publish_network_plan_state(plan: &NetworkPlan) -> anyhow::Result<()> {
+    let Ok(path) = std::env::var("QELI_TUNIP_FILE") else {
+        return Ok(());
+    };
+    if path.is_empty() {
+        return Ok(());
+    }
+    let state = network_plan_state(plan);
+    let _publication = plan_publication::PublicationLock::acquire(std::path::Path::new(&path))
+        .map_err(|error| {
+            anyhow::anyhow!("could not acquire network-plan publication lock: {error}")
+        })?;
     crate::util::write_atomic(&path, state.as_bytes()).map_err(|error| {
         anyhow::anyhow!(
             "could not publish authenticated network plan to QELI_TUNIP_FILE '{path}': {error}"
@@ -7095,8 +8957,12 @@ fn publish_network_plan_state(plan: &NetworkPlan) -> anyhow::Result<()> {
 fn setup_tunnel(
     config: &crate::config::client::ClientConfig,
     plan: &NetworkPlan,
-    _network: &HandshakeNetwork<'_>,
+    cleanup_failures: crate::client_cleanup::Failures,
 ) -> anyhow::Result<TunnelSetup> {
+    let until =
+        crate::operation_budget::limit(std::time::Instant::now() + crate::operation_budget::LIMIT);
+    let _budget = crate::operation_budget::Scope::enter(until);
+    crate::operation_budget::check()?;
     let client_ip = plan.tunnel_address.as_str();
     let mtu = i32::from(plan.mtu);
     let is_tap = is_tap_mode(&config.tun.device_type);
@@ -7117,30 +8983,22 @@ fn setup_tunnel(
     };
     log::info!("TUN MTU: {}", mtu);
 
-    let exists = std::path::Path::new(&format!("/sys/class/net/{}", if_name)).exists();
-    if attach {
-        // Attach to a PRE-EXISTING, externally-owned interface; we only open it for
-        // packet IO. If it's not there yet, error out and let the reconnect loop retry
-        // until the owner creates it.
-        if !exists {
-            anyhow::bail!(
-                "dev_attach is set but interface '{}' does not exist yet — waiting for its \
-                 owner to create it (the reconnect loop will retry).",
-                if_name
-            );
-        }
-        log::info!("Attaching to existing {} interface {}", dev_label, if_name);
+    let route_owner = if attach {
+        route::RouteOwner::new(&if_name, plan.generation)?
     } else {
-        // An interface that already exists is usually someone else's, and clobbering it
-        // would be destructive — but it can also be OUR OWN leftover from a connection
-        // that died on an error path, in which case refusing would wedge every reconnect
-        // from here on. Only that provably-ours case is reclaimed; everything else still
-        // errors out and tells the operator to pick a distinct name via `dev=`.
-        if exists {
-            reclaim_stale_tun(&if_name)?;
-        }
-        log::info!("Creating {} interface {}", dev_label, if_name);
-    }
+        route::RouteOwner::new_persistent(&if_name, plan.generation)?
+    };
+    tun_recovery::prepare(&if_name, attach)?;
+    log::info!(
+        "{} {} interface {}",
+        if attach {
+            "Attaching to existing"
+        } else {
+            "Creating"
+        },
+        dev_label,
+        if_name
+    );
 
     // Attach mode must mirror the existing device's IFF_MULTI_QUEUE flag. Opening a
     // multi-queue TUN/TAP without it fails with EINVAL, while adding it to a single-queue
@@ -7150,6 +9008,7 @@ fn setup_tunnel(
     } else {
         DeviceType::Tun
     };
+    crate::operation_budget::check()?;
     let tun_res = if attach {
         TunInterface::attach(&if_name, mtu, device_type)
     } else if is_tap {
@@ -7167,28 +9026,28 @@ fn setup_tunnel(
             e
         )
     })?;
-    // The caller cannot construct TunGuard until this function returns. Keep every
-    // platform mutation in one local transaction instead: address/up, gateway and exit
+    let tun = std::sync::Arc::new(tun);
+    let router_enabled =
+        config.routing.gateway_nat || config.routing.forward || config.routing.exit_node;
+    if !attach || router_enabled {
+        route_owner.bind_tun(&tun)?;
+    }
+    // Cover partial setup with a local transaction. A completed TunGuard is transferred
+    // into TunnelSetup before returning, so a failed core ACK cannot leave a gap.
+    // This transaction covers address/up, gateway and exit
     // firewall state, descriptor duplication, routes, DNS, and the final TAP MAC read.
     // The external interface in attach mode is borrowed and is therefore never deleted.
-    let mut plan_guard = NetworkPlanApplyGuard::new(config, &if_name, !attach);
-    if attach {
-        // The interface owner sets L3 (address + link up) — some managers only route
-        // through an interface they configured themselves, so if qeli sets the address
-        // the owner never treats it as connected. We only pump packets; the committed
-        // authenticated plan is exported at the end of this transaction.
-        log::info!(
-            "Attached {}; L3 (address {}) left to its owner",
-            if_name,
-            client_ip
-        );
-    } else {
-        if is_tap {
-            TunInterface::set_mac(&if_name, planned_tap_mac)?;
-        }
-        for address in &plan.addresses {
-            TunInterface::set_address(&if_name, &address.address, address.prefix_len)?;
-        }
+    let mut plan_guard = NetworkPlanApplyGuard::new(
+        &tun,
+        &if_name,
+        !attach,
+        route_owner.clone(),
+        cleanup_failures.clone(),
+    );
+    // An owned exit interface must not receive forwarded traffic before its
+    // fail-closed FORWARD rules are installed, even if host forwarding is already on.
+    let bring_up = || -> anyhow::Result<()> {
+        route_owner.verify_plan()?;
         TunInterface::set_up(&if_name, mtu)?;
         log::info!(
             "{} {} is up (addresses: {})",
@@ -7200,6 +9059,44 @@ fn setup_tunnel(
                 .collect::<Vec<_>>()
                 .join(", ")
         );
+        Ok(())
+    };
+    if attach {
+        // The interface owner sets L3 (address + link up) — some managers only route
+        // through an interface they configured themselves, so if qeli sets the address
+        // the owner never treats it as connected. We only pump packets; the committed
+        // authenticated plan is exported at the end of this transaction.
+        log::info!(
+            "Attached {}; L3 (address {}) left to its owner",
+            if_name,
+            client_ip
+        );
+    } else {
+        // Local Linux adapter policy, deliberately not supplied by the server or
+        // a share link. Apply before link-up and only to the device we created;
+        // the transaction guard releases it if setup fails.
+        if let Some(queue_len) = config.tun.owned_linux_tx_queue_len() {
+            route_owner.verify_plan()?;
+            TunInterface::set_queue_len_strict(&if_name, queue_len).map_err(|error| {
+                anyhow::anyhow!(
+                    "failed to set client TUN TX queue length on '{}': {}",
+                    if_name,
+                    error
+                )
+            })?;
+            log::info!("Client TUN TX queue length: {} packets", queue_len);
+        }
+        if is_tap {
+            route_owner.verify_plan()?;
+            TunInterface::set_mac(&if_name, planned_tap_mac)?;
+        }
+        for address in &plan.addresses {
+            route_owner.verify_plan()?;
+            TunInterface::set_address(&if_name, &address.address, address.prefix_len)?;
+        }
+        if !config.routing.exit_node {
+            bring_up()?;
+        }
     }
     // Now that the interface exists, apply only the firewall/sysctl families present in
     // the authenticated plan. An IPv6-only router must not depend on IPv4 iptables or
@@ -7212,15 +9109,18 @@ fn setup_tunnel(
         .addresses
         .iter()
         .any(|address| address.family == crate::transport_core::NetworkAddressFamily::Ipv6);
-    if (config.routing.gateway_nat || config.routing.forward || config.routing.exit_node)
-        && has_ipv4
-    {
+    if config.routing.exit_node && !has_ipv4 && !has_ipv6 {
+        anyhow::bail!("exit-node requires an authenticated IPv4 or IPv6 TUN address");
+    }
+    if router_enabled {
+        gateway::bind_owner(&route_owner)?;
         plan_guard.touch_platform_state();
-        crate::client::gateway::apply_tun_rp_filter(&if_name);
+    }
+    if router_enabled && has_ipv4 {
+        crate::client::gateway::apply_tun_rp_filter(&if_name)?;
     }
     if config.routing.gateway_nat || config.routing.forward {
         if has_ipv4 {
-            plan_guard.touch_platform_state();
             // `gateway_nat` masquerades; `forward` alone is pure L3 routing (#13).
             crate::client::gateway::engage(
                 &if_name,
@@ -7229,7 +9129,6 @@ fn setup_tunnel(
             )?;
         }
         if has_ipv6 {
-            plan_guard.touch_platform_state();
             crate::client::gateway::engage_ipv6(
                 &if_name,
                 &config.routing.lan_subnet_ipv6,
@@ -7239,28 +9138,28 @@ fn setup_tunnel(
     }
     if config.routing.exit_node {
         if has_ipv4 {
-            plan_guard.touch_platform_state();
             crate::client::gateway::engage_exit(&if_name)?;
         }
         if has_ipv6 {
-            plan_guard.touch_platform_state();
             crate::client::gateway::engage_exit_ipv6(&if_name)?;
         }
+    }
+    if config.routing.exit_node && !attach {
+        bring_up()?;
     }
     tun.set_nonblocking()?;
 
     // Own the dups through the rest of this function. They used to be bare `i32`s, and
     // everything below can still fail: a `?` from `setup_routes` or the DNS setup left
     // both of them open with nothing to close them. The device is non-persistent, so it
-    // then survived on those two fds — and `reclaim_stale_tun` could not recover it
-    // either, because the holder it found was OUR OWN pid and the fds were never going
-    // to be released, so every later reconnect timed out waiting and bailed. `OwnedFd`
+    // then survived on those two fds. Waiting for the non-persistent device could never
+    // succeed because those descriptors were not going to be released. `OwnedFd`
     // closes them on any early return; ownership passes to the caller only on success.
     // F_DUPFD_CLOEXEC, not dup(2).
     //
     // POSIX says dup(2) CLEARS FD_CLOEXEC on the new descriptor. The original /dev/net/tun
     // fd is opened by std, which sets O_CLOEXEC — and both dups threw that away. After this
-    // point the client keeps spawning children: `ip` (routes), `resolvectl` (DNS),
+    // point the client keeps spawning children: `ip` (routes), `busctl` (DNS),
     // `iptables`/`ip6tables` (kill-switch refresh on EVERY reconnect), and above all
     // `hooks::run("post_down", …)`, which is `/bin/sh -c <operator string>`. Each inherited
     // a live, readable TUN descriptor: `exec 9<&<N>` in a hook script reads the user's raw
@@ -7299,9 +9198,9 @@ fn setup_tunnel(
             .map_err(|_| anyhow::anyhow!("invalid local carrier address"))?
             .map(crate::transport_core::carrier::canonical_carrier_ip);
         route::setup_network_plan_routes(
+            &route_owner,
             &config.routing,
             plan,
-            &if_name,
             &carrier_targets,
             carrier_local_address,
             is_tap,
@@ -7326,21 +9225,8 @@ fn setup_tunnel(
     // environment intentionally owns DNS can set `dns = off` and receive an empty DNS plan.
     // Tunnel subnet, so a server-pushed resolver can be checked for reachability through
     // the tunnel instead of being written into the host resolver on trust.
-    plan_guard.start_dns();
-    let dns_result = dns::setup_network_plan_dns(&config.dns, &plan.dns_servers, &if_name);
-    if plan.dns_servers.is_empty() {
-        if let Err(e) = dns_result {
-            log::warn!(
-                "DNS was omitted from the network plan ({e}) — keeping the host resolver unchanged. \
-                 Configure dns_servers, let the server push a reachable resolver, or set `dns = off` \
-                 when the platform manages DNS itself."
-            );
-        }
-    } else if let Err(e) = dns_result {
-        return Err(anyhow::anyhow!(
-            "DNS network-plan step failed: {e}. Set `dns = off` only when the platform manages DNS itself"
-        ));
-    }
+    dns::setup_network_plan_dns(&config.dns, &plan.dns_servers, &tun, &mut plan_guard.dns)
+        .map_err(|error| anyhow::anyhow!("DNS network-plan step failed: {error}. Set `dns = off` only when the platform manages DNS itself"))?;
 
     // Past every fallible platform step — move the RAII descriptors to the caller, which
     // immediately hands them to the shared TUN backend. No raw integer ownership escapes.
@@ -7354,10 +9240,24 @@ fn setup_tunnel(
     // Publish only after every fallible host-network step succeeded. A router wrapper
     // must never enable forwarding/NAT based on an authenticated plan that was rolled
     // back before becoming the active generation.
+    if !attach || router_enabled {
+        route_owner.verify_plan()?;
+    }
+    crate::operation_budget::check()?;
     publish_network_plan_state(plan)?;
+    let dns = plan_guard.dns.take();
     plan_guard.disarm();
-    Ok(TunnelSetup {
+    drop(plan_guard);
+    let guard = TunGuard::new(
         tun,
+        dns,
+        if_name.clone(),
+        !attach,
+        route_owner,
+        cleanup_failures,
+    );
+    Ok(TunnelSetup {
+        guard,
         reader_fd: owned_reader,
         writer_fd: owned_writer,
         if_name,
@@ -7368,15 +9268,8 @@ fn setup_tunnel(
 
 #[cfg(target_os = "linux")]
 fn read_interface_mac(ifname: &str) -> anyhow::Result<[u8; 6]> {
-    let text = std::fs::read_to_string(format!("/sys/class/net/{ifname}/address"))?;
-    let bytes = text
-        .trim()
-        .split(':')
-        .map(|part| u8::from_str_radix(part, 16))
-        .collect::<Result<Vec<_>, _>>()?;
-    bytes
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("interface '{ifname}' has an invalid MAC address"))
+    let (_, mac) = crate::network_interface::ethernet(ifname)?;
+    Ok(mac)
 }
 
 #[cfg(target_os = "linux")]
@@ -7386,18 +9279,13 @@ async fn connect_udp_candidates(
 ) -> anyhow::Result<UdpSocket> {
     let host = config.server.address.as_str();
     let port = config.server.port;
-    let resolved = match tokio::time::timeout(total, tokio::net::lookup_host((host, port))).await {
-        Ok(result) => result
-            .map_err(|error| anyhow::anyhow!("UDP DNS lookup for {host}:{port} failed: {error}"))?,
-        Err(_) => {
-            return Err(anyhow::anyhow!(
-                "UDP DNS lookup for {host}:{port} timed out after {}s",
-                total.as_secs()
-            ));
-        }
-    };
+    let resolved =
+        crate::transport_core::resolver::lookup(host, port, tokio::time::Instant::now() + total)
+            .await
+            .map_err(|error| anyhow::anyhow!("UDP DNS lookup for {host}:{port} failed: {error}"))?;
     let mut seen = std::collections::HashSet::new();
     let mut candidates: Vec<std::net::SocketAddr> = resolved
+        .into_iter()
         .map(|address| {
             std::net::SocketAddr::new(
                 crate::transport_core::carrier::canonical_carrier_ip(address.ip()),
@@ -7503,16 +9391,14 @@ async fn send_client_udp_payloads(
     data_frag_enabled: bool,
     tx_data_frag_key: &[u8; 32],
     tx_record_id: &mut u64,
-    shaper: &mut crate::protocol::Shaper,
     socket: &crate::protocol::obfs::ObfsUdp,
     framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     quic_pn: &mut u32,
-    max_empty_record_padding: usize,
     wire_record: &mut Vec<u8>,
-    cover_record: &mut Vec<u8>,
     quic_record: &mut Vec<u8>,
     padding: &mut Vec<u8>,
     send_scratch: &mut crate::transport_core::udp_batch::BatchScratch,
+    path_counters: &crate::transport_core::udp_buffer::UdpPathCounters,
 ) -> ClientUdpPayloadSendOutcome {
     let mut datagrams = Vec::with_capacity(crate::transport_core::udp_batch::MAX_BATCH);
     for payload in payloads {
@@ -7539,7 +9425,9 @@ async fn send_client_udp_payloads(
             obfuscation.padding.probability,
             padding,
         );
-        if normalization_padding != 0 {
+        if obfuscation.traffic_normalization.enabled
+            && !obfuscation.traffic_normalization.round_sizes.is_empty()
+        {
             obf.append_normalization_padding_into(
                 payload.len(),
                 &obfuscation.traffic_normalization.round_sizes,
@@ -7558,46 +9446,6 @@ async fn send_client_udp_payloads(
                 return ClientUdpPayloadSendOutcome::CarrierFailed;
             }
             return ClientUdpPayloadSendOutcome::EncodeFailed;
-        }
-
-        let delay = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
-        if !delay.is_zero()
-            && flush_client_udp_datagrams(&mut datagrams, socket, send_scratch)
-                .await
-                .is_err()
-        {
-            return ClientUdpPayloadSendOutcome::CarrierFailed;
-        }
-        if shaper.stealth() && !delay.is_zero() {
-            let mut remaining = delay;
-            while remaining > Duration::from_millis(6) {
-                let cover_size = shaper
-                    .next_size(&mut rand::rng())
-                    .min(max_empty_record_padding);
-                if shaper.try_spend(cover_size, std::time::Instant::now()) {
-                    let mut cover_obf = Obfuscator::new();
-                    cover_obf.generate_padding_into(cover_size as u16, cover_size as u16, padding);
-                    if client_tx
-                        .encrypt_packet_into(&[], padding, cover_record)
-                        .is_ok()
-                    {
-                        let send_data =
-                            crate::transport_core::udp_client_framing::wrap_next_udp_record(
-                                framing,
-                                cover_record,
-                                quic_pn,
-                                quic_record,
-                            );
-                        let _ = socket.send(send_data).await;
-                    }
-                }
-                let step = Duration::from_millis(rand::rng().random_range(4..=18));
-                let sleep = step.min(remaining);
-                tokio::time::sleep(sleep).await;
-                remaining = remaining.saturating_sub(sleep);
-            }
-        } else if !delay.is_zero() {
-            tokio::time::sleep(delay).await;
         }
 
         if data_frag_enabled && wire_record.len() > data_record_budget {
@@ -7621,6 +9469,7 @@ async fn send_client_udp_payloads(
                     return ClientUdpPayloadSendOutcome::EncodeFailed;
                 }
             };
+            path_counters.note_fragmentation(fragments.len());
             for fragment in fragments {
                 let send_data = crate::transport_core::udp_client_framing::wrap_next_udp_record(
                     framing,
@@ -7721,16 +9570,14 @@ async fn send_client_udp_control_frame(
     data_frag_enabled: bool,
     tx_data_frag_key: &[u8; 32],
     tx_record_id: &mut u64,
-    shaper: &mut crate::protocol::Shaper,
     socket: &crate::protocol::obfs::ObfsUdp,
     framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     quic_pn: &mut u32,
-    max_empty_record_padding: usize,
     wire_record: &mut Vec<u8>,
-    cover_record: &mut Vec<u8>,
     quic_record: &mut Vec<u8>,
     padding: &mut Vec<u8>,
     send_scratch: &mut crate::transport_core::udp_batch::BatchScratch,
+    path_counters: &crate::transport_core::udp_buffer::UdpPathCounters,
 ) -> Result<bool, crate::protocol::recordizer::RecordizerError> {
     let payloads = prepare_client_udp_control_payloads(frame, recordizer)?;
     Ok(send_client_udp_payloads(
@@ -7742,16 +9589,14 @@ async fn send_client_udp_control_frame(
         data_frag_enabled,
         tx_data_frag_key,
         tx_record_id,
-        shaper,
         socket,
         framing,
         quic_pn,
-        max_empty_record_padding,
         wire_record,
-        cover_record,
         quic_record,
         padding,
         send_scratch,
+        path_counters,
     )
     .await
         == ClientUdpPayloadSendOutcome::Sent)
@@ -7909,7 +9754,7 @@ struct UdpClientDrainingPath {
     epoch: u64,
     framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     expires_at: tokio::time::Instant,
-    receive_task: tokio::task::JoinHandle<()>,
+    receive_task: crate::transport_core::tasks::TaskHandle,
 }
 
 /// One pooled datagram tagged by the path epoch of the socket that received it. The tag is local
@@ -8113,8 +9958,12 @@ impl std::ops::Deref for ClientUdpReceivedDatagram {
 fn spawn_client_udp_receive_pump(
     socket: Arc<crate::protocol::obfs::ObfsUdp>,
     path_epoch: u64,
-    received_tx: mpsc::Sender<Vec<ClientUdpReceivedDatagram>>,
-) -> tokio::task::JoinHandle<()> {
+    received_tx: mpsc::Sender<
+        crate::transport_core::receive_queue::QueuedBatch<ClientUdpReceivedDatagram>,
+    >,
+    tasks: &crate::transport_core::tasks::Spawner,
+    receive_queue: Arc<crate::transport_core::receive_queue::ReceiveQueue>,
+) -> crate::transport_core::tasks::TaskHandle {
     let receive_slots = crate::transport_core::udp_receive::UDP_RECEIVE_QUEUE_PACKETS + 1;
     let (receive_recycler, mut recycled_receivers) = mpsc::channel(receive_slots);
     for _ in 0..receive_slots {
@@ -8124,7 +9973,7 @@ fn spawn_client_udp_receive_pump(
             ))
             .expect("fresh UDP receive recycler has exact advertised capacity");
     }
-    tokio::spawn(async move {
+    tasks.spawn_owned(async move {
         // One syscall per datagram was a measured UDP data-plane cost: at MTU 1400 a
         // 500 Mbit/s stream is ~45 000 `recvfrom` per second, and an `strace` of a live run
         // matched datagrams to calls almost exactly. The TCP transport never paid it — one
@@ -8166,6 +10015,7 @@ fn spawn_client_udp_receive_pump(
                 }
             };
 
+            let received_at = std::time::Instant::now();
             // Hand the whole batch over once. Per-datagram channel sends were the second
             // per-packet cost after the syscall, and the consumer drains this exactly like
             // the early-data queue it already keeps.
@@ -8188,8 +10038,12 @@ fn spawn_client_udp_receive_pump(
                     authenticated_plaintext: None,
                 });
             }
-            if !batch.is_empty() && received_tx.send(batch).await.is_err() {
-                return;
+            if !batch.is_empty() {
+                let bytes = batch.iter().map(|packet| packet.len()).sum();
+                let batch = receive_queue.batch(batch, bytes, received_at).await;
+                if received_tx.send(batch).await.is_err() {
+                    return;
+                }
             }
         }
     })
@@ -8240,10 +10094,10 @@ fn begin_udp_carrier_failure_recovery(
 
 #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
 struct UdpClientLiveCandidate {
-    prepared: Option<PreparedPathCandidate>,
+    prepared: PreparedPathCandidate,
     epoch: u64,
     socket: Arc<crate::protocol::obfs::ObfsUdp>,
-    receive_task: Option<tokio::task::JoinHandle<()>>,
+    receive_task: crate::transport_core::tasks::TaskHandle,
 }
 
 #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
@@ -8252,47 +10106,32 @@ impl UdpClientLiveCandidate {
         prepared: PreparedPathCandidate,
         epoch: u64,
         socket: Arc<crate::protocol::obfs::ObfsUdp>,
-        receive_task: tokio::task::JoinHandle<()>,
+        receive_task: crate::transport_core::tasks::TaskHandle,
     ) -> Self {
         Self {
-            prepared: Some(prepared),
+            prepared,
             epoch,
             socket,
-            receive_task: Some(receive_task),
+            receive_task,
         }
     }
 
     fn prepared(&self) -> &PreparedPathCandidate {
-        self.prepared
-            .as_ref()
-            .expect("live UDP candidate retains platform identity")
+        &self.prepared
     }
 
     fn into_active(
-        mut self,
+        self,
     ) -> (
         PreparedPathCandidate,
         Arc<crate::protocol::obfs::ObfsUdp>,
-        tokio::task::JoinHandle<()>,
+        crate::transport_core::tasks::TaskHandle,
     ) {
-        let prepared = self
-            .prepared
-            .take()
-            .expect("committed UDP candidate retains platform identity");
-        let receive_task = self
-            .receive_task
-            .take()
-            .expect("committed UDP candidate retains receive pump");
-        (prepared, self.socket.clone(), receive_task)
+        (self.prepared, self.socket, self.receive_task)
     }
-}
 
-#[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
-impl Drop for UdpClientLiveCandidate {
-    fn drop(&mut self) {
-        if let Some(task) = self.receive_task.take() {
-            task.abort();
-        }
+    async fn stop(mut self) {
+        self.receive_task.finish().await;
     }
 }
 
@@ -8371,9 +10210,12 @@ async fn connect_and_run_udp(
              (an empty key is publicly derivable → no DPI resistance)"
         ));
     }
-    let raw_socket = connect_udp_candidates(
-        config,
-        Duration::from_secs(config.server.connection_timeout_secs.max(1)),
+    let raw_socket = connect_before_tunnel(
+        core.cancel_token(),
+        connect_udp_candidates(
+            config,
+            Duration::from_secs(config.server.connection_timeout_secs.max(1)),
+        ),
     )
     .await?;
     // The shared UDP path below applies the socket policy before its first handshake packet,
@@ -8975,9 +10817,9 @@ pub(crate) async fn run_udp_tunnel(
     // The complete push journal is attached below after path-MTU probing, so every
     // platform sees both the server ceiling and the final selected MTU.
 
-    // Auto MTU on UDP: when `mtu = 0` and probing is on, actively discover the path
-    // MTU (DF probes from the pushed ceiling down) before bringing the TUN up — so a
-    // narrow LTE/CGNAT path is measured, not guessed. Otherwise adopt the pushed MTU.
+    // Discover the outer UDP path whenever probing is enabled, independently of an
+    // explicit inner TUN MTU. DATA_FRAG keeps the selected inner MTU while records fit
+    // the certified outer budget; legacy sockets retain IP-fragmentation compatibility.
     // The client data plane is not running yet, but the server may already emit cover or a
     // heartbeat after AuthOK. The probe receive loop ignores unrelated datagrams until each
     // fixed deadline. Falls back to the pushed/effective MTU on any miss.
@@ -8988,7 +10830,8 @@ pub(crate) async fn run_udp_tunnel(
     let mut uplink_udp_payload_budget =
         crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6());
     let mut keep_df_after_live_probe = false;
-    let tun_mtu = if config.tun.mtu == 0 && config.tun.mtu_probe {
+    let mut initial_probe_confirmed = false;
+    let tun_mtu = if config.tun.mtu_probe {
         match probe_udp_mtu(
             &socket,
             udp_framing,
@@ -9005,6 +10848,7 @@ pub(crate) async fn run_udp_tunnel(
         {
             Some(m) => {
                 keep_df_after_live_probe = data_frag_enabled;
+                initial_probe_confirmed = true;
                 // The probe sent `m + record-overhead`, then QUIC/obfs wrapped it. Record
                 // the UDP payload size it actually certified separately from inner MTU.
                 uplink_udp_payload_budget = udp_payload_budget_for_probe(
@@ -9013,11 +10857,16 @@ pub(crate) async fn run_udp_tunnel(
                     udp_framing.wrapper_len(),
                 );
                 // Inner and outer MTU stay independent when DATA_FRAG_V1 was negotiated.
-                // A legacy server cannot reassemble record fragments, so use the certified
-                // inner size for IPv4. IPv6 keeps its mandatory 1280 floor; the probe restored
-                // outer fragmentation in that compatibility mode.
-                let inner_mtu =
-                    udp_inner_mtu_after_probe(base_mtu, m, data_frag_enabled, family_mode);
+                // Preserve an explicit inner MTU. For legacy peers only auto IPv4 may
+                // shrink; auto IPv6 keeps its 1280 floor. The probe restored outer IP
+                // fragmentation for legacy compatibility in either case.
+                let inner_mtu = udp_inner_mtu_after_probe(
+                    base_mtu,
+                    m,
+                    data_frag_enabled,
+                    family_mode,
+                    config.tun.mtu > 0,
+                );
                 log::info!(
                     "UDP path probe: inner MTU {}, uplink UDP payload budget {} (probe rung {}, DATA_FRAG_V1={})",
                     inner_mtu,
@@ -9037,8 +10886,37 @@ pub(crate) async fn run_udp_tunnel(
             }
         }
     } else {
+        log::info!(
+            "UDP path probe disabled: using inner MTU {} and conservative {}-byte UDP payload budget",
+            base_mtu,
+            uplink_udp_payload_budget
+        );
         base_mtu
     };
+    runtime_counters.udp.path.set(
+        tun_mtu as u32,
+        uplink_udp_payload_budget,
+        data_frag_enabled,
+        if initial_probe_confirmed {
+            "probe"
+        } else {
+            "fallback"
+        },
+        if initial_probe_confirmed {
+            None
+        } else {
+            Some(if config.tun.mtu_probe {
+                "probe_unconfirmed"
+            } else {
+                "probe_disabled"
+            })
+        },
+    );
+    log::info!(
+        "UDP path diagnostics: {}",
+        serde_json::to_string(&runtime_counters.udp.path.snapshot())
+            .expect("path diagnostics serialize")
+    );
     let fallback_dns_servers = core.fallback_dns_servers().to_vec();
     let network = HandshakeNetwork {
         family_mode,
@@ -9054,6 +10932,14 @@ pub(crate) async fn run_udp_tunnel(
         fallback_dns_servers: &fallback_dns_servers,
     };
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
+    #[cfg(target_os = "linux")]
+    {
+        plan.carrier_address = CONNECTED_PEER
+            .lock()
+            .ok()
+            .and_then(|peer| *peer)
+            .map(|peer| peer.to_string());
+    }
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
     let path_generation = plan.generation;
     plan.max_streams = max_streams_udp;
@@ -9093,7 +10979,37 @@ pub(crate) async fn run_udp_tunnel(
     #[cfg(any(target_os = "android", target_os = "macos"))]
     let (tap_gateway_ipv4, tap_ipv4_prefix_len, tap_gateway_ipv6, tap_ipv6_prefix_len) =
         (None, 0, None, 0);
-    let tun_setup = core.prepare_tunnel(config, plan, &network)?;
+    // Reject unusable authenticated budgets before platform mutation and post_up.
+    let mut data_record_budget =
+        crate::protocol::data_frag::unfragmented_record_budget_with_wrapper(
+            uplink_udp_payload_budget,
+            socket.seal_overhead(),
+            udp_framing.wrapper_len(),
+        )?;
+    let mut mux_payload_budget = client_tx
+        .max_data_for_record_budget(data_record_budget)
+        .map_err(|error| anyhow::anyhow!("UDP recordizer budget is invalid: {error}"))?;
+    let udp_recordizer_config = pushed_obf
+        .as_ref()
+        .and_then(|pushed| pushed.recordizer.as_ref())
+        .cloned();
+    let udp_recordizer_runtime = udp_recordizer_config
+        .as_ref()
+        .map(|config| {
+            crate::protocol::recordizer::RuntimeConfig::from_config(
+                config,
+                mux_payload_budget,
+                crate::protocol::packet::MAX_TUNNEL_MTU,
+            )
+        })
+        .transpose()
+        .map_err(|error| anyhow::anyhow!("invalid negotiated UDP recordizer: {error}"))?;
+    let mut max_empty_record_padding = client_tx
+        .max_padding_for_record_budget(0, data_record_budget)
+        .map_err(|error| {
+            anyhow::anyhow!("UDP record budget cannot carry control traffic: {error}")
+        })?;
+    let tun_setup = core.prepare_tunnel(config, plan).await?;
     run_pending_post_up(core).await;
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let reader_fd = tun_setup.reader_fd;
@@ -9105,10 +11021,6 @@ pub(crate) async fn run_udp_tunnel(
     let is_tap = tun_setup.is_tap;
     #[cfg(target_os = "macos")]
     let is_tap = false;
-    #[cfg(target_os = "linux")]
-    let server_addr = pin_target(config);
-    #[cfg(target_os = "linux")]
-    let tunnel_tun = tun_setup.tun;
     #[cfg(target_os = "linux")]
     let tap_mac = tun_setup.tap_mac;
     #[cfg(any(target_os = "android", target_os = "macos"))]
@@ -9160,39 +11072,37 @@ pub(crate) async fn run_udp_tunnel(
     };
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
 
-    // Everything below can bail out through `?`, which would skip the teardown at the
-    // end of this function; from here on the guard covers that (see `TunGuard`).
-    #[cfg(target_os = "linux")]
-    let mut tun_guard = TunGuard::new(
-        tun_name.clone(),
-        !config.tun.attach_existing,
-        server_addr.clone(),
-        config.routing.exclude.clone(),
-    );
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
-    let mut tun_pump = LinuxTunPump::start(
+    let pump_config = LinuxTunPumpConfig {
+        buffer_size: tun_buf_size,
+        downlink_record_bytes: downlink_record_budget(tun_mtu, padding_max, norm_sizes),
+        write_drops: Some(runtime_counters.udp.sink(InternalDrop::TunWrite)),
+        framing: if cfg!(target_os = "macos") {
+            TunFraming::Utun
+        } else if is_tap {
+            TunFraming::Tap(TapHeaders {
+                client_mac: tap_mac,
+                gateway_mac,
+                gateway_ipv4: tap_gateway_ipv4,
+                ipv4_prefix_len: tap_ipv4_prefix_len,
+                gateway_ipv6: tap_gateway_ipv6,
+                ipv6_prefix_len: tap_ipv6_prefix_len,
+            })
+        } else {
+            TunFraming::Raw
+        },
+    };
+    #[cfg(target_os = "linux")]
+    let (tun_guard, mut tun_pump) = start_linux_tun_pump(
+        tun_setup.guard,
         reader_fd,
         writer_fd,
-        LinuxTunPumpConfig {
-            buffer_size: tun_buf_size,
-            downlink_record_bytes: downlink_record_budget(tun_mtu, padding_max, norm_sizes),
-            write_drops: Some(runtime_counters.udp.sink(InternalDrop::TunWrite)),
-            framing: if cfg!(target_os = "macos") {
-                TunFraming::Utun
-            } else if is_tap {
-                TunFraming::Tap(TapHeaders {
-                    client_mac: tap_mac,
-                    gateway_mac,
-                    gateway_ipv4: tap_gateway_ipv4,
-                    ipv4_prefix_len: tap_ipv4_prefix_len,
-                    gateway_ipv6: tap_gateway_ipv6,
-                    ipv6_prefix_len: tap_ipv6_prefix_len,
-                })
-            } else {
-                TunFraming::Raw
-            },
-        },
-    )?;
+        pump_config,
+        Some(tokio::runtime::Handle::current()),
+    )
+    .await?;
+    #[cfg(any(target_os = "android", target_os = "macos"))]
+    let mut tun_pump = LinuxTunPump::start(reader_fd, writer_fd, pump_config)?;
     #[cfg(target_os = "windows")]
     let mut tun_pump = match tun_setup.windows_tun {
         WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(
@@ -9204,8 +11114,6 @@ pub(crate) async fn run_udp_tunnel(
     };
     #[cfg(target_os = "ios")]
     let mut tun_pump = tun_setup.packet_tun;
-    #[cfg(target_os = "linux")]
-    tun_guard.attach_pump(tun_pump.stop_handle());
     let tun_write_tx = tun_pump.sender_to_tun();
     let cancel = core.cancel_token();
     // Persistent for the same reason as the TCP cancellation tick: high packet rates must
@@ -9280,30 +11188,6 @@ pub(crate) async fn run_udp_tunnel(
     let mut quic_record = Vec::with_capacity(wire_capacity + udp_framing.wrapper_len());
     let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
     let mut oversize_tun_drops: u64 = 0;
-    let mut data_record_budget =
-        crate::protocol::data_frag::unfragmented_record_budget_with_wrapper(
-            uplink_udp_payload_budget,
-            socket.seal_overhead(),
-            udp_framing.wrapper_len(),
-        )?;
-    let mut mux_payload_budget = client_tx
-        .max_data_for_record_budget(data_record_budget)
-        .map_err(|error| anyhow::anyhow!("UDP recordizer budget is invalid: {error}"))?;
-    let udp_recordizer_config = pushed_obf
-        .as_ref()
-        .and_then(|pushed| pushed.recordizer.as_ref())
-        .cloned();
-    let udp_recordizer_runtime = udp_recordizer_config
-        .as_ref()
-        .map(|config| {
-            crate::protocol::recordizer::RuntimeConfig::from_config(
-                config,
-                mux_payload_budget,
-                crate::protocol::packet::MAX_TUNNEL_MTU,
-            )
-        })
-        .transpose()
-        .map_err(|error| anyhow::anyhow!("invalid negotiated UDP recordizer: {error}"))?;
     let mut udp_tx_recordizer = udp_recordizer_runtime
         .clone()
         .map(crate::protocol::recordizer::Recordizer::new);
@@ -9312,11 +11196,6 @@ pub(crate) async fn run_udp_tunnel(
     if udp_tx_recordizer.is_some() {
         log::info!("Packet recordizer: PACKET_MUX_V1 active on UDP");
     }
-    let mut max_empty_record_padding = client_tx
-        .max_padding_for_record_budget(0, data_record_budget)
-        .map_err(|error| {
-            anyhow::anyhow!("UDP record budget cannot carry control traffic: {error}")
-        })?;
     let mut tx_record_id: u64 = rand::random();
     let mut data_reassembler = crate::protocol::data_frag::DataReassembler::new();
 
@@ -9338,13 +11217,11 @@ pub(crate) async fn run_udp_tunnel(
     // certified uplink UDP payload budget as a distinct authenticated frame. A current server
     // treats it only as the ceiling for its own reverse DF probe and widens downlink after that
     // direction answers; an older server skips the unknown type.
-    let mut udp_payload_budget_report_value = data_frag_enabled
+    // An authenticated report also opts into server reverse confirmation. Keep it
+    // absent when probing is explicitly disabled, including at the family base.
+    let mut udp_payload_budget_report_value = (data_frag_enabled && config.tun.mtu_probe)
         .then(|| u16::try_from(uplink_udp_payload_budget).ok())
-        .flatten()
-        .filter(|budget| {
-            usize::from(*budget)
-                > crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6())
-        });
+        .flatten();
     let client_info_frame = crate::protocol::ctrl::this_build();
     let mut udp_send_scratch = crate::transport_core::udp_batch::BatchScratch::new(
         crate::transport_core::udp_batch::MAX_BATCH,
@@ -9361,16 +11238,14 @@ pub(crate) async fn run_udp_tunnel(
                 data_frag_enabled,
                 &tx_data_frag_key,
                 &mut tx_record_id,
-                &mut shaper,
                 &socket,
                 udp_framing,
                 &mut quic_pn,
-                max_empty_record_padding,
                 &mut wire_record,
-                &mut cover_record,
                 &mut quic_record,
                 &mut padding,
                 &mut udp_send_scratch,
+                &runtime_counters.udp.path,
             )
             .await
         };
@@ -9416,14 +11291,22 @@ pub(crate) async fn run_udp_tunnel(
         }
     }
 
-    // Live PMTU widening is available only when DATA_FRAG decouples the TUN MTU from the
+    // Live PMTU adjustment is available only when DATA_FRAG decouples the TUN MTU from the
     // carrier datagram size. A legacy peer would require rebuilding the interface/routes.
-    let live_mtu_reprobe_enabled = data_frag_enabled && config.tun.mtu == 0 && config.tun.mtu_probe;
+    let mut last_path_diagnostic = std::time::Instant::now();
+    let mut previous_path_diagnostic = runtime_counters.udp.path.snapshot();
+    let live_mtu_reprobe_enabled = data_frag_enabled && config.tun.mtu_probe;
     let mut live_mtu_probe = LiveUdpMtuProbe::default();
+    let mut udp_budget_revision = 0u64;
+    let mut next_mtu_growth = tokio::time::Instant::now() + crate::protocol::pmtu::GROW_INTERVAL;
+    let mut last_pmtu_data_activity = tokio::time::Instant::now();
     let mut live_mtu_due = tokio::time::interval(UDP_MTU_REPROBE_INTERVAL);
     live_mtu_due.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // Consume interval's immediate first tick: startup probing just ran above.
     live_mtu_due.tick().await;
+    live_mtu_due.reset_after(
+        UDP_MTU_REPROBE_INTERVAL + Duration::from_millis(u64::from(rand::random::<u16>() % 1000)),
+    );
     let mut live_mtu_tick = tokio::time::interval(UDP_MTU_REPROBE_TICK);
     live_mtu_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     live_mtu_tick.tick().await;
@@ -9439,27 +11322,37 @@ pub(crate) async fn run_udp_tunnel(
     // the actual memory/datagram bound.
     let (received_tx, mut received_rx) =
         mpsc::channel(crate::transport_core::udp_receive::UDP_RECEIVE_QUEUE_PACKETS);
+    let receive_queue = crate::transport_core::receive_queue::ReceiveQueue::new(
+        runtime_counters.udp.receive_queue.clone(),
+        "client UDP",
+    );
     // Drained one datagram at a time by the receive arm below, exactly like the early-data
     // queue beside it: the arm's body is unchanged and still handles a single datagram.
     let mut pending_batch = std::collections::VecDeque::<ClientUdpReceivedDatagram>::new();
-    #[cfg_attr(
-        not(all(feature = "experimental-roaming", any(unix, windows))),
-        allow(unused_mut)
-    )]
-    let mut udp_receive_task =
-        spawn_client_udp_receive_pump(socket.clone(), 0, received_tx.clone());
+    let mut connection_tasks = crate::transport_core::tasks::TaskGroup::default();
+    let tasks = connection_tasks.spawner();
+    let mut udp_receive_task = spawn_client_udp_receive_pump(
+        socket.clone(),
+        0,
+        received_tx.clone(),
+        &tasks,
+        receive_queue.clone(),
+    );
     #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-    let path_monitor_handle = if udp_handover_enabled {
-        linux_path_controller.map(|path_controller| {
-            roaming_linux::spawn(path_controller, tun_name.clone(), path_generation)
-        })
-    } else {
-        None
-    };
+    if udp_handover_enabled {
+        if let Some(path_controller) = linux_path_controller {
+            tasks.spawn(roaming_linux::run(
+                path_controller,
+                tun_name.clone(),
+                path_generation,
+                tasks.clone(),
+            ));
+        }
+    }
     let (_candidate_connect_tx, mut candidate_connect_rx) =
         mpsc::channel::<(PreparedPathCandidate, anyhow::Result<UdpSocket>)>(1);
     #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
-    let mut candidate_connect_task: Option<tokio::task::JoinHandle<()>> = None;
+    let mut candidate_connect_task: Option<crate::transport_core::tasks::TaskHandle> = None;
     let mut candidate_tick = tokio::time::interval(Duration::from_millis(100));
     candidate_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     candidate_tick.tick().await;
@@ -9476,8 +11369,13 @@ pub(crate) async fn run_udp_tunnel(
     let mut early_candidate_data = ClientUdpEarlyDataQueue::default();
     let mut committed_early_data = std::collections::VecDeque::<ClientUdpReceivedDatagram>::new();
 
+    #[cfg(target_os = "linux")]
+    if config.routing.exit_node {
+        spawn_exit_wan_monitor(tun_name.clone(), &tasks);
+    }
+
     let mut unsupported_inner_drops = 0u64;
-    let mut terminal_kick: Option<crate::protocol::control_v2::Kick> = None;
+    let mut result = Ok(());
     'udp: loop {
         let mux_deadline = udp_tx_recordizer
             .as_ref()
@@ -9489,9 +11387,8 @@ pub(crate) async fn run_udp_tunnel(
                 if changed.is_err() { break; }
                 let event = management_rx.borrow_and_update().clone();
                 if let Some(event) = event {
-                    core.management_event(&event)?;
-                    if let crate::protocol::control_v2::ManagementEvent::Kick(kick) = event {
-                        terminal_kick = Some(kick);
+                    if let Err(error) = apply_server_management(core, event) {
+                        result = Err(error);
                         break;
                     }
                 }
@@ -9502,6 +11399,14 @@ pub(crate) async fn run_udp_tunnel(
             }
 
             _ = udp_buffer_tick.tick() => {
+                if last_path_diagnostic.elapsed() >= Duration::from_secs(10) {
+                    let current = runtime_counters.udp.path.snapshot();
+                    if current != previous_path_diagnostic {
+                        log::debug!("UDP path diagnostics: {}", serde_json::to_string(&current).expect("path diagnostics serialize"));
+                        previous_path_diagnostic = current;
+                    }
+                    last_path_diagnostic = std::time::Instant::now();
+                }
                 udp_buffer.tick(socket.raw_socket());
             }
 
@@ -9512,10 +11417,10 @@ pub(crate) async fn run_udp_tunnel(
                     .as_ref()
                     .is_some_and(|draining| tokio::time::Instant::now() > draining.expires_at);
                 if drain_expired {
-                    let draining = draining_udp_path
+                    let mut draining = draining_udp_path
                         .take()
                         .expect("expired UDP receive drain was present");
-                    draining.receive_task.abort();
+                    draining.receive_task.finish().await;
                     log::debug!(
                         "UDP receive drain expired for path epoch {}",
                         draining.epoch
@@ -9536,7 +11441,7 @@ pub(crate) async fn run_udp_tunnel(
                         .as_mut()
                         .expect("negotiated UDP handover retains roaming state")
                         .abort_candidate(candidate_id);
-                    drop(candidate);
+                    candidate.stop().await;
                     log::info!(
                         "UDP candidate {} superseded before validation completed",
                         candidate_id
@@ -9571,7 +11476,7 @@ pub(crate) async fn run_udp_tunnel(
                                     .as_mut()
                                     .expect("negotiated UDP handover retains roaming state")
                                     .abort_candidate(prepared.candidate_id);
-                                drop(candidate);
+                                candidate.stop().await;
                                 abort_udp_platform_candidate(
                                     path_controller
                                         .as_deref()
@@ -9598,7 +11503,7 @@ pub(crate) async fn run_udp_tunnel(
                                 .as_mut()
                                 .expect("negotiated UDP handover retains roaming state")
                                 .abort_candidate(prepared.candidate_id);
-                            drop(candidate);
+                            candidate.stop().await;
                             abort_udp_platform_candidate(
                                 path_controller
                                     .as_deref()
@@ -9622,7 +11527,7 @@ pub(crate) async fn run_udp_tunnel(
                         let config = candidate_config.clone();
                         let controller = path_controller.clone();
                         let outcome_tx = _candidate_connect_tx.clone();
-                        candidate_connect_task = Some(tokio::spawn(async move {
+                        candidate_connect_task = Some(tasks.spawn_owned(async move {
                             let timeout = Duration::from_secs(
                                 config.server.connection_timeout_secs.max(1),
                             );
@@ -9648,7 +11553,9 @@ pub(crate) async fn run_udp_tunnel(
                 #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
                 {
                 let Some((prepared, result)) = connected else { continue; };
-                candidate_connect_task.take();
+                if let Some(mut task) = candidate_connect_task.take() {
+                    task.finish().await;
+                }
                 let raw_candidate = match result {
                     Ok(socket) => socket,
                     Err(error) => {
@@ -9726,6 +11633,8 @@ pub(crate) async fn run_udp_tunnel(
                     candidate_socket.clone(),
                     epoch,
                     received_tx.clone(),
+                    &tasks,
+                    receive_queue.clone(),
                 );
                 live_udp_candidate = Some(UdpClientLiveCandidate::new(
                     prepared.clone(),
@@ -9746,7 +11655,9 @@ pub(crate) async fn run_udp_tunnel(
                         .as_mut()
                         .expect("negotiated UDP handover retains roaming state")
                         .abort_candidate(prepared.candidate_id);
-                    drop(live_udp_candidate.take());
+                    if let Some(candidate) = live_udp_candidate.take() {
+                        candidate.stop().await;
+                    }
                     abort_udp_platform_candidate(
                         path_controller
                             .as_deref()
@@ -9781,16 +11692,14 @@ pub(crate) async fn run_udp_tunnel(
                         data_frag_enabled,
                         &tx_data_frag_key,
                         &mut tx_record_id,
-                        &mut shaper,
                         &socket,
                         udp_framing,
                         &mut quic_pn,
-                        max_empty_record_padding,
                         &mut wire_record,
-                        &mut cover_record,
                         &mut quic_record,
                         &mut padding,
                         &mut udp_send_scratch,
+                        &runtime_counters.udp.path,
                     )
                     .await;
                     match send_outcome {
@@ -9830,37 +11739,60 @@ pub(crate) async fn run_udp_tunnel(
                 }
             }
 
-            _ = live_mtu_due.tick(), if live_mtu_reprobe_enabled && !live_mtu_probe.is_active() => {
-                let outer_overhead = UDP_RECORD_PROBE_OVERHEAD
-                    + socket.seal_overhead()
-                    + udp_framing.wrapper_len()
-                    + 8
-                    + if socket.peer_is_ipv6() { 40 } else { 20 };
-                let candidates: Vec<i32> = mtu_probe_ladder(
-                    base_mtu,
-                    outer_overhead,
-                    socket.peer_is_ipv6(),
-                )
-                .into_iter()
-                .filter(|candidate| {
-                    udp_payload_budget_for_probe(
-                        *candidate,
-                        socket.seal_overhead(),
-                        udp_framing.wrapper_len(),
-                    ) > uplink_udp_payload_budget
-                })
-                .collect();
-                if !candidates.is_empty() {
-                    if begin_mtu_probe(&socket) {
-                        log::debug!(
-                            "UDP live PMTU re-probe started ({} candidate rungs above {}-byte budget)",
-                            candidates.len(),
-                            uplink_udp_payload_budget,
-                        );
-                        live_mtu_probe.start(candidates);
-                    } else {
-                        log::debug!("UDP live PMTU re-probe skipped: DF control is unavailable");
-                    }
+            _ = live_mtu_due.tick(), if live_mtu_reprobe_enabled => {
+                // A long growth ladder must not postpone confirmation of the working size.
+                if live_mtu_probe.is_active() && live_mtu_probe.confirmation {
+                    continue;
+                }
+                if live_mtu_probe.is_active() {
+                    live_mtu_probe.clear();
+                    finish_mtu_probe(&socket, keep_df_after_live_probe);
+                }
+                // Do not keep idle phones awake solely for PMTU. The first user packet after
+                // idle resets this timer below, so stale confirmation is checked promptly.
+                if last_pmtu_data_activity.elapsed() > Duration::from_secs(30) {
+                    continue;
+                }
+                let wrapper = socket.seal_overhead() + udp_framing.wrapper_len();
+                let now = tokio::time::Instant::now();
+                let mut grow = now >= next_mtu_growth;
+                let mut candidates: Vec<i32> = if grow {
+                    next_mtu_growth = now + crate::protocol::pmtu::GROW_INTERVAL;
+                    let outer_overhead = UDP_RECORD_PROBE_OVERHEAD + wrapper + 8
+                        + if socket.peer_is_ipv6() { 40 } else { 20 };
+                    mtu_probe_ladder(base_mtu, outer_overhead, socket.peer_is_ipv6())
+                        .into_iter()
+                        .filter(|candidate| udp_payload_budget_for_probe(*candidate, socket.seal_overhead(), udp_framing.wrapper_len()) > uplink_udp_payload_budget)
+                        .collect()
+                } else {
+                    crate::protocol::pmtu::confirmation_budgets(
+                        uplink_udp_payload_budget,
+                        crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6()),
+                    ).into_iter().filter_map(|budget| {
+                        budget.checked_sub(wrapper + UDP_RECORD_PROBE_OVERHEAD)
+                            .and_then(|value| i32::try_from(value).ok())
+                    }).collect()
+                };
+                if candidates.is_empty() {
+                    // Reaching the ceiling must not skip this confirmation window.
+                    grow = false;
+                    candidates = crate::protocol::pmtu::confirmation_budgets(
+                        uplink_udp_payload_budget,
+                        crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6()),
+                    ).into_iter().filter_map(|budget| {
+                        budget.checked_sub(wrapper + UDP_RECORD_PROBE_OVERHEAD)
+                            .and_then(|value| i32::try_from(value).ok())
+                    }).collect();
+                }
+                if !candidates.is_empty() && begin_mtu_probe(&socket) {
+                    #[cfg(feature = "experimental-roaming")]
+                    let active_path_epoch = udp_roaming.as_ref().map(|state| state.active_epoch()).unwrap_or(0);
+                    #[cfg(not(feature = "experimental-roaming"))]
+                    let active_path_epoch = 0;
+                    live_mtu_probe.path_epoch = active_path_epoch;
+                    live_mtu_probe.budget_revision = udp_budget_revision;
+                    live_mtu_probe.confirmation = !grow;
+                    live_mtu_probe.start(candidates);
                 }
             }
 
@@ -9885,17 +11817,21 @@ pub(crate) async fn run_udp_tunnel(
                     }
                 }
                 if !live_mtu_probe.is_active() {
-                    // All larger rungs failed. Preserve the already-certified budget and
-                    // restore the DF state that was active before this re-probe.
+                    // No size was confirmed. This is not evidence of an MTU-only failure;
+                    // preserve the budget and let ordinary path liveness recover an outage.
                     finish_mtu_probe(&socket, keep_df_after_live_probe);
                     log::debug!(
-                        "UDP live PMTU re-probe found no wider path; keeping {}-byte budget",
+                        "UDP live PMTU search unconfirmed; keeping {}-byte budget",
                         uplink_udp_payload_budget,
                     );
                 }
             }
 
             packet = tun_pump.recv_from_tun() => {
+                if last_pmtu_data_activity.elapsed() > Duration::from_secs(30) {
+                    live_mtu_due.reset_immediately();
+                }
+                last_pmtu_data_activity = tokio::time::Instant::now();
                 let Some(ip_packet) = packet else {
                     log::warn!("UDP: TUN reader stopped — reconnecting");
                     break;
@@ -9964,8 +11900,8 @@ pub(crate) async fn run_udp_tunnel(
                         }
                     };
                     drop(ip_packet);
-                    // The first packet was awaited by select. Drain only packets that the TUN
-                    // worker has already queued, bounded to one socket batch. This adds no
+                    // The first packet was awaited by select. Drain only packets immediately
+                    // available from the TUN backend, bounded to one socket batch. This adds no
                     // coalescing timer and keeps cancellation/roaming latency bounded, while
                     // giving sendmmsg real work instead of one record at a time.
                     let mut drained_packets = 1usize;
@@ -10033,16 +11969,14 @@ pub(crate) async fn run_udp_tunnel(
                         data_frag_enabled,
                         &tx_data_frag_key,
                         &mut tx_record_id,
-                        &mut shaper,
                         &socket,
                         udp_framing,
                         &mut quic_pn,
-                        max_empty_record_padding,
                         &mut wire_record,
-                        &mut cover_record,
                         &mut quic_record,
                         &mut padding,
                         &mut udp_send_scratch,
+                        &runtime_counters.udp.path,
                     )
                     .await;
                     match send_outcome {
@@ -10107,7 +12041,7 @@ pub(crate) async fn run_udp_tunnel(
                         padding_prob,
                         &mut padding,
                     );
-                    if normalization_padding != 0 {
+                    if eff_obf.traffic_normalization.enabled && !norm_sizes.is_empty() {
                         obf.append_normalization_padding_into(
                             ip_packet.len(),
                             norm_sizes,
@@ -10120,56 +12054,9 @@ pub(crate) async fn run_udp_tunnel(
                         .is_ok()
                 };
                 // Encryption has copied the plaintext into its wire record; return the TUN
-                // allocation before any pacing or socket-send await below.
+                // allocation before any socket-send await below.
                 drop(ip_packet);
                 if encrypted {
-                    // Stealth: pace the uplink to stealth_rate; fill the gap with
-                    // jittered small cover (size mix + non-metronome). Cover datagrams
-                    // take their own QUIC pns FIRST so the real packet's pn stays the
-                    // largest (monotonic on the wire).
-                    let d = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
-                    if shaper.stealth() && !d.is_zero() {
-                        let mut remaining = d;
-                        while remaining > Duration::from_millis(6) {
-                            // Cap cover size to the probed tunnel MTU: with DF armed after a
-                            // successful probe, an oversized cover datagram is dropped with
-                            // EMSGSIZE (send error swallowed), so the DPI cover silently never
-                            // goes out. Mirrors the data path and C#/Kotlin's EncryptCapped.
-                            let csize = shaper
-                                .next_size(&mut rand::rng())
-                                .min(tun_mtu.max(0) as usize)
-                                .min(max_empty_record_padding);
-                            if shaper.try_spend(csize, std::time::Instant::now()) {
-                                let cover_ready = {
-                                    let mut obf = Obfuscator::new();
-                                    obf.generate_padding_into(
-                                        csize as u16,
-                                        csize as u16,
-                                        &mut padding,
-                                    );
-                                    client_tx
-                                        .encrypt_packet_into(&[], &padding, &mut cover_record)
-                                        .is_ok()
-                                };
-                                if cover_ready {
-                                    let send_data =
-                                        crate::transport_core::udp_client_framing::wrap_next_udp_record(
-                                            udp_framing,
-                                            &cover_record,
-                                            &mut quic_pn,
-                                            &mut quic_record,
-                                        );
-                                    let _ = socket.send(send_data).await;
-                                }
-                            }
-                            let step = Duration::from_millis(rand::rng().random_range(4..=18));
-                            let s = step.min(remaining);
-                            tokio::time::sleep(s).await;
-                            remaining = remaining.saturating_sub(s);
-                        }
-                    } else if !d.is_zero() {
-                        tokio::time::sleep(d).await;
-                    }
                     if data_frag_enabled && wire_record.len() > data_record_budget {
                         let record_id = tx_record_id;
                         tx_record_id = tx_record_id.wrapping_add(1);
@@ -10185,6 +12072,7 @@ pub(crate) async fn run_udp_tunnel(
                                 break;
                             }
                         };
+                        runtime_counters.udp.path.note_fragmentation(fragments.len());
                         // Fragments of one record are the only uplink datagrams already
                         // available as a group — the pacing/shaping loop emits every other
                         // packet as it arrives. Send them in one `sendmmsg`; a short write is
@@ -10291,7 +12179,7 @@ pub(crate) async fn run_udp_tunnel(
                 } else {
                     match received_rx.recv().await {
                         Some(batch) => {
-                            pending_batch.extend(batch);
+                            pending_batch.extend(batch.into_inner());
                             pending_batch.pop_front()
                         }
                         None => None,
@@ -10427,7 +12315,7 @@ pub(crate) async fn run_udp_tunnel(
                                     .take()
                                     .expect("candidate receive retains live socket");
                                 let prepared = candidate.prepared().clone();
-                                drop(candidate);
+                                candidate.stop().await;
                                 let reason = format!("UDP candidate state expired: {error}");
                                 abort_udp_platform_candidate(
                                     path_controller
@@ -10465,7 +12353,7 @@ pub(crate) async fn run_udp_tunnel(
                                     .as_mut()
                                     .expect("candidate action retains roaming state")
                                     .abort_candidate(prepared.candidate_id);
-                                drop(candidate);
+                                candidate.stop().await;
                                 abort_udp_platform_candidate(
                                     path_controller
                                         .as_deref()
@@ -10499,7 +12387,7 @@ pub(crate) async fn run_udp_tunnel(
                                     .as_mut()
                                     .expect("superseded commit retains roaming state")
                                     .abort_candidate(prepared.candidate_id);
-                                drop(candidate);
+                                candidate.stop().await;
                                 log::info!(
                                     "UDP candidate {} superseded before platform commit",
                                     prepared.candidate_id
@@ -10581,8 +12469,8 @@ pub(crate) async fn run_udp_tunnel(
                                 .take()
                                 .expect("committed candidate retains live socket");
                             let (prepared, next_socket, next_receive_task) = candidate.into_active();
-                            if let Some(previous) = draining_udp_path.take() {
-                                previous.receive_task.abort();
+                            if let Some(mut previous) = draining_udp_path.take() {
+                                previous.receive_task.finish().await;
                             }
                             let old_receive_task =
                                 std::mem::replace(&mut udp_receive_task, next_receive_task);
@@ -10615,7 +12503,10 @@ pub(crate) async fn run_udp_tunnel(
                                 runtime_counters.udp.clone(),
                                 "client UDP migrated",
                             );
+                            udp_budget_revision = udp_budget_revision.wrapping_add(1);
+                            next_mtu_growth = tokio::time::Instant::now();
                             uplink_udp_payload_budget = next_payload_budget;
+                            runtime_counters.udp.path.set(tun_mtu as u32, next_payload_budget, data_frag_enabled, "fallback", Some("path_changed"));
                             data_record_budget = next_record_budget;
                             max_empty_record_padding = next_padding_budget;
                             udp_payload_budget_report_value = None;
@@ -10642,7 +12533,7 @@ pub(crate) async fn run_udp_tunnel(
                                 continue;
                             }
                             let prepared = candidate.prepared().clone();
-                            drop(candidate);
+                            candidate.stop().await;
                             let reason = format!("server rejected UDP candidate with code {code}");
                             abort_udp_platform_candidate(
                                 path_controller
@@ -10703,14 +12594,9 @@ pub(crate) async fn run_udp_tunnel(
                 if let Some((probe_token, probe_size)) =
                     crate::protocol::udp_frag::parse_mtu_probe_v2_ack(payload)
                 {
-                    let matches_live_challenge = live_mtu_probe
-                        .challenge
-                        .filter(|_| !receive_is_draining)
-                        .map(|challenge| {
-                            challenge.token == probe_token
-                                && challenge.probe_payload_size == probe_size
-                        })
-                        .unwrap_or(false);
+                    let matches_live_challenge = !receive_is_draining && live_mtu_probe.matches(
+                        probe_token, probe_size, active_path_epoch, udp_budget_revision,
+                    );
                     if matches_live_challenge {
                         if let Some(candidate) =
                             live_mtu_probe.acknowledge(probe_token, probe_size)
@@ -10766,19 +12652,31 @@ pub(crate) async fn run_udp_tunnel(
                                         }
                                         mux_payload_budget = new_mux_budget;
                                     }
+                                    let decreased = new_payload_budget < uplink_udp_payload_budget;
+                                    let changed = new_payload_budget != uplink_udp_payload_budget;
+                                    if changed {
+                                        udp_budget_revision = udp_budget_revision.wrapping_add(1);
+                                    }
+                                    if decreased {
+                                        next_mtu_growth = tokio::time::Instant::now() + crate::protocol::pmtu::GROW_INTERVAL;
+                                    }
                                     uplink_udp_payload_budget = new_payload_budget;
+                                    runtime_counters.udp.path.set(tun_mtu as u32, new_payload_budget, data_frag_enabled, "probe", decreased.then_some("current_size_unconfirmed"));
                                     data_record_budget = record_budget;
                                     max_empty_record_padding = padding_budget;
-                                    udp_payload_budget_report_value =
-                                        u16::try_from(new_payload_budget).ok();
-                                    control_report_resends = UDP_CONTROL_REPORT_RESENDS;
+                                    let report = u16::try_from(new_payload_budget).ok();
+                                    if udp_payload_budget_report_value != report {
+                                        control_report_resends = UDP_CONTROL_REPORT_RESENDS;
+                                    }
+                                    udp_payload_budget_report_value = report;
                                     keep_df_after_live_probe = true;
                                     finish_mtu_probe(&socket, true);
-                                    log::info!(
-                                        "UDP live PMTU widened uplink payload budget to {} bytes (probe rung {})",
-                                        new_payload_budget,
-                                        candidate,
-                                    );
+                                    if changed {
+                                        log::info!(
+                                            "UDP live PMTU changed uplink payload budget to {} bytes (probe rung {}, revision {})",
+                                            new_payload_budget, candidate, udp_budget_revision,
+                                        );
+                                    }
                                 }
                                 (Err(error), _, _) => {
                                     finish_mtu_probe(&socket, keep_df_after_live_probe);
@@ -11091,10 +12989,9 @@ pub(crate) async fn run_udp_tunnel(
                     );
             }
             _ = tokio::time::sleep_until(cover_deadline), if shaping_on => {
-                // Fill genuine idle on OUR send side (last_tx_inst); in STEALTH run
-                // cover under load too so small cover mixes into the rate-capped stream.
-                if shaper.stealth() || last_tx_inst.elapsed() >= Duration::from_millis(50) {
-                    // Cap idle-cover size to the probed MTU (see the stealth-cover branch).
+                // UDP cover fills genuine idle on our send side (last_tx_inst).
+                if last_tx_inst.elapsed() >= Duration::from_millis(50) {
+                    // Keep cover within the probed MTU and codec's padding budget.
                     let size = shaper
                         .next_size(&mut rand::rng())
                         .min(tun_mtu.max(0) as usize)
@@ -11240,24 +13137,20 @@ pub(crate) async fn run_udp_tunnel(
         }
     }
 
-    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
-    if let Some(task) = path_monitor_handle {
-        task.abort();
-    }
     #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
-    let connect_was_in_flight = if let Some(task) = candidate_connect_task.take() {
-        task.abort();
-        true
-    } else {
-        false
-    };
+    let connect_was_in_flight = candidate_connect_task.is_some();
+    // Join candidate connect and path-monitor workers before inspecting/rolling back the
+    // platform candidate. No background task may publish a later path or keep receiving.
+    connection_tasks.finish().await;
+    udp_receive_task.finish().await;
+    result = finish_pending_management(core, &management_rx, result);
     #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
     if let Some(candidate) = live_udp_candidate.take() {
         let prepared = candidate.prepared().clone();
         if let Some(roaming) = udp_roaming.as_mut() {
             roaming.abort_candidate(prepared.candidate_id);
         }
-        drop(candidate);
+        candidate.stop().await;
         abort_udp_platform_candidate(
             path_controller
                 .as_deref()
@@ -11281,50 +13174,19 @@ pub(crate) async fn run_udp_tunnel(
         }
     }
 
-    #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
-    if let Some(draining) = draining_udp_path.take() {
-        draining.receive_task.abort();
-        let _ = draining.receive_task.await;
-    }
-    udp_receive_task.abort();
-    let _ = udp_receive_task.await;
-
-    #[cfg(target_os = "linux")]
-    let dns_cleanup_error = dns::restore_dns_for(&tun_name).err();
-    drop(tun_write_tx);
-    tun_pump.shutdown().await;
-    // Closes the TUN fd: `TunInterface` holds it as a `File`. (Do NOT also close the raw
-    // number — that would be a double close, and the freed number can already have been
-    // handed to another thread's socket.)
-    #[cfg(target_os = "linux")]
-    drop(tunnel_tun);
-    // Attach mode: the interface + routes belong to an external owner — leave them.
-    #[cfg(target_os = "linux")]
-    let tun_cleanup_error = if !config.tun.attach_existing {
-        cleanup_owned_tun(&tun_name, &server_addr, &config.routing.exclude).err()
-    } else {
-        None
+    let pump_shutdown = async move {
+        drop(tun_write_tx);
+        tun_pump.shutdown().await;
     };
     #[cfg(target_os = "linux")]
-    match (dns_cleanup_error, tun_cleanup_error) {
-        (None, None) => {}
-        (Some(dns), None) => return Err(anyhow::anyhow!("DNS cleanup failed: {dns}")),
-        (None, Some(tun)) => return Err(tun),
-        (Some(dns), Some(tun)) => {
-            return Err(anyhow::anyhow!("DNS cleanup failed: {dns}; {tun}"));
-        }
+    let result =
+        crate::client_cleanup::with_cleanup_error(result, tun_guard.shutdown(pump_shutdown).await);
+    #[cfg(not(target_os = "linux"))]
+    pump_shutdown.await;
+    if result.is_ok() {
+        log::info!("UDP client disconnected");
     }
-    #[cfg(target_os = "linux")]
-    tun_guard.disarm(); // graceful teardown done — nothing left for `Drop` to repeat
-    log::info!("UDP client disconnected");
-    if let Some(kick) = terminal_kick {
-        return Err(ServerKickError {
-            message: kick.message,
-            reconnect_allowed: kick.reconnect_allowed,
-        }
-        .into());
-    }
-    Ok(())
+    result
 }
 
 /// Compute the actual read capacity after the server-selected MTU is known.
@@ -11402,36 +13264,15 @@ fn prefix_to_netmask(prefix: u8) -> String {
     std::net::Ipv4Addr::from(mask).to_string()
 }
 
-/// Verify the server static public key.
-/// * `pinned_hex` Some — the received bytes must match exactly (explicit pin).
-/// * `pinned_hex` None — trust-on-first-use *with persistence*: the key is pinned
-///   in a `known_hosts` store on first sight (keyed by `server_id` = host:port) and
-///   verified against it on every later connection, so a later key change aborts as
-///   a probable MITM (instead of the old behaviour of warning and accepting any key
-///   every time).
+/// Explicit pins remain a pure in-memory check, independent of local TOFU files.
 #[cfg(target_os = "linux")]
-fn verify_server_key(
-    received: &[u8],
-    pinned_hex: &Option<String>,
-    server_id: &str,
-    allow_unpinned: bool,
-) -> anyhow::Result<()> {
-    let received_hex: String = received.iter().map(|b| format!("{:02x}", b)).collect();
-    match pinned_hex {
-        Some(expected) => {
-            let expected_clean = expected.replace([':', '-', ' '], "").to_lowercase();
-            if received_hex != expected_clean {
-                return Err(anyhow::anyhow!(
-                    "SERVER KEY MISMATCH — possible MITM attack!\n  Expected: {}\n  Received: {}",
-                    expected_clean,
-                    received_hex
-                ));
-            }
-            log::debug!("Server public key verified: {}", received_hex);
-            Ok(())
-        }
-        None => trust_on_first_use(server_id, &received_hex, allow_unpinned),
-    }
+fn verify_pinned_key(received: &[u8], expected: &str) -> anyhow::Result<()> {
+    let received_hex: String = received.iter().map(|b| format!("{b:02x}")).collect();
+    let expected_clean = expected.replace([':', '-', ' '], "").to_lowercase();
+    anyhow::ensure!(received_hex == expected_clean,
+        "SERVER KEY MISMATCH — possible MITM attack!\n  Expected: {expected_clean}\n  Received: {received_hex}");
+    log::debug!("Server public key verified: {received_hex}");
+    Ok(())
 }
 
 /// Path of the TOFU trust store (SSH-`known_hosts`-style). Override with
@@ -11439,171 +13280,6 @@ fn verify_server_key(
 #[cfg(target_os = "linux")]
 fn known_hosts_path() -> String {
     std::env::var("QELI_KNOWN_HOSTS").unwrap_or_else(|_| "/var/lib/qeli/known_hosts".to_string())
-}
-
-/// Trust-on-first-use with persistence. Pins the server's static key on first
-/// sight (recorded under `server_id`), then verifies every later connection
-/// against it — a changed key aborts as a probable MITM. An unwritable store fails
-/// closed unless the explicit `allow_unpinned_tofu` escape hatch is enabled; a
-/// readable existing pin is always enforced.
-#[cfg(target_os = "linux")]
-fn trust_on_first_use(
-    server_id: &str,
-    received_hex: &str,
-    allow_unpinned: bool,
-) -> anyhow::Result<()> {
-    trust_on_first_use_at(&known_hosts_path(), server_id, received_hex, allow_unpinned)
-}
-
-/// Path-injectable core of [`trust_on_first_use`] — unit-testable without touching
-/// the real `/var/lib/qeli/known_hosts`.
-#[cfg(target_os = "linux")]
-fn trust_on_first_use_at(
-    path: &str,
-    server_id: &str,
-    received_hex: &str,
-    allow_unpinned: bool,
-) -> anyhow::Result<()> {
-    let check_existing = || -> Option<anyhow::Result<()>> {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            for line in content.lines() {
-                let line = line.trim();
-                if line.is_empty() || line.starts_with('#') {
-                    continue;
-                }
-                if let Some((id, key)) = line.split_once(char::is_whitespace) {
-                    if id == server_id {
-                        let pinned = key.trim().to_lowercase();
-                        if pinned == received_hex {
-                            log::debug!("Server key matches the known_hosts pin for {}", server_id);
-                            return Some(Ok(()));
-                        }
-                        return Some(Err(anyhow::anyhow!(
-                            "SERVER KEY MISMATCH for {} — possible MITM attack!\n  Pinned:   {}\n  \
-                             Received: {}\n  If you deliberately rotated the server key, remove the \
-                             '{}' line from {} (or set auth.server_public_key) and reconnect.",
-                            server_id,
-                            pinned,
-                            received_hex,
-                            server_id,
-                            path
-                        )));
-                    }
-                }
-            }
-        }
-        None
-    };
-    if let Some(result) = check_existing() {
-        return result;
-    }
-
-    // First sighting: serialize the read/decision/append across processes. The second read
-    // under the sidecar lock is the important one — another client may have pinned a key
-    // between our optimistic read above and acquiring the lock.
-    if let Some(parent) = std::path::Path::new(path).parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _lock = match crate::util::FileLock::acquire(path) {
-        Ok(lock) => lock,
-        Err(error) => {
-            if !allow_unpinned {
-                return Err(anyhow::anyhow!(
-                    "cannot lock the known_hosts store {} for {} ({}). Refusing to make an \
-                     unserialized first-trust decision; fix the path or set \
-                     allow_unpinned_tofu = true to accept the risk.",
-                    path,
-                    server_id,
-                    error
-                ));
-            }
-            log::warn!(
-                "could not lock the TOFU store {} for {} ({}) — continuing UNPINNED by \
-                 explicit allow_unpinned_tofu",
-                path,
-                server_id,
-                error
-            );
-            return Ok(());
-        }
-    };
-    if let Some(result) = check_existing() {
-        return result;
-    }
-
-    use std::io::Write;
-    let mut opts = std::fs::OpenOptions::new();
-    opts.create(true).append(true);
-    // Create known_hosts with 0600 from the start — no world-readable umask window
-    // between create and the set_permissions below (which only re-tightens re-opens).
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    match opts.open(path) {
-        Ok(mut f) => {
-            // The result used to be discarded, and the "pinned" message printed anyway —
-            // so on a full or read-only disk the operator was told the key was recorded
-            // when nothing had been written, and the NEXT connection would happily TOFU
-            // a different key. Treat a failed write exactly like a failed open.
-            if let Err(e) =
-                writeln!(f, "{} {}", server_id, received_hex).and_then(|()| f.sync_all())
-            {
-                if !allow_unpinned {
-                    return Err(anyhow::anyhow!(
-                        "cannot pin server key for {} — writing to the known_hosts store {}                          failed ({}). Refusing to continue unpinned; fix the path or set                          allow_unpinned_tofu = true to accept the risk.",
-                        server_id,
-                        path,
-                        e
-                    ));
-                }
-                log::warn!(
-                    "could not record the TOFU pin for {} in {} ({}) — continuing UNPINNED, so                      a future key change will NOT be detected",
-                    server_id,
-                    path,
-                    e
-                );
-                return Ok(());
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-            }
-            log::warn!(
-                "Pinned server key for {} on first use (TOFU) → recorded in {}. A future key \
-                 change will now abort as a possible MITM. Pin explicitly with \
-                 auth.server_public_key to verify out-of-band.",
-                server_id,
-                path
-            );
-            Ok(())
-        }
-        Err(e) => {
-            if !allow_unpinned {
-                return Err(anyhow::anyhow!(
-                    "cannot pin server key for {} — the known_hosts store {} is unwritable ({}). \
-                     Refusing to connect unpinned (fail closed) to avoid a first-connect MITM \
-                     window. Fix: set auth.server_public_key to pin explicitly (recommended), \
-                     point QELI_KNOWN_HOSTS at a writable path, or set \
-                     allow_unpinned_tofu = true to accept the risk.",
-                    server_id,
-                    path,
-                    e
-                ));
-            }
-            log::warn!(
-                "⚠ Could not record server key in {} ({}). MITM protection NOT pinned this run \
-                 (allow_unpinned_tofu = true); set key in [qeli] to pin explicitly. \
-                 Server key: {}",
-                path,
-                e,
-                received_hex
-            );
-            Ok(())
-        }
-    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -11649,6 +13325,145 @@ mod lifecycle_adapter_tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn network_plan_state_preserves_legacy_address_and_records_generation() {
+        assert_eq!(
+            network_plan_state(&plan(7)),
+            "10.20.0.2\nipv4=10.20.0.2/24\nmtu=1400\ngeneration=7\n"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn network_plan_state_distinguishes_same_address_reauthentication_and_aba() {
+        let first = plan(7);
+        let mut middle = plan(8);
+        middle.tunnel_address = "10.20.0.9".into();
+        middle.addresses[0].address = "10.20.0.9".into();
+        let last = plan(9);
+        assert_ne!(network_plan_state(&first), network_plan_state(&last));
+        assert_ne!(network_plan_state(&middle), network_plan_state(&last));
+        let mut same_address = first.clone();
+        same_address.generation = u64::MAX;
+        assert!(network_plan_state(&same_address).ends_with("generation=18446744073709551615\n"));
+        assert_ne!(
+            network_plan_state(&first),
+            network_plan_state(&same_address)
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn network_plan_state_preserves_dual_stack_and_ipv6_only_families() {
+        let mut dual = plan(11);
+        dual.addresses.push(crate::transport_core::NetworkAddress {
+            family: crate::transport_core::NetworkAddressFamily::Ipv6,
+            address: "fd00::2".into(),
+            prefix_len: 128,
+            on_link_prefix_len: 64,
+            gateway: Some("fd00::1".into()),
+        });
+        let state = network_plan_state(&dual);
+        assert!(state.starts_with("10.20.0.2\n"));
+        assert!(state.contains("ipv4=10.20.0.2/24\n"));
+        assert!(state.contains("ipv6=fd00::2/128\n"));
+        dual.addresses.remove(0);
+        dual.tunnel_address = "fd00::2".into();
+        let state = network_plan_state(&dual);
+        assert!(state.starts_with("fd00::2\n"));
+        assert!(!state.contains("ipv4="));
+        assert!(state.contains("ipv6=fd00::2/128\n"));
+    }
+
+    #[test]
+    fn client_hook_context_exports_effective_plan_without_secrets() {
+        let mut config = crate::config::client::ClientConfig::from_ini(
+            &crate::config::format::IniDoc::parse(CONFIG).unwrap(),
+        )
+        .unwrap();
+        config.tun.name = "vpn-test".into();
+        config.routing.lan_subnet = "192.168.50.0/24".into();
+        config.routing.include = vec!["198.51.100.0/24".into()];
+        config.routing.exclude = vec!["203.0.113.0/24".into()];
+
+        let mut effective = plan(7);
+        effective.addresses[0].prefix_len = 32;
+        effective.carrier_address = Some("192.0.2.44".into());
+        effective.data_plane.recordizer_mode =
+            Some(crate::transport_core::NetworkRecordizerMode::PacketMuxV1);
+        effective.data_plane.recordizer_policy = Some("balanced".into());
+        effective.data_plane.roaming_mode =
+            Some(crate::transport_core::NetworkRoamingMode::Reconnect);
+
+        let mut context = ClientHookContext::new(&config, "/etc/qeli/clients/office.conf");
+        context.refresh(&effective, "vpn-test");
+        let hook = context.invocation(
+            "/etc/qeli/hooks/up.sh \"$@\"".into(),
+            "post_up",
+            "connected",
+            "",
+            "",
+            12,
+        );
+        let env = hook
+            .environment
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(hook.positional_arguments, ["vpn-test", "10.20.0.1"]);
+        assert_eq!(env["QELI_HOOK_API"], "1");
+        assert_eq!(env["QELI_EVENT"], "post_up");
+        assert_eq!(env["QELI_PROFILE"], "office");
+        assert_eq!(env["QELI_IFNAME"], "vpn-test");
+        assert_eq!(env["QELI_GATEWAY"], "10.20.0.1");
+        assert_eq!(env["QELI_IPV4_CIDR"], "10.20.0.2/32");
+        assert_eq!(env["QELI_IPV4_SUBNET"], "10.20.0.0/24");
+        assert_eq!(env["QELI_DNS_0"], "10.20.0.1:53");
+        assert_eq!(env["QELI_ROUTE_0_CIDR"], "192.0.2.0/24");
+        assert_eq!(env["QELI_INCLUDE_0"], "198.51.100.0/24");
+        assert_eq!(env["QELI_RECORDIZER_MODE"], "packet_mux_v1");
+        assert_eq!(env["QELI_SESSION_DURATION_SECONDS"], "12");
+
+        let json: serde_json::Value = serde_json::from_str(&hook.context_json).unwrap();
+        assert_eq!(json["hook_api"], 1);
+        assert_eq!(json["event"], "post_up");
+        assert_eq!(json["network_plan"]["generation"], 7);
+        assert_eq!(json["network_plan"]["addresses"][0]["prefix_len"], 32);
+        assert!(!hook.context_json.contains("secret"));
+        assert!(!hook
+            .context_json
+            .contains("1111111111111111111111111111111111111111111111111111111111111111"));
+    }
+
+    #[test]
+    fn post_down_before_the_first_plan_is_explicitly_marked_unavailable() {
+        let config = crate::config::client::ClientConfig::from_ini(
+            &crate::config::format::IniDoc::parse(CONFIG).unwrap(),
+        )
+        .unwrap();
+        let context = ClientHookContext::new(&config, "client.conf");
+        let hook = context.invocation(
+            "true".into(),
+            "post_down",
+            "max_retries",
+            "max_retries",
+            "connection failed",
+            0,
+        );
+        let env = hook
+            .environment
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(env["QELI_PLAN_AVAILABLE"], "false");
+        assert_eq!(env["QELI_ADDRESS_COUNT"], "0");
+        assert_eq!(env["QELI_GATEWAY"], "");
+        assert_eq!(env["QELI_ERROR_MESSAGE"], "connection failed");
+        assert_eq!(hook.positional_arguments, ["vpn0", ""]);
+    }
+
     #[cfg(feature = "experimental-roaming")]
     #[test]
     fn linux_roaming_path_capability_is_policy_transport_and_source_scoped() {
@@ -11661,6 +13476,9 @@ mod lifecycle_adapter_tests {
 
         config.obfuscation.quic.enabled = false;
         assert!(linux_roaming_path_supported(&config));
+        config.tun.attach_existing = true;
+        assert!(!linux_roaming_path_supported(&config));
+        config.tun.attach_existing = false;
 
         config.roaming = crate::config::client::ClientRoamingPolicy::Off;
         assert!(!linux_roaming_path_supported(&config));
@@ -11678,8 +13496,8 @@ mod lifecycle_adapter_tests {
         assert!(!linux_roaming_path_supported(&config));
     }
 
-    #[test]
-    fn linux_adapter_enters_running_only_after_platform_apply() {
+    #[tokio::test]
+    async fn linux_adapter_enters_running_only_after_platform_apply() {
         let (mut adapter, _) = LinuxCoreAdapter::new(CONFIG).unwrap();
         adapter.begin_connection(false).unwrap();
         assert_eq!(
@@ -11689,26 +13507,111 @@ mod lifecycle_adapter_tests {
 
         let generation = adapter.next_generation();
         let result = adapter
-            .apply_network_plan(plan(generation), |event_plan| {
+            .apply_network_plan(plan(generation), move |event_plan| {
                 assert_eq!(event_plan.generation, generation);
                 assert_eq!(event_plan.routes[0].gateway, "10.20.0.1");
                 Ok(42)
             })
+            .await
             .unwrap();
 
         assert_eq!(result, 42);
         assert_eq!(adapter.with_core(|core| core.state()), ClientState::Running);
     }
 
-    #[test]
-    fn linux_adapter_rejects_a_partial_platform_plan() {
+    struct DropFailure(crate::client_cleanup::Failures);
+
+    impl Drop for DropFailure {
+        fn drop(&mut self) {
+            let _ = self.0.observe::<()>(
+                crate::client_cleanup::Resource::Routes,
+                Err(anyhow::anyhow!("simulated resource rollback failed")),
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_core_ack_drops_owned_platform_value_and_reports_rollback_failure() {
+        let (mut adapter, _) = LinuxCoreAdapter::new(CONFIG).unwrap();
+        adapter.begin_connection(false).unwrap();
+        let failures = adapter.cleanup_failures.clone();
+        let core = adapter.core.clone();
+        let generation = adapter.next_generation();
+        let result = adapter
+            .apply_network_plan(plan(generation), move |_| {
+                // Invalidate ACK after apply: the applied value must retain a cleanup owner.
+                core.lock().unwrap().stop().unwrap();
+                Ok(DropFailure(failures))
+            })
+            .await;
+        assert!(result.is_err());
+        assert!(adapter
+            .cleanup_failures
+            .result()
+            .unwrap_err()
+            .to_string()
+            .contains("simulated resource rollback failed"));
+    }
+
+    #[tokio::test]
+    async fn partial_apply_drop_fault_reaches_the_adapter_cleanup_check() {
+        let (mut adapter, _) = LinuxCoreAdapter::new(CONFIG).unwrap();
+        adapter.begin_connection(false).unwrap();
+        let failures = adapter.cleanup_failures.clone();
+        let generation = adapter.next_generation();
+        let error = adapter
+            .apply_network_plan::<()>(plan(generation), move |_| {
+                let _guard = DropFailure(failures);
+                anyhow::bail!("platform apply failed")
+            })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("platform apply failed"));
+        let checks = crate::client_cleanup::Checks {
+            core: adapter.finish_connection(),
+            network: adapter.cleanup_failures.result(),
+        };
+        assert_eq!(
+            checks.failure_reason(),
+            Some(("network_cleanup_failed", "network_cleanup"))
+        );
+    }
+
+    #[tokio::test]
+    async fn stop_during_platform_apply_rolls_back_before_core_can_run() {
+        let (mut adapter, _) = LinuxCoreAdapter::new(CONFIG).unwrap();
+        adapter.begin_connection(false).unwrap();
+        let generation = adapter.next_generation();
+        let cancel = adapter.cancel.clone();
+        let failures = adapter.cleanup_failures.clone();
+        let (ready, waiting) = tokio::sync::oneshot::channel();
+        let (release, blocked) = std::sync::mpsc::channel();
+        let request_stop = async move {
+            waiting.await.unwrap();
+            cancel.store(true, Ordering::Release);
+            release.send(()).unwrap();
+        };
+        let apply = adapter.apply_network_plan(plan(generation), move |_| {
+            ready.send(()).unwrap();
+            blocked.recv_timeout(Duration::from_secs(5))?;
+            Ok(DropFailure(failures))
+        });
+        let (result, ()) = tokio::join!(apply, request_stop);
+        assert!(result.is_err());
+        assert_eq!(adapter.with_core(|core| core.state()), ClientState::Failed);
+        assert!(adapter.cleanup_failures.result().is_err());
+    }
+
+    #[tokio::test]
+    async fn linux_adapter_rejects_a_partial_platform_plan() {
         let (mut adapter, _) = LinuxCoreAdapter::new(CONFIG).unwrap();
         adapter.begin_connection(false).unwrap();
         let generation = adapter.next_generation();
         let error = adapter
-            .apply_network_plan::<()>(plan(generation), |_| {
+            .apply_network_plan::<()>(plan(generation), move |_| {
                 Err(anyhow::anyhow!("route installation failed"))
             })
+            .await
             .unwrap_err();
 
         assert!(error.to_string().contains("route installation failed"));
@@ -12037,6 +13940,9 @@ mod obf_push_tests {
 }
 
 #[cfg(all(test, target_os = "linux"))]
+mod identity_adapter_tests;
+
+#[cfg(all(test, target_os = "linux"))]
 mod tofu_tests {
     use super::trust_on_first_use_at;
     use std::path::PathBuf;
@@ -12070,7 +13976,7 @@ mod tofu_tests {
     }
 
     #[test]
-    fn unwritable_store_fails_closed_unless_opted_in() {
+    fn nonregular_store_fails_closed_even_when_unpinned_is_allowed() {
         // A directory path can be neither read as a file nor opened for append on
         // any platform, so the first-sight write fails deterministically.
         let dir = tmp("directory");
@@ -12079,8 +13985,8 @@ mod tofu_tests {
         let key = "cc".repeat(32);
         // Default (fail closed): unpinned + unwritable store => abort.
         assert!(trust_on_first_use_at(path, "h:443", &key, false).is_err());
-        // Opt-in escape hatch: accept-any-key TOFU is allowed.
-        assert!(trust_on_first_use_at(path, "h:443", &key, true).is_ok());
+        // The escape hatch applies to persistence failure, not an unreadable existing store.
+        assert!(trust_on_first_use_at(path, "h:443", &key, true).is_err());
         cleanup(path);
         let _ = std::fs::remove_dir(path);
     }
@@ -12202,3 +14108,483 @@ mod device_id_tests {
         let _ = std::fs::remove_file(format!("{}.lock", path.display()));
     }
 }
+
+// The host fixture uses the same stream pumps as every native client, with an in-memory TUN.
+#[cfg(test)]
+mod tcp_task_shutdown_tests {
+    use super::*;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadBuf};
+
+    struct ObservedRead<R> {
+        inner: R,
+        started: Option<tokio::sync::oneshot::Sender<()>>,
+    }
+    impl<R: AsyncRead + Unpin> AsyncRead for ObservedRead<R> {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            if let Some(started) = self.started.take() {
+                let _ = started.send(());
+            }
+            Pin::new(&mut self.inner).poll_read(cx, buf)
+        }
+    }
+
+    struct ObservedWrite<W> {
+        inner: W,
+        blocked: bool,
+        started: Option<tokio::sync::oneshot::Sender<()>>,
+    }
+    impl<W: AsyncWrite + Unpin> AsyncWrite for ObservedWrite<W> {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            if let Some(started) = self.started.take() {
+                let _ = started.send(());
+            }
+            if self.blocked {
+                Poll::Pending
+            } else {
+                Pin::new(&mut self.inner).poll_write(cx, bytes)
+            }
+        }
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.inner).poll_flush(cx)
+        }
+        fn poll_shutdown(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.inner).poll_shutdown(cx)
+        }
+    }
+    impl<W: AsyncWrite + Unpin> crate::protocol::obfs::CarrierWriteControl for ObservedWrite<W> {}
+
+    async fn stopped_stream(pipeline_rx: bool, final_kick: bool, blocked_writer: bool) {
+        let mut tasks = crate::transport_core::tasks::TaskGroup::default();
+        let (socket, mut peer) = tokio::io::duplex(1024 * 1024);
+        let (read, write) = tokio::io::split(socket);
+        let (write_started, write_ready) = tokio::sync::oneshot::channel();
+        let write = ObservedWrite {
+            inner: write,
+            blocked: blocked_writer,
+            started: Some(write_started),
+        };
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let read = ObservedRead {
+            inner: read,
+            started: Some(started),
+        };
+        let (to_tun, from_stream) = std::sync::mpsc::sync_channel(2);
+        let pool = crate::transport_core::buffer_pool::BufferPool::new(300, 2048).unwrap();
+        let tun = TunWriter::from_parts(to_tun, pool);
+        let (dead, mut dead_rx) = mpsc::channel(1);
+        let shaping = crate::protocol::ShapingConfig::default();
+        let cover_budget =
+            crate::protocol::Shaper::shared_budget(&shaping, std::time::Instant::now());
+        let (management_tx, management_rx) = tokio::sync::watch::channel(None);
+        let sender = spawn_stream(
+            read,
+            write,
+            PacketCodec::new_raw([1; 32]),
+            PacketCodec::new_raw([2; 32]),
+            tun,
+            dead,
+            Arc::new(AtomicU64::new(0)),
+            Arc::new(AtomicU64::new(0)),
+            Arc::new(RuntimeCounters::default()),
+            Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            0,
+            None,
+            None,
+            tasks.spawner(),
+            StreamPump {
+                framing: Framing::Raw,
+                family_mode: crate::transport_core::NetworkFamilyMode::Ipv4,
+                heartbeat_enabled: false,
+                heartbeat_interval: Duration::from_secs(60),
+                idle_timeout: Duration::from_secs(60),
+                tun_mtu: 1400,
+                hb_data: 0,
+                hb_jitter: 0,
+                padding_enabled: false,
+                padding_min: 0,
+                padding_max: 0,
+                padding_randomize: false,
+                padding_prob: 0.0,
+                norm_enabled: false,
+                norm_sizes: vec![],
+                shaping,
+                recordizer: None,
+                cover_budget,
+                uplink_queue_capacity: 4096,
+                pipeline_rx,
+                management_v1: final_kick,
+                management_reassembler: Arc::new(std::sync::Mutex::new(
+                    crate::protocol::control_v2::Reassembler::new(),
+                )),
+                management_tx,
+            },
+        );
+        tokio::time::timeout(Duration::from_secs(5), ready)
+            .await
+            .unwrap()
+            .unwrap();
+        if blocked_writer {
+            sender
+                .try_send(ClientUplink::Owned(vec![0x41; 80]))
+                .ok()
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(5), write_ready)
+                .await
+                .unwrap()
+                .unwrap();
+            peer.shutdown().await.unwrap();
+            tokio::time::timeout(Duration::from_secs(5), dead_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(
+                sender.sender.is_closed(),
+                "stream loss was published before writer destruction"
+            );
+        }
+        if final_kick {
+            use crate::protocol::control_v2::{Kick, KickReason, ManagementEvent};
+            use tokio::io::AsyncWriteExt;
+            let event = ManagementEvent::Kick(Kick {
+                reason: KickReason::Administrative,
+                message: "Session replaced".into(),
+                reconnect_allowed: false,
+            });
+            let mut encoder = PacketCodec::new_raw([1; 32]);
+            // A full scheduling quantum of queued records forces Stage A/B interleaving.
+            for _ in 0..256 {
+                peer.write_all_flush(&encoder.encrypt_packet(&[], &[]).unwrap())
+                    .await
+                    .unwrap();
+            }
+            let frame = crate::protocol::control_v2::management_frames(&event, 1)
+                .unwrap()
+                .pop()
+                .unwrap();
+            peer.write_all_flush(&encoder.encrypt_packet(&frame, &[]).unwrap())
+                .await
+                .unwrap();
+            peer.shutdown().await.unwrap();
+            tokio::time::timeout(Duration::from_secs(5), dead_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                *management_rx.borrow(),
+                Some(event),
+                "EOF overtook the decrypt drain"
+            );
+        }
+        tokio::time::timeout(Duration::from_secs(5), tasks.finish())
+            .await
+            .unwrap();
+        assert!(sender.sender.is_closed(), "writer still owns its queue");
+        assert!(
+            matches!(
+                from_stream.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Disconnected)
+            ),
+            "reader/pipeline still owns TUN"
+        );
+        let mut remaining = Vec::new();
+        tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut remaining))
+            .await
+            .unwrap()
+            .unwrap();
+        if !final_kick {
+            assert!(
+                remaining.is_empty(),
+                "unexpected output without terminal traffic"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn inline_kick_is_published_before_eof() {
+        stopped_stream(false, true, false).await;
+    }
+
+    #[tokio::test]
+    async fn pipelined_kick_is_published_before_eof() {
+        stopped_stream(true, true, false).await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_releases_inline_stream_socket_queues_and_tun() {
+        stopped_stream(false, false, false).await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_releases_pipeline_stream_socket_queues_and_tun() {
+        stopped_stream(true, false, false).await;
+    }
+
+    #[tokio::test]
+    async fn reader_death_cancels_blocked_write_before_publishing_stream_loss() {
+        stopped_stream(false, false, true).await;
+    }
+
+    #[tokio::test]
+    async fn pipelined_reader_death_cancels_blocked_write_before_stream_loss() {
+        stopped_stream(true, false, true).await;
+    }
+}
+
+#[cfg(all(test, feature = "experimental-roaming", any(unix, windows)))]
+mod udp_task_shutdown_tests {
+    use super::*;
+    use crate::transport_core::path::PathUpdate;
+    const DEADLINE: Duration = Duration::from_secs(5);
+
+    async fn socket_pair() -> (Arc<crate::protocol::obfs::ObfsUdp>, tokio::net::UdpSocket) {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        socket.connect(peer.local_addr().unwrap()).await.unwrap();
+        peer.connect(socket.local_addr().unwrap()).await.unwrap();
+        (
+            Arc::new(crate::protocol::obfs::ObfsUdp::new(socket, None)),
+            peer,
+        )
+    }
+
+    fn prepared(candidate_id: u64) -> PreparedPathCandidate {
+        PreparedPathCandidate {
+            candidate_id,
+            update: PathUpdate {
+                generation: 1,
+                update_id: candidate_id,
+                platform_path_id: "fixture".into(),
+                reason: crate::transport_core::path::PathUpdateReason::ManualProbe,
+                network_token: None,
+                interface_index: None,
+                local_addresses: vec![],
+                resolved_addresses: vec![],
+                flags: Default::default(),
+            },
+        }
+    }
+
+    fn test_receive_queue() -> Arc<crate::transport_core::receive_queue::ReceiveQueue> {
+        crate::transport_core::receive_queue::ReceiveQueue::new(Default::default(), "test client")
+    }
+
+    async fn receive_epoch(
+        rx: &mut mpsc::Receiver<
+            crate::transport_core::receive_queue::QueuedBatch<ClientUdpReceivedDatagram>,
+        >,
+        epoch: u64,
+    ) {
+        let packets = tokio::time::timeout(DEADLINE, rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let packets = packets.into_inner();
+        assert!(!packets.is_empty());
+        assert!(packets.iter().all(|packet| packet.path_epoch == epoch));
+    }
+
+    #[tokio::test]
+    async fn active_receive_shutdown_releases_socket_with_full_output_queue() {
+        let mut tasks = crate::transport_core::tasks::TaskGroup::default();
+        let (socket, peer) = socket_pair().await;
+        let (tx, mut rx) = mpsc::channel(1);
+        let mut active = spawn_client_udp_receive_pump(
+            socket.clone(),
+            0,
+            tx.clone(),
+            &tasks.spawner(),
+            test_receive_queue(),
+        );
+        peer.send(b"first").await.unwrap();
+        tokio::time::timeout(DEADLINE, async {
+            while tx.capacity() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        peer.send(b"second").await.unwrap();
+        tokio::task::yield_now().await;
+        drop(tx);
+        tokio::time::timeout(DEADLINE, tasks.finish())
+            .await
+            .unwrap();
+        active.finish().await;
+        assert_eq!(
+            Arc::strong_count(&socket),
+            1,
+            "receive pump retained its socket"
+        );
+        receive_epoch(&mut rx, 0).await;
+        assert!(
+            rx.recv().await.is_none(),
+            "producer remained after group shutdown"
+        );
+    }
+
+    #[tokio::test]
+    async fn candidate_cancellation_preserves_active_receive_path() {
+        let mut tasks = crate::transport_core::tasks::TaskGroup::default();
+        let (active_socket, active_peer) = socket_pair().await;
+        let (candidate_socket, candidate_peer) = socket_pair().await;
+        let (tx, mut rx) = mpsc::channel(4);
+        let active = spawn_client_udp_receive_pump(
+            active_socket.clone(),
+            0,
+            tx.clone(),
+            &tasks.spawner(),
+            test_receive_queue(),
+        );
+        let candidate_task = spawn_client_udp_receive_pump(
+            candidate_socket.clone(),
+            1,
+            tx.clone(),
+            &tasks.spawner(),
+            test_receive_queue(),
+        );
+        let candidate =
+            UdpClientLiveCandidate::new(prepared(7), 1, candidate_socket.clone(), candidate_task);
+        candidate_peer.send(b"candidate").await.unwrap();
+        receive_epoch(&mut rx, 1).await;
+        tokio::time::timeout(DEADLINE, candidate.stop())
+            .await
+            .unwrap();
+        assert_eq!(Arc::strong_count(&candidate_socket), 1);
+        active_peer.send(b"active survives").await.unwrap();
+        receive_epoch(&mut rx, 0).await;
+        tasks.finish().await;
+        assert_eq!(Arc::strong_count(&active_socket), 1);
+        drop(active);
+    }
+
+    #[tokio::test]
+    async fn committed_candidate_transfers_task_while_old_receive_drains() {
+        let mut tasks = crate::transport_core::tasks::TaskGroup::default();
+        let (old_socket, old_peer) = socket_pair().await;
+        let (new_socket, new_peer) = socket_pair().await;
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut active = spawn_client_udp_receive_pump(
+            old_socket.clone(),
+            0,
+            tx.clone(),
+            &tasks.spawner(),
+            test_receive_queue(),
+        );
+        let candidate_task = spawn_client_udp_receive_pump(
+            new_socket.clone(),
+            1,
+            tx.clone(),
+            &tasks.spawner(),
+            test_receive_queue(),
+        );
+        let candidate =
+            UdpClientLiveCandidate::new(prepared(8), 1, new_socket.clone(), candidate_task);
+        let (identity, committed_socket, next_receive) = candidate.into_active();
+        assert_eq!(identity.candidate_id, 8);
+        let mut draining = UdpClientDrainingPath {
+            epoch: 0,
+            framing: crate::transport_core::udp_client_framing::UdpClientFraming::legacy(
+                false, [0; 4],
+            ),
+            expires_at: tokio::time::Instant::now(),
+            receive_task: std::mem::replace(&mut active, next_receive),
+        };
+        old_peer.send(b"draining").await.unwrap();
+        receive_epoch(&mut rx, 0).await;
+        new_peer.send(b"committed").await.unwrap();
+        receive_epoch(&mut rx, 1).await;
+        tokio::time::timeout(DEADLINE, draining.receive_task.finish())
+            .await
+            .unwrap();
+        assert_eq!(Arc::strong_count(&old_socket), 1);
+        new_peer.send(b"after drain").await.unwrap();
+        receive_epoch(&mut rx, 1).await;
+        tasks.finish().await;
+        drop(committed_socket);
+        assert_eq!(Arc::strong_count(&new_socket), 1);
+    }
+
+    #[tokio::test]
+    async fn early_owner_drop_stops_live_receive_without_dropping_path_handle() {
+        let tasks = crate::transport_core::tasks::TaskGroup::default();
+        let (socket, peer) = socket_pair().await;
+        let (tx, mut rx) = mpsc::channel(1);
+        let active = spawn_client_udp_receive_pump(
+            socket.clone(),
+            0,
+            tx,
+            &tasks.spawner(),
+            test_receive_queue(),
+        );
+        peer.send(b"started").await.unwrap();
+        receive_epoch(&mut rx, 0).await;
+        drop(tasks); // Simulate an early return/cancel while a path handle is still alive.
+        assert!(tokio::time::timeout(DEADLINE, rx.recv())
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(Arc::strong_count(&socket), 1);
+        drop(active);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "network_view_tests.rs"]
+mod network_view_tests;
+
+#[cfg(test)]
+mod q13_stealth_writer_tests {
+    use super::*;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::{Context, Poll, Waker};
+    #[tokio::test]
+    async fn q13_tcp_writer_waits_for_sub_six_ms_stealth_debt() {
+        let cfg = crate::protocol::ShapingConfig {
+            enabled: true,
+            stealth: true,
+            stealth_rate_mbps: 1,
+            ..Default::default()
+        };
+        // Fix refill at zero even if the host scheduler stalls between construction and poll.
+        let mut shaper =
+            crate::protocol::Shaper::new(cfg, std::time::Instant::now() + Duration::from_secs(1));
+        let (mut writer, _reader) = tokio::io::duplex(8192);
+        let mut codec = PacketCodec::new_raw([7; 32]);
+        let wire = vec![0x42; 700];
+        let mut cover = Vec::new();
+        let mut padding = Vec::new();
+        let mut send = Box::pin(write_client_wire_record(
+            &mut writer,
+            &mut codec,
+            &mut shaper,
+            &wire,
+            &mut cover,
+            &mut padding,
+        ));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(
+            matches!(Pin::new(&mut send).poll(&mut cx), Poll::Pending),
+            "5.6 ms debt must park before the data write"
+        );
+    }
+}
+
+// Keep Linux-only CLI wiring after shared code to preserve other targets' source locations.
+#[cfg(target_os = "linux")]
+mod logging_bootstrap;
+#[cfg(target_os = "linux")]
+pub use logging_bootstrap::{peek_logging, read_config_text};

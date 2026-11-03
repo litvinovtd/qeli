@@ -11,7 +11,7 @@
     <p class="text-sm leading-relaxed mb-2" style="color:var(--txt-mut)">Each mode gets its own interface, subnet and port, so they never collide — launch as many as you like and clients pick whichever port suits their network. After a server is up, add users and share a qeli:// link or QR; for full manual control over every option, open the config.</p>
     <div class="flex flex-wrap items-center gap-3 mb-3">
       <label for="quickstart-ip-mode" class="text-xs font-medium" style="color:var(--txt-mut)">Inner IP mode</label>
-      <select id="quickstart-ip-mode" class="inp inp-fit" x-model="ipMode">
+      <select id="quickstart-ip-mode" class="inp inp-fit" x-model="ipMode" :disabled="qs.busy">
         <option value="auto">Auto (dual-stack when native IPv6 and its firewall are available)</option>
         <option value="ipv4">IPv4 only</option>
         <option value="dual">Dual-stack (IPv4 + IPv6)</option>
@@ -105,7 +105,7 @@
         </template>
       </div>
 
-      <div class="flex gap-2 justify-end">
+      <div class="flex flex-wrap gap-2 justify-end">
         <button class="btn btn-ghost" @click="qs.done=null">Close</button>
         <a href="config" class="btn btn-ghost">Open config</a>
         <a href="users" class="btn btn-primary">
@@ -126,7 +126,7 @@
         <h3 class="text-base font-semibold text-white">Port already in use</h3>
       </div>
       <p class="text-sm mb-5" style="color:var(--txt-mut)" x-text="portClashMsg()"></p>
-      <div class="flex gap-2 justify-end">
+      <div class="flex flex-wrap gap-2 justify-end">
         <button class="btn btn-ghost" @click="portClash=null">Close</button>
         <a href="config" class="btn btn-primary">Open config</a>
       </div>
@@ -140,40 +140,30 @@ function quickstartPage() {
   return {
     qs: { busy: null, step: '', done: null },
     ipMode: 'auto',
+    destroyed: false,
+    destroy() { this.destroyed = true; },
     portClash: null,       // {port, profile} when Launch hits a port already in use
-    // The full multiprofile set — each entry is launchable in one click. Fields
-    // The Rust API builds and validates the actual profiles; these objects are display and
-    // collision-check metadata only.
+    // Display and collision-check metadata only; Rust builds and validates the profiles.
     modes: [
-      { id: 'reality-tls', name: 'reality-tls', transport: 'tcp', port: 443, idx: 0, tag: 'TCP · 443', flag: true,
-        obfMode: 'reality-tls', realityEnabled: true, realTls: true, needsSid: true, padding: false, heartbeat: false, shaping: true, multipath: true,
+      { id: 'reality-tls', name: 'reality-tls', transport: 'tcp', port: 443, tag: 'TCP · 443', flag: true,
         desc: 'REALITY TLS 1.3 with a genuine HTTP/2 streaming carrier and randomized batching. Server authentication uses qeli identity proof and the pinned key; no transport is literally indistinguishable. Best default.' },
-      { id: 'reality', name: 'reality', transport: 'tcp', port: 8443, idx: 1, tag: 'TCP · 8443',
-        obfMode: 'fake-tls', realityEnabled: true, realTls: false, needsSid: true, padding: true, heartbeat: false, shaping: true, multipath: true,
+      { id: 'reality', name: 'reality', transport: 'tcp', port: 8443, tag: 'TCP · 8443',
         desc: 'REALITY proxy: foreign / prober traffic is bridged to a real site; our clients are recognised by a short_id token (fake-TLS, no inner TLS).' },
-      { id: 'fake-tls', name: 'fake-tls', transport: 'tcp', port: 8444, idx: 2, tag: 'TCP · 8444',
-        obfMode: 'fake-tls', padding: true, heartbeat: false, shaping: true, multipath: true,
+      { id: 'fake-tls', name: 'fake-tls', transport: 'tcp', port: 8444, tag: 'TCP · 8444',
         desc: 'Mimics a TLS 1.3 handshake. Near-zero overhead — the lightweight default.' },
-      { id: 'obfs-ws', name: 'obfs-ws', transport: 'tcp', port: 8445, idx: 3, tag: 'TCP · 8445',
-        obfMode: 'obfs', needsKey: true, fronting: 'websocket', padding: false, heartbeat: false, shaping: true, multipath: true,
-        desc: 'ChaCha20 stream + WebSocket fronting. Structure-free, beats "fully-encrypted" / entropy DPI.' },
-      { id: 'obfs-none', name: 'obfs-none', transport: 'tcp', port: 8446, idx: 4, tag: 'TCP · 8446',
-        obfMode: 'obfs', needsKey: true, fronting: 'none', padding: true, heartbeat: false, shaping: true, multipath: true,
+      { id: 'obfs-ws', name: 'obfs-ws', transport: 'tcp', port: 8445, tag: 'TCP · 8445',
+        desc: 'ChaCha20 stream inside binary WebSocket frames. HTTP Upgrade changes the initial wire signature; DPI resistance depends on the network.' },
+      { id: 'obfs-none', name: 'obfs-none', transport: 'tcp', port: 8446, tag: 'TCP · 8446',
         desc: 'ChaCha20 stream obfuscation without fronting — bare random-looking stream.' },
-      { id: 'plain', name: 'plain', transport: 'tcp', port: 8447, idx: 5, tag: 'TCP · 8447',
-        obfMode: 'plain', padding: false, heartbeat: true, shaping: false, multipath: true,
+      { id: 'plain', name: 'plain', transport: 'tcp', port: 8447, tag: 'TCP · 8447',
         desc: 'Raw tunnel, no obfuscation. For debugging or fully trusted links only.' },
-      { id: 'udp-fake-tls', name: 'udp-fake-tls', transport: 'udp', port: 8448, idx: 6, tag: 'UDP · 8448',
-        obfMode: 'fake-tls', padding: true, heartbeat: false, shaping: true, multipath: false,
+      { id: 'udp-fake-tls', name: 'udp-fake-tls', transport: 'udp', port: 8448, tag: 'UDP · 8448',
         desc: 'fake-TLS handshake over UDP. Lower latency than TCP-carried modes.' },
-      { id: 'udp-quic', name: 'udp-quic', transport: 'udp', port: 8449, idx: 7, tag: 'UDP · 8449',
-        obfMode: 'fake-tls', quic: true, padding: true, heartbeat: false, shaping: true, multipath: false,
+      { id: 'udp-quic', name: 'udp-quic', transport: 'udp', port: 8449, tag: 'UDP · 8449',
         desc: 'fake-TLS with shallow QUIC-shaped compatibility framing — not genuine QUIC or HTTP/3. Best for mobile.' },
-      { id: 'udp-obfs', name: 'udp-obfs', transport: 'udp', port: 8450, idx: 8, tag: 'UDP · 8450',
-        obfMode: 'obfs', needsKey: true, padding: false, heartbeat: false, shaping: true, multipath: false,
+      { id: 'udp-obfs', name: 'udp-obfs', transport: 'udp', port: 8450, tag: 'UDP · 8450',
         desc: 'ChaCha20 stream obfuscation over UDP.' },
-      { id: 'obfs-awg', name: 'obfs-awg', transport: 'tcp', port: 8451, idx: 9, tag: 'TCP · 8451',
-        obfMode: 'obfs', needsKey: true, fronting: 'none', awg: true, awgJc: 4, padding: true, heartbeat: false, shaping: true, multipath: true,
+      { id: 'obfs-awg', name: 'obfs-awg', transport: 'tcp', port: 8451, tag: 'TCP · 8451',
         desc: 'obfs + AmneziaWG-style junk preamble — prepends jc random junk packets before the handshake (the Amnezia analog). Both ends need the same jc.' },
     ],
 
@@ -192,11 +182,14 @@ function quickstartPage() {
       return `${host}:${bind.port} · ${transport}`;
     },
 
-    copy(text) {
-      navigator.clipboard?.writeText(text).then(
-        () => this.$dispatch('notify', { msg: 'Copied', type: 'success' }),
-        () => this.$dispatch('notify', { msg: 'Copy failed', type: 'error' }),
-      );
+    async copy(text) {
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(text);
+        if (!this.destroyed) this.$dispatch('notify', { msg: 'Copied', type: 'success' });
+      } catch {
+        if (!this.destroyed) this.$dispatch('notify', { msg: 'Copy failed', type: 'error' });
+      }
     },
 
     portClashMsg() {
@@ -207,77 +200,62 @@ function quickstartPage() {
     },
 
     async quickStart(m) {
-      if (this.qs.busy) return;
+      if (this.destroyed || this.qs.busy) return;
+      // Capture the user's intent before any read or confirmation can suspend it.
+      const ipMode = this.ipMode;
+      if (!m || !this.modes.some(mode => mode.id === m.id) || !['auto', 'ipv4', 'dual', 'ipv6'].includes(ipMode)) return;
       this.qs.busy = m.id; this.qs.step = 'Checking…';
-
-      // Read the current config first so we can guard against a port collision.
-      let cfg, revision;
+      this.qs.done = null; this.portClash = null;
       try {
-        const cur = await apiFetch('api/config');
-        if (!cur.ok) throw new Error(cur.error || 'cannot read config');
-        cfg = cur.config;
-        revision = cur.revision || '';
-      } catch (e) {
-        this.qs.busy = null; this.qs.step = '';
-        this.$dispatch('notify', { msg: qeliT('Quick start failed: ') + qeliT(e.message), type: 'error' });
-        return;
-      }
+        const cur = await apiFetch('api/config', { cache: 'no-store' });
+        if (this.destroyed) return;
+        if (!cur || cur.ok !== true) throw new Error(cur?.error || 'cannot read config');
+        const cfg = cur.config, revision = cur.revision;
+        if (!cfg || !Array.isArray(cfg.profiles) || cfg.profiles.some(p => !p || typeof p !== 'object' || Array.isArray(p))) throw new Error('Invalid configuration response');
+        if (typeof revision !== 'string' || !revision.trim()) throw new Error('Settings revision unavailable. Reload before saving.');
 
-      // The backend preserves an existing Quick Start profile's complete manual bind.
-      // Check the port+transport it will actually re-enable, not the card defaults.
-      const existingProfile = (cfg.profiles || []).find(p => p.name === m.id);
-      const effectivePort = existingProfile?.bind?.port ?? m.port;
-      const effectiveTransport = existingProfile?.bind?.transport || m.transport;
-      const effectiveTag = `${String(effectiveTransport).toUpperCase()} \u00b7 ${effectivePort}`;
+        // Relaunch preserves the existing manual bind; check its actual port/transport.
+        const existingProfile = cfg.profiles.find(p => p.name === m.id);
+        const effectivePort = existingProfile?.bind?.port ?? m.port;
+        const effectiveTransport = existingProfile?.bind?.transport || m.transport;
+        const effectiveTag = `${String(effectiveTransport).toUpperCase()} · ${effectivePort}`;
+        const clash = cfg.profiles.find(p => p.name !== m.id &&
+          Number(p.bind?.port) === Number(effectivePort) &&
+          (p.bind?.transport || 'tcp') === effectiveTransport);
+        if (clash) { this.portClash = { port: effectivePort, profile: clash.name }; return; }
 
-      // A DIFFERENT profile already bound to the effective port+transport must be changed
-      // first (re-launching the SAME mode re-enables its own profile, so that's allowed).
-      const clash = (cfg.profiles || []).find(p =>
-        p.name !== m.id &&
-        Number(p.bind?.port) === Number(effectivePort) &&
-        (p.bind?.transport || 'tcp') === effectiveTransport);
-      if (clash) {
-        this.qs.busy = null; this.qs.step = '';
-        this.portClash = { port: effectivePort, profile: clash.name };
-        return;
-      }
+        if (!await qeliConfirm('Set up and restart',
+              qeliTf('Set up the "{}" server ({}) and restart now?', m.id, effectiveTag) + '\n\n'
+                + qeliT(existingProfile
+                  ? (ipMode === 'auto'
+                      ? 'This profile already exists. Quick Start will keep its credentials, IP mode and manual settings, enable it and restart the server.'
+                      : 'This profile already exists. Quick Start will keep its credentials and manual settings, explicitly switch its inner IP mode, enable it and restart the server.')
+                  : 'This creates the profile with new credentials and brings the server up.')
+                + '\n' + qeliT('Inner IP mode: ') + ipMode,
+              { label: 'Set up' })) return;
+        if (this.destroyed) return;
 
-      const existing = !!existingProfile;
-      if (!await qeliConfirm('Set up and restart',
-            qeliTf('Set up the "{}" server ({}) and restart now?', m.id, effectiveTag) + '\n\n'
-              + qeliT(existing
-                ? (this.ipMode === 'auto'
-                    ? 'This profile already exists. Quick Start will keep its credentials, IP mode and manual settings, enable it and restart the server.'
-                    : 'This profile already exists. Quick Start will keep its credentials and manual settings, explicitly switch its inner IP mode, enable it and restart the server.')
-                : 'This creates the profile with new credentials and brings the server up.')
-              + '\n' + qeliT('Inner IP mode: ') + this.ipMode,
-            { label: 'Set up' })) {
-        this.qs.busy = null; this.qs.step = '';
-        return;
-      }
-
-      this.qs.step = 'Building…';
-      try {
+        this.qs.step = 'Building…';
         const built = await apiFetch('api/config/quickstart/' + encodeURIComponent(m.id), {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ expected_revision: revision, ip_mode: this.ipMode }),
+          body: JSON.stringify({ expected_revision: revision, ip_mode: ipMode }),
         });
-        if (!built.ok) throw new Error(built.error || 'profile build failed');
+        if (this.destroyed) return;
+        if (!built || built.ok !== true) throw new Error(built?.error || 'profile build failed');
         const profile = built.profile;
-        const sid = built.sid || null;
-        const obfsKey = built.obfs_key || null;
-
+        if (!profile || profile.name !== m.id || !profile.bind || !Number.isInteger(profile.bind.port) || profile.bind.port < 1 || profile.bind.port > 65535) throw new Error('Invalid configuration response');
         this.qs.step = 'Restarting…';
-        const ok = await restartServer();
-        const endpoint = this.endpointFor(profile);
-        this.qs.done = {
-          id: m.id, name: m.name, profile: profile.name, ok,
-          endpoint,
-          tcp: (profile.bind?.transport || m.transport) === 'tcp', sid, obfsKey,
-        };
+        // The profile is already saved: distinguish an unconfirmed restart from a failed save.
+        let ok = false;
+        try { ok = await restartServer(); } catch { /* show the saved/unconfirmed result */ }
+        if (this.destroyed) return;
+        this.qs.done = { id: m.id, name: m.name, profile: profile.name, ok,
+          endpoint: this.endpointFor(profile),
+          tcp: (profile.bind.transport || m.transport) === 'tcp',
+          sid: built.sid || null, obfsKey: built.obfs_key || null };
         this.$dispatch('notify', { msg: ok ? qeliTf('{} server is live', m.name) : qeliT('Applied — server still coming up'), type: ok ? 'success' : 'warn' });
       } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Quick start failed: ') + qeliT(e.message), type: 'error' });
+        if (!this.destroyed) this.$dispatch('notify', { msg: qeliT('Quick start failed: ') + qeliT(e.message), type: 'error' });
       } finally {
         this.qs.busy = null; this.qs.step = '';
       }

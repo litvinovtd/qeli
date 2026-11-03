@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F298_F299_SOURCE_FIXES_Q30_IN_PROGRESS",
+  "executed_at": "2026-10-06T12:07:42.779920+00:00",
+  "base_commit": "350fffe99a99462f433bfa37862b997b1009052e",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q30-ios-app-preferences-20261006",
+  "raw_seal_sha256": "bc6bf7719293ec311f1c079b6218250addd78df9148cf7a614743916cb1026f3",
+  "checks": [
+    {
+      "id": "ipa-verifier",
+      "status": "PASS",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_verify_ios_ipa.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "ipa-verifier.log"
+    },
+    {
+      "id": "docs",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "status": "PASS",
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    }
+  ],
+  "source_review": {
+    "status": "SOURCE_AND_STRUCTURE_ONLY",
+    "status_reconciliation_paths": 5,
+    "new_xctest": 3,
+    "xctest": "NOT_RUN",
+    "swift_build": "NOT_RUN",
+    "apple_runtime": "USER_EXCLUDED",
+    "xml_inputs": [
+      "qeli-ios/Config/App-Info.plist",
+      "qeli-ios/Config/PacketTunnel-Info.plist",
+      "qeli-ios/Config/PrivacyInfo.xcprivacy",
+      "qeli-ios/Config/QeliIOS.entitlements",
+      "qeli-ios/Config/QeliPacketTunnel.entitlements",
+      "qeli-ios/Config/QeliWidgets.entitlements",
+      "qeli-ios/Config/Widget-Info.plist",
+      "qeli-ios/MDM/Apple-IKEv2-AlwaysOn.mobileconfig",
+      "qeli-ios/MDM/Qeli-Managed-App-Configuration.plist",
+      "qeli-ios/MDM/Qeli-PerApp-VPN.mobileconfig"
+    ],
+    "unchanged_git_inputs": 790,
+    "changed_paths": [
+      "docs/eng/index.md",
+      "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/eng/reports/AUDIT-Q30-IOS-APP-PREFERENCES.md",
+      "docs/ru/index.md",
+      "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/ru/reports/AUDIT-Q30-IOS-APP-PREFERENCES.md",
+      "qeli-ios/PARITY.md",
+      "qeli-ios/QeliCore/VPN/TunnelManager.swift",
+      "qeli-ios/QeliIOS/AppModel.swift",
+      "qeli-ios/QeliIOSTests/PreferenceMutationGateTests.swift"
+    ],
+    "review": "Five direct status consumers;MDM read inside full transaction;effectiveSettings evaluated at preference admission;connection-generation and cancellation guards before/after suspension;cancelled disconnect retry exits.",
+    "callback_never_returns": "OPEN_PLATFORM_QUALIFICATION;preference gate remains owned until callback;no cancellation unlock/drain guarantee",
+    "remaining": "provider-message waits/cancellation;backup UI request state;whole-section memory/dead code",
+    "historical_runtime": "unchanged Git blobs only;original evidence status/date/artifact retained"
+  },
+  "findings": {
+    "F298": "Five status preassignment paths bypassed F291 epoch invalidation; central status consumer now owns assignment.",
+    "F299": "Full MDM read/write reconciliation serialized; profile settings read at admission; current connection generation and cancellation guard obsolete preference steps; cancelled disconnect task exits retry."
+  },
+  "qualification": "Source/structure only;3 new XCTest/Swift build/Apple preference and notification runtime NOT_RUN,Apple runtime user-excluded",
+  "historical_runtime": "790 unchanged implementation Git inputs;original runtime statuses/artifacts/dates retained;no Linux/Android rerun",
+  "plan": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "Q29": "IN_PROGRESS;SIGKILL FAIL/auto-null ENONET retained",
+    "Q30": "IN_PROGRESS;provider-message/backup UI/final memory-dead-code source review remaining"
+  },
+  "D06": "UNCHANGED_ACCEPTED_LIMITATION",
+  "platform_skips": "UNCHANGED_USER_EXCLUDED",
+  "push": "NOT_RUN",
+  "source_digest": "d79531147884c5d201d42f55e1f4aab1e62ad7552e88afba379e86a0d8ed7b73"
+}

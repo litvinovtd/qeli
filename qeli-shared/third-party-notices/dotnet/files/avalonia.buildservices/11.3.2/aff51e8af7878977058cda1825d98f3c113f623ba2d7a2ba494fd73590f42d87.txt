@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>Avalonia.BuildServices</id>
+    <version>11.3.2</version>
+    <authors>Avalonia Team</authors>
+    <developmentDependency>true</developmentDependency>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <icon>Icon.png</icon>
+    <readme>README.md</readme>
+    <projectUrl>https://avaloniaui.net/</projectUrl>
+    <description>Avalonia is a cross-platform UI framework for .NET providing a flexible styling system and supporting a wide range of Operating Systems such as Windows, Linux, macOS and with experimental support for Android, iOS and WebAssembly.</description>
+    <copyright>Copyright 2023-2025 © The AvaloniaUI Project</copyright>
+    <tags>avalonia avaloniaui mvvm msbuild telemetry</tags>
+    <repository type="git" url="https://github.com/AvaloniaUI/Avalonia.BuildServices" commit="777f975b0a0cecf0311273711d56697212c558c0" />
+    <dependencies>
+      <group targetFramework=".NETStandard2.0" />
+    </dependencies>
+  </metadata>
+</package>

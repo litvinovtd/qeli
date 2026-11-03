@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_APK_CONSUMER_SOURCE_SHA_INSTALL_REFUSALS_SCOPED",
+  "source_digest": "d1edbb46053d74812334b11bd39a19867bb9e712f0fc41f94d3daf592c77fe39",
+  "qualification_source_commit": "177ee73bbb2f0f5ab74d5ae8ba80089146c1eadc",
+  "product_source_commit": "177ee73bbb2f0f5ab74d5ae8ba80089146c1eadc",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F493/Q34-F047"
+  ],
+  "verification": {
+    "baseline_failures": {
+      "status": "BASELINE_REPRODUCED",
+      "cases": [
+        {
+          "script": "e2e_android_faketls.py",
+          "baseline_apk": "/root/android-project/app/build/outputs/apk/debug/app-debug.apk",
+          "controlled_adb_returncode": 7,
+          "exit_status_ignored": true,
+          "continued_after_failed_install": true,
+          "output": "   Failure [FIXTURE_INSTALL_REJECTED]\n",
+          "calls": [
+            "/root/android-sdk/platform-tools/adb install -r -d /root/android-project/app/build/outputs/apk/debug/app-debug.apk"
+          ],
+          "scope": "Exact extracted baseline csh/a/install statement under controlled streams; no full E2E/server/ADB mutation"
+        },
+        {
+          "script": "e2e_android_udpquic.py",
+          "baseline_apk": "/root/android-project/app/build/outputs/apk/debug/app-debug.apk",
+          "controlled_adb_returncode": 7,
+          "exit_status_ignored": true,
+          "continued_after_failed_install": true,
+          "output": "   Failure [FIXTURE_INSTALL_REJECTED]\n",
+          "calls": [
+            "/root/android-sdk/platform-tools/adb install -r -d /root/android-project/app/build/outputs/apk/debug/app-debug.apk"
+          ],
+          "scope": "Exact extracted baseline csh/a/install statement under controlled streams; no full E2E/server/ADB mutation"
+        },
+        {
+          "script": "e2e_android_bonding.py",
+          "baseline_apk": "/root/android-project/app/build/outputs/apk/debug/app-debug.apk",
+          "controlled_adb_returncode": 7,
+          "exit_status_ignored": true,
+          "continued_after_failed_install": true,
+          "output": "   Failure [FIXTURE_INSTALL_REJECTED]\n",
+          "calls": [
+            "/root/android-sdk/platform-tools/adb install -r -d /root/android-project/app/build/outputs/apk/debug/app-debug.apk"
+          ],
+          "scope": "Exact extracted baseline csh/a/install statement under controlled streams; no full E2E/server/ADB mutation"
+        }
+      ]
+    },
+    "admission": {
+      "status": "PASS_REAL_RECEIPT_BEFORE_SSH",
+      "current_commit": "c1a9af5c6740d27f4cb4a0ea2fab53b89576c25c",
+      "source_commit": "40c644229eb3f91429d6ead272e2428e2ebd320a",
+      "apk_sha256": "1525e14c4098bca83e3f1557f29c5c9a1d1c85878042c1ea90ef97815b4027ee",
+      "bytes": 30474984,
+      "scope": "Prior real debug APK reused; selected source trees/native provenance equal HEAD, no rebuild"
+    },
+    "windows": {
+      "status": "PASS",
+      "methods": 89,
+      "suites": [
+        {
+          "suite": "test_android_apk_input.py",
+          "methods": 18,
+          "log": "windows-qualified-test_android_apk_input.log"
+        },
+        {
+          "suite": "test_rebuild_apk.py",
+          "methods": 22,
+          "log": "windows-test_rebuild_apk.py.log"
+        },
+        {
+          "suite": "test_native_recipes.py",
+          "methods": 38,
+          "log": "windows-test_native_recipes.py.log"
+        },
+        {
+          "suite": "test_check_workflows.py",
+          "methods": 11,
+          "log": "windows-test_check_workflows.py.log"
+        }
+      ],
+      "scope": "Final18 supersede prior17; related22/38/11 already executed; actionlint unchanged after Python-only gate fix"
+    },
+    "linux": {
+      "status": "PASS_REAL_APK_TRANSFER_AND_CONTROLLED_INSTALLER_REFUSALS",
+      "tests": 17,
+      "cases": [
+        {
+          "mode": "success",
+          "status": "PASS_EXPECTED_SUCCESS",
+          "output": "Success",
+          "error": ""
+        },
+        {
+          "mode": "nonzero",
+          "status": "PASS_EXPECTED_REFUSAL",
+          "output": "",
+          "error": "install exact APK failed (rc=7):\nSuccess"
+        },
+        {
+          "mode": "failure",
+          "status": "PASS_EXPECTED_REFUSAL",
+          "output": "",
+          "error": "ADB did not confirm successful APK installation: Failure [FIXTURE_INSTALL_REJECTED]"
+        },
+        {
+          "mode": "ambiguous",
+          "status": "PASS_EXPECTED_REFUSAL",
+          "output": "",
+          "error": "ADB did not confirm successful APK installation: Success\nFailure [FIXTURE_INSTALL_REJECTED]"
+        },
+        {
+          "mode": "tampered",
+          "status": "PASS_EXPECTED_REFUSAL",
+          "output": "",
+          "error": "Uploaded APK SHA256 mismatch; installation refused"
+        }
+      ],
+      "controlled_adb_events": [
+        {
+          "mode": "success",
+          "path": "/var/tmp/qeli-apk-test.KdyxpyUu/app-debug.apk",
+          "sha256": "1525e14c4098bca83e3f1557f29c5c9a1d1c85878042c1ea90ef97815b4027ee"
+        },
+        {
+          "mode": "nonzero",
+          "path": "/var/tmp/qeli-apk-test.bGJXF32W/app-debug.apk",
+          "sha256": "1525e14c4098bca83e3f1557f29c5c9a1d1c85878042c1ea90ef97815b4027ee"
+        },
+        {
+          "mode": "failure",
+          "path": "/var/tmp/qeli-apk-test.vIYLoVrF/app-debug.apk",
+          "sha256": "1525e14c4098bca83e3f1557f29c5c9a1d1c85878042c1ea90ef97815b4027ee"
+        },
+        {
+          "mode": "ambiguous",
+          "path": "/var/tmp/qeli-apk-test.rpWN95E7/app-debug.apk",
+          "sha256": "1525e14c4098bca83e3f1557f29c5c9a1d1c85878042c1ea90ef97815b4027ee"
+        }
+      ],
+      "source_commit": "40c644229eb3f91429d6ead272e2428e2ebd320a",
+      "apk_sha256": "1525e14c4098bca83e3f1557f29c5c9a1d1c85878042c1ea90ef97815b4027ee",
+      "stage_paths_removed": [
+        "/var/tmp/qeli-apk-test.KdyxpyUu",
+        "/var/tmp/qeli-apk-test.bGJXF32W",
+        "/var/tmp/qeli-apk-test.vIYLoVrF",
+        "/var/tmp/qeli-apk-test.rpWN95E7",
+        "/var/tmp/qeli-apk-test.KRytoG3i"
+      ],
+      "root": "/var/tmp/qeli-apk-consumers.FKdV7Eiw",
+      "before": "active\nMainPID=777\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n777\n845",
+      "after": "active\nMainPID=777\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n777\n845",
+      "scope": "Actual common installer, real strict SSH/SFTP/SHA/timeout/cleanup and actual30MB prior debugAPK; private controlled ADB replacement only. No real APK installation/device mutation/VPN/server/.10 action, no rebuild or publisher/runtime qualification",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "linux_final": {
+      "status": "PASS_FINAL18_LINUX_METHODS",
+      "tests": 18,
+      "producer_commit": "5464a014dc09744d082cc2ec5438de49801a2323",
+      "source_archive_sha256": "e8823eed2d9f16bb8bed6b453e6e3d7b1fdeb778316af98f6f1d501681fea112",
+      "qualified_files_sha256": {
+        "android_apk_input.py": "b111ebdbcd15c2d4040780049e6f4fa7114fe840afc591cc0d4407a43a69494c",
+        "test_android_apk_input.py": "c1ae88e5c22098285abeeb56630e4e2a07a2dc568cfecb87f016fb58d1d98179",
+        "rebuild_apk.py": "46cefb5a2711e778410cfc44d512cdfe825cca38c7c4fdaec5f5833dc3303f39",
+        "native_repro.py": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c",
+        "native_lab.py": "da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0",
+        "ssh_command.py": "ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b",
+        "ssh_hostkey.py": "c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39",
+        "lab_common.py": "479f689c6fe754887e07cfdf803e7c8d740b911c1708403de650b10a9e5bc59f",
+        "e2e_android_faketls.py": "837e0105db8ea4852ee2ae48dd5b6f7235a93e1f602b7751efb507c539d2ebb0",
+        "e2e_android_udpquic.py": "03caa80904ea7f495a56063ab08c38fb2927afb631a1ee05c49eb15f20035c9a",
+        "e2e_android_bonding.py": "196a5e49a4e637711e3cbda50385d40b3b79ac236110a6b7c1312cef70c8647e",
+        "e2e_final.py": "ff808dab6301aa7fed3139918d9d219a0c79e386b254148f79dd167a7d45b01a"
+      },
+      "cleanup": {
+        "status": "PASS_NONRECURSIVE_KNOWN_INPUT_SHA_RECOVERED_CLEANUP",
+        "root": "/var/tmp/qeli-apk-consumers.njmMyK3A",
+        "files": 13,
+        "process_fd_references": [],
+        "mount_guard": "PASS"
+      },
+      "original_service_unchanged": true,
+      "commands": [
+        {
+          "command": "python3 -B -c 'from pathlib import Path\nimport os,re,json,hashlib\nroot=Path('\"'\"'/var/tmp/qeli-apk-consumers.njmMyK3A'\"'\"');files={'\"'\"'android_apk_input.py'\"'\"': '\"'\"'b111ebdbcd15c2d4040780049e6f4fa7114fe840afc591cc0d4407a43a69494c'\"'\"', '\"'\"'test_android_apk_input.py'\"'\"': '\"'\"'c1ae88e5c22098285abeeb56630e4e2a07a2dc568cfecb87f016fb58d1d98179'\"'\"', '\"'\"'rebuild_apk.py'\"'\"': '\"'\"'46cefb5a2711e778410cfc44d512cdfe825cca38c7c4fdaec5f5833dc3303f39'\"'\"', '\"'\"'native_repro.py'\"'\"': '\"'\"'23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c'\"'\"', '\"'\"'native_lab.py'\"'\"': '\"'\"'da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0'\"'\"', '\"'\"'ssh_command.py'\"'\"': '\"'\"'ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b'\"'\"', '\"'\"'ssh_hostkey.py'\"'\"': '\"'\"'c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39'\"'\"', '\"'\"'lab_common.py'\"'\"': '\"'\"'479f689c6fe754887e07cfdf803e7c8d740b911c1708403de650b10a9e5bc59f'\"'\"', '\"'\"'e2e_android_faketls.py'\"'\"': '\"'\"'837e0105db8ea4852ee2ae48dd5b6f7235a93e1f602b7751efb507c539d2ebb0'\"'\"', '\"'\"'e2e_android_udpquic.py'\"'\"': '\"'\"'03caa80904ea7f495a56063ab08c38fb2927afb631a1ee05c49eb15f20035c9a'\"'\"', '\"'\"'e2e_android_bonding.py'\"'\"': '\"'\"'196a5e49a4e637711e3cbda50385d40b3b79ac236110a6b7c1312cef70c8647e'\"'\"', '\"'\"'e2e_final.py'\"'\"': '\"'\"'ff808dab6301aa7fed3139918d9d219a0c79e386b254148f79dd167a7d45b01a'\"'\"', '\"'\"'source.tar'\"'\"': '\"'\"'e8823eed2d9f16bb8bed6b453e6e3d7b1fdeb778316af98f6f1d501681fea112'\"'\"'};assert root.resolve()==root and root.parent==Path('\"'\"'/var/tmp'\"'\"') and re.fullmatch(r'\"'\"'qeli-apk-consumers\\.[A-Za-z0-9]{8}'\"'\"',root.name)\nassert set(f.name for f in root.iterdir())==set(files) and all(f.is_file() and not f.is_symlink() for f in root.iterdir())\nfor name,sha in files.items():\n with (root/name).open('\"'\"'rb'\"'\"') as incoming:assert hashlib.file_digest(incoming,'\"'\"'sha256'\"'\"').hexdigest()==sha\nusers=[]\nfor proc in Path('\"'\"'/proc'\"'\"').iterdir():\n if not proc.name.isdigit() or int(proc.name)==os.getpid():continue\n try:entries=[proc/name for name in ['\"'\"'cwd'\"'\"','\"'\"'exe'\"'\"','\"'\"'root'\"'\"']]+list((proc/'\"'\"'fd'\"'\"').iterdir())\n except OSError:continue\n for f in entries:\n  try:link=os.readlink(f).removesuffix('\"'\"' (deleted)'\"'\"')\n  except OSError:continue\n  if link==str(root) or link.startswith(str(root)+'\"'\"'/'\"'\"'):users.append([proc.name,f.name,link])\nassert not users,users\nfor line in Path('\"'\"'/proc/self/mountinfo'\"'\"').read_text().splitlines():\n point=re.sub(r'\"'\"'\\\\([0-7]{3})'\"'\"',lambda m:chr(int(m[1],8)),line.split()[4]);assert point!=str(root) and not point.startswith(str(root)+'\"'\"'/'\"'\"'),point\nfor name in files:(root/name).unlink()\nroot.rmdir()\nprint(json.dumps(dict(status='\"'\"'PASS_NONRECURSIVE_KNOWN_INPUT_SHA_RECOVERED_CLEANUP'\"'\"',root=str(root),files=len(files),process_fd_references=users,mount_guard='\"'\"'PASS'\"'\"')))\n'",
+          "returncode": 0,
+          "log": "linux-final-cleanup.log"
+        },
+        {
+          "command": "systemctl is-active qeli; systemctl show qeli -p MainPID; sha256sum /usr/bin/qeli; pgrep -x qeli | sort -n",
+          "returncode": 0,
+          "log": "linux-final-service.log"
+        }
+      ],
+      "scope": "Final source gate/CLI18 tests after server-restoration fix; installer helper unchanged from preceding five real transfer cases; no APK/runtime rebuild"
+    },
+    "cleanup": {
+      "status": "REMOVED_OWN_FIXTURE_AFTER_RECOVERY",
+      "root": "/var/tmp/qeli-apk-consumers.FKdV7Eiw",
+      "archive": "/var/tmp/qeli-apk-consumers-recovery-20261009.pwidswsu.tar.gz",
+      "process_fd_references": [],
+      "mount_guard": "PASS"
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-CLIENT-SUPPLY.md",
+        "docs/eng/reports/BENCHMARK.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-CLIENT-SUPPLY.md",
+        "docs/ru/reports/BENCHMARK.md",
+        "scripts/android_apk_input.py",
+        "scripts/e2e_android_bonding.py",
+        "scripts/e2e_android_faketls.py",
+        "scripts/e2e_android_udpquic.py",
+        "scripts/e2e_final.py",
+        "scripts/test_android_apk_input.py"
+      ],
+      "qualified_paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "e281dcc626ef48a866b7d33be8a262654728b2a8fc7005c393f9a8a47eb17219",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/android_apk_input.py",
+          "sha256": "b111ebdbcd15c2d4040780049e6f4fa7114fe840afc591cc0d4407a43a69494c",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/e2e_android_bonding.py",
+          "sha256": "196a5e49a4e637711e3cbda50385d40b3b79ac236110a6b7c1312cef70c8647e",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/e2e_android_faketls.py",
+          "sha256": "837e0105db8ea4852ee2ae48dd5b6f7235a93e1f602b7751efb507c539d2ebb0",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/e2e_android_udpquic.py",
+          "sha256": "03caa80904ea7f495a56063ab08c38fb2927afb631a1ee05c49eb15f20035c9a",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/e2e_final.py",
+          "sha256": "ff808dab6301aa7fed3139918d9d219a0c79e386b254148f79dd167a7d45b01a",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_android_apk_input.py",
+          "sha256": "c1ae88e5c22098285abeeb56630e4e2a07a2dc568cfecb87f016fb58d1d98179",
+          "normalization": "LF"
+        }
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-apk-consumers-20261009",
+    "files": 90,
+    "bytes": 1637228,
+    "manifest_sha256": "c6888dfc8edc8712f6f92d98fa9165c5e93e350830c1a2f8b0d9c994e349ac84",
+    "runtime_status": "PASS_Q34_APK_CONSUMER_SOURCE_SHA_AND_INSTALL_REFUSALS_SCOPED",
+    "path": "audit-debt-20260924/q34-apk-consumers-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F493/Q34-F047 four Android E2E APK installer consumers closed: explicit local BUILD.json/siblingdebugAPK, sourcecommit/selectedGitinputs/currentcleanHEAD/nativeprovenance/size/SHA admission beforeSSH/optionalparamiko, immutablebytes, ownmktemptransfer/remoteSHA, bounded180sADB/rc0/standaloneSuccess/noFailure and exactfinally rm/rmdir. FakeTLSkillswitchretained; canonical e2e_final installpreparation moved before serverrestorefinally and closesbothconnections on failure. LegacysharedAPK read-onlySHA324e19e8 differs actualnew1525e14c; exact3baseline csh/a/install statements continueaftercontrolledrc7 Failure,statusignored, no oldfullE2E/serverexecuted.89Windows18finalLinuxmethods,5actualcommoninstaller realSSH/SFTP/30MBAPK transfer cases with privatecontrolledADB success/nonzero7/Failurezero/ambiguouszero/actualuploadedbytemutationPASS;4ADBcalls alloriginalSHA,noADBonSHArefusal. Actualhelperunchangedbetweenfirstcodequalification and finalservergatecommit5464a014; final18LinuxinputarchiveSHAvalidated and known13file nonrecursivecleanup; earlierfixture source/events SHArecoverscript/memberchecks and guardedcleanup; all5installroots+2fixtures+ownrecoveryarchive removed, original777845CLI75bc preserved,.10unused. Nativee3fb14SHA/protectedqelitree/OpenWrtcut unchanged,inheritedexecutionnotrerun. Prioractual201JVM/debugAPK/legal/signature inherited,no rebuild/copyoflargeAPK; no real emulatorAPKinstall/VPN/fullE2Ematrix/productionserverrestart/publisherqualification. Two already-installedREALITY scripts andprod lifecycle outside this installerpath not newruntimePASS. Generator/macrocleanupharnessrefusals beforeSSH/delete preserved, finalcleanupdone. Official4workflowactionlint/newCIgate724Markdown9docsPASS, pairedmanualCLIcorrected.41cases94priorsupplements preserved modulo source_digest bookkeeping;append95scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;F459/Q29SIGKILLFAIL-ENONET/Q30Q31/D06accepted/USER_EXCLUDED/expectedreleasepublisherOPEN retained; LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

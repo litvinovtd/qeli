@@ -1,0 +1,829 @@
+{
+  "schema_version": 1,
+  "kind": "current-pool-cli-20-fresh-linux-cases",
+  "execution_source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+  "execution_release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+  "artifact_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+  "qualification": {
+    "status": "ALL_20_CURRENT_POOL_CLI_RUNTIME_CASES_QUALIFIED_CLEANUP_PENDING",
+    "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+    "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+    "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+    "qualified_rows": [
+      {
+        "id": "linux.outer4.inner4.tcp.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.tcp.full.log",
+        "log_sha256": "422a773351c2b9e0c120a6f8df008b3cdc63e35351be49e9162a31e4edc455bc",
+        "seconds": 6.010354051017202,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.tcp.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.tcp.full.log",
+        "log_sha256": "a452a364c22577c2108e66b01fc4d4b4716c106ab6134d72a3d97070f576d1d8",
+        "seconds": 6.008504632045515,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.tcp.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.tcp.full.log",
+        "log_sha256": "5c0985b471f5da9f85ab9e662326cd8cbf55dcc375ca0ede5943548b226ec53a",
+        "seconds": 6.008875755011104,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.tcp.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.tcp.full.log",
+        "log_sha256": "726bd203d55db85e9159f3a64224af5fb5abc1d497fbca27782920db8fb2c5e8",
+        "seconds": 6.009123431984335,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner4.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.udp-fake-tls.full.log",
+        "log_sha256": "5ee8bb15b4159b9aab679a5a75012a7a7d380901055910efaa1bba5c744166b4",
+        "seconds": 6.010193440015428,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.udp-fake-tls.full.log",
+        "log_sha256": "a1a53cf52c1046876ef6f2db81da944cbad0b84c72d129c8032448715cfa406a",
+        "seconds": 6.00955854204949,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.udp-fake-tls.full.log",
+        "log_sha256": "20f8e689f3884a50fd90cdc9c48ac7f12b8f1198f89fa1aa6c9029e6306ba198",
+        "seconds": 6.009790449985303,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.udp-fake-tls.full.log",
+        "log_sha256": "e77f0900cf0b51c5eaa9b4aae9e37fe224652170b28df1b7ccf938f672057e5f",
+        "seconds": 6.010129516012967,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner4.udp-quic.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.udp-quic.full.log",
+        "log_sha256": "79a9bef43c9f232a884422c39829965738c4fd34145200391ec632f34f18cab2",
+        "seconds": 6.010509726009332,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.udp-quic.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.udp-quic.full.log",
+        "log_sha256": "f5a18228a8293d3c9ab423f14c63256478674a884932ed12ac0b44a8dcbb2bb3",
+        "seconds": 6.01091647404246,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.udp-quic.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.udp-quic.full.log",
+        "log_sha256": "472fdff4d958e27647a0f0cdfa73897c0820bfa8d04e11dfccf18ed572b9c0dc",
+        "seconds": 6.010990279959515,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.udp-quic.full",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.udp-quic.full.log",
+        "log_sha256": "9fc70024100f256ae6b7261c11f19064d57ae096ba303fd71cbb72c27836530a",
+        "seconds": 6.0117786400951445,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.dual.tcp.split",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 19,
+        "log": "linux.dual.tcp.split.log",
+        "log_sha256": "cb69d7295ef730df0ef44b61a9734c7f5dcff0a722e6a899d45f2ba2e0958773",
+        "seconds": 8.015603423933499,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.dual.udp.split",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 19,
+        "log": "linux.dual.udp.split.log",
+        "log_sha256": "9d6c566404da8f901837ab40db8bf58bce7c79520bddce84c797ee9b71c313ce",
+        "seconds": 8.017496298067272,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.tap.ndp-ra",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 15,
+        "log": "linux.tap.ndp-ra.log",
+        "log_sha256": "2d96cb3c6ce6d1859ca96560d1b9c233cf074fc14e8f3c24f95274af0b4804b3",
+        "seconds": 8.015944743994623,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.dns.ipv4-ipv6",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 105,
+        "log": "linux.dns.ipv4-ipv6.log",
+        "log_sha256": "0ee884c61d2bef6cfb2b7ea472e96de561ff5ff44d05b2f17af310bea0e267cd",
+        "seconds": 26.057621584041044,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.mtu.1280-pmtu-ptb",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 36,
+        "log": "linux.mtu.1280-pmtu-ptb.log",
+        "log_sha256": "9e90111c1b198a53058179d2e6090f14b45aada7d90a274287c86d25ea0f34c9",
+        "seconds": 18.04022119101137,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.legacy-peer",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 26,
+        "log": "linux.legacy-peer.log",
+        "log_sha256": "06d39395d11aa5df3af5130566633b2ca5cd55e4ee0482c1b947e3490ec20cda",
+        "seconds": 12.027634456055239,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.roaming-flap-soak",
+        "status": "passed",
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+        "checks_passed": 33,
+        "log": "linux.roaming-flap-soak.log",
+        "log_sha256": "76661ec3b73b05422ccf5ea62aa0f4c8cd1df8e2e7cf4df336d3ce5c45556cd6",
+        "seconds": 441.03870128199924,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.leak.ipv4-ipv6",
+        "status": "passed",
+        "derived_from": [
+          "linux.dual.tcp.split",
+          "linux.dual.udp.split",
+          "linux.outer4.inner4.tcp.full",
+          "linux.outer4.inner4.udp-fake-tls.full",
+          "linux.outer4.inner4.udp-quic.full",
+          "linux.outer4.inner6.tcp.full",
+          "linux.outer4.inner6.udp-fake-tls.full",
+          "linux.outer4.inner6.udp-quic.full",
+          "linux.outer6.inner4.tcp.full",
+          "linux.outer6.inner4.udp-fake-tls.full",
+          "linux.outer6.inner4.udp-quic.full",
+          "linux.outer6.inner6.tcp.full",
+          "linux.outer6.inner6.udp-fake-tls.full",
+          "linux.outer6.inner6.udp-quic.full"
+        ],
+        "source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+        "release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+        "cli_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069"
+      }
+    ],
+    "failed_rows": [],
+    "all_20_runtime_cases_qualified": true,
+    "actual_ordinary_executions": 19,
+    "aggregate_leak_derived_from_actual_cases": [
+      "linux.dual.tcp.split",
+      "linux.dual.udp.split",
+      "linux.outer4.inner4.tcp.full",
+      "linux.outer4.inner4.udp-fake-tls.full",
+      "linux.outer4.inner4.udp-quic.full",
+      "linux.outer4.inner6.tcp.full",
+      "linux.outer4.inner6.udp-fake-tls.full",
+      "linux.outer4.inner6.udp-quic.full",
+      "linux.outer6.inner4.tcp.full",
+      "linux.outer6.inner4.udp-fake-tls.full",
+      "linux.outer6.inner4.udp-quic.full",
+      "linux.outer6.inner6.tcp.full",
+      "linux.outer6.inner6.udp-fake-tls.full",
+      "linux.outer6.inner6.udp-quic.full"
+    ],
+    "collection_sha256": "c68746edb3f85f95afbb197c7eeec1bdd8a66d6313d82a20d166b4b3bdd77a58",
+    "archive_sha256": "8c3c7d7170e9a3506b6af48b4f89fd8a7de35b3fdce9b511c05383d83e36bdbd",
+    "host_gate": "PASS",
+    "changed_fields": [],
+    "source_equivalence": {
+      "build_seal_sha256": "4c02b82ce0a016b90835640ac63ce29738cb5c2044148baf2f81a9c57594ff07",
+      "compiled_input_count": 916,
+      "exact_inputs": 915,
+      "explicit_format_only_input": "qeli/src/transport_core/buffer_pool.rs",
+      "format_amendment_sha256": "e15a03aa468c2cf2a625a2841fef5314f91a5c514c3a9ab58e318078c5060c85",
+      "exact_replacement_reverified": true
+    },
+    "old_results_reused": false,
+    "q35_eight_hour_endurance_qualified": false,
+    "final_release_certified": false
+  },
+  "execution_packet_seal_sha256": "3a41c1e3c407f057a44bcd16730d8e0ef5dc1aa491fc2e03357cc205ff7b58a0",
+  "raw_archive_sha256": "8c3c7d7170e9a3506b6af48b4f89fd8a7de35b3fdce9b511c05383d83e36bdbd",
+  "collection_host_gate": "PASS",
+  "collection_host_differences": [],
+  "cleanup_host_gate": "PASS",
+  "cleanup_host_differences": [],
+  "production_and_existing_dns_tools_accounts_preserved": true,
+  "old_executions_relabelled": false,
+  "actual_ordinary_executions": 19,
+  "aggregate_leak_derived_from_actual_cases": [
+    "linux.dual.tcp.split",
+    "linux.dual.udp.split",
+    "linux.outer4.inner4.tcp.full",
+    "linux.outer4.inner4.udp-fake-tls.full",
+    "linux.outer4.inner4.udp-quic.full",
+    "linux.outer4.inner6.tcp.full",
+    "linux.outer4.inner6.udp-fake-tls.full",
+    "linux.outer4.inner6.udp-quic.full",
+    "linux.outer6.inner4.tcp.full",
+    "linux.outer6.inner4.udp-fake-tls.full",
+    "linux.outer6.inner4.udp-quic.full",
+    "linux.outer6.inner6.tcp.full",
+    "linux.outer6.inner6.udp-fake-tls.full",
+    "linux.outer6.inner6.udp-quic.full"
+  ],
+  "source_equivalence": {
+    "build_seal_sha256": "4c02b82ce0a016b90835640ac63ce29738cb5c2044148baf2f81a9c57594ff07",
+    "compiled_input_count": 916,
+    "exact_inputs": 915,
+    "explicit_format_only_input": "qeli/src/transport_core/buffer_pool.rs",
+    "format_amendment_sha256": "e15a03aa468c2cf2a625a2841fef5314f91a5c514c3a9ab58e318078c5060c85",
+    "exact_replacement_reverified": true
+  },
+  "source_applicability_after_documentation_commit_pending": false,
+  "whole_audit_complete": false,
+  "full_android_vpn_runtime_certified": false,
+  "q35_eight_hour_endurance_qualified": false,
+  "hosted_ci_certified": false,
+  "push_deploy_release": false,
+  "source_digest": "2e867af136d6920f495f5c5389e233a4545776195a2f668dc79da3bc17c5ff6a",
+  "applicable_source_commit": "05ffc7d5a7ae2602b9213242061f42a2669f6aa7",
+  "source_applicability": {
+    "kind": "EXACT_DOC_ONLY_TRACE_BOUNDARY_REVIEW_ACROSS_PRIOR_SOURCE_BOUNDARIES",
+    "execution_source_commit": "e10799a97ba16b4dc793a205a2c27865d63e2285",
+    "execution_release_source_digest": "16db8c930bb4ad6c9eaca290e6d0c89e94bb004f1a77797670ccfcb7bfadc46d",
+    "applicable_source_commit": "05ffc7d5a7ae2602b9213242061f42a2669f6aa7",
+    "applicable_source_digest": "2e867af136d6920f495f5c5389e233a4545776195a2f668dc79da3bc17c5ff6a",
+    "execution_tree": "037e2c83fb57acb6c00b64f33733b1c668e72409",
+    "applicable_tree": "fb6fa10008e467936f3d9b5608d67a524a56d5da",
+    "all_changed_paths": [
+      "docs/eng/index.md",
+      "docs/eng/manuals/CONFIG.md",
+      "docs/eng/manuals/GETTING-STARTED.md",
+      "docs/eng/manuals/TROUBLESHOOTING.md",
+      "docs/eng/plans/AUDIT-DEBT.md",
+      "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-CURRENT-VPN.md",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-DATA.md",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-SYSTEM.md",
+      "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+      "docs/eng/reports/AUDIT-Q34-OPENWRT-SOURCE-CUT.md",
+      "docs/eng/reports/AUDIT-Q35-LONG-SOAK.md",
+      "docs/eng/reports/AUDIT-Q37-DOCUMENTATION.md",
+      "docs/eng/reports/BENCHMARK.md",
+      "docs/ru/index.md",
+      "docs/ru/manuals/CONFIG.md",
+      "docs/ru/manuals/GETTING-STARTED.md",
+      "docs/ru/manuals/TROUBLESHOOTING.md",
+      "docs/ru/plans/AUDIT-DEBT.md",
+      "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-CURRENT-VPN.md",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-DATA.md",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-SYSTEM.md",
+      "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+      "docs/ru/reports/AUDIT-Q34-OPENWRT-SOURCE-CUT.md",
+      "docs/ru/reports/AUDIT-Q35-LONG-SOAK.md",
+      "docs/ru/reports/AUDIT-Q37-DOCUMENTATION.md",
+      "docs/ru/reports/BENCHMARK.md",
+      "qeli-android/README.md",
+      "qeli-openwrt/Makefile",
+      "qeli-openwrt/README.md",
+      "release/certification/0.8.2.json",
+      "release/certification/evidence/current-pool-linux-matrix-20261012.json",
+      "release/certification/evidence/q29-current-sigkill-20261012.json",
+      "release/certification/evidence/q29-current-vpn-20261012.json",
+      "release/certification/evidence/q29-dns-selection-control-20261012.json",
+      "release/certification/evidence/q29-production-runtime-20261012.json",
+      "release/certification/evidence/q29-publication-contract-20261012.json",
+      "release/certification/evidence/q29-storage-startup-20261012.json",
+      "release/certification/evidence/q31-current-portable-20261012.json",
+      "release/certification/evidence/q34-current-source-cut-20261012.json",
+      "release/certification/evidence/q35-performance-order-20261012.json",
+      "release/certification/evidence/q36-tcp-boundaries-20261012.json",
+      "release/certification/evidence/q37-closure-20261012.json",
+      "scripts/android_lab_ui.py",
+      "scripts/audit_android_data_plane_lab.py",
+      "scripts/audit_android_release_ui.py",
+      "scripts/audit_android_startup_dns.py",
+      "scripts/test_android_emulator_memory.py",
+      "scripts/test_android_lab_ui_anr.py",
+      "scripts/test_android_release_ui_transition.py",
+      "scripts/test_android_startup_state.py",
+      "scripts/test_android_storage_admission.py",
+      "scripts/test_openwrt_compile.py",
+      "scripts/test_openwrt_opkg.py"
+    ],
+    "release_source_changed_paths": [
+      "docs/eng/index.md",
+      "docs/eng/manuals/CONFIG.md",
+      "docs/eng/manuals/GETTING-STARTED.md",
+      "docs/eng/manuals/TROUBLESHOOTING.md",
+      "docs/eng/plans/AUDIT-DEBT.md",
+      "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-CURRENT-VPN.md",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-DATA.md",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-SYSTEM.md",
+      "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+      "docs/eng/reports/AUDIT-Q34-OPENWRT-SOURCE-CUT.md",
+      "docs/eng/reports/AUDIT-Q35-LONG-SOAK.md",
+      "docs/eng/reports/AUDIT-Q37-DOCUMENTATION.md",
+      "docs/eng/reports/BENCHMARK.md",
+      "docs/ru/index.md",
+      "docs/ru/manuals/CONFIG.md",
+      "docs/ru/manuals/GETTING-STARTED.md",
+      "docs/ru/manuals/TROUBLESHOOTING.md",
+      "docs/ru/plans/AUDIT-DEBT.md",
+      "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-CURRENT-VPN.md",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-DATA.md",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-SYSTEM.md",
+      "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+      "docs/ru/reports/AUDIT-Q34-OPENWRT-SOURCE-CUT.md",
+      "docs/ru/reports/AUDIT-Q35-LONG-SOAK.md",
+      "docs/ru/reports/AUDIT-Q37-DOCUMENTATION.md",
+      "docs/ru/reports/BENCHMARK.md",
+      "qeli-android/README.md",
+      "qeli-openwrt/Makefile",
+      "qeli-openwrt/README.md",
+      "scripts/android_lab_ui.py",
+      "scripts/audit_android_data_plane_lab.py",
+      "scripts/audit_android_release_ui.py",
+      "scripts/audit_android_startup_dns.py",
+      "scripts/test_android_emulator_memory.py",
+      "scripts/test_android_lab_ui_anr.py",
+      "scripts/test_android_release_ui_transition.py",
+      "scripts/test_android_startup_state.py",
+      "scripts/test_android_storage_admission.py",
+      "scripts/test_openwrt_compile.py",
+      "scripts/test_openwrt_opkg.py"
+    ],
+    "changed_source_file_sha256": {
+      "docs/eng/index.md": "f080f2095c3cc2f93ce02029e3d412295786c83993ebd183fec01e96354cbf18",
+      "docs/eng/manuals/CONFIG.md": "6b4af4bede138186694090b0df3a6ac63b8ff7a233dc73009ca48b7d41f0fc0f",
+      "docs/eng/manuals/GETTING-STARTED.md": "bea96a59f51e3e966cc1cf980f2e4025aa08721b89f33b976822bfb153938c3a",
+      "docs/eng/manuals/TROUBLESHOOTING.md": "e44bf3a8299a453af02529752b2eeac33b019caf051298008105ae5bd6801f20",
+      "docs/eng/plans/AUDIT-DEBT.md": "859724ac49bf3e723983083dfa10e83029e17bbad0b42b5b4934508c11d0c0c0",
+      "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "fd8e0dfa27850146e36fa33a66eceffa9c51cb91b834cadd01138eba807b94d9",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-CURRENT-VPN.md": "54b00267a2ebaa8eb960ac9bf1573dc49a62d15f10e23ade26bc3ffb0131b028",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-DATA.md": "a7ccba76a07ee48bf8cb9cbd050ae1febd81a082e26c994f4c5dd013c8f23c14",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md": "ff3946e3018d20ff28e3aa8a93eaa1a6ab51f76c9b86a77208a417d819bc0125",
+      "docs/eng/reports/AUDIT-Q29-ANDROID-SYSTEM.md": "8b2540a385edef11ca04124d5d3a4104f6ea637ef2bde72ab83c0b2b00cc9910",
+      "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md": "85a2e0f3ef70c774a1ad1ca08577b1aacf4f1acadcc36e19f6213e4ebcf7b4d2",
+      "docs/eng/reports/AUDIT-Q34-OPENWRT-SOURCE-CUT.md": "a82ab40a377edf1cdd3dc4a0517ee3ab8170cabf194f5c0e5f9966bf20a70cbf",
+      "docs/eng/reports/AUDIT-Q35-LONG-SOAK.md": "440b81e344bb993d892e681bd31f3b1b81cc0bdb8bad540c4fa1d88b34cee715",
+      "docs/eng/reports/AUDIT-Q37-DOCUMENTATION.md": "c2f8305a6e342ce71241f1cb8c7751120a442563062c67ebe427af4809f0a122",
+      "docs/eng/reports/BENCHMARK.md": "41e701d283580ebb8919177cfd8002d782ba2108fa120b74e4c78058cef66153",
+      "docs/ru/index.md": "04d2aad553642b443f4fca420f8923e697a9609fcc06624d413ace9987e4e8a9",
+      "docs/ru/manuals/CONFIG.md": "e786938300ba6373f8620755f7dfb77644053d6919c62d5bc03da373b849efda",
+      "docs/ru/manuals/GETTING-STARTED.md": "24f7874581a12257facee5f08608e8fa05fad4da4fa5d8b0fb74b4f384cc26f0",
+      "docs/ru/manuals/TROUBLESHOOTING.md": "f6d87958cd6b97402cc24415dede500786f0cbcc6d8595559b971976a7d03315",
+      "docs/ru/plans/AUDIT-DEBT.md": "07c46ed3a2bec3827e24dd1de8340ff7faef19c797d59d01569a3814a8636a75",
+      "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "b7b2062c30b4270f7b6396f74d55b0352b116f30263995740af4afdbe9403460",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-CURRENT-VPN.md": "5d3c6d680a226df388997ee7390ba2b186e3bb89ad44728b55fec20e9c2054fb",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-DATA.md": "98edd270c4702a2a010823e1c725d7bcd30f3511043c754f75f15e7b0be9ce14",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-RESOLVER-DIAGNOSTIC.md": "b35442458c347bce32a2aaaf56d2d7ea839683ff559bb5301f6d3de5af33f0ca",
+      "docs/ru/reports/AUDIT-Q29-ANDROID-SYSTEM.md": "d4bee05d47590b42c98054121cefb505eb8fdd7ecf6c7cccbedd0af0671b9c93",
+      "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md": "68fa5183be5d719852d9a0773107eea58d5f323a7c254d20b6e25a621c20f2c0",
+      "docs/ru/reports/AUDIT-Q34-OPENWRT-SOURCE-CUT.md": "9a8e7e0e6a626e6c94a5795cb42682c58022b9efed0b0546a53eb27ec59600d5",
+      "docs/ru/reports/AUDIT-Q35-LONG-SOAK.md": "76fbf8ff15890311927c746ce26bbc3e72e0c47c43dea70fdce78a3b6e1e1115",
+      "docs/ru/reports/AUDIT-Q37-DOCUMENTATION.md": "dd95f7a6f847aea30e3defabb3f84744c7822a92cc5a2a36a0ed7e93906c21a3",
+      "docs/ru/reports/BENCHMARK.md": "b6feab65882c3b265a51ea9ef7c2c64c05a29eb299aab6082eb54aac74eece90",
+      "qeli-android/README.md": "63e2dd9dc5d6d3d0ab550893e5b12415c7fcd85290f58d69f9621ecfc75e53ff",
+      "qeli-openwrt/Makefile": "cfc6c45869b2cbff9836f3ac48bdc56b6882bae465ae782ed2165145c508b60d",
+      "qeli-openwrt/README.md": "eec4d44b388625f2dca899aa3745d539bc9aa1a065bc62856c0e7e5b3c190006",
+      "scripts/android_lab_ui.py": "c5d2bd815240ab3c7003a638416fd1bc4a30951a3f7fa79cb02a38889f41eb37",
+      "scripts/audit_android_data_plane_lab.py": "cd0f5c40671f5304a4e5a8b9a83b7ad44f54038539e62123fe02349448e3946f",
+      "scripts/audit_android_release_ui.py": "56ac0b2d249bd3599fc8c999c5ad6f0cbeb8d3b2d91825ce3d1fbb031e347309",
+      "scripts/audit_android_startup_dns.py": "53d7a6d9852c3d9ad8fa7388462f9c3f3ab84ad9266bb6491b1a4c729d069765",
+      "scripts/test_android_emulator_memory.py": "90a2121ba59b9eae9b0294b32e5f49be452953193684bab1917a30a4137345af",
+      "scripts/test_android_lab_ui_anr.py": "c334464696a688527e3bffb15efabd12d532e91852be0b44f2077dc37c7ce38f",
+      "scripts/test_android_release_ui_transition.py": "e7c62f0f1a5d38eddce959738e338ec336027e7612926c05cec81ae1c1d6665b",
+      "scripts/test_android_startup_state.py": "e03c5c8eccf511dbc6482f52dbcec3c46fa7c7e88e55cdb875e9cdf5e314b027",
+      "scripts/test_android_storage_admission.py": "f8f774bc27be3c4ec3ac0ec0a8b3c0bb98d4019b062b9697029a613344447815",
+      "scripts/test_openwrt_compile.py": "781c0135bdd9e26efe2d32493165e4c4f537ca2d0eb694defff4de018b39fff9",
+      "scripts/test_openwrt_opkg.py": "d1d3e099346f46462da909d981544848badd25eb6c7330b9f31bbb4a1c02e452"
+    },
+    "rust_manifests_conformance_fixtures_native_platform_apps_workflows_unchanged": true,
+    "source_equivalence": {
+      "build_seal_sha256": "4c02b82ce0a016b90835640ac63ce29738cb5c2044148baf2f81a9c57594ff07",
+      "compiled_input_count": 916,
+      "exact_inputs": 915,
+      "explicit_format_only_input": "qeli/src/transport_core/buffer_pool.rs",
+      "format_amendment_sha256": "e15a03aa468c2cf2a625a2841fef5314f91a5c514c3a9ab58e318078c5060c85",
+      "exact_replacement_reverified": true
+    },
+    "sdk_boundary": {
+      "only_packaging_change": "license chmod0644/0755 after existing CP; unchanged Build/Compile/public URL/pin/hash",
+      "compiled_input_count": 916,
+      "exact_inputs": 915,
+      "explicit_prior_format_only_input": "qeli/src/transport_core/buffer_pool.rs",
+      "helper_inventory": 453,
+      "exact_unchanged_helpers": 451,
+      "changed_sdk_only_tests": [
+        {
+          "path": "scripts/test_openwrt_compile.py",
+          "executed_runtime_sha256": "08239167451368a94849326676d516347186bface186e742aa3bc9c3f6401782",
+          "current_runtime_sha256": "26bbc3b13238bcd010dbd0f5999502ee9649af14294c9723f563e3fd69cd54e8"
+        },
+        {
+          "path": "scripts/test_openwrt_opkg.py",
+          "executed_runtime_sha256": "597832a12ef4e6ee9a4c2c8ae364689466a41c863042a18a34bc6689e5a562fa",
+          "current_runtime_sha256": "fc9cee10090025d774ea9fd976f6412e71f127b3a1504fe94e43402fb284c4f6"
+        }
+      ],
+      "reviewed_unchanged_matrix_entrypoints": [
+        "ipv6_dns_pair.sh",
+        "ipv6_legacy_pair.sh",
+        "ipv6_mtu_pair.sh",
+        "ipv6_netns_case.sh",
+        "linux_roaming_release_soak.sh"
+      ],
+      "sdk_runtime_evidence": "release/certification/evidence/q31-current-portable-20261012.json",
+      "fresh_sdk_install_and_opkg_qualified": true,
+      "no_second_full_sdk_rust_compile_claim": true,
+      "sdk_tests_not_invoked_by_20case_linux_matrix": true
+    },
+    "no_new_linux_20case_execution_claimed_for_packaging_commit": true,
+    "android_fixture_boundary": {
+      "changed_fixture_paths": [
+        "scripts/android_lab_ui.py",
+        "scripts/audit_android_data_plane_lab.py",
+        "scripts/audit_android_release_ui.py",
+        "scripts/audit_android_startup_dns.py",
+        "scripts/test_android_emulator_memory.py",
+        "scripts/test_android_lab_ui_anr.py",
+        "scripts/test_android_release_ui_transition.py",
+        "scripts/test_android_startup_state.py",
+        "scripts/test_android_storage_admission.py"
+      ],
+      "fresh_android_vpn_evidence": "release/certification/evidence/q29-current-vpn-20261012.json",
+      "helper_inventory": 453,
+      "exact_unchanged_helpers": 446,
+      "changed_non_linux_matrix_helpers": [
+        {
+          "path": "scripts/android_lab_ui.py",
+          "executed_runtime_sha256": "7a0582331509f3653c564eeea8fbd3d7a325511e7d7eba76ffd1ebfb464e4bb4",
+          "current_runtime_sha256": "c55a4a2150843f88c9a06b5753d0f14dae031440383705e4f80a893dd06a722f"
+        },
+        {
+          "path": "scripts/audit_android_data_plane_lab.py",
+          "executed_runtime_sha256": "3a261d9e27bb8fd5a4091b0b3c3d074e330ae6d8d921f05405fb6affbe91c60d",
+          "current_runtime_sha256": "98dbce4f8c5db9bd3269ac316b221d354a6f4eef8cd2419d25939c5dd38aad7b"
+        },
+        {
+          "path": "scripts/audit_android_release_ui.py",
+          "executed_runtime_sha256": "40cdb67040865aad714e80f7fcccb79a3cf9c3968e7acf7b2b6693e8974c2f95",
+          "current_runtime_sha256": "b6146d014c0f2cfd4842049517502c66b4fa0745341250c059d5ca621a964f5e"
+        },
+        {
+          "path": "scripts/audit_android_startup_dns.py",
+          "executed_runtime_sha256": "9b95180481a6bf777800abdddf4230fb0329a54d5254032384c80f2c72fa85f7",
+          "current_runtime_sha256": "bf095d0f05a676c896fac192a999e926e9ea625f86972caf680c7ee8de324537"
+        },
+        {
+          "path": "scripts/test_android_startup_state.py",
+          "executed_runtime_sha256": "f1317c81f38f9373ae0c62d54d4aa78d605d33ebf977110678f3ff5f14e88bdb",
+          "current_runtime_sha256": "44732ab67ed475775fe6075f55b0dc564054a0e81aca3703affd03b6f28690dc"
+        },
+        {
+          "path": "scripts/test_openwrt_compile.py",
+          "executed_runtime_sha256": "08239167451368a94849326676d516347186bface186e742aa3bc9c3f6401782",
+          "current_runtime_sha256": "26bbc3b13238bcd010dbd0f5999502ee9649af14294c9723f563e3fd69cd54e8"
+        },
+        {
+          "path": "scripts/test_openwrt_opkg.py",
+          "executed_runtime_sha256": "597832a12ef4e6ee9a4c2c8ae364689466a41c863042a18a34bc6689e5a562fa",
+          "current_runtime_sha256": "fc9cee10090025d774ea9fd976f6412e71f127b3a1504fe94e43402fb284c4f6"
+        }
+      ],
+      "reviewed_unchanged_linux_entrypoints": [
+        "ipv6_dns_pair.sh",
+        "ipv6_legacy_pair.sh",
+        "ipv6_mtu_pair.sh",
+        "ipv6_netns_case.sh",
+        "linux_roaming_release_soak.sh"
+      ],
+      "compiled_inputs_exact": 915,
+      "format_only_input": "qeli/src/transport_core/buffer_pool.rs",
+      "no_new_linux_20case_execution_claimed": true,
+      "fresh_storage_startup_evidence": "release/certification/evidence/q29-storage-startup-20261012.json",
+      "original_android_boundary_before_storage_admission": {
+        "changed_fixture_paths": [
+          "scripts/android_lab_ui.py",
+          "scripts/audit_android_data_plane_lab.py",
+          "scripts/audit_android_release_ui.py",
+          "scripts/audit_android_startup_dns.py",
+          "scripts/test_android_emulator_memory.py",
+          "scripts/test_android_lab_ui_anr.py",
+          "scripts/test_android_release_ui_transition.py",
+          "scripts/test_android_startup_state.py"
+        ],
+        "fresh_android_vpn_evidence": "release/certification/evidence/q29-current-vpn-20261012.json",
+        "helper_inventory": 453,
+        "exact_unchanged_helpers": 446,
+        "changed_non_linux_matrix_helpers": [
+          {
+            "path": "scripts/android_lab_ui.py",
+            "executed_runtime_sha256": "7a0582331509f3653c564eeea8fbd3d7a325511e7d7eba76ffd1ebfb464e4bb4",
+            "current_runtime_sha256": "c55a4a2150843f88c9a06b5753d0f14dae031440383705e4f80a893dd06a722f"
+          },
+          {
+            "path": "scripts/audit_android_data_plane_lab.py",
+            "executed_runtime_sha256": "3a261d9e27bb8fd5a4091b0b3c3d074e330ae6d8d921f05405fb6affbe91c60d",
+            "current_runtime_sha256": "e310d6bf7b581e6d692f1ce2f29d669a015ab92e56a1484d61911267e0f33cd8"
+          },
+          {
+            "path": "scripts/audit_android_release_ui.py",
+            "executed_runtime_sha256": "40cdb67040865aad714e80f7fcccb79a3cf9c3968e7acf7b2b6693e8974c2f95",
+            "current_runtime_sha256": "43df1d92204dcf907610a2fa7d1fafc63de52c3e4e8bcd41600793b63404d2dc"
+          },
+          {
+            "path": "scripts/audit_android_startup_dns.py",
+            "executed_runtime_sha256": "9b95180481a6bf777800abdddf4230fb0329a54d5254032384c80f2c72fa85f7",
+            "current_runtime_sha256": "bf095d0f05a676c896fac192a999e926e9ea625f86972caf680c7ee8de324537"
+          },
+          {
+            "path": "scripts/test_android_startup_state.py",
+            "executed_runtime_sha256": "f1317c81f38f9373ae0c62d54d4aa78d605d33ebf977110678f3ff5f14e88bdb",
+            "current_runtime_sha256": "44732ab67ed475775fe6075f55b0dc564054a0e81aca3703affd03b6f28690dc"
+          },
+          {
+            "path": "scripts/test_openwrt_compile.py",
+            "executed_runtime_sha256": "08239167451368a94849326676d516347186bface186e742aa3bc9c3f6401782",
+            "current_runtime_sha256": "26bbc3b13238bcd010dbd0f5999502ee9649af14294c9723f563e3fd69cd54e8"
+          },
+          {
+            "path": "scripts/test_openwrt_opkg.py",
+            "executed_runtime_sha256": "597832a12ef4e6ee9a4c2c8ae364689466a41c863042a18a34bc6689e5a562fa",
+            "current_runtime_sha256": "fc9cee10090025d774ea9fd976f6412e71f127b3a1504fe94e43402fb284c4f6"
+          }
+        ],
+        "reviewed_unchanged_linux_entrypoints": [
+          "ipv6_dns_pair.sh",
+          "ipv6_legacy_pair.sh",
+          "ipv6_mtu_pair.sh",
+          "ipv6_netns_case.sh",
+          "linux_roaming_release_soak.sh"
+        ],
+        "compiled_inputs_exact": 915,
+        "format_only_input": "qeli/src/transport_core/buffer_pool.rs",
+        "no_new_linux_20case_execution_claimed": true
+      },
+      "new_storage_test_outside_original453_inventory": "scripts/test_android_storage_admission.py",
+      "fresh_scoped_helper_methods": 8,
+      "current_independent_UID_UI_startup_lockdown_qualified": true,
+      "ordinary_production_APK_qualified": true,
+      "generic_null_DNS_failure_retained": true,
+      "automatic_SIGKILL_gate_qualified": false,
+      "fresh_ordinary_production_runtime_evidence": "release/certification/evidence/q29-production-runtime-20261012.json",
+      "ordinary_production_runtime_scope": "Android14 API34 x86_64, unchanged production R8 payload lab-signed; UI/SAF independent UID startup/lockdown/manual recovery; instrumentation NOT RUN",
+      "ordinary_unsigned_APK_sha256": "ec05ed9330ca3db7cca6f296569e68b24f172f5c9d2a5d65667e80e717da288c",
+      "ordinary_lab_signed_APK_sha256": "3d8496b42251fd90109a4b87532acf8a1c8b16a1a07d85267ce6c08b2db7f2a7",
+      "real_release_signature_qualified": false,
+      "fresh_DNS_selection_control_evidence": "release/certification/evidence/q29-dns-selection-control-20261012.json",
+      "generic_null_DNS_cause_localized_API34": true,
+      "production_APK_native_and_tracked_helpers_unchanged": true,
+      "fresh_current_SIGKILL_evidence": "release/certification/evidence/q29-current-sigkill-20261012.json",
+      "current_SIGKILL_status": "FAIL",
+      "current_whole_runtime_status": "FAIL",
+      "platform_TUN_teardown_localized": true,
+      "prior_SIGKILL_failures_retained": true,
+      "fresh_publication_contract_evidence": "release/certification/evidence/q29-publication-contract-20261012.json",
+      "first_post_APPLIED_interpretation_review": "CLOSED_SCOPED_PRE_CONNECTED_OBSERVATIONS",
+      "original_post_plan_failures_preserved": true,
+      "post_CONNECTED_observed_samples": 160,
+      "post_CONNECTED_errors": 0,
+      "no_new_Android_or_Linux_execution_claimed": true
+    },
+    "openwrt_source_cut_boundary": {
+      "evidence": "release/certification/evidence/q34-current-source-cut-20261012.json",
+      "source_archive_commit": "c71e4803cd086add92c066dd48a64af1fdb9dec0",
+      "archive": {
+        "sha256": "2843576ae0eac173c95bb1f222d9459ef402ea992a0c43ff496e1e1f52ed8137",
+        "bytes": 28029607
+      },
+      "metadata_changes_only": [
+        "PKG_SOURCE_VERSION",
+        "PKG_MIRROR_HASH",
+        "qualification comment date"
+      ],
+      "Build_Compile_Install_public_URL_unchanged": true,
+      "qeli_tree_unchanged": true,
+      "compiled_inputs_exact": 915,
+      "prior_format_only_input": "qeli/src/transport_core/buffer_pool.rs",
+      "previous_sdk_install_boundary_scope": "sdk_boundary retains original Q31 Install qualification before this source re-pin; its original unchanged-pin assertion is historical to that execution",
+      "previous_android_fixture_scope_preserved": true,
+      "no_new_linux_20case_execution_claimed": true
+    },
+    "trace_boundary_review": {
+      "evidence": "release/certification/evidence/q36-tcp-boundaries-20261012.json",
+      "reviewed_doc_files": [
+        "docs/eng/manuals/CONFIG.md",
+        "docs/eng/manuals/GETTING-STARTED.md",
+        "docs/eng/manuals/TROUBLESHOOTING.md",
+        "docs/eng/reports/BENCHMARK.md",
+        "docs/ru/manuals/CONFIG.md",
+        "docs/ru/manuals/GETTING-STARTED.md",
+        "docs/ru/manuals/TROUBLESHOOTING.md",
+        "docs/ru/reports/BENCHMARK.md"
+      ],
+      "no_new_runtime": true,
+      "no_performance_or_full_endurance_qualification_claimed": true
+    }
+  },
+  "automated_linux_certification_qualified": true,
+  "full_release_preflight_qualified": false,
+  "superseded_case_sha256": {
+    "linux.outer4.inner4.tcp.full": "2c351c65741afd991fc3d99b0bcd238f0663dc5ff174c2b17b86e555cb6f3543",
+    "linux.outer4.inner6.tcp.full": "c7b3b2b7237f7ed7d72e44c5a9a0d4e5d95285ad6fd6c80184412a286e976e65",
+    "linux.outer6.inner4.tcp.full": "00cc3afecfd999d600c5e45891733bc5836f39b5de5bf222c6537b1c5da5eb54",
+    "linux.outer6.inner6.tcp.full": "c0e55164e24f415fafeead36cf0af4a494c6cc8370b0828c2585e2b3672f3906",
+    "linux.outer4.inner4.udp-fake-tls.full": "c2555ffbee29fc54f5d8f9f2cbbb633b73cf871e6375e7ab39e41f4662b142ca",
+    "linux.outer4.inner6.udp-fake-tls.full": "254c26bf3499d04b84350ae446738bc809e1817318851ced8d2e2ecb1459313c",
+    "linux.outer6.inner4.udp-fake-tls.full": "d75900f6ea17e5797afe9a286521b5f92b7438fa358f149aa60c3a57f81ee410",
+    "linux.outer6.inner6.udp-fake-tls.full": "9bf420bce9189f76710db2b31d301e910e28da918dbd09a9aa88c75ad190a396",
+    "linux.outer4.inner4.udp-quic.full": "79e43a0c1ecebc71e0839916cdcecfec37e77f085ac9d002bdde8ad84898655b",
+    "linux.outer4.inner6.udp-quic.full": "66e0d08a4257fc67981d4400cf46f107210c36cee347bf231d4c48170ea3c626",
+    "linux.outer6.inner4.udp-quic.full": "488958c65048187da407d85352b485b04aeab617e97f1bd9ece7bb9c8d16fae6",
+    "linux.outer6.inner6.udp-quic.full": "ea6ca5c65d8ed164aa9dd67c61bc9b364cecc3d425066c8d0742840346c53c21",
+    "linux.dual.tcp.split": "6bfa312a1e1eca56afe7ab0fccc40a7c69af93f05d6464325211f0abc665b11e",
+    "linux.dual.udp.split": "6703ecbf8e413a789f894bb7b57817fcc51bf537e28896cdb7cecfc344e84515",
+    "linux.dns.ipv4-ipv6": "fa90cd3ca35ba5a029627fbbf7c233e5ca69c578b106f2d9911dc046703d0a0c",
+    "linux.mtu.1280-pmtu-ptb": "27cdd37f063549810ee4747575b5251f494c0305457f40bc98c8aade2cd0fc87",
+    "linux.leak.ipv4-ipv6": "de1d3415033343064ad08724324bfc51a4e5b103e4feb4a351d888045332089a",
+    "linux.tap.ndp-ra": "71bdb5e2266b7f2d8c7eb49293b9eaecaa15023b6d7ab0383844dc49fd150cd5",
+    "linux.legacy-peer": "2be50dc2663b4acb748645e10e5f835b69bdf1f6dc60a32118f55c126600c0e3",
+    "linux.roaming-flap-soak": "8236d264620313a2bec7bd7fb9e9d90f7e587e673d3fa72b056a3f68298a57f3"
+  },
+  "superseded_manifest_sha256": "0c96fcae0329669eb71cf6b43329a1386280177fae842b28f3420f2e135e83bf"
+}

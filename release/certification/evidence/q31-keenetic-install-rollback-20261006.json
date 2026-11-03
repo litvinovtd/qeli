@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F340_F341_KEENETIC_INSTALL_ROLLBACK_ADMISSION_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T18:08:18.755346+00:00",
+  "base_commit": "a6dd3431b2218b72cea666d2a679ec0a5c34e4fa",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-keenetic-install-rollback-20261006",
+  "raw_seal_sha256": "f0459b67548d4910c720b6d1ba14814db430400c993543cb5d1a0288d26d12f8",
+  "checks": [
+    {
+      "id": "busybox-rollback-initial",
+      "command": "cd /var/tmp/qeli-q31-keenetic-install-rollback-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p 'test_keenetic_install_rollback.py' -v",
+      "exit_code": 1,
+      "log": "busybox-rollback-initial.log"
+    },
+    {
+      "id": "dash-rollback-initial",
+      "command": "cd /var/tmp/qeli-q31-keenetic-install-rollback-20261006 && QELI_ROUTER_TEST_SHELL=/bin/dash python3 -m unittest discover -s scripts -p 'test_keenetic_install_rollback.py' -v",
+      "exit_code": 1,
+      "log": "dash-rollback-initial.log"
+    },
+    {
+      "id": "busybox-suite",
+      "command": "cd /var/tmp/qeli-q31-keenetic-install-rollback-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "busybox-suite.log"
+    },
+    {
+      "id": "dash-suite",
+      "command": "cd /var/tmp/qeli-q31-keenetic-install-rollback-20261006 && QELI_ROUTER_TEST_SHELL=/bin/dash QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "dash-suite.log"
+    },
+    {
+      "id": "busybox-original-current",
+      "command": "cd /var/tmp/qeli-q31-keenetic-install-rollback-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' Q31_INSTALL_BASELINE=/var/tmp/qeli-q31-keenetic-install-rollback-20261006/baseline/release/keenetic PYTHONPATH=scripts python3 original-current.py",
+      "exit_code": 0,
+      "log": "busybox-original-current.log"
+    },
+    {
+      "id": "dash-original-current",
+      "command": "cd /var/tmp/qeli-q31-keenetic-install-rollback-20261006 && QELI_ROUTER_TEST_SHELL=/bin/dash Q31_INSTALL_BASELINE=/var/tmp/qeli-q31-keenetic-install-rollback-20261006/baseline/release/keenetic PYTHONPATH=scripts python3 original-current.py",
+      "exit_code": 0,
+      "log": "dash-original-current.log"
+    },
+    {
+      "id": "recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "recipes.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    },
+    {
+      "id": "diff-staged",
+      "exit_code": 0,
+      "log": "diff-staged.log"
+    }
+  ],
+  "findings": {
+    "F340": "Prepare all code, preserve bytes/modes in same-dir backups, track publication intent, rollback ordinary rename failures/TERM; keep backups and recovery marker on incomplete rollback; updated init/hook refuse pending state.",
+    "F341": "Reject symlink/dangling/FIFO publication targets and linked config directory before dependency mutation; recheck file admission before publication; preserve foreign file/directory modes."
+  },
+  "qualification": {
+    "busybox_ash_tests": 176,
+    "dash_tests": 176,
+    "breakdown": {
+      "process": 47,
+      "state": 44,
+      "installer": 14,
+      "hook": 17,
+      "verifier": 19,
+      "gateway_owner": 16,
+      "lifecycle": 8,
+      "rollback": 11
+    },
+    "recipes": 37,
+    "docs": "654 Markdown files,9 checks PASS",
+    "bindings_diff": "PASS",
+    "original_current_records_each_shell": 10,
+    "supplied_exact_git_inputs": 17,
+    "baseline_exact_git_inputs": 8,
+    "unchanged_scoped_git_inputs": 803,
+    "reused_native_helper_sha256": "63523cc606305c3911510591be46222bbbd2e51d0db15f9e87cf5c387a39950a",
+    "reused_gnu_core_inspector_sha256": "afa69da1d5bbcc64599f593856984d203cfec50dd81acbf6a248190ff0ce1b38",
+    "core_native_compile_inputs_artifacts_unchanged": true,
+    "initial_failures": "Read-only opkg print-architecture call made refused retry assertion too broad; mutating package calls assertion repaired. Initial source/logs retained; final exact-source full suites PASS."
+  },
+  "limitations": {
+    "runtime": "Owned POSIX files/processes/SIGTERM and reused GNU inspector actual; package/router/sysctl operations modeled,real router USER_EXCLUDED. No fresh Qeli/FFI/cross/firmware build.",
+    "recovery": "Only updated scripts confirmed pending-state guard; older installed scripts may bypass marker. Manual stop/review mandatory. SIGKILL/power-loss/fsync/bundle atomicity/root-admin races OPEN. Late config example/mode600 and dependency updates outside code rollback.",
+    "historical": "41 historical case fields except source digest unchanged, acceptance/older supplements retained; Q29 SIGKILL FAIL/ENONET,Q30 drain OPEN/Apple exclusions,D06 accepted unchanged.",
+    "progress": "Q31 IN_PROGRESS,28/37 (75.7%),9 remain,no whole checklist row closed.",
+    "operations": ".10 untouched this turn,.11 owned fixtures only;working services,binaries,firewall,network,sysctl unchanged;no deploy/push."
+  }
+}

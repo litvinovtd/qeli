@@ -82,7 +82,7 @@ impl Obfuscator {
         if !enabled || max == 0 {
             return;
         }
-        if probability < 1.0 && self.rng.random::<f64>() > probability {
+        if !padding_selected(probability, self.rng.random::<f64>()) {
             return;
         }
         let min = min.min(max);
@@ -180,7 +180,8 @@ impl Obfuscator {
         0
     }
 
-    /// Append random normalization bytes to an existing AEAD padding buffer.
+    /// Round data plus existing random padding to a configured plaintext size.
+    /// Carrier/AEAD headers are outside this target; never add past `max_len`.
     pub fn append_normalization_padding_into(
         &mut self,
         data_len: usize,
@@ -188,7 +189,11 @@ impl Obfuscator {
         max_len: usize,
         out: &mut Vec<u8>,
     ) {
-        let count = Self::normalization_padding_len(data_len, round_sizes, max_len);
+        let count = Self::normalization_padding_len(
+            data_len.saturating_add(out.len()),
+            round_sizes,
+            max_len,
+        );
         if count != 0 {
             let start = out.len();
             out.resize(start + count, 0);
@@ -206,9 +211,46 @@ impl Obfuscator {
     // record scheduled by `Shaper`. (Audit 2026-07-27, X2.)
 }
 
+// A zero draw is possible. Strict comparison gives probability=0 an exact no-pad
+// contract; nonfinite public API inputs must not silently become always-pad.
+fn padding_selected(probability: f64, sample: f64) -> bool {
+    probability.is_finite() && sample < probability
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn padding_probability_endpoints_are_exact() {
+        assert!(!padding_selected(0.0, 0.0));
+        assert!(padding_selected(1.0, 0.0));
+        assert!(padding_selected(1.0, 1.0 - f64::EPSILON));
+        assert!(!padding_selected(0.5, 0.5));
+        assert!(padding_selected(0.5, 0.25));
+        let mut obf = Obfuscator::new();
+        let mut out = vec![1, 2, 3];
+        for p in [0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            obf.generate_padding_opts_into(true, 4, 4, false, p, &mut out);
+            assert!(out.is_empty());
+        }
+    }
+
+    #[test]
+    fn normalization_accounts_for_padding_at_bucket_edges_and_mtu() {
+        let mut obf = Obfuscator::new();
+        for (data, initial, cap, expected) in [
+            (128, 3, 256, 256),
+            (70, 70, 256, 256),
+            (70, 3, 128, 128),
+            (128, 3, 128, 131),
+        ] {
+            let mut padding = vec![7; initial];
+            obf.append_normalization_padding_into(data, &[64, 128, 256], cap, &mut padding);
+            assert_eq!(data + padding.len(), expected);
+            assert_eq!(&padding[..initial], &vec![7; initial]);
+        }
+    }
 
     #[test]
     fn test_padding_respects_bounds() {
@@ -375,7 +417,7 @@ mod tests {
         let data = vec![0xAB; 70];
         let mut padding = vec![1, 2, 3];
         obf.append_normalization_padding_into(data.len(), &sizes, usize::MAX, &mut padding);
-        assert_eq!(data.len() + padding.len(), 131);
+        assert_eq!(data.len() + padding.len(), 128);
 
         let key = [7u8; 32];
         let mut tx = crate::protocol::packet::PacketCodec::new_raw(key);

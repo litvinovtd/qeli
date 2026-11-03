@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_PASS_F361_Q31_IN_PROGRESS",
+  "source_digest": "4ec9ebc7b9949ffbe2931dc56341f3cccb21e2425a4e27e1782a9dfa441a2ee4",
+  "base_worktree_commit": "ae5215fc0e819c1b77a9465965836ac5cec4a269",
+  "base_dev_commit": "9a43647eefb5c5cb0215d16390a67779146769ff",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-plan-generation-20261007",
+  "raw_seal_sha256": "bf6e240aed0891d553d7ebd2e2c595da9538f4b795755d471de2b5c455904556",
+  "raw_sealed_files": 53,
+  "scope": "F361: existing authenticated generation appended to Linux runtime NetworkPlan file; same-address reauthentication and within-adapter monotonic A-B-A distinguished by whole-plan Keenetic comparison. Generation is not a configuration key or global durable counter. Baseline derived by pure formatter extraction with same tests and only generation append omitted. GNU production check/Clippy, unit methods and shell ndmc model only; no new FFI/cross/SDK1.89/firmware/VPN claim. Existing retained client binary used only for unchanged metadata inspector region. Initial source.tar is the pre-final-format source snapshot: final-client-mod.rs is the final overlay and conformance.tar supplies missing conformance inputs. Current input inventories and final overlays verified against staged source; shell markdown inputs are nonexecuted pre-documentation snapshots. Previous successful pre-final-format round retained; final four-step runner freshly completed and is authoritative. Initial conformance omission, wrong formatter edition and missing shell metadata file retained as preparation errors. One-job/private copied registry/rlib projection restored, no global compiler/cache/default/service/network/firewall mutations. Own .10 Cargo/target removed; both labs no process/mount rooted in this scratch remain. Counter reset/writer-lock/after-final-check/ndm atomicity/old address family removal/admin replacement remain OPEN. Q31 IN_PROGRESS;28/37DONE(75.7%),9remain; Q29 SIGKILL FAIL/auto-null ENONET,Q30 callback-drain OPEN/Apple exclusions,D06 ACCEPTED retained. No push/deploy.",
+  "checks": {
+    "baseline_expected_assertion_failures": 2,
+    "baseline_passed": 1,
+    "baseline_methods": 3,
+    "fixed_rust_lifecycle_methods": 11,
+    "new_rust_methods": 3,
+    "rust_ignored": 0,
+    "gnu_client_check": "PASS",
+    "production_lib_bin_clippy": "PASS",
+    "fmt": "PASS",
+    "shell_methods_per_interpreter": 194,
+    "new_shell_methods": 2,
+    "shell_interpreters": [
+      "dash",
+      "BusyBox ash"
+    ],
+    "shell_skips": 0,
+    "compile_inputs": 376,
+    "shell_inputs": 382,
+    "retained_artifacts": 2,
+    "recipes": 37,
+    "luci": 14,
+    "docs": 9,
+    "bindings": "PASS",
+    "diff": "PASS"
+  },
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "q31": "IN_PROGRESS"
+  }
+}

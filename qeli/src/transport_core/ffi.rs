@@ -9,8 +9,8 @@
 //! dual-family NetworkPlan; ABI 1.12 adds generation-scoped path commands and separate roam
 //! telemetry, ABI 1.13 adds a generation-scoped no-payload path-refresh event, and ABI 1.14
 //! distinguishes reversible path rejection from incomplete platform rollback. ABI 1.15 adds
-//! server NOTICE/KICK events. Both fixed ABI
-//! prefixes remain unchanged.
+//! server NOTICE/KICK events. ABI 1.16 exposes the pure configuration/policy service.
+//! Both fixed ABI prefixes remain unchanged.
 
 use super::path::PathCommandOutcome;
 use super::{
@@ -301,7 +301,7 @@ pub unsafe extern "C" fn qeli_client_publish_handshake_network(
             Ok(text) => text,
             Err(_) => return ErrorCode::InvalidArgument as i32,
         };
-        match CLIENTS.try_with(handle, |core| core.publish_handshake_network(text)) {
+        match with_client(handle, |core| core.publish_handshake_network(text)) {
             Ok(Ok(generation)) => {
                 unsafe { *out_generation = generation };
                 OK
@@ -366,7 +366,7 @@ pub unsafe extern "C" fn qeli_client_network_plan_result(
             Ok(reason) => reason,
             Err(code) => return code as i32,
         };
-        match CLIENTS.try_with(handle, |core| {
+        match with_client(handle, |core| {
             core.ack_network_plan(generation, result_code == 0, reason)
         }) {
             Ok(Ok(())) => OK,
@@ -406,7 +406,7 @@ pub unsafe extern "C" fn qeli_client_path_update(
             Ok(text) => text,
             Err(_) => return ErrorCode::InvalidArgument as i32,
         };
-        match CLIENTS.try_with(handle, |core| core.submit_path_update(text)) {
+        match with_client(handle, |core| core.submit_path_update(text)) {
             Ok(Ok(candidate_id)) => {
                 unsafe { *out_candidate_id = candidate_id };
                 OK
@@ -448,7 +448,7 @@ pub unsafe extern "C" fn qeli_client_path_command_result(
             PATH_COMMAND_REJECTED | -1 => PathCommandOutcome::Rejected,
             _ => return ErrorCode::InvalidArgument as i32,
         };
-        match CLIENTS.try_with(handle, |core| {
+        match with_client(handle, |core| {
             core.ack_path_command(generation, candidate_id, request_sequence, outcome, reason)
         }) {
             Ok(Ok(())) => OK,
@@ -479,7 +479,7 @@ pub unsafe extern "C" fn qeli_client_socket_protect_result(
             Ok(reason) => reason,
             Err(code) => return code as i32,
         };
-        match CLIENTS.try_with(handle, |core| {
+        match with_client(handle, |core| {
             core.ack_socket_protect(request_sequence, result_code == 0, reason)
         }) {
             Ok(Ok(())) => OK,
@@ -510,7 +510,7 @@ pub unsafe extern "C" fn qeli_client_server_identity_result(
             Ok(reason) => reason,
             Err(code) => return code as i32,
         };
-        match CLIENTS.try_with(handle, |core| {
+        match with_client(handle, |core| {
             core.ack_server_identity(request_sequence, result_code == 0, reason)
         }) {
             Ok(Ok(())) => OK,
@@ -548,7 +548,7 @@ pub unsafe extern "C" fn qeli_client_poll_event(
             Err(code) => return code as i32,
         };
         unsafe { *out_payload_len = 0 };
-        match CLIENTS.try_with(handle, |core| {
+        match with_client(handle, |core| {
             let Some(event) = core.peek_event().cloned() else {
                 return NO_EVENT;
             };
@@ -595,7 +595,7 @@ pub unsafe extern "C" fn qeli_client_state(handle: u64, out_state: *mut u32) -> 
         if out_state.is_null() {
             return ErrorCode::InvalidArgument as i32;
         }
-        match CLIENTS.try_with(handle, |core| core.state() as u32) {
+        match with_client(handle, |core| core.state() as u32) {
             Ok(state) => {
                 unsafe { *out_state = state };
                 OK
@@ -618,7 +618,7 @@ pub unsafe extern "C" fn qeli_client_stats(handle: u64, out_stats: *mut QeliClie
             Ok(size) => size,
             Err(code) => return code as i32,
         };
-        match CLIENTS.try_with(handle, |core| core.stats()) {
+        match with_client(handle, |core| core.stats()) {
             Ok(stats) => {
                 let output = ffi_stats(stats);
                 unsafe { write_output(out_stats, &output, caller_stats_size) };
@@ -634,7 +634,7 @@ pub extern "C" fn qeli_client_free(handle: u64) -> i32 {
     ffi_guard(|| {
         // Wake a leased blocking runner before invalidating the public handle. The runner's
         // generation-checked Arc keeps memory alive only until it observes cancellation.
-        let _ = CLIENTS.try_with(handle, |core| {
+        let _ = with_client(handle, |core| {
             core.runtime_cancel
                 .store(true, std::sync::atomic::Ordering::Release);
         });
@@ -737,7 +737,7 @@ pub unsafe extern "C" fn qeli_client_tun_push(
         unsafe { *out_accepted = 0 };
         let packet_bytes = unsafe { std::slice::from_raw_parts(packets, packets_len) };
         let packet_lengths = unsafe { std::slice::from_raw_parts(lengths, packet_count) };
-        let bridge = match CLIENTS.try_with(handle, |core| core.packet_tun_bridge(generation)) {
+        let bridge = match with_client(handle, |core| core.packet_tun_bridge(generation)) {
             Ok(Ok(bridge)) => bridge,
             Ok(Err(error)) => return error.code() as i32,
             Err(error) => return registry_error_code(error),
@@ -795,7 +795,7 @@ pub unsafe extern "C" fn qeli_client_tun_pull(
         }
         let packet_bytes = unsafe { std::slice::from_raw_parts_mut(packets, packets_capacity) };
         let packet_lengths = unsafe { std::slice::from_raw_parts_mut(lengths, length_capacity) };
-        let bridge = match CLIENTS.try_with(handle, |core| core.packet_tun_bridge(generation)) {
+        let bridge = match with_client(handle, |core| core.packet_tun_bridge(generation)) {
             Ok(Ok(bridge)) => bridge,
             Ok(Err(error)) => return error.code() as i32,
             Err(error) => return registry_error_code(error),
@@ -820,15 +820,40 @@ pub unsafe extern "C" fn qeli_client_tun_pull(
     })
 }
 
+// Cancel an already leased whole-generation runner before burning a panicking
+// public handle. Its Arc intentionally survives removal until that worker joins.
+fn with_client<R>(
+    handle: u64,
+    operation: impl FnOnce(&mut ClientCore) -> R,
+) -> Result<R, RegistryAccessError> {
+    CLIENTS.try_with(handle, |core| {
+        match catch_unwind(AssertUnwindSafe(|| operation(core))) {
+            Ok(result) => result,
+            Err(payload) => {
+                core.runtime_cancel
+                    .store(true, std::sync::atomic::Ordering::Release);
+                std::panic::resume_unwind(payload);
+            }
+        }
+    })
+}
+
 fn with_core(
     handle: u64,
     operation: impl FnOnce(&mut ClientCore) -> Result<(), super::CoreError>,
 ) -> i32 {
-    match CLIENTS.try_with(handle, operation) {
+    match with_client(handle, operation) {
         Ok(Ok(())) => OK,
         Ok(Err(error)) => error.code() as i32,
         Err(error) => registry_error_code(error),
     }
+}
+
+/// Optional Android diagnostic snapshot. Uses the same generation-safe registry as the
+/// fixed C ABI, without adding telemetry to the control-event queue or changing stats layout.
+#[cfg(all(target_os = "android", feature = "transport-core-ffi"))]
+pub(super) fn carrier_diagnostics(handle: u64) -> Result<Vec<u8>, i32> {
+    with_client(handle, |core| core.carrier_diagnostics_json()).map_err(registry_error_code)
 }
 
 fn registry_error_code(error: RegistryAccessError) -> i32 {
@@ -993,6 +1018,50 @@ fn ffi_guard(operation: impl FnOnce() -> i32) -> i32 {
     catch_unwind(AssertUnwindSafe(operation)).unwrap_or(ErrorCode::Panic as i32)
 }
 
+/// Pure editor/policy request, API v1 (ABI 1.16). No session or OS side effects.
+/// Input/output are bounded UTF-8 service DTOs; exported profile text is INI.
+/// A null/zero output performs a size query and returns BufferTooSmall.
+/// # Safety
+/// Input must address input_len readable bytes; output must address capacity writable bytes.
+/// out_len must be writable. Buffers must not overlap. Caller clears secret-bearing buffers.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_config_request(
+    input: *const u8,
+    input_len: usize,
+    output: *mut u8,
+    capacity: usize,
+    out_len: *mut usize,
+) -> i32 {
+    ffi_guard(|| {
+        if out_len.is_null()
+            || input.is_null()
+            || input_len == 0
+            || input_len > crate::config::editor::MAX_REQUEST
+            || capacity > crate::config::editor::MAX_RESPONSE
+            || (output.is_null() && capacity != 0)
+        {
+            return ErrorCode::InvalidArgument as i32;
+        }
+        unsafe {
+            *out_len = 0;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(input, input_len) };
+        let response = zeroize::Zeroizing::new(crate::config::editor::request(bytes));
+        unsafe {
+            *out_len = response.len();
+        }
+        if capacity < response.len() {
+            return ErrorCode::BufferTooSmall as i32;
+        }
+        if !response.is_empty() {
+            unsafe {
+                std::ptr::copy_nonoverlapping(response.as_ptr(), output, response.len());
+            }
+        }
+        OK
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1000,7 +1069,7 @@ mod tests {
     #[cfg(feature = "experimental-roaming")]
     use crate::transport_core::{NetworkAddress, NetworkAddressFamily, NetworkFamilyMode};
 
-    const CONFIG: &str = "[qeli]\nserver = 127.0.0.1:443\nproto = tcp\nuser = test\npass = secret\nkey = 1111111111111111111111111111111111111111111111111111111111111111\nmode = fake-tls\n";
+    const CONFIG: &str = "[qeli]\nserver = 127.0.0.1:443\nproto = tcp\nuser = test\npass = secret\nkey = 1111111111111111111111111111111111111111111111111111111111111111\nmode = fake-tls\ngateway = false\n";
 
     unsafe fn new_handle_with_capabilities(platform_capabilities: u64) -> u64 {
         let mut handle = 0;
@@ -1059,7 +1128,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V3_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000f)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010010)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
@@ -1904,7 +1973,12 @@ mod tests {
     #[test]
     fn panic_inside_handle_operation_is_not_reported_as_invalid_handle() {
         let handle = unsafe { new_handle() };
+        let leased = CLIENTS.acquire(handle).unwrap();
+        let cancel = leased.lock().unwrap().runtime_cancel.clone();
+        assert!(!cancel.load(std::sync::atomic::Ordering::Acquire));
         let result = with_core(handle, |_| panic!("intentional handle operation panic"));
+        assert!(cancel.load(std::sync::atomic::Ordering::Acquire));
+        assert!(leased.lock().is_err());
         assert_eq!(result, ErrorCode::Panic as i32);
         assert_eq!(qeli_client_start(handle), ErrorCode::InvalidHandle as i32);
     }

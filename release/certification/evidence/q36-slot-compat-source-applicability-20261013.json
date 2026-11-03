@@ -1,0 +1,33 @@
+{
+  "status": "EXACT_DOCUMENTATION_DELTA_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_commit": "d3b6c47e57c82a885ff16bc76204b13c424fb631",
+  "source_digest": "91097198922d78f9a6965788cca5be42a4e94ed72ee86a1991e2e2fbf862dfe4",
+  "previous_source_commit": "5b253e49badbe5411dc74196c97498d470db93a3",
+  "document_files": {
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "bb6960bb8c6fb110dfbb6667afef6cef59891d7e52ed1b0a181f53ca3e4f8f8a",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md": "3f6780148d8f807b037043a54c5398b902d8c2156785e5111eb9e57fb9df7aca",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "7dfe752b9a68ae15ceff7a54c1ca2137e2344a89716275f0ae0b7ba128adae4b",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md": "8e99fa2b9ac304f4fe922d58bec555981fe3e6c01d8274abf1bb716548fc9c16"
+  },
+  "exact_non_certification_delta": [
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md"
+  ],
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "runtime_qualification_sha256": {
+    "q36-slot-compat-composite-20261013": "b0313a9b8fb6a8df25fa576ee104378d487f8f987c06435aaa5790525385ab25"
+  },
+  "current_Q36_sessions": 12,
+  "current_Q36_windows": 35,
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "new_certification_matrix_execution": false,
+  "scope": "Exact four-Markdown-only delta plus two excluded evidence files; executable/native/helper/INI/Cargo inputs and native digest unchanged. Same external onefile candidate, actual4strictfeaturechecks/15tests retained separately. Twelve actual sessions35admitted plus1iperfrole-invalid attemptedwindow in2stages: original11sessions33windows/900scontrollerTimeoutError retained plus missingcandidate session2admitted/1role-invalid;actualTX/TXandRX/RXportmaps archived. N2legacycandidatebidir diagnostic-only,no3samplepopulation or zeroimputation. One131072Bsenderinterval/finalhorizon difference preserved, allothers exact. Both fullhost/archivecleanup gates and stageSHA bindings verified; no discarded or rerun completed samples. Unlimited TCPraw P1:3baseline/candidate pairs required1carrier andlegacy2carriers; server exactbaseline heldconstant. ActualPIDbinarySHA/negotiatedmode/stablemirrored sockets82validwindow snapshots,1sclientTCP_INFO/30idleICMP. All samples including legacyQueueFull/directional regressions and kernel losses retained; no performancecapacity or allmodesfix claim. No sourceadoption/nativecopies changed, native refresh pending. Fullhost/services/stagedCLI/source/archivecleanup PASS. Original20 Linux certification facts21physicalstatuses preserved, no newcertification executions/publicrelease/hostedCI/Q29/Q36closure.",
+  "no_push_deploy_release": true,
+  "driver_sha256": "8d8e0c1eeb0d808c9efa1d22dd50bf76dcd4abc86289193f89b6a42ec4c8127a"
+}

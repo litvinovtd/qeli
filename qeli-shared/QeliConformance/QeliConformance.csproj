@@ -18,10 +18,11 @@
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
   </ItemGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and Exists('..\..\qeli-win\QeliWin\native\qeli.dll')">
-    <Content Include="..\..\qeli-win\QeliWin\native\qeli.dll" Link="qeli.dll" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) and Exists('..\..\qeli-mac\QeliMac\native\libqeli.dylib')">
-    <Content Include="..\..\qeli-mac\QeliMac\native\libqeli.dylib" Link="libqeli.dylib" CopyToOutputDirectory="PreserveNewest" />
+  <PropertyGroup>
+    <QeliNativeCorePath Condition="'$(QeliNativeCorePath)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">$(MSBuildProjectDirectory)/../../qeli-win/QeliWin/native/qeli.dll</QeliNativeCorePath>
+    <QeliNativeCorePath Condition="'$(QeliNativeCorePath)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">$(MSBuildProjectDirectory)/../../qeli-mac/QeliMac/native/libqeli.dylib</QeliNativeCorePath>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(QeliNativeCorePath)' != ''">
+    <Content Include="$(QeliNativeCorePath)" Link="$([System.IO.Path]::GetFileName('$(QeliNativeCorePath)'))" CopyToOutputDirectory="Always" />
   </ItemGroup>
 </Project>

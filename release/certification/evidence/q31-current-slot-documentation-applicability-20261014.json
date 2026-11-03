@@ -1,0 +1,27 @@
+{
+  "status": "EXACT_FIVE_MARKDOWN_CURRENT_CORE_LINUX_APPLICABILITY_PASS",
+  "source_commit": "028f8cd38d1ac138cf29c8c1df9db3b52e8d127b",
+  "previous_source_commit": "d26c78df4cf1556046332b5a7744208a15c00e06",
+  "source_digest": "d3ac9913094f4c3c402bfb7981fcf4fc5f60708dfda43ef643afa1ba20446e5d",
+  "native_source_digest": "0dfac80b50d2bdd1964817dee8ac87f7311cde63bf61efade7a40abd7e32b635",
+  "exact_delta": [
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+    "qeli-openwrt/README.md"
+  ],
+  "files": {
+    "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md": "d89e0e7fc1765a81d317bae8c503479c779f5fb34321c8419de545ee8d1b7792",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "9119d364c67f9623d19efe787cd8f5ae5dafd95e9d5e08193c281acd3f67d1a2",
+    "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md": "f16b26137612360048f15123d6a37494d78cdb7232605ecad3fdcc81da03881f",
+    "qeli-openwrt/README.md": "4fe9c1f2a89b8ea35c3888607283a83c9bc75beae9c60e74193d43a8da2dec87",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "4482e786a711b30db56ccad16ddb539a7cfce51a7eee78d4c06721cd740081da"
+  },
+  "current_matrix_evidence": "release/certification/evidence/current-slot-linux-matrix-20261014.json",
+  "fresh_32bit_seal_sha256": "9d6de972981a0ad16897e28d9e22854ff9d45c6ba37f2e3418bc8a964bf4bd73",
+  "actual_Linux_execution_facts_preserved": true,
+  "new_Linux_runtime_execution": false,
+  "scope": "Exact five Markdown report/plan/README changes only. Fresh current ARMv7/MIPS compiler/ELF/SHA/QEMU evidence qualified separately. Current Linux20 actual source/time/CLI/raw unchanged; no new Linux matrix. SDK/IPK and physical runtime not qualified by this package.",
+  "no_push_deploy_release": true
+}

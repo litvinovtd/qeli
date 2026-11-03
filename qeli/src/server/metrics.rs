@@ -35,10 +35,10 @@ pub struct Point {
 /// Previous-sample counters needed to turn monotonic totals into rates.
 #[derive(Default)]
 struct Prev {
-    cpu: Option<(u64, u64)>,   // (busy, total) jiffies
-    proc_cpu: Option<u64>,     // worker (utime + stime) jiffies
-    net: Option<(u64, u64)>,   // host (rx, tx) bytes
-    bytes: Option<(u64, u64)>, // tunnel aggregate (sent, recv) bytes
+    cpu: Option<(u64, u64)>,      // (busy, total) jiffies
+    proc_cpu: Option<ProcSample>, // worker identity + CPU/RSS counters
+    net: Option<(u64, u64)>,      // host (rx, tx) bytes
+    bytes: Option<(u64, u64)>,    // tunnel aggregate (sent, recv) bytes
     at: Option<Instant>,
 }
 
@@ -80,28 +80,36 @@ impl Default for MetricsState {
     }
 }
 
-/// Spawned by the supervisor: sample once a second forever.
+/// Owned by the supervisor: sample once a second until shutdown.
 ///
 /// `tun_names` lists the tunnel interfaces configured on this server, so the WAN counters
 /// can exclude them by NAME. See `net_bytes`.
-pub async fn run_sampler(metrics: Arc<MetricsState>, tun_names: Vec<String>) {
+pub async fn run_sampler(
+    metrics: Arc<MetricsState>,
+    tun_names: Vec<String>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) {
     let mut tick = tokio::time::interval(SAMPLE_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        tick.tick().await;
+    while crate::profile_tasks::worker_tick(&mut tick, &mut shutdown).await {
         sample_once(&metrics, &tun_names).await;
     }
 }
 
 async fn sample_once(m: &MetricsState, tun_names: &[String]) {
+    sample_with_socket(m, tun_names, &crate::server::control::control_socket_path()).await;
+}
+
+async fn sample_with_socket(m: &MetricsState, tun_names: &[String], socket_path: &str) {
     let now = Instant::now();
     let cpu_now = cpu_times();
     let mem = mem_info();
     let load = loadavg();
     let net_now = net_bytes(tun_names);
     let pid = m.worker_pid.load(Ordering::Relaxed);
-    let proc_now = proc_stat(pid); // (cpu_jiffies, rss_bytes)
-    let (agg_sent, agg_recv, clients) = tunnel_aggregate().await.unwrap_or((0, 0, 0));
+    let proc_now = proc_stat(pid);
+    let aggregate = tunnel_aggregate(socket_path).await;
+    let clients = aggregate.map(|(_, _, clients)| clients).unwrap_or(0);
     let (tcp, udp) = count_conns(pid);
     let cores = cpu_cores();
 
@@ -112,19 +120,8 @@ async fn sample_once(m: &MetricsState, tun_names: &[String]) {
         .filter(|&d| d > 0.05)
         .unwrap_or(1.0);
 
-    let cpu_pct = match (prev.cpu, cpu_now) {
-        (Some((pb, pt)), Some((b, t))) if t > pt => (b - pb) as f64 / (t - pt) as f64 * 100.0,
-        _ => 0.0,
-    };
-    let proc_pct = match (prev.proc_cpu, proc_now, prev.cpu, cpu_now) {
-        (Some(pp), Some((c, _)), Some((_, pt)), Some((_, t))) if t > pt && c >= pp => {
-            // /proc/stat is the aggregate of all CPUs. Convert that fraction to the
-            // conventional top(1) process scale where one saturated worker is 100%
-            // and a process using N full cores may report N * 100%.
-            (c - pp) as f64 / (t - pt) as f64 * cores as f64 * 100.0
-        }
-        _ => 0.0,
-    };
+    let cpu_pct = cpu_percent(prev.cpu, cpu_now);
+    let proc_pct = process_percent(prev.proc_cpu, proc_now, prev.cpu, cpu_now, cores);
     let (rx_mbps, tx_mbps) = match (prev.net, net_now) {
         (Some((prx, ptx)), Some((rx, tx))) => (
             rx.saturating_sub(prx) as f64 * 8.0 / 1e6 / dt,
@@ -132,18 +129,14 @@ async fn sample_once(m: &MetricsState, tun_names: &[String]) {
         ),
         _ => (0.0, 0.0),
     };
-    let (up_mbps, down_mbps) = match prev.bytes {
-        Some((ps, pr)) => (
-            agg_recv.saturating_sub(pr) as f64 * 8.0 / 1e6 / dt,
-            agg_sent.saturating_sub(ps) as f64 * 8.0 / 1e6 / dt,
-        ),
-        None => (0.0, 0.0),
-    };
+    let bytes_now = aggregate.map(|(sent, recv, _)| (sent, recv));
+    let (up_mbps, down_mbps) = tunnel_rates(prev.bytes, bytes_now, dt);
 
     prev.cpu = cpu_now;
-    prev.proc_cpu = proc_now.map(|(c, _)| c);
+    prev.proc_cpu = proc_now;
     prev.net = net_now;
-    prev.bytes = Some((agg_sent, agg_recv));
+    // Missing RPC data invalidates the baseline; recovery must warm up again.
+    prev.bytes = bytes_now;
     prev.at = Some(now);
     drop(prev);
 
@@ -175,7 +168,7 @@ async fn sample_once(m: &MetricsState, tun_names: &[String]) {
     }
 
     let (l1, l5, l15) = load.unwrap_or((0.0, 0.0, 0.0));
-    let proc_rss = proc_now.map(|(_, r)| r).unwrap_or(0);
+    let proc_rss = proc_now.map(|sample| sample.rss_bytes).unwrap_or(0);
     let snap = json!({
         "ok": true,
         "t": t,
@@ -197,7 +190,7 @@ async fn sample_once(m: &MetricsState, tun_names: &[String]) {
     *m.latest.lock().await = snap;
 }
 
-// ── /proc + syscall readers (all best-effort; None on any parse failure) ────
+//  /proc + syscall readers (all best-effort; None on any parse failure)
 
 fn read_first_line(path: &str) -> Option<String> {
     std::fs::read_to_string(path)
@@ -210,17 +203,74 @@ fn read_first_line(path: &str) -> Option<String> {
 /// (busy, total) jiffies from the aggregate `cpu` line of /proc/stat.
 fn cpu_times() -> Option<(u64, u64)> {
     let line = read_first_line("/proc/stat")?;
+    parse_cpu_times(&line)
+}
+
+fn parse_cpu_times(line: &str) -> Option<(u64, u64)> {
     let mut it = line.split_whitespace();
     if it.next()? != "cpu" {
         return None;
     }
-    let vals: Vec<u64> = it.filter_map(|x| x.parse().ok()).collect();
+    let vals: Vec<u64> = it.map(str::parse).collect::<Result<_, _>>().ok()?;
     if vals.len() < 4 {
         return None;
     }
-    let total: u64 = vals.iter().sum();
-    let idle = vals[3] + vals.get(4).copied().unwrap_or(0); // idle + iowait
-    Some((total.saturating_sub(idle), total))
+    // guest/guest_nice are already included in user/nice by the kernel.
+    let total = vals
+        .iter()
+        .take(8)
+        .try_fold(0u64, |sum, v| sum.checked_add(*v))?;
+    let idle = vals[3].checked_add(vals.get(4).copied().unwrap_or(0))?;
+    Some((total.checked_sub(idle)?, total))
+}
+
+fn cpu_percent(previous: Option<(u64, u64)>, current: Option<(u64, u64)>) -> f64 {
+    match (previous, current) {
+        (Some((pb, pt)), Some((b, t))) if t > pt && b >= pb => {
+            // iowait can decrease. Keep one inconsistent sample from reporting >100%.
+            ((b - pb) as f64 / (t - pt) as f64 * 100.0).min(100.0)
+        }
+        _ => 0.0,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ProcSample {
+    pid: i32,
+    start_ticks: u64,
+    cpu_ticks: u64,
+    rss_bytes: u64,
+}
+
+fn process_percent(
+    previous: Option<ProcSample>,
+    current: Option<ProcSample>,
+    previous_cpu: Option<(u64, u64)>,
+    current_cpu: Option<(u64, u64)>,
+    cores: usize,
+) -> f64 {
+    match (previous, current, previous_cpu, current_cpu) {
+        (Some(p), Some(c), Some((_, pt)), Some((_, t)))
+            if p.pid == c.pid
+                && p.start_ticks == c.start_ticks
+                && t > pt
+                && c.cpu_ticks >= p.cpu_ticks =>
+        {
+            // top(1) process scale: one saturated core is 100%.
+            (c.cpu_ticks - p.cpu_ticks) as f64 / (t - pt) as f64 * cores as f64 * 100.0
+        }
+        _ => 0.0,
+    }
+}
+
+fn tunnel_rates(previous: Option<(u64, u64)>, current: Option<(u64, u64)>, dt: f64) -> (f64, f64) {
+    match (previous, current) {
+        (Some((ps, pr)), Some((sent, recv))) => (
+            recv.saturating_sub(pr) as f64 * 8.0 / 1e6 / dt,
+            sent.saturating_sub(ps) as f64 * 8.0 / 1e6 / dt,
+        ),
+        _ => (0.0, 0.0),
+    }
 }
 
 /// Number of logical CPUs (count of `cpuN` lines in /proc/stat).
@@ -329,8 +379,8 @@ fn net_bytes(tun_names: &[String]) -> Option<(u64, u64)> {
     Some((rx, tx))
 }
 
-/// (cpu_jiffies = utime+stime, rss_bytes) for `pid`, or None.
-fn proc_stat(pid: i32) -> Option<(u64, u64)> {
+/// Identity and CPU/RSS counters for `pid`, or None.
+fn proc_stat(pid: i32) -> Option<ProcSample> {
     if pid <= 0 {
         return None;
     }
@@ -342,10 +392,16 @@ fn proc_stat(pid: i32) -> Option<(u64, u64)> {
     // minflt(7) cminflt(8) majflt(9) cmajflt(10) utime(11) stime(12) ...
     let utime: u64 = f.get(11)?.parse().ok()?;
     let stime: u64 = f.get(12)?.parse().ok()?;
+    let start_ticks: u64 = f.get(19)?.parse().ok()?;
     let statm = std::fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
     let rss_pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(4096) as u64;
-    Some((utime + stime, rss_pages * page))
+    Some(ProcSample {
+        pid,
+        start_ticks,
+        cpu_ticks: utime.checked_add(stime)?,
+        rss_bytes: rss_pages.checked_mul(page)?,
+    })
 }
 
 /// Socket inode numbers owned by one process. `/proc/<pid>/net/*` is network-namespace
@@ -406,9 +462,9 @@ fn count_conns(pid: i32) -> (u64, u64) {
 
 /// Aggregate (bytes_sent, bytes_recv, client_count) across all live sessions,
 /// read from the data-plane worker over the control socket.
-async fn tunnel_aggregate() -> Option<(u64, u64, usize)> {
+async fn tunnel_aggregate(socket_path: &str) -> Option<(u64, u64, usize)> {
     let reply = crate::server::control::send_command(
-        &crate::server::control::control_socket_path(),
+        socket_path,
         &json!({ "cmd": "list-clients" }).to_string(),
     )
     .await
@@ -418,8 +474,8 @@ async fn tunnel_aggregate() -> Option<(u64, u64, usize)> {
     let mut sent = 0u64;
     let mut recv = 0u64;
     for c in clients {
-        sent += c.get("bytes_sent").and_then(Value::as_u64).unwrap_or(0);
-        recv += c.get("bytes_recv").and_then(Value::as_u64).unwrap_or(0);
+        sent = sent.checked_add(c.get("bytes_sent").and_then(Value::as_u64).unwrap_or(0))?;
+        recv = recv.checked_add(c.get("bytes_recv").and_then(Value::as_u64).unwrap_or(0))?;
     }
     Some((sent, recv, clients.len()))
 }
@@ -444,5 +500,144 @@ mod tests {
         let owned = [111_u64, 222].into_iter().collect();
         assert_eq!(count_socket_lines(table, &owned, true), 1);
         assert_eq!(count_socket_lines(table, &owned, false), 2);
+    }
+
+    #[test]
+    fn missing_tunnel_sample_requires_fresh_baseline() {
+        let old = Some((1_000_000_000, 2_000_000_000));
+        assert_eq!(tunnel_rates(old, None, 1.0), (0.0, 0.0));
+        let recovered = Some((1_000_125_000, 2_000_250_000));
+        assert_eq!(tunnel_rates(None, recovered, 1.0), (0.0, 0.0));
+        assert_eq!(
+            tunnel_rates(recovered, Some((1_000_250_000, 2_000_500_000)), 1.0),
+            (2.0, 1.0)
+        );
+        // An actual empty client list is a valid zero, unlike a missing reply.
+        assert_eq!(
+            tunnel_rates(Some((0, 0)), Some((125_000, 250_000)), 1.0),
+            (2.0, 1.0)
+        );
+    }
+
+    #[test]
+    fn guest_time_is_not_counted_twice() {
+        assert_eq!(
+            parse_cpu_times("cpu 100 20 30 800 10 5 5 30 60 10"),
+            Some((190, 1000))
+        );
+        assert_eq!(parse_cpu_times("cpu 100 20 30 850"), Some((150, 1000)));
+    }
+
+    #[test]
+    fn invalid_cpu_samples_are_rejected_without_shifting_fields() {
+        assert_eq!(parse_cpu_times("cpu 100 broken 30 800 10"), None);
+        assert_eq!(parse_cpu_times("cpu 18446744073709551615 1 0 0"), None);
+        assert_eq!(parse_cpu_times("cpu0 1 2 3 4"), None);
+        assert_eq!(parse_cpu_times("cpu 1 2 3"), None);
+    }
+
+    #[test]
+    fn cpu_counter_reset_and_iowait_reversal_are_bounded() {
+        assert_eq!(cpu_percent(Some((500, 1000)), Some((400, 1100))), 0.0);
+        assert_eq!(cpu_percent(Some((500, 1000)), Some((650, 1100))), 100.0);
+        assert_eq!(cpu_percent(Some((500, 1000)), Some((525, 1100))), 25.0);
+        assert_eq!(cpu_percent(Some((500, 1000)), Some((600, 900))), 0.0);
+    }
+
+    #[test]
+    fn process_cpu_requires_same_pid_and_start_time() {
+        let p = ProcSample {
+            pid: 42,
+            start_ticks: 100,
+            cpu_ticks: 10,
+            rss_bytes: 4096,
+        };
+        let mut c = ProcSample { cpu_ticks: 60, ..p };
+        let rate =
+            |current| process_percent(Some(p), Some(current), Some((0, 1000)), Some((0, 1200)), 4);
+        assert_eq!(rate(c), 100.0);
+        c.pid = 43;
+        assert_eq!(rate(c), 0.0);
+        c.pid = 42;
+        c.start_ticks = 200; // PID reused after restart.
+        assert_eq!(rate(c), 0.0);
+        c.start_ticks = 100;
+        c.cpu_ticks = 1;
+        assert_eq!(rate(c), 0.0);
+    }
+
+    #[test]
+    fn proc_stat_reads_current_process_identity() {
+        let pid = std::process::id() as i32;
+        let sample = proc_stat(pid).expect("Linux procfs for the current process");
+        assert_eq!(sample.pid, pid);
+        assert!(sample.start_ticks > 0);
+        assert!(sample.rss_bytes > 0);
+        assert!(proc_stat(0).is_none());
+    }
+
+    #[tokio::test]
+    async fn sampler_recovers_from_real_control_disconnect_without_traffic_spike() {
+        use std::os::unix::fs::DirBuilderExt;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-metrics-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let fixture = Fixture(dir);
+        let path = fixture.0.join("control.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let replies = [
+            Some((1_000_000_000_u64, 2_000_000_000_u64)),
+            None,
+            Some((1_000_125_000, 2_000_250_000)),
+            Some((1_000_250_000, 2_000_500_000)),
+        ];
+        let responder = tokio::spawn(async move {
+            for reply in replies {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = String::new();
+                BufReader::new(&mut stream)
+                    .read_line(&mut request)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    serde_json::from_str::<Value>(&request).unwrap()["cmd"],
+                    "list-clients"
+                );
+                if let Some((sent, recv)) = reply {
+                    let body = json!({"ok":true,"clients":[{"bytes_sent":sent,"bytes_recv":recv}]})
+                        .to_string();
+                    stream
+                        .write_all(format!("{body}\n").as_bytes())
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        let m = MetricsState::new();
+        for expected in [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (2.0, 1.0)] {
+            m.prev.lock().await.at = Some(Instant::now() - Duration::from_secs(1));
+            sample_with_socket(&m, &[], path.to_str().unwrap()).await;
+            let snapshot = m.latest_json().await;
+            assert_eq!(snapshot["up_mbps"], expected.0);
+            assert_eq!(snapshot["down_mbps"], expected.1);
+        }
+        responder.await.unwrap();
+        assert_eq!(
+            m.history_json().await["points"].as_array().unwrap().len(),
+            4
+        );
     }
 }

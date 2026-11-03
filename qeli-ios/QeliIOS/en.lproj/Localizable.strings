@@ -54,6 +54,7 @@
 "Disabled" = "Disabled";
 "Auto keeps the authenticated session across network changes when supported, otherwise reconnects. Required refuses unsupported servers or platforms." = "Auto keeps the authenticated session across network changes when supported, otherwise reconnects. Required refuses unsupported servers or platforms.";
 "Share profile" = "Share profile";
+"Cannot share profile" = "Cannot share profile";
 "The share link contains the profile credentials." = "The share link contains the profile credentials.";
 "Done" = "Done";
 "Connection log" = "Connection log";
@@ -155,6 +156,11 @@
 "Carrier" = "Carrier";
 "Packet recordizer" = "Packet recordizer";
 "Legacy packet-per-record" = "Legacy packet-per-record";
+"Profile changed" = "Profile changed";
+"Profile changed while the dialog was open. Reopen it before deleting." = "Profile changed while the dialog was open. Reopen it before deleting.";
+"Profile changed while the editor was open. Reopen it before saving." = "Profile changed while the editor was open. Reopen it before saving.";
+"Reconnect required" = "Reconnect required";
+"The active profile was saved. Disconnect and connect again to apply it to the running tunnel." = "The active profile was saved. Disconnect and connect again to apply it to the running tunnel.";
 "Reconnect fallback" = "Reconnect fallback";
 "Multipath" = "Multipath";
 "up to %lld streams" = "up to %lld streams";
@@ -174,3 +180,7 @@
 "Heartbeat" = "Heartbeat";
 "Traffic shaping" = "Traffic shaping";
 "%1$@ and %2$lld more" = "%1$@ and %2$lld more";
+"No saved profiles are available. Open Qeli to create a profile before connecting." = "No saved profiles are available. Open Qeli to create a profile before connecting.";
+"The profile encryption key is missing. Restore a backup to recover your profiles." = "The profile encryption key is missing. Restore a backup to recover your profiles.";
+"Clear log after disconnect" = "Clear log after disconnect";
+"Clear saved history when VPN stops, including after an error. Disable to keep diagnostics. Reconnects do not clear the log." = "Clear saved history when VPN stops, including after an error. Disable to keep diagnostics. Reconnects do not clear the log.";

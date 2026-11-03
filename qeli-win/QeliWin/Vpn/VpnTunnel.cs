@@ -58,12 +58,18 @@ public sealed class VpnTunnel : VpnTunnelBase
             ? NativeRoamingPathCapabilities | NativePathRefreshCapability
             : 0;
 
-    internal static bool AllowsNativePathRoaming(VpnConfig config) =>
-        !config.RoamingPolicy.Equals("off", StringComparison.OrdinalIgnoreCase)
-        && string.IsNullOrWhiteSpace(config.LocalAddress) && config.LocalPort == 0;
+    internal static bool AllowsNativePathRoaming(VpnConfig config) => config.AllowsNativePathRoaming;
 
     internal static void RunRoamingCapabilitySelfTest(Action<string, bool> check)
     {
+        var named = new VpnConfig { CarriedKeys = new Dictionary<string, string> { ["dev"] = "office" } };
+        var overrideName = new VpnConfig { DevNode = "custom", CarriedKeys = named.CarriedKeys };
+        check("adapter: explicit dev names the Windows interface", AdapterIdentity(named).name == "office");
+        check("adapter: dev_node overrides dev", AdapterIdentity(overrideName).name == "custom");
+        check("adapter: explicit alias has stable identity across profiles",
+            AdapterIdentity(named) == AdapterIdentity(new VpnConfig { DevNode = "office" }));
+        check("adapter: omitted dev keeps distinct per-profile identities",
+            AdapterIdentity(new VpnConfig { Id = "one" }) != AdapterIdentity(new VpnConfig { Id = "two" }));
         var ordinaryProfiles = new[]
         {
             new VpnConfig { Protocol = "tcp", WireMode = "fake-tls" },
@@ -309,8 +315,17 @@ public sealed class VpnTunnel : VpnTunnelBase
         _prewarmId = id;
         _prewarm = Task.Run(() =>
         {
-            try { var w = new WintunAdapter(); w.Open(id.name, id.guid); return (WintunAdapter?)w; }
-            catch (Exception e) { Log($"Wintun prewarm failed ({e.Message}); will open in SetupTun"); return null; }
+            var w = new WintunAdapter();
+            try { w.Open(id.name, id.guid); return (WintunAdapter?)w; }
+            catch (Exception e)
+            {
+                Log($"Wintun prewarm failed ({e.Message}); will retry or clean up in SetupTun");
+                // A failure after CreateAdapter still owns a native handle. Return the
+                // incomplete object to SetupTun/unused-prewarm cleanup, never lose it.
+                if (w.HasHandle) return w;
+                w.Dispose();
+                return null;
+            }
         });
     }
 
@@ -383,10 +398,10 @@ public sealed class VpnTunnel : VpnTunnelBase
                 log: Log,
                 physicalLocalRoutes:
                     RouteLocalPolicy.DiscoverConnectedRfc1918Prefixes(log: Log));
+            _tun = adapter; // Cleanup owns partial Open and cancellation after Open.
             adapter.Open();
             cancellationToken.ThrowIfCancellationRequested();
             adapter.SetTunnelUp(true);
-            _tun = adapter;
             Log($"Per-app split tunnel ACTIVE: mode={config.AppsMode}, apps={config.Apps.Count}; "
                 + "WinDivert packet path is attached to the common Rust transport core");
             return;
@@ -437,11 +452,19 @@ public sealed class VpnTunnel : VpnTunnelBase
         if (wintun == null)
         {
             wintun = new WintunAdapter();
+            _tun = wintun;
             wintun.Open(adapterName, adapterGuid);
+        }
+        _tun = wintun; // Includes a consumed prewarm, before ResolveInterface/log can fail.
+        wintun.RequireReady();
+        if (config.WindowsDisableSharing)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AdapterSharing.Apply(wintun, (start, operation) => RunForwardingCommand(start, operation));
+            Log("Microsoft Client/File Sharing disabled on the owned Qeli adapter (readback verified)");
         }
         var (tunIndex, alias) = _net.ResolveInterface(wintun.Luid);
         Log($"Wintun adapter '{alias}' (if {tunIndex}, driver {drv >> 16}.{drv & 0xFF})");
-        _tun = wintun;
         var localCaptureRoutes = config.RouteLocalNetworks
             && assigned.Any(address => address.Family == "ipv4")
             ? RouteLocalPolicy.BuildCapturePrefixes(
@@ -787,13 +810,16 @@ public sealed class VpnTunnel : VpnTunnelBase
     // The hash is for uniqueness only (not security).
     private static (string name, Guid guid) AdapterIdentity(VpnConfig config)
     {
-        // OpenVPN dev-node: an explicit adapter name overrides the auto-derived one. The
-        // GUID is still derived from that name so it stays stable across runs.
-        if (!string.IsNullOrWhiteSpace(config.DevNode))
+        // Explicit dev_node wins over portable dev. Only a PRESENT dev selects a
+        // name; an absent key retains the collision-resistant per-profile identity.
+        string? requestedName = config.DevNode;
+        if (string.IsNullOrWhiteSpace(requestedName))
+            config.CarriedKeys.TryGetValue("dev", out requestedName);
+        if (!string.IsNullOrWhiteSpace(requestedName))
         {
             byte[] dh = System.Security.Cryptography.MD5.HashData(
-                System.Text.Encoding.UTF8.GetBytes("qeli-adapter:dev-node:" + config.DevNode));
-            return (config.DevNode!, new Guid(dh));
+                System.Text.Encoding.UTF8.GetBytes("qeli-adapter:dev-node:" + requestedName));
+            return (requestedName, new Guid(dh));
         }
         string keyStr = $"{config.ServerAddress}:{config.Port}|{config.Id}";
         if (string.IsNullOrEmpty(config.ServerAddress) && string.IsNullOrEmpty(config.Id))
@@ -895,6 +921,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         // WintunAdapter.Open may have resolved a name/GUID collision by creating name-0,
         // name-1, ... . Firewall and WinDivert rules must use this actual alias, never the
         // precomputed profile identity that collided.
+        warmed.RequireReady();
         return warmed.AdapterName;
     }
 
@@ -902,7 +929,7 @@ public sealed class VpnTunnel : VpnTunnelBase
     {
         var prewarm = _prewarm;
         if (prewarm == null) return;
-        try { prewarm.GetAwaiter().GetResult()?.Dispose(); } catch { }
+        prewarm.GetAwaiter().GetResult()?.Dispose();
         if (ReferenceEquals(_prewarm, prewarm)) _prewarm = null;
     }
 

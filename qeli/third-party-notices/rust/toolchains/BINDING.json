@@ -1,0 +1,8 @@
+{
+  "android_ndk": "26.3.11579264",
+  "router_nightly": "nightly-2026-06-10",
+  "rust": "1.97.0",
+  "schema": 1,
+  "source_inventory_lf_sha256": "0f46f9f7d1a29d38d4f6bbd18104fac88c263e0e8b997460472c9f3c438fb777",
+  "zig": "0.13.0"
+}

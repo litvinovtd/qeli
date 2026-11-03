@@ -1,0 +1,495 @@
+{
+  "schema": 1,
+  "status": "SWIFT_SOURCE_REVIEW_NATIVE_RUNTIME_USER_SKIPPED_MANAGED_REGRESSION_PASS_SECTION_IN_PROGRESS",
+  "date": "2026-10-05",
+  "qualified_at": "2026-10-05T03:55:31.461674+00:00",
+  "base_commit": "1bdd395dab8f9091c0477f0709253c11ddd6f7b0",
+  "source_digest": "cedb556e21eb79a1704d0b7ee3bd276957e9d6f05caff4f373f535382b3979a7",
+  "plan_done": 27,
+  "plan_total": 37,
+  "defects": [
+    "Q28-F268",
+    "Q28-F269",
+    "Q28-F270"
+  ],
+  "checks": {
+    "mac-forwarding": {
+      "pass": 58,
+      "fail": 0
+    },
+    "mac-perapp": {
+      "pass": 39,
+      "fail": 0
+    },
+    "mac-network": {
+      "pass": 117,
+      "fail": 0
+    },
+    "mac-control": {
+      "pass": 83,
+      "fail": 0
+    },
+    "mac-storage": {
+      "pass": 54,
+      "fail": 0
+    },
+    "win": {
+      "pass": 325,
+      "fail": 0
+    },
+    "shared": {
+      "pass": 549,
+      "fail": 0
+    },
+    "mac_build": "PASS_0_WARN_0_ERROR",
+    "win_build": "PASS_0_WARN_0_ERROR",
+    "shared_build": "PASS_0_WARN_0_ERROR",
+    "native_socket_baseline": "SOURCE_REVIEW_ONLY_NOT_EXECUTED",
+    "docs": "PASS",
+    "bindings": "PASS",
+    "panel": "PASS",
+    "diff-check": "PASS",
+    "actual_macos_runtime": "USER_SKIPPED",
+    "swift_compile_and_20_new_cases": "USER_SKIPPED_SOURCE_REVIEW_ONLY",
+    "native_provenance_and_14_checksums": "PASS_UNCHANGED"
+  },
+  "source_proof": {
+    "base": "1bdd395dab8f9091c0477f0709253c11ddd6f7b0",
+    "source_inputs": {
+      "qeli-mac/QeliMac/AboutWindow.axaml": "22a3e23378011ee4cda706f50939fc75184c286dd1ab271db9e9fa781016971b",
+      "qeli-mac/QeliMac/AboutWindow.axaml.cs": "2b40de64a21bc5003c39552423e8de75290026978800a8ed782add70a79bd2b3",
+      "qeli-mac/QeliMac/App.axaml": "462b9cd574accf3f0c70064bca69a1544609fad157f7c29f6763e2bf64c12682",
+      "qeli-mac/QeliMac/App.axaml.cs": "fe773412b7b10068cb820a9722bb5763d95991d7136ebf3595af09d372383c05",
+      "qeli-mac/QeliMac/AutoStartManager.cs": "f35806b52fc4f8f58a8624b16b0b3923bc7156008a448211cc70dd52292154d2",
+      "qeli-mac/QeliMac/Branding.cs": "46d99177208279534b2ca1f231682561c851501dd9984ea05eaf5ced373db22f",
+      "qeli-mac/QeliMac/CliRunner.cs": "dc47e2a52aeb005972101ce61d6d6d222a7d51a59961c00c589c0b6346681479",
+      "qeli-mac/QeliMac/ConfigEditorWindow.axaml": "7367e7e4c894ecc03ebf33ea06b51b7dbe62bd1ad523233471760c75bce1ad1d",
+      "qeli-mac/QeliMac/ConfigEditorWindow.axaml.cs": "c7af32d3020a25530358fbb00b153f8e4a063499841cb48620d340d4e5e5a7d3",
+      "qeli-mac/QeliMac/Dialogs.cs": "6b8d5c91992384f6a29da7a1b83de6bd7061f2460cc9bcb093c6dfbbfddf3003",
+      "qeli-mac/QeliMac/InputDialog.cs": "208af3d7c2a5e93e992600e075192c8fd3dc8993cedccf64648adc05961a2a73",
+      "qeli-mac/QeliMac/Loc.cs": "b33f3c3155444bafa4eb507168a6d7e561bfc5e07840f4346ec090b85451c0ae",
+      "qeli-mac/QeliMac/MacAppPickerWindow.axaml": "87347ea36b528b519f1ac9972a8b577a6939f51cf594bd0d1de3ded01782575c",
+      "qeli-mac/QeliMac/MacAppPickerWindow.axaml.cs": "c8d6ab2a96a2c24e6db47d3a25351349e5913cfb403579565624ab3aa9f1c234",
+      "qeli-mac/QeliMac/MainWindow.axaml": "bc4dcdcf24ca7d89773837554a5ce936cfb2b760a76e71fb1e603ad10a48188d",
+      "qeli-mac/QeliMac/MainWindow.axaml.cs": "ff74354b887e8cdef5fd87a4d63a80ef233f5cb8193cf548f1aa51a2534f5987",
+      "qeli-mac/QeliMac/Model/AppSettings.cs": "5b62793124075aeaf9aa945ec62a40d5a72fab9c636d4845623ffbb9d1f77375",
+      "qeli-mac/QeliMac/Model/BoundedStorage.cs": "90fe1d9f8018d2366f1c65321ba98aa6d39b726c3037d47e37f06f423fdda43f",
+      "qeli-mac/QeliMac/Model/EncryptedEnvelope.cs": "6f54dce836e5e101dac1a5da329e1524504a89652bba213272d3607cef8220c2",
+      "qeli-mac/QeliMac/Model/MacKeychain.cs": "58a95fef119d2c01c04faef24ff289d01e279b77279f4bc04705a29dd1d115a9",
+      "qeli-mac/QeliMac/Model/MacStorageSelfTest.cs": "d5efa5bf0797517c87c0ddadaae280a3efcd170cd84eb6cec90edce4e70d5051",
+      "qeli-mac/QeliMac/Model/Paths.cs": "3fc02e95c2376ad233c1e3e3d8cc67a3cc55d38f330bd53853b5fb4c7bbc5a68",
+      "qeli-mac/QeliMac/Model/ProfileKeyCoordinator.cs": "010651ee2c914f48dacb3573fa592ab1b51adb5a8f269b5b36af167251f00eba",
+      "qeli-mac/QeliMac/Model/ProfileStore.cs": "c1236032f566c6655d837be8a06f7cd826631024e0ad47e0390616f88f0229ad",
+      "qeli-mac/QeliMac/Model/SecureKey.cs": "c5eb481ec63a94e1ce4e787dcce095fdac940ae245b17f8cb9aa95890cd94f34",
+      "qeli-mac/QeliMac/Program.cs": "e6b2a0272a2a46bf5d6cdcee8632065cec6339ab25dcca06d7ec2f3818646ad7",
+      "qeli-mac/QeliMac/QeliMac.csproj": "b55c0b2a7026aec926257b9d2cacc403c484f3e89e7f2441061237096698f353",
+      "qeli-mac/QeliMac/QrShareWindow.axaml": "a392c763ae72c07d6298097ce750cf2f1ab9e29a0c9286c4c5b6e6a61e3378aa",
+      "qeli-mac/QeliMac/QrShareWindow.axaml.cs": "91658f1ef390d3ef12a22be5142f88b5fb89ae2248097b5542b5c10b7ffe9680",
+      "qeli-mac/QeliMac/ReachabilityToBrushConverter.cs": "4631aaaac336fd1e22679245c19ec0e9c83d4db4984d1b5366d2d552eea78ae7",
+      "qeli-mac/QeliMac/Service/DaemonCli.cs": "c2d0821f12cfe45223ee98d42f3b4f6201216503868c74ed2454eaf4df0ed722",
+      "qeli-mac/QeliMac/Service/DaemonLifecycle.cs": "20eb5885f1cce07c6e662d2431b893c82aab0b59826abc7df219ef00e02b9a29",
+      "qeli-mac/QeliMac/Service/PlistRegistration.cs": "b3719bcb139bef747d5aaab0a4f012b8b2643a3589583164b2f6545c4d034c21",
+      "qeli-mac/QeliMac/Service/ServiceControlLock.cs": "c94a069bb89813384f5039c5d7875043f476467725b7460d4aeaadadfc6c7b04",
+      "qeli-mac/QeliMac/Service/ServiceControlSelfTest.cs": "11a6a7551e8b098ff70b9fab0d42e88417ed9d539a20d405423c92a34da1dd26",
+      "qeli-mac/QeliMac/Service/ServiceHost.cs": "539ce5728eea31cdf6bc74de396ea5942eb9e5a7fda474c2ca8da59ee2c964c0",
+      "qeli-mac/QeliMac/Service/ServiceManager.cs": "5c09e90457acc71aa19437ab8e63fdc559d7859a2ee7f052889da508019968ba",
+      "qeli-mac/QeliMac/Service/ServiceObservation.cs": "bfb2c62e0a092cc04523d0263be8bbdf839053d6f9d520ce3b3bdb947eebc948",
+      "qeli-mac/QeliMac/Service/ServiceProfileCodec.cs": "abd7886f86e001415215436819ee4f47870acd74aed40c181fb87f854a5816a7",
+      "qeli-mac/QeliMac/Service/ServiceProfileTransition.cs": "4209b0eecd2fd287775c43070877534557b1fe9c8e29406d713757538e1e5430",
+      "qeli-mac/QeliMac/Service/ServiceState.cs": "03999f9e3ec828f2cf6071a196e38b6a27349a75f3528abc804e640a09f00d38",
+      "qeli-mac/QeliMac/SettingsWindow.axaml": "fd062c71d3d4ac5b2c86b3abe3b10e4267776408fb36545fc7900674ceb9eda6",
+      "qeli-mac/QeliMac/SettingsWindow.axaml.cs": "9d5f56465ddd235c72992e680110405766221d3de859d6ab0a63b9231d79c47e",
+      "qeli-mac/QeliMac/Styles/Controls.axaml": "c0633be8ffea20b179eecece6838d87bdb6d016190591d0b72ffdd435787bfe4",
+      "qeli-mac/QeliMac/ThemeManager.cs": "be1e2ba705bbe3482bd72e43dc8a320f903203511714bb4f2e337d8cb7585862",
+      "qeli-mac/QeliMac/Toast.cs": "4ff57d56f926b9a609b663a93ffd9fe43123129450482c3eafa3eebb2b04cbf1",
+      "qeli-mac/QeliMac/ToolProcess.cs": "488d78e4fc28afa2b2c66760a69798a8495cffead1109d9850ec2bc1764b59f6",
+      "qeli-mac/QeliMac/TrayController.cs": "bbff28d2c079ff69c8d0b7cad27d12f7448575ce8c1c610603009bab34a9559c",
+      "qeli-mac/QeliMac/Ui.cs": "70b68309410d4b3dab168c87f4bdc0069de5d4ba6559aae33961d62426c6f7f8",
+      "qeli-mac/QeliMac/UiShot.cs": "9b0ad6f6f49402cfc7a03214ef79107d8ead0570003efdcb219469019d84ed90",
+      "qeli-mac/QeliMac/Vpn/DnsJournal.cs": "15237fd883aef4f86cd294edcc512d4e726424d12199c6bab8976aeb2416438e",
+      "qeli-mac/QeliMac/Vpn/ForwardingJournal.cs": "93571bb3a83be27edd9a0894035c760441479c26c82de6248009a7a7c71e05f0",
+      "qeli-mac/QeliMac/Vpn/KillSwitch.cs": "9a69e9238e45d75e8acba5548ee6e66b376e1295211e0366678c8c484206bb61",
+      "qeli-mac/QeliMac/Vpn/MacForwardingSelfTest.cs": "7cff4facc0094a2a04d5bd3dda2c819d0331700e4d2305239cb6a20bed4c5b13",
+      "qeli-mac/QeliMac/Vpn/MacNetworkSelfTest.cs": "8daf326a35f46f62378e0c981f276e710032a30d1dd2a033494e05c7760ed1fc",
+      "qeli-mac/QeliMac/Vpn/MacPerAppSelfTest.cs": "f9774a2d9c4a168a964abe689595eb65d975518534481b45f4cc13d47fb34cd7",
+      "qeli-mac/QeliMac/Vpn/MacRoamingSocket.cs": "be87531ea6720c0e48bc5c347136fe58ea75f5505b89a86d7c26c28e08a83f15",
+      "qeli-mac/QeliMac/Vpn/NetworkConfigurator.Roaming.cs": "6e46ca2e2df06392a522fb4de11d3013887854e7b0c4106722bcf63175467c12",
+      "qeli-mac/QeliMac/Vpn/NetworkConfigurator.cs": "2c76655e90c7e29c632556b1d4277192793dae890c49acd08a9acbc22d1d4e32",
+      "qeli-mac/QeliMac/Vpn/PerAppController.cs": "915c6b0a6ec5bcf0ca10e40e0008730a49ba3423b3c7b5c5c350239632f38b71",
+      "qeli-mac/QeliMac/Vpn/PfRecovery.cs": "92f37e79275a77432bd8af9bc06dbe1b29326bab2032f9500e4844f10e337b35",
+      "qeli-mac/QeliMac/Vpn/UtunDevice.cs": "dab94207840fde6aabbf7d27a244cde338788565265c5e0d8709570e4e151c66",
+      "qeli-mac/QeliMac/Vpn/VpnTunnel.Roaming.cs": "68105e967ad599299b577a5d54befbb5338090a688b463d35a8868dd4903d015",
+      "qeli-mac/QeliMac/Vpn/VpnTunnel.cs": "d9a84d7b3acf0a2aa0e6629343713ea67432a0fef183ce5709d2aeb24bb51905",
+      "qeli-mac/build_app.sh": "8c5c358e4ce189e0a54be237e6052b5f48a454c89d074056738bac3fb5f0be03",
+      "qeli-mac/build_dylib.sh": "b53b99a406092cc561ed13cb381c35b1d14164941e7310bbeb1754fb7fc06cd0",
+      "qeli-mac/per-app/Common/RelayRegistry.swift": "ddfd68a29aae0a1df019dd4ee7337c36027d0413cac01a4ca79ae8f55eecf5ad",
+      "qeli-mac/per-app/Common/RelayWork.swift": "448a400f8373a1fd594aa3ea8b82306e9c9ec57ff356ef3764eaaf3b2a91a1b9",
+      "qeli-mac/per-app/Common/RoutingState.swift": "ffb34ef1c8095ca774008b208f1dd2c7d3b6fb6042b40a03419f00fa79b7d053",
+      "qeli-mac/per-app/Common/SocketRelay.swift": "e95fa2cd00907feec4564ee5910d68bbfea80afb6df7c7f8c23e09402a0fb133",
+      "qeli-mac/per-app/Config/Extension.entitlements": "84e25b022bf343252f50f9bf8bc0304bcf52c452e4b5048450cc375f467e0c82",
+      "qeli-mac/per-app/Config/Host.entitlements": "fab3977772b9a0e1be293bcb058b0af25e3e8b045939c213860224429cf74a8e",
+      "qeli-mac/per-app/DNSProxyExtension/DNSProxyProvider.swift": "f507277074cc5f835c954bab0ae1b2e4dd4126d1dcd53712140970a80e0b362f",
+      "qeli-mac/per-app/Helper/main.swift": "65bdfd3db8e29327f48bdf5507e48e308dde4dc41836c4cd651ed9d8bd4f42d0",
+      "qeli-mac/per-app/ProxyExtension/TransparentProxyProvider.swift": "f0e68591448d4e88e427ff995b316fb5b05703ee8e390f6e0f1266cb702e91ff",
+      "qeli-mac/per-app/ProxyExtension/main.swift": "b8db9309a98eecbf4ab3b617b325d86bd1c6625fd781d49b311a1efd698e2a95",
+      "qeli-mac/per-app/Tests/main.swift": "66e31a36948b98a7401662650efe184cb02ad1f6a957e0aeabcb4a25ece5f0ea",
+      "qeli-mac/per-app/build.sh": "183721e39cdcce342f1443c9eaa86418258fd468b0d3984bc4a4e3edaa911fba",
+      "qeli-mac/per-app/generate_project.sh": "72b23fc0bff92d45bbd82f69309dd595d30dd3f2450f165abc885590d985f6ef",
+      "qeli-mac/per-app/project.yml": "ea3f4ecb1f73f8c1c6a64c91b59025e84436e4d4bc09066409de90d4128ddf71",
+      "qeli-shared/QeliConformance/AppSettingsStoreConformance.cs": "7155030faf73f890b8fcd0771e0d5528d5fd7692d360cf1b857251879e208243",
+      "qeli-shared/QeliConformance/ConfigBoundaryConformance.cs": "93bdd54018b7cd9c19e002e7856a8fd449240be346b0db31a8185f17f6ae563b",
+      "qeli-shared/QeliConformance/ManagementEventConformance.cs": "3dcc5b776c40a93522dfffa99d886ff21359a5ad25399821b3a79e88094c61cc",
+      "qeli-shared/QeliConformance/NativeLifecycleConformance.cs": "3eb5a062479c12a942e180c68d9112f717baf8c03bd43c1477ac0c6f065f8205",
+      "qeli-shared/QeliConformance/NetworkPolicyConformance.cs": "64ed0a13d14369e507b35fd02cc7b23f2ff746792024de2686d97b20349ce088",
+      "qeli-shared/QeliConformance/ProfileStoreConformance.cs": "fad9d918d72bc43e5e1c6fb4ae2150b12974671b97e1a232162dfaed310ed65b",
+      "qeli-shared/QeliConformance/ProfileStoreProcessConformance.cs": "f143ea05267a2b2a42aabc53e64ac0e27d25fcb8ac2318b94291bc5c3fad91ea",
+      "qeli-shared/QeliConformance/Program.cs": "47d9fe0200e9453f5dc68990d41599069ae24054ad39b3ac73779fcdc35f72f8",
+      "qeli-shared/QeliConformance/QeliConformance.csproj": "40602fd3412fe56b544288d67ed95b0d08248d146bf00d32e2c17cdcec4bfd24",
+      "qeli-shared/QeliConformance/RoamingPathConformance.cs": "d2dc8eab25e4aeef6f88486edfe6501ca9a28ab83ea18c84eac936cdf1243d36",
+      "qeli-shared/QeliConformance/RouteReaderConformance.cs": "061f52ee2e3db4a4678dfe3c50e35f0764a7cd1f9f5f05ab124c7fe32f92415f",
+      "qeli-shared/QeliConformance/UpdateMetadataConformance.cs": "9eea6974428e222ededabbda91286589d167489f1752d4134115a53ccec91b8d",
+      "qeli-shared/QeliShared/BrandPalette.cs": "c74a813519805af9f7d20d4fa077a02cadd6c0a9515f8f23bd8ca38eba11b97d",
+      "qeli-shared/QeliShared/Crypto/KeyDerivation.cs": "71f04d0512a837a0838a0c58934d5ea63a73cd162a1ca07da0db2d9a186291a8",
+      "qeli-shared/QeliShared/Crypto/KeyExchange.cs": "d8c17cc05ebfeca1a14bb6e83205220de01e7b95967697fd0afa0659dbdc91c8",
+      "qeli-shared/QeliShared/Crypto/PacketCipher.cs": "9ac7bdadf645a61245041c4b6a82dffecb7401046671a385b7cc9042a3c8d3c7",
+      "qeli-shared/QeliShared/Loc.cs": "a38a8c7ab6c08fdbd43cf8ae69edc825039f979285e526da9a0a1ec43f1a8455",
+      "qeli-shared/QeliShared/LogTime.cs": "44cd60d3500b3e84f0d2384e91911ab8452b37a1d068a731df9daf562e5ef867",
+      "qeli-shared/QeliShared/Model/AppSettingsStore.cs": "e6df76c504971e8379c054973f389eb2262d0622e151a7d45857c9379fde7754",
+      "qeli-shared/QeliShared/Model/ConfigCore.cs": "f75f0ef9309edda42ad229e9482392bca8518342cd05b8e74615ae50e164999f",
+      "qeli-shared/QeliShared/Model/DesktopServiceProfileTransition.cs": "4e67227af6c758ebf995efad5fb537655e4202e53fc0636bf2789deafb043962",
+      "qeli-shared/QeliShared/Model/DesktopServiceStatus.cs": "a1b05bbcb1b9332bd5f89a8500ccf0ce2fce1ae97e99c70399bb76f09b4be5e9",
+      "qeli-shared/QeliShared/Model/LinkConformance.cs": "bcd6b5c969698b02746b98981a52e2386b873b3d4724fc1941683fa6e37cade6",
+      "qeli-shared/QeliShared/Model/PairPresetSelection.cs": "4e87449d35758c2c3956e80cea793ccdf69355fa2fe7184c43c0ba20a2a97fa6",
+      "qeli-shared/QeliShared/Model/ProfileStoreFile.cs": "423fdc207c8cca68aa387322995b0e06a1340057b5a992ad9dd620249edd3014",
+      "qeli-shared/QeliShared/Model/ProfileStorePayload.cs": "0d77787f00cea59f52f79f0c55a3d6eafc61a2772b0faafd291fde47e98d7b06",
+      "qeli-shared/QeliShared/Model/ProfileStoreRecovery.cs": "f3d05dd1e8e67eea0a29811478bd0c7e06449bf3435a1c7f1b0e68fdc18c4ec3",
+      "qeli-shared/QeliShared/Model/TransportWireLimits.cs": "13ec3fd380be7f85d73f0f706f118a03fa3d0d0c40d86243d393f5f3e7929573",
+      "qeli-shared/QeliShared/Model/VpnConfig.Native.g.cs": "96b37209f936191e28e3fbd5595d8ae52f1834caaaa4e9ca2050206421d8ef0a",
+      "qeli-shared/QeliShared/Model/VpnConfig.cs": "5c4aa13920fe4a51021827c69b0bfd48fbe2f6cf0554d88c529fe9b77108ab06",
+      "qeli-shared/QeliShared/Protocol/CtrlFrame.cs": "a5220b1529362a8f26471aff06f446cdbce5a1e67738d6559dd7b8f079207249",
+      "qeli-shared/QeliShared/Protocol/ObfsStream.cs": "9493f54dd6107d8825c798fe242691ac9d86b138cfa5b0c91a00b94110976c9c",
+      "qeli-shared/QeliShared/Protocol/PacketCodec.cs": "2bd8d7ad212e51357b7b90cdc6a569bef983d6c31dfb45dd949fa4448fc0d3bd",
+      "qeli-shared/QeliShared/Protocol/PacketCodecBenchmark.cs": "6b85b5f19b11f3275b4c72a35469c565b0a34d2a5ce98bce5b255e8c1155fb4d",
+      "qeli-shared/QeliShared/Protocol/PrpNonceConformance.cs": "00bdaaa79371f9b48404c4c9a5f8d10fa37a5fcf4d94b361e9df5cb1c0f6865b",
+      "qeli-shared/QeliShared/Protocol/Quic.cs": "0a57d673894032e6e46c93e2a4042e211c9a9c0278dd425e95a0e111a3d8030b",
+      "qeli-shared/QeliShared/Protocol/TlsHandshake.cs": "094236618d808ae8ebac044c9983ac2ca938aaabeb53c7570d2f48a67e53f365",
+      "qeli-shared/QeliShared/Protocol/UdpFrag.cs": "f0447e88a1e3cff8f10cef4f91de7ac891e4a61fd741452a5db22925bb11c2b9",
+      "qeli-shared/QeliShared/Protocol/WireConformance.cs": "c1c246f9932969f3b1af86a8d294ec4571b4639b296420b76f304515e614dbbc",
+      "qeli-shared/QeliShared/QeliShared.csproj": "c6b2458f812b911d6f6a4bd73eb882f0b645bef6d4b68d7ec3d64ef70ba90216",
+      "qeli-shared/QeliShared/Update/SemVer.cs": "1f5a7e217f4eb41eb6654dd4bf4492789548f91c69173b6b8f24e958c03f4c4a",
+      "qeli-shared/QeliShared/Update/UpdateChecker.cs": "93f6364d4f3a9c2bf26df316abf25dcb9293727c4bad97b4b09ba52f24f253ee",
+      "qeli-shared/QeliShared/Vpn/NativeRoamingPath.cs": "67f9644bb57e8d06011e789615d98e01dfccbc1f86852ea61fa376a9e8dce4ec",
+      "qeli-shared/QeliShared/Vpn/NativeRoamingPlatformStateUnknownException.cs": "e54083733c20c501fb1de0b92b8f76d8d92873b52f49911126db38e8d74daa7f",
+      "qeli-shared/QeliShared/Vpn/NativeTransportCore.cs": "7b5aa16924a445983ec1e0c7dee68536626911bd6cf5945ea6fb75f71a442fab",
+      "qeli-shared/QeliShared/Vpn/NativeWorkerLifetime.cs": "a237fa6ac941ad9982f31cac1642de48a9e0eb62fa7b46a7dc114a551b60a3e5",
+      "qeli-shared/QeliShared/Vpn/PhysicalDnsPolicy.cs": "2a5fe976bbeae4cf4ec39e285934597bfe61df1594aa6ad10d857cfc46973bdc",
+      "qeli-shared/QeliShared/Vpn/RouteFileParser.cs": "1ad690b38cf61415cc297120ca432401b73509b00470b2910c6e32ef5c89369f",
+      "qeli-shared/QeliShared/Vpn/RouteLocalPolicy.cs": "b56997dabc7d5fa82017bfb0ef5e6e63a47b9a63b7f0a300618e0aefb5031743",
+      "qeli-shared/QeliShared/Vpn/TunDevice.cs": "cb631f04252188a21e283ffd310eb6cf6f4ddde695bbaf7c8a4f23948bfc18af",
+      "qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs": "c4bc1929865f03f5eed8a412d74e4be864d7454b180d332a6b3ebc090dd4b706",
+      "qeli-win/QeliWin/AboutWindow.xaml.cs": "be6c9f21f3dcdb13eeb9b7f6819caaf4cc9bbf554f5a3293c62ca6a111a55f16",
+      "qeli-win/QeliWin/App.xaml.cs": "7b0a2355f31ef91729600da380f50495ee392ae818da4288b1cec77514c01f7b",
+      "qeli-win/QeliWin/AppPickerWindow.xaml.cs": "3b761119574e8464f16cbf9a8abb5daad7e8be8d97c6b9ad666f036b6329ab42",
+      "qeli-win/QeliWin/AutoStartManager.cs": "b275b61d580aabadae65ec6019623de62b1f9adbb24d55c7dda11605f2a25b24",
+      "qeli-win/QeliWin/Branding.cs": "6d7655c4cd9aae73729e4bdcda95b1bebc5aed711e48c76596e08671f4195cf0",
+      "qeli-win/QeliWin/CliRunner.cs": "ad8cab3e9dfbb274bc19ad6ce738537f13b1b5bba3d861393016a8bb233626d0",
+      "qeli-win/QeliWin/ConfigEditorWindow.xaml.cs": "2c4f41c1b50b23551b078afd97600e1e1994311bb85418bc63d80a548a89762e",
+      "qeli-win/QeliWin/InputDialog.cs": "5ff1b8b3c02a9eacbebedd4c069a2dad461d3dbef13f370279fd5970ebc82b3d",
+      "qeli-win/QeliWin/Loc.cs": "aea654fb2f708364ffe2d6d0b8a100fe3c3c383f40344767a017b26a264d13a7",
+      "qeli-win/QeliWin/MainWindow.xaml.cs": "f103925dde5bac083f828df8c73355497a597d470f34dc0a8576af1a97461ab0",
+      "qeli-win/QeliWin/Model/AppSettings.cs": "19c0232996d3c3d83a70fc8289a8019a2db1d57f170dd31421daa8ee16eeff07",
+      "qeli-win/QeliWin/Model/ProfileStore.cs": "c7ebfa438107f69c6ccea089b62ce24b2ef487cf0b034f08125e5ed6c2cafa64",
+      "qeli-win/QeliWin/Model/ProfileStoreSelfTest.cs": "878c337335a9dc27036c3cab12bb610de0f0d81c1f521450d426a428e78b8d66",
+      "qeli-win/QeliWin/Program.cs": "567710e34db56dba7f3edc4d242a7933a9c7c56de5793bbe606aa7c5ae35ebd2",
+      "qeli-win/QeliWin/QeliWin.csproj": "598b18e38dd5ae20c51d775de443ad14e4bf6f343dc486a7223cc0d1952cd8b7",
+      "qeli-win/QeliWin/QrShareWindow.xaml.cs": "a25e7354857fb553f2e9256873c0627699d58ad01334d0398d0081b32a122870",
+      "qeli-win/QeliWin/ReachabilityToBrushConverter.cs": "04043a14791f09b543071280585522786a4d0fb33264539bd55fa00036c59396",
+      "qeli-win/QeliWin/Service/ServiceControlSelfTest.cs": "91884a06e96ca689ff6dcec2bd5fa4981d751250e6b0d03c042f83b3536e0020",
+      "qeli-win/QeliWin/Service/ServiceHost.cs": "61e8fde79322141d48d7911110e263cda02e50a8deaeb5fc7b2df35198f4b995",
+      "qeli-win/QeliWin/Service/ServiceManager.cs": "911ef8f34f1e6562a0b6e68ae20320ee0828019d95aa95f8515931cb822a573e",
+      "qeli-win/QeliWin/Service/ServiceObservation.cs": "d46caf4c7a8016e49e0285580be86500f166c174a727d95f1b937d1b3f82a6bf",
+      "qeli-win/QeliWin/Service/ServiceObservationSelfTest.cs": "daec5ffe320377ad012370bcc5614681fb3d376bc8d33d1a1e2f4e6b4bbaa4cc",
+      "qeli-win/QeliWin/Service/ServiceProfileSelfTest.cs": "21855bdf0305f0b0ce382c0a7b9fb087876a013273f8ef59eddd5e14f644d994",
+      "qeli-win/QeliWin/Service/ServiceProfileTransition.cs": "559bbea13cb17cec58b85d09f1ebcbfd5f7e47cad6e172f904a0e752ff5bc64b",
+      "qeli-win/QeliWin/Service/ServiceRegistration.cs": "464e3017f331d1dbb49ba6aecc6cf55aa4db83884372024e286d325659a74ef6",
+      "qeli-win/QeliWin/Service/ServiceSecuritySelfTest.cs": "b1951f5363b649c423af94d203c2c2c1010ae2a2ab409a9edd849daf6baeb9df",
+      "qeli-win/QeliWin/Service/ServiceState.cs": "9269070c747697b8d350743fe83fb95962c7b7a090f9a3ef64b6d629d4a994e3",
+      "qeli-win/QeliWin/SettingsWindow.xaml.cs": "f19dc414a856d235205efeb3deb9ce2a212238fdcdfeca49774c5163b7390c31",
+      "qeli-win/QeliWin/SystemPaths.cs": "d087d5ee59f00d2ec817afa5988bcb566c3b952f25c47239384a6d446bcaab6c",
+      "qeli-win/QeliWin/ThemeManager.cs": "c51a4c584fd0800737a493ab5772d49a56443cb54d2956b3cedb9d48643d26c0",
+      "qeli-win/QeliWin/Toast.cs": "12a72f17c21c5bee57517ba957c1d0cd16e826ed55cf2a4f6d45952ca0e03763",
+      "qeli-win/QeliWin/TrayController.cs": "65507ce3ae62b10c7bfdf65f0b503dd666ae6a7a7faedf828dc4e9c02b3f1fd8",
+      "qeli-win/QeliWin/Ui.cs": "c33affd1506446a0d243b99cc2f824ecef5b3eb59b2a756988e62396f5a11f4b",
+      "qeli-win/QeliWin/Vpn/DriverResourceSelfTest.cs": "ffcc54010b5540b868ede5d2036d33efb25a07beac1912659db6fecda7370c54",
+      "qeli-win/QeliWin/Vpn/KillSwitch.cs": "24ad69007321ce2d8f98b046b06df93a54e99678ea0e4f33df35a6dfb7e8ec1e",
+      "qeli-win/QeliWin/Vpn/NativeLoader.cs": "5f88e9648853e43509397dafb7b96e944e3e40ce62e129bdfc357383e6bc854f",
+      "qeli-win/QeliWin/Vpn/NativeModuleCache.cs": "cb03a1efc7dfc52f3b78358cafa8027dffd1fd0c741af8de4deb6a2cd7a22fac",
+      "qeli-win/QeliWin/Vpn/NetworkConfigurator.cs": "00b3cc16eea7337e247a81dbc191af3ed965fbd0006f91823ff8f175447c3a8d",
+      "qeli-win/QeliWin/Vpn/PendingFragmentBuffer.cs": "cbb2ec5e9850b626d00a2ee8281fdf5a101e0dfa9149e23b6d936be6c71113d9",
+      "qeli-win/QeliWin/Vpn/ProcessAppMap.cs": "05ad67668a55c82543d050364cb26e2bc8efbb9da44c2402e59aa3240f839263",
+      "qeli-win/QeliWin/Vpn/RetainedDriverGates.cs": "0f714d541ddbd04fded21492a94bd9daef47c4c5e4321a0a7143220af9fb05cb",
+      "qeli-win/QeliWin/Vpn/VpnTunnel.cs": "1be48abff2243d6a0d18affd980412881d80ac2ccb7d6919856a35a36fbfc2d8",
+      "qeli-win/QeliWin/Vpn/WinDivertAdapter.cs": "20c733ef71dc3eb5a4a6616e5e16daa1996904806c99e01e1f4fc8cd6120ba4e",
+      "qeli-win/QeliWin/Vpn/WinDivertDestinationPolicy.cs": "e2cfbcb1d24d7f8507e5711210527383b974b1b6c58327d858bf7c3d403d770b",
+      "qeli-win/QeliWin/Vpn/WinDivertFlowTable.cs": "881b52b879827ec7b2a5f3eb4a985886d475574acfe024d961ae17f1f0498fb9",
+      "qeli-win/QeliWin/Vpn/WinDivertKillSwitchGate.cs": "112d756e06a57088f00d3de80365eef1ea56261ef1661cc52d1832575071538e",
+      "qeli-win/QeliWin/Vpn/WinDivertNative.cs": "9ae309425d4ead53b94e4499ba5934bb5bd9ca7a2aeba0956919dec2b91b7c73",
+      "qeli-win/QeliWin/Vpn/WinDivertRuntime.cs": "9e2975f7013438ae8206d1b8a845f11189243b49e6fd147094b55b1358bf2e00",
+      "qeli-win/QeliWin/Vpn/WinDivertSelfTest.cs": "5927e6f2c2d4091b9e57f46d05baeb18d32456944f1fc142e1eeb2728c8ad513",
+      "qeli-win/QeliWin/Vpn/WindowsRoamingSocket.cs": "6df2bcb311def95c5ad7d227b88a6028bd6897be2bc41c81ab78ec5f7a53e94c",
+      "qeli-win/QeliWin/Vpn/Wintun.cs": "1aa5c9bbe1f31d833c8f47733b001df243718101125b655e31ff69862bb11484",
+      "qeli-win/QeliWin/WindowsCommand.cs": "967dd2d041fb43a58d5f9fa85cc509c4022a5269a5dd42c4b34b19d477460df4"
+    },
+    "auxiliary_inputs": {
+      "scripts/test_macos_build_paths.py": "894195974d095b4fb47c020c36a2e5e2e678fd2e86e84ba3b79852f176234332"
+    },
+    "native_source_digest": "68902e1ef699d7e356bb558e709b6d5e7258cdafb2bd6460d7a66f8d5fc7d74b",
+    "native_sha256_rows": [
+      {
+        "path": "native-libs/android/arm64-v8a/libqeli.so",
+        "sha256": "ba21ee1783e523dc044356ef92509536e5bb1db78ed6b324c8ecbd7b1f6f3d11"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+        "sha256": "ba21ee1783e523dc044356ef92509536e5bb1db78ed6b324c8ecbd7b1f6f3d11"
+      },
+      {
+        "path": "native-libs/android/x86_64/libqeli.so",
+        "sha256": "125f9022c4af0dc8e3bc4cda29608fd26781eaed4acae64257c232609364d57b"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+        "sha256": "125f9022c4af0dc8e3bc4cda29608fd26781eaed4acae64257c232609364d57b"
+      },
+      {
+        "path": "native-libs/windows-x64/qeli.dll",
+        "sha256": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7"
+      },
+      {
+        "path": "qeli-win/QeliWin/native/qeli.dll",
+        "sha256": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7"
+      },
+      {
+        "path": "native-libs/macos-universal/libqeli.dylib",
+        "sha256": "e28fac551bb09e8136b98b79e8a8f41610b5493be62b9739a5b9be625f63fff2"
+      },
+      {
+        "path": "qeli-mac/QeliMac/native/libqeli.dylib",
+        "sha256": "e28fac551bb09e8136b98b79e8a8f41610b5493be62b9739a5b9be625f63fff2"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "qeli-win/QeliWin/wintun/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      }
+    ],
+    "managed_artifacts": {
+      "qeli-mac/QeliMac/bin/Release/net10.0/QeliMac.dll": "d4b7d2f66b541b60e124712eabbc2c58aa6e61df1f9ef4262a4e84f9b2180bcf",
+      "qeli-mac/QeliMac/bin/Release/net10.0/QeliShared.dll": "eb40c6e96c2fbd9233deb5ae9e6e849649fa4881fd82a80e3d90d7d8e77d9819",
+      "qeli-mac/QeliMac/bin/Release/net10.0/qeli.dll": "b8fb00d3b12f3f721ff373864429aba564d72e6c034cec504bc915ddea51a9f7",
+      "qeli-win/QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll": "60262a7b5931f9adb9b53d0493f130048dbb99a107c322c6a5cf6ebb36f97b45",
+      "qeli-win/QeliWin/bin/Release/net10.0-windows/win-x64/QeliShared.dll": "eb40c6e96c2fbd9233deb5ae9e6e849649fa4881fd82a80e3d90d7d8e77d9819",
+      "qeli-shared/QeliConformance/bin/Release/net10.0/QeliConformance.dll": "0a4abfa3011a1922f1c458b6a6ff482f676818ec08861523475f8f375f48a180",
+      "qeli-shared/QeliConformance/bin/Release/net10.0/QeliShared.dll": "eb40c6e96c2fbd9233deb5ae9e6e849649fa4881fd82a80e3d90d7d8e77d9819"
+    },
+    "host_ffi_note": "Windows qeli.dll only for configuration DTO computed getters; no Darwin dylib/sysctl/utun/pf/launchd/NE execution. No fresh Linux/JNI/native A-B/soak/benchmark.",
+    "build_informational_version_base": "1bdd395dab8f9091c0477f0709253c11ddd6f7b0",
+    "primary_sources": [
+      "https://developer.apple.com/documentation/dispatch/dispatchsourceprotocol/setcancelhandler%28handler%3A%29",
+      "https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/connect.2.html",
+      "https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/getsockopt.2.html",
+      "https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/poll.2.html"
+    ]
+  },
+  "raw_directory": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q28-macos-sockets-20261005-r2",
+  "raw_seal": {
+    "immutable_after": "qualification",
+    "excluded": "bin/obj build output, original certification snapshot and post-seal commit/transfer logs",
+    "files": [
+      {
+        "path": "bindings.log",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "checks.json",
+        "size": 848,
+        "sha256": "8af853604b6282a90072e3424a0e5984c9052f947d04a5ccccf0ebb46070b823"
+      },
+      {
+        "path": "compiler-status.json",
+        "size": 157,
+        "sha256": "117f9c96010fc52d213b15dda232f6be853bc7d248577b7d53ebeccfeb8dc3f5"
+      },
+      {
+        "path": "diff-check.log",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "docs.log",
+        "size": 179,
+        "sha256": "b350a1a272c802b818097cbc8c3f1fc99fb8e7a556a96c6080927dc4460602f4"
+      },
+      {
+        "path": "edit-docs.py",
+        "size": 17250,
+        "sha256": "bc1642a6261a223aec19fdeaf6760bffce09eff83259234a15d251d4c5832915"
+      },
+      {
+        "path": "initial-qualified-certification.json",
+        "size": 549360,
+        "sha256": "893f9009ddd6b92a0f04e43542f05c7446102718f6ea4f3131b2cff3a80eefe4"
+      },
+      {
+        "path": "initial-qualified-evidence.json",
+        "size": 36148,
+        "sha256": "9a5816b69603893b6fbf76d6c4c7a4da21f31e9f0de35aee33c8b764530ce6ef"
+      },
+      {
+        "path": "mac-build.log",
+        "size": 412,
+        "sha256": "a15b55ba991c61a380a0ffb201f59823a217e031ad30fd681ecc5149731a4254"
+      },
+      {
+        "path": "mac-control-selftest.log",
+        "size": 5300,
+        "sha256": "35462bf5a224e72ba8e8e9eaed8823ed3de82647e4bb9683d6898116a82feec9"
+      },
+      {
+        "path": "mac-forwarding-selftest.log",
+        "size": 4592,
+        "sha256": "97bd960688c2069b29c25051d460bc40c29be17ebc8c4d1157653df0fe364ca7"
+      },
+      {
+        "path": "mac-network-selftest.log",
+        "size": 7907,
+        "sha256": "4e88c700a724e2dde31e9382a7a566eab7f68d60a84cae5d86a000774f76d37c"
+      },
+      {
+        "path": "mac-perapp-selftest.log",
+        "size": 2789,
+        "sha256": "fff7a3f52815678710407640e4a59247941956212cb07d4a392a6abceda584a0"
+      },
+      {
+        "path": "mac-storage-selftest.log",
+        "size": 3470,
+        "sha256": "e701d3ec65af184648ac10bd507015fc089bf34e475b4278d2e7774ecbd1aca2"
+      },
+      {
+        "path": "native-provenance.log",
+        "size": 146,
+        "sha256": "219d3b2a1fea453bf259ab7f54d466afe7ea8fd221aa3be40577c56fa9601194"
+      },
+      {
+        "path": "original-SocketRelay.swift",
+        "size": 27983,
+        "sha256": "54ce868456fe57214032a545b7946764208b88d968f4039dea91935352e3c2b6"
+      },
+      {
+        "path": "panel.log",
+        "size": 48,
+        "sha256": "b8e4165d118b8fbb51655003173e95486b1f5cc0f7f2a0090db08e4d8c6997bb"
+      },
+      {
+        "path": "qualify.py",
+        "size": 8881,
+        "sha256": "5d48dc80c60f7a12e7f68f05b123f763e3f7615d454e9b91bc7aa6bc4da2eb02"
+      },
+      {
+        "path": "shared-build.log",
+        "size": 439,
+        "sha256": "0a90526276db50dda236917cc87fe933db23cbcdf7f96d467088d0eb2d48b77e"
+      },
+      {
+        "path": "shared-selftest.log",
+        "size": 32525,
+        "sha256": "bda1a8aa044a1dad4e711805aa311706479d1025b1f2b98f2d8037b6e0b1c8b1"
+      },
+      {
+        "path": "source-proof.json",
+        "size": 25941,
+        "sha256": "e3cb9cfbe26ebe2ea539f6c51f85e650f9a00ef1ae3f09b124c86465f00c1f41"
+      },
+      {
+        "path": "source-review.json",
+        "size": 2922,
+        "sha256": "3f834f3e89539223d9d7b7f76384ae39dbe4c533b203a73cf55b644e6699edec"
+      },
+      {
+        "path": "source.patch",
+        "size": 102650,
+        "sha256": "2ea92b23223a2f25c442faf32b23f7d972b4d90ca4f69ec512335eb86f4819ab"
+      },
+      {
+        "path": "win-build.log",
+        "size": 428,
+        "sha256": "bcf13010f1eea9f3c8349cae711843cb38028504255171789ced02af85bb1f35"
+      },
+      {
+        "path": "win-selftest.log",
+        "size": 21789,
+        "sha256": "8797c4cae7a0656ee6a0bd25f0585b33aebf348db1ffa92497f97b36f096b75b"
+      }
+    ]
+  },
+  "scope": "Swift native relay F268-F270 SOURCE_REVIEW only; compiler/Xcode/Darwin runtime and20 new production latch/deadline cases USER_SKIPPED,not executed. No native baseline FAIL/PASS claimed. Serial per-relay descriptor/source ownership,cancel-handler fd release,late publication gate,nonblocking shared budgets10s connect/5s send-or-UDP-batch/2s DNS subquery,atomic10s framework-write watchdog,zero UDP datagrams/cardinality/captured errno. Fresh1225 related managed PASS do not execute changed Swift relay. Three C# Release builds zero warnings/errors,three Shared DLLs equal;unchanged Rust/native digest and14 artifact hashes. Stop asynchronous;no guaranteed arbitrary syscall/OS callback interruption or full teardown bound. Q28 IN_PROGRESS27/37:final integration,old DNS/PF local owner stamps remain. Existing v5 bundle protocol unchanged;configs INI only. Historical formal cases/artifacts/timestamps/environments and physical user exclusions preserved. No new Linux/JNI/nativeAB/benchmark/soak/lab/network/service/push/deploy;human WIP preserved.",
+  "defect_validation": {
+    "Q28-F268": "SWIFT_SOURCE_REVIEW_COMPILE_RUNTIME_USER_SKIPPED",
+    "Q28-F269": "SWIFT_SOURCE_REVIEW_COMPILE_RUNTIME_USER_SKIPPED",
+    "Q28-F270": "SWIFT_SOURCE_REVIEW_COMPILE_RUNTIME_USER_SKIPPED"
+  },
+  "source_review": {
+    "status": "SOURCE_REVIEW_ONLY_NOT_NATIVE_EXECUTION",
+    "base": "1bdd395dab8f9091c0477f0709253c11ddd6f7b0",
+    "defects": {
+      "Q28-F268": "Published descriptor closed immediately after asynchronous source cancellation; fd reused while global read callbacks/send were active. Serial per-relay queue and cancellation-handler close now retain ownership until handlers release. Lifetime publication gate excludes late UDP/TCP publication after stop.",
+      "Q28-F269": "Blocking connect/send and per-server DNS timeout could accumulate unboundedly. Nonblocking sockets, monotonic shared deadlines, SO_ERROR confirmation and poll slices now handle EAGAIN/EINTR/backpressure; cancelled workers shed queued work.",
+      "Q28-F270": "UDP zero datagram mistaken for EOF; mismatched arrays silently zipped; concurrent framework writes could accumulate; errno diagnostic read late. Empty datagrams preserved, cardinality checked, one pending incoming write per relay, atomic ticket watchdog and captured errno."
+    },
+    "reviewed_boundaries": [
+      "stop versus connect/DNS/send: latch only, private FD worker defer or owned-source cancellation releases",
+      "source pause/resume/cancel balancing and cancellation handler group ownership",
+      "watchdog outside I/O queue: atomic pending ticket prevents old timeout/late completion from retiring newer write",
+      "UDP socket creation during inbound pause; single batch deadline; DNS correlation keeps original 4096/30s bounds",
+      "private DNS descriptors have no dispatch source; connected UDP resolver endpoint/answer parser unchanged",
+      "policy destination and IP_BOUND_IF family selection preserved; no config key change",
+      "project target includes shared RelayWork.swift; 20 new cases not executed"
+    ],
+    "not_executed": [
+      "Swift compiler/Xcode",
+      "20 new Swift cases",
+      "actual Darwin socket/NE loops",
+      "baseline native executable",
+      "actual fd reuse/timeout/UDP zero-datagram runtime",
+      "Mac signing/system-extension/provider/runtime"
+    ],
+    "primary_sources": [
+      "https://developer.apple.com/documentation/dispatch/dispatchsourceprotocol/setcancelhandler%28handler%3A%29",
+      "https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/connect.2.html",
+      "https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/getsockopt.2.html",
+      "https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/poll.2.html"
+    ],
+    "remaining": "Q28 final integration; old DNS/PF local start-ticks stamps need review. Actual native runtime remains USER_SKIPPED. No benchmark/soak/lab/network/service/push/deploy.",
+    "initial_source_refinement": "Per-packet delayed callbacks replaced by one 250ms watchdog per relay; initial 23-file seal unchanged. No observed native runtime failure claimed."
+  }
+}

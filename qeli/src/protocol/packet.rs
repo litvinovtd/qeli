@@ -733,6 +733,122 @@ mod tests {
     /// changes `prp_nonce` without regenerating, which is exactly how the other three
     /// implementations would start disagreeing with a file they still believe is authoritative.
     #[test]
+    fn replay_window_matches_independent_set_model_at_u64_boundaries() {
+        use std::collections::HashSet;
+        for start in [0, (1u64 << 63) - 4096, u64::MAX - 8192] {
+            let mut window = ReplayWindow::new();
+            let mut seen = HashSet::new();
+            let mut highest: Option<u64> = None;
+            let mut rng = 0x63b7_08d1_2fc9_a405u64;
+            for index in 0..32_768 {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                let top = highest.unwrap_or(start);
+                let offset = [0, 1, 63, 64, 65, 127, 128, 2047, 2048, 2049][index % 10];
+                let seq = match index % 4 {
+                    0 => top.saturating_add(offset),
+                    1 => top.saturating_sub(offset),
+                    2 => start.saturating_add(rng % 8192),
+                    _ => rng,
+                };
+                let expected = highest
+                    .is_none_or(|top| seq > top || top - seq < REPLAY_WINDOW_SIZE as u64)
+                    && !seen.contains(&seq);
+                assert_eq!(
+                    window.check_and_record(seq),
+                    expected,
+                    "start={start}, index={index}, seq={seq}"
+                );
+                if expected {
+                    highest = Some(highest.map_or(seq, |top| top.max(seq)));
+                    seen.insert(seq);
+                    let top = highest.unwrap();
+                    seen.retain(|seq| top - seq < REPLAY_WINDOW_SIZE as u64);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn authenticated_bad_padding_does_not_consume_a_replay_slot() {
+        let key = [0x37; 32];
+        for raw in [false, true] {
+            let mut receiver = if raw {
+                PacketCodec::new_raw(key)
+            } else {
+                PacketCodec::new(key)
+            };
+            for counter in [0, 1u64 << 63, u64::MAX] {
+                let frame = |padding: u16, variant: u8| {
+                    let mut nonce = [0; NONCE_SIZE];
+                    nonce[..8].copy_from_slice(&counter.to_be_bytes());
+                    nonce[8] = variant;
+                    let mut plain = counter.to_be_bytes().to_vec();
+                    plain.extend_from_slice(b"ok");
+                    plain.extend_from_slice(&padding.to_be_bytes());
+                    let ct = Cipher::new(&key).encrypt(&nonce, &plain).unwrap();
+                    let len = (NONCE_SIZE + ct.len()) as u16;
+                    let mut record = if raw {
+                        len.to_be_bytes().to_vec()
+                    } else {
+                        vec![0x17, 3, 3, (len >> 8) as u8, len as u8]
+                    };
+                    record.extend_from_slice(&nonce);
+                    record.extend_from_slice(&ct);
+                    record
+                };
+                let mut bad = frame(u16::MAX, 1);
+                let capacity = bad.capacity();
+                assert!(matches!(
+                    receiver.decrypt_packet_in_place(&mut bad),
+                    Err(PacketError::InvalidPadding)
+                ));
+                assert!(bad.is_empty());
+                assert_eq!(bad.capacity(), capacity);
+                let good = frame(0, 2);
+                assert_eq!(receiver.decrypt_packet(&good).unwrap(), b"ok");
+                assert!(matches!(
+                    receiver.decrypt_packet(&good),
+                    Err(PacketError::ReplayDetected)
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn nonce_exhaustion_never_wraps_or_retransmits_old_record() {
+        for raw in [false, true] {
+            let mut codec = if raw {
+                PacketCodec::new_raw([17; 32])
+            } else {
+                PacketCodec::new([17; 32])
+            };
+            codec.counter = u64::MAX - 1001;
+            let mut record = Vec::new();
+            codec
+                .encrypt_packet_into(b"last permitted packet", &[], &mut record)
+                .unwrap();
+            assert!(!record.is_empty());
+            for exhausted in [u64::MAX - 1000, u64::MAX - 1, u64::MAX] {
+                codec.counter = exhausted;
+                record.extend_from_slice(b"old record");
+                assert!(matches!(
+                    codec.encrypt_packet_into(b"must refuse", &[], &mut record),
+                    Err(PacketError::CounterExhausted)
+                ));
+                assert!(record.is_empty());
+                assert_eq!(codec.counter, exhausted);
+                assert!(matches!(
+                    codec.encrypt_packet(b"must refuse", &[]),
+                    Err(PacketError::CounterExhausted)
+                ));
+                assert_eq!(codec.counter, exhausted);
+            }
+        }
+    }
+
+    #[test]
     fn prp_nonce_matches_shared_conformance_vectors() {
         // Compiled in, so the test cannot silently pass because a path moved.
         let fx: serde_json::Value =

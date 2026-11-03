@@ -9,6 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+aes-gcm = "0.10"
 
 # Only the cross-platform parser core (config/crypto/protocol/util) is needed —
 # default-features off drops the Linux-only server/client/tun/web stack, so the
@@ -17,6 +18,7 @@ libfuzzer-sys = "0.4"
 package = "qeli"
 path = ".."
 default-features = false
+features = ["fuzzing"]
 
 [[bin]]
 name = "clienthello"
@@ -94,6 +96,34 @@ path = "fuzz_targets/ip_packet.rs"
 test = false
 doc = false
 bench = false
+[[bin]]
+name = "control_v2"
+path = "fuzz_targets/control_v2.rs"
+test = false
+doc = false
+bench = false
+
 # cargo-fuzz needs some debuginfo in release for useful crash backtraces.
 [profile.release]
 debug = 1
+
+[[bin]]
+name = "realtls_client"
+path = "fuzz_targets/realtls_client.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "websocket_frame"
+path = "fuzz_targets/websocket_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "quic_envelope"
+path = "fuzz_targets/quic_envelope.rs"
+test = false
+doc = false
+bench = false

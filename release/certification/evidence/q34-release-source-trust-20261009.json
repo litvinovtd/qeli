@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_RELEASE_SOURCE_ADMISSION_SCOPED",
+  "source_digest": "92bb9c220492cfa5078fd3821a3a3bffd0c751737d95920043454d476b7be78b",
+  "qualification_source_commit": "d138112ffafbd8498386cf82aa9c6d227cbcf0cf",
+  "product_source_commit": "d138112ffafbd8498386cf82aa9c6d227cbcf0cf",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F494/Q34-F048"
+  ],
+  "verification": {
+    "baseline": {
+      "status": "BASELINE_HIDDEN_EDIT_REPRODUCED",
+      "cases": [
+        {
+          "flag": "assume-unchanged",
+          "status": "",
+          "index_flags": "h source",
+          "old_preflight_admitted_commit": "34fb5f103bf2ca1f91b03b88ab7c9246a3ff0fa1",
+          "old_certification_digest": "c4690cb502cfca8e3802fa7b842c46a11a645c6a453bb7bb82172158bc5faf06",
+          "committed_digest": "c4690cb502cfca8e3802fa7b842c46a11a645c6a453bb7bb82172158bc5faf06",
+          "hidden_file_sha256": "fecf49d1fe032413e9d200b2c8fb05c861c0e45f4ac89a7ca39ea203048b4594",
+          "scope": "Exact baseline functions and real Git index flags; no CI/network/SDK/certified artifact execution"
+        },
+        {
+          "flag": "skip-worktree",
+          "status": "",
+          "index_flags": "S source",
+          "old_preflight_admitted_commit": "34fb5f103bf2ca1f91b03b88ab7c9246a3ff0fa1",
+          "old_certification_digest": "c4690cb502cfca8e3802fa7b842c46a11a645c6a453bb7bb82172158bc5faf06",
+          "committed_digest": "c4690cb502cfca8e3802fa7b842c46a11a645c6a453bb7bb82172158bc5faf06",
+          "hidden_file_sha256": "fecf49d1fe032413e9d200b2c8fb05c861c0e45f4ac89a7ca39ea203048b4594",
+          "scope": "Exact baseline functions and real Git index flags; no CI/network/SDK/certified artifact execution"
+        }
+      ]
+    },
+    "digest_compatibility": {
+      "status": "PASS",
+      "old_and_new_digest": "9d95570d7a603093366ddd40523437864c68c16d20b38f44b362d33623771272",
+      "commit": "68f1c6563a0ed95c074539b7ee207b8794317f23",
+      "scope": "Exact baseline and final digest algorithms agree at clean committed code input; later documentation changes legitimately change source digest"
+    },
+    "windows": {
+      "status": "PASS",
+      "methods": 165,
+      "suites": [
+        {
+          "suite": "test_release_preflight.py",
+          "returncode": 0,
+          "methods": 15,
+          "log": "windows-test_release_preflight.py.log"
+        },
+        {
+          "suite": "test_release_certification.py",
+          "returncode": 0,
+          "methods": 18,
+          "log": "windows-test_release_certification.py.log"
+        },
+        {
+          "suite": "test_release_tag.py",
+          "returncode": 0,
+          "methods": 21,
+          "log": "windows-test_release_tag.py.log"
+        },
+        {
+          "suite": "test_release_ci_gate.py",
+          "returncode": 0,
+          "methods": 19,
+          "log": "windows-test_release_ci_gate.py.log"
+        },
+        {
+          "suite": "test_check_workflows.py",
+          "returncode": 0,
+          "methods": 11,
+          "log": "windows-test_check_workflows.py.log"
+        },
+        {
+          "suite": "test_native_recipes.py",
+          "returncode": 0,
+          "methods": 38,
+          "log": "windows-test_native_recipes.py.log"
+        },
+        {
+          "suite": "test_router_release_gate.py",
+          "returncode": 0,
+          "methods": 15,
+          "log": "windows-test_router_release_gate.py.log"
+        },
+        {
+          "suite": "test_openwrt_source_gate.py",
+          "returncode": 0,
+          "methods": 28,
+          "log": "windows-test_openwrt_source_gate.py.log"
+        }
+      ]
+    },
+    "linux": {
+      "status": "PASS_FINAL33_LINUX_METHODS",
+      "tests": 33,
+      "producer_commit": "68f1c6563a0ed95c074539b7ee207b8794317f23",
+      "source_archive_sha256": "3c79e0b6aa960c4cae8c1a78700ed9869d8e24ae969136d6cfc860aee7689b6f",
+      "qualified_files_sha256": {
+        "release_source.py": "822f80e48a13728ee097a188d61660d44170cb1267d0496be5c0222d5992bcb5",
+        "release_preflight.py": "2a7781032c9885910ac8e912726f8962bd84523a4517b65d4ee7662abbf87e19",
+        "release_certification.py": "5d25131f0860d305890f9aca304948c9643e42503f69d4fa7427ae7ad8778381",
+        "test_release_preflight.py": "836c2f7d33515da32819c509269471cd8107a135f32484ddcc9d50883b8a5c3e",
+        "test_release_certification.py": "a899ab2f5c6a04b779bf5c49b65b7d1b07a4fb93b44344ff465c35dca145cc26",
+        "native_lab.py": "da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0",
+        "native_repro.py": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c",
+        "ssh_command.py": "ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b",
+        "ssh_hostkey.py": "c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39",
+        "release_ci_gate.py": "07a7fadff45d2331e4ff0666fc90c806f2eba895c81e1be874e021cbdd913b2c",
+        "openwrt_source_gate.py": "d22677508a027df9e2b717dae45553ba235d8e88417d14a0cf4fcb91d2cd8588",
+        "router_release_gate.py": "33edcf1aff24c28c04a03a97f781073b3af4ad00f93ac5913d8a78d7c11b0fe7",
+        "router_artifact.py": "076002a68ddfdf397af567982735434be1ca3d9c4584a2e9dee0034b69033c1a",
+        "router_source.py": "a0f34491d0474f98ea5a8f47e8a77a1ab0a88acd68aae73035285b307e422ed2",
+        "router_toolchain.py": "5a07dc41385d405224f91b47cdce47f7987f05e013ca025ce6c19929d641df12"
+      },
+      "cleanup": {
+        "status": "PASS_NONRECURSIVE_KNOWN_FILES_SHA_RECOVERED_CLEANUP",
+        "root": "/var/tmp/qeli-release-source.BX3Jyl8W",
+        "files": 16,
+        "process_fd_references": [],
+        "mount_guard": "PASS"
+      },
+      "original_service_unchanged": true,
+      "scope": "Real Git fixtures, controlled external gates; no CI dispatch/router build/network runtime;.10 unused. Initial cleanup macro replacement produced SyntaxError before execution/deletion, preserved; corrected exact-token cleanup checks every known file SHA and removes 16 files nonrecursively."
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "scripts/release_certification.py",
+        "scripts/release_preflight.py",
+        "scripts/release_source.py",
+        "scripts/release_tag.py",
+        "scripts/test_release_certification.py",
+        "scripts/test_release_preflight.py"
+      ],
+      "qualified_paths": [
+        {
+          "path": "scripts/release_certification.py",
+          "sha256": "5d25131f0860d305890f9aca304948c9643e42503f69d4fa7427ae7ad8778381",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/release_preflight.py",
+          "sha256": "2a7781032c9885910ac8e912726f8962bd84523a4517b65d4ee7662abbf87e19",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/release_source.py",
+          "sha256": "822f80e48a13728ee097a188d61660d44170cb1267d0496be5c0222d5992bcb5",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/release_tag.py",
+          "sha256": "faef4becc446d95093e6b7b7b2e935e3000f9fd43ec250c7b2901828835127f0",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_release_certification.py",
+          "sha256": "a899ab2f5c6a04b779bf5c49b65b7d1b07a4fb93b44344ff465c35dca145cc26",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_release_preflight.py",
+          "sha256": "836c2f7d33515da32819c509269471cd8107a135f32484ddcc9d50883b8a5c3e",
+          "normalization": "LF"
+        }
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-release-source-trust-20261009",
+    "files": 51,
+    "bytes": 1287941,
+    "manifest_sha256": "2c7e1d8ea5e65a74c96f6db525eed2fe05310a1ba8febdafc41d908a11fd39dc",
+    "runtime_status": "PASS_Q34_RELEASE_SOURCE_ADMISSION_SCOPED",
+    "path": "audit-debt-20260924/q34-release-source-trust-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F494/Q34-F048 release source admission bypass closed. Exact baseline preflight and certification functions plus real Git reproduced hidden tracked edits under both assume-unchanged and skip-worktree, empty git status and unchanged committed digest. Shared release_source.py now admits valid committed clean source with NUL Git paths and rejects either flag, used by preflight/certification/tag. Certification queries admitted commit with30s deadline and rechecks identity; HEAD drift, late flags, missingGit/timeout/nonzero fail as CertificationError. Only new untracked release/certification files allowed for --record writer; tracked evidence dirty and untracked source refuse; preflight/tag require committed evidence, ignoredcaches outsideinputguard. Clean digest algorithm preserved, exact old/new digest agrees at clean committed code input.165Windows methods and33Linux methods PASS; CIexisting suites cover newtests, workflowunchanged. RealGit fixtures, controlled externalCI/build gates, not actualCI/currentrelease/SDK/router/runtime qualification. Linux15source files+archive SHA qualified and16knownfiles removed nonrecursively afterprocess/fd/mount guards. Initial cleanup broadmacro SyntaxError beforeexecution andlocalencodingtypo beforeSSH retained, correctedcleanup done. .11 original777/845/CLI75bc preserved,.10unused. Nativee3fb14SHA/protectedqelitree/OpenWrtcut unchanged,inheritedexecutionnotrerun.724Markdown9docsPASS.41cases95priorsupplements preserved modulo source_digest bookkeeping;append96scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;F459/Q29SIGKILLFAIL-ENONET/Q30Q31/D06accepted/USER_EXCLUDED/expectedreleasepublisherOPEN retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

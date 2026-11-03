@@ -11,16 +11,13 @@ internal static class WinDivertNative
     public const int WINDIVERT_LAYER_NETWORK = 0;
 
     // Matching packets are discarded in the driver without being queued to userspace.
-    public const ulong WINDIVERT_FLAG_DROP = 0x0001;
+    public const ulong WINDIVERT_FLAG_DROP = 0x0002;
 
     // Recalculate all checksums (pass 0).
     public const ulong WINDIVERT_HELPER_CHECKSUM_ALL = 0;
     public const ulong WINDIVERT_HELPER_NO_ICMP_CHECKSUM = 0x0002;
     public const ulong WINDIVERT_HELPER_NO_TCP_CHECKSUM = 0x0008;
     public const ulong WINDIVERT_HELPER_NO_UDP_CHECKSUM = 0x0010;
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern IntPtr LoadLibrary(string lpFileName);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, SetLastError = true)]
     public static extern IntPtr WinDivertOpen(string filter, int layer, short priority, ulong flags);
@@ -32,6 +29,9 @@ internal static class WinDivertNative
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
     public static extern bool WinDivertSend(IntPtr handle, byte[] pPacket, uint packetLen,
         out uint sendLen, ref WinDivertAddress pAddr);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+    public static extern bool WinDivertShutdown(IntPtr handle, int how);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
     public static extern bool WinDivertClose(IntPtr handle);

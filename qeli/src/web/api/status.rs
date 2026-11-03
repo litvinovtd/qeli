@@ -1,5 +1,5 @@
 use crate::server::web::auth::{self, AuthError};
-use crate::server::{FailedAuthTracker, ServerState, WorkerCmd};
+use crate::server::{ServerState, WorkerCmd};
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Deserialize;
@@ -191,12 +191,8 @@ pub async fn status(
     // here (the data-plane worker also logs an ERROR).
     let mut warnings: Vec<String> = Vec::new();
     if let Some(cfg) = &cfg {
-        if cfg.profiles.iter().any(|p| p.routing.nat.enabled) && !crate::server::nat::available() {
-            warnings.push(
-                "NAT masquerade is enabled on a profile, but `iptables` is not installed — \
-                full-tunnel internet egress will NOT work. Install it: apt install iptables."
-                    .to_string(),
-            );
+        if let Some(warning) = super::firewall::nat_warning(cfg).await {
+            warnings.push(warning.message);
         }
     }
     // A restart that was ACCEPTED but never happened. `full_restart` has to answer before
@@ -257,7 +253,99 @@ pub async fn status(
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_hostname, roaming_profiles};
+    use super::{clean_hostname, roaming_profiles, validate_bf_edit_candidate};
+
+    #[test]
+    fn brute_force_edit_rejects_unservable_or_invalid_live_candidates() {
+        let no_auth = "[profile:a]\n[web]\nenabled = true\n";
+        assert!(
+            validate_bf_edit_candidate(no_auth, "/etc/qeli/users.conf", false)
+                .unwrap_err()
+                .contains("web.password_hash")
+        );
+
+        let bad_hash = "[profile:a]\n[web]\nenabled = true\npassword_hash = broken\n";
+        assert!(
+            validate_bf_edit_candidate(bad_hash, "/etc/qeli/users.conf", false)
+                .unwrap_err()
+                .contains("Argon2")
+        );
+
+        let disabled_profile = "[profile:a]\nenabled = false\n";
+        assert!(
+            validate_bf_edit_candidate(disabled_profile, "/etc/qeli/users.conf", false)
+                .unwrap_err()
+                .contains("all profiles are disabled")
+        );
+
+        let changed_users = "[auth]\nusers_file = /etc/qeli/other-users.conf\n[profile:a]\n";
+        assert!(
+            validate_bf_edit_candidate(changed_users, "/etc/qeli/users.conf", true)
+                .unwrap_err()
+                .contains("full restart")
+        );
+
+        let valid_panel_only = "[profile:a]\n[web]\nenabled = false\n";
+        assert!(
+            validate_bf_edit_candidate(valid_panel_only, "/etc/qeli/users.conf", false).is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn blocked_settings_distinguishes_saved_and_active_panel_policy() {
+        use crate::config::server::{ProfileConfig, ServerConfig};
+        use crate::server::test_api_state;
+        use crate::server::web::auth::AuthGuard;
+        use axum::extract::State;
+
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-blocked-settings-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.ini");
+        let mut startup = ServerConfig::default();
+        startup.web.enabled = false;
+        startup.profiles.push(ProfileConfig::baseline());
+        std::fs::write(&path, startup.to_ini_string()).unwrap();
+        let state = test_api_state(startup.clone(), &path);
+
+        let initial = super::blocked_settings(State(state.clone()), AuthGuard)
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(initial["panel_applied"], true);
+        assert_eq!(
+            initial["revision"],
+            super::super::config::config_revision(&startup.to_ini_string())
+        );
+
+        let mut saved = startup;
+        saved.web.brute_force.max_attempts = 2;
+        std::fs::write(&path, saved.to_ini_string()).unwrap();
+        let pending = super::blocked_settings(State(state.clone()), AuthGuard)
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(pending["panel_applied"], false);
+        assert_eq!(pending["settings"]["panel"]["max_attempts"], 2);
+        assert_eq!(
+            pending["revision"],
+            super::super::config::config_revision(&saved.to_ini_string())
+        );
+        assert_ne!(pending["revision"], initial["revision"]);
+        assert_eq!(pending["live_panel"]["max_attempts"], 5);
+
+        assert!(state.reload_web_settings().await);
+        let applied = super::blocked_settings(State(state), AuthGuard)
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(applied["panel_applied"], true);
+        assert_eq!(applied["live_panel"]["max_attempts"], 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn hostname_is_safe_for_panel_display() {
@@ -330,6 +418,12 @@ pub async fn set_bandwidth(
     Path(username): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
+    if let Err(error) = super::require_json_object(&body) {
+        return Ok(Json(super::err_json(error)));
+    }
+    if body.get("profile").is_some_and(|value| !value.is_string()) {
+        return Ok(Json(super::err_json("profile must be a string")));
+    }
     // Reject an invalid/oversized number rather than coercing to 0 (= unlimited); the
     // worker's control `Request.mbps` is a u32, so an out-of-range value would also be
     // dropped there as "invalid JSON" while the panel reported success.
@@ -462,6 +556,16 @@ fn bf_settings_json(bf: &crate::config::server::BruteForceConfig) -> Value {
     })
 }
 
+fn bf_policy_matches(
+    saved: &crate::config::server::BruteForceConfig,
+    live: &crate::config::server::BruteForceConfig,
+) -> bool {
+    saved.enabled == live.enabled
+        && saved.max_attempts == live.max_attempts
+        && saved.window_secs == live.window_secs
+        && saved.lockout_secs == live.lockout_secs
+}
+
 /// Bounds-check one brute-force policy from a JSON object. `as_u64` yields 0 for a
 /// missing/non-numeric field, which then fails the lower bound and returns a clear
 /// error (not an axum 422). Returns `(enabled, max_attempts, window_secs,
@@ -496,8 +600,34 @@ fn bf_updates(enabled: bool, max: u32, window: u64, lockout: u64) -> [(&'static 
     ]
 }
 
-/// GET /api/blocked/settings — the two independent brute-force policies, read from
-/// the live on-disk config. `vpn` = `[auth] brute_force` (enforced by the data-plane
+/// Check the exact edited INI against the live-reload contract before publishing it.
+/// VPN-auth SIGHUP cannot switch the supervisor's startup users-file path.
+fn validate_bf_edit_candidate(
+    raw: &str,
+    startup_users_file: &str,
+    reload_vpn: bool,
+) -> Result<(), String> {
+    let candidate = crate::config::parse_server_config(raw)
+        .map_err(|error| format!("edited config no longer parses: {error}"))?;
+    super::config::validate_web_auth_for_save(&candidate.web)?;
+    crate::server::validate_profiles(&candidate)
+        .map_err(|error| format!("edited config would be rejected at startup: {error}"))?;
+    if reload_vpn {
+        if candidate.auth.users_file != startup_users_file {
+            return Err(
+                "auth.users_file differs from the supervisor startup path; full restart is required before VPN brute-force settings can be applied live"
+                    .into(),
+            );
+        }
+        super::effective_users(&candidate)
+            .map_err(|error| format!("VPN brute-force reload would fail: {error}"))?;
+    }
+    Ok(())
+}
+
+/// GET /api/blocked/settings — saved policies plus the supervisor's applied
+/// panel-login policy. The VPN worker's applied policy is not observable here.
+/// `vpn` = `[auth] brute_force` (enforced by the data-plane
 /// worker on VPN user authentication); `panel` = `[web] brute_force` (enforced by
 /// this supervisor on admin login). Each carries its own on/off switch, attempt
 /// count, window and lockout.
@@ -505,39 +635,40 @@ pub async fn blocked_settings(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    let cfg = current_config(&state).await;
-    let vpn = cfg
-        .as_ref()
-        .map(|c| c.auth.brute_force.clone())
-        .unwrap_or_default();
-    let panel = cfg
-        .as_ref()
-        .map(|c| c.web.brute_force.clone())
-        .unwrap_or_default();
+    let (cfg, revision) = match super::current_server_config_with_revision(&state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let vpn = cfg.auth.brute_force.clone();
+    let panel = cfg.web.brute_force.clone();
+    let live_panel = state.live_web.read().await.brute_force.clone();
     Ok(Json(json!({
         "ok": true,
+        "revision": revision,
         "settings": {
             "vpn": bf_settings_json(&vpn),
             "panel": bf_settings_json(&panel),
-        }
+        },
+        "panel_applied": bf_policy_matches(&panel, &live_panel),
+        "live_panel": bf_settings_json(&live_panel),
     })))
 }
 
 /// POST /api/blocked/settings — update either or both brute-force policies.
 ///
-/// Body: `{ "vpn": {enabled,max_attempts,window_secs,lockout_secs}, "panel": {…} }`.
+/// Body: `{ "expected_revision": "<GET revision>", "vpn": {…}, "panel": {…} }`.
 /// A surface is only touched when its object is present. (A legacy flat body —
-/// `{max_attempts,…}` from an older cached panel — is treated as the `vpn`
+/// `{max_attempts,…}` from an older API client — is treated as the `vpn`
 /// surface.) The relevant dotted keys are patched into the on-disk config **in
 /// place** (comments preserved — unlike the whole-config PUT which re-serializes
-/// and strips them), then applied live with no session drop and no full restart:
+/// and strips them), then live application is attempted without dropping sessions:
 /// the `vpn` keys land in `[auth] brute_force.*` and the worker is SIGHUP'd
 /// (`ReloadUsers`) so `reload_on_sighup` rebuilds ITS tracker; the `panel` keys land
-/// in `[web] brute_force.*` and this (supervisor) process rebuilds its own tracker
-/// directly.
+/// in `[web] brute_force.*` and the supervisor reloads its live settings
+/// and lockout tracker together.
 ///
-/// Applying a new policy resets that surface's current failure counters (same
-/// semantics a SIGHUP config reload has always had).
+/// Applying changed thresholds live resets that surface's failure counters. If the VPN
+/// worker cannot be signaled, its saved policy takes effect on its next start.
 pub async fn set_blocked_settings(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
@@ -592,10 +723,22 @@ pub async fn set_blocked_settings(
                 ))));
             }
         };
-    let mut raw = match std::fs::read_to_string(&canon) {
-        Ok(s) => s,
-        Err(e) => return Ok(Json(super::err_json(format!("read error: {}", e)))),
+    let _file_write_guard = match super::config::lock_server_config(&canon).await {
+        Ok(guard) => guard,
+        Err(error) => return Ok(Json(super::err_json(error))),
     };
+    let mut raw = match super::config::read_trusted_config_text(
+        std::path::Path::new(&target),
+        "panel brute-force save",
+    ) {
+        Ok(raw) => raw,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+
+    let checked_raw = raw.clone();
+    if let Some(conflict) = super::config::revision_conflict(&body, &checked_raw) {
+        return Ok(Json(conflict));
+    }
 
     // Surgical, comment-preserving patch: VPN keys under [auth], panel keys under [web].
     if let Some((enabled, max, window, lockout)) = vpn {
@@ -607,46 +750,60 @@ pub async fn set_blocked_settings(
         raw = crate::config::set_section_keys(&raw, "web", &updates);
     }
 
-    // Safety net: never write a config that no longer parses.
-    if let Err(e) = crate::config::parse_server_config(&raw) {
-        return Ok(Json(super::err_json(format!(
-            "internal error: edited config no longer parses: {}",
-            e
-        ))));
+    // SIGHUP validates the complete candidate before changing the VPN policy.
+    // Apply the same gate before writing, including the panel's startup auth rule.
+    if let Err(error) =
+        validate_bf_edit_candidate(&raw, &state.config.auth.users_file, vpn.is_some())
+    {
+        return Ok(Json(super::err_json(error)));
     }
-    let old_raw = match std::fs::read_to_string(&canon) {
+    let old_raw = match super::config::read_trusted_config_text(&canon, "panel brute-force save") {
         Ok(raw) => raw,
-        Err(e) => return Ok(Json(super::err_json(format!("read error: {}", e)))),
+        Err(error) => return Ok(Json(super::err_json(error))),
     };
+    if old_raw != checked_raw {
+        return Ok(Json(super::err_json(
+            "config changed on disk while editing brute-force settings; reload and retry",
+        )));
+    }
     if let Err(error) = super::config::snapshot_before_changed_write(&canon, &old_raw, &raw) {
         return Ok(Json(super::err_json(format!(
             "refusing to save without a rollback snapshot: {error}"
         ))));
     }
-    if let Err(e) = crate::util::write_atomic(&canon, raw.as_bytes()) {
+    if let Err(e) = super::config::write_server_config(&canon, &raw) {
         return Ok(Json(super::err_json(format!("write error: {}", e))));
     }
 
-    // Apply live. (1) Panel policy → rebuild THIS process's tracker directly.
-    if let Some((enabled, max, window, lockout)) = panel {
-        *state.failed_auth.lock().await = FailedAuthTracker::new(enabled, max, window, lockout);
-        log::info!(
-            "panel-login brute-force policy updated via panel (enabled={}, max_attempts={}, window={}s, lockout={}s)",
-            enabled, max, window, lockout
-        );
-    }
-    // (2) VPN policy → SIGHUP the worker so it rebuilds ITS tracker. No restart,
-    // no dropped sessions. Best-effort: the values are already persisted, so a
-    // missed signal still takes effect on the worker's next (re)start.
+    // Apply the panel policy through the same atomic web-settings reload used by
+    // other INI saves. A failed re-read leaves both the live policy and tracker old.
+    let panel_applied = if let Some((enabled, max, window, lockout)) = panel {
+        let reloaded = state.reload_web_settings().await;
+        let live = state.live_web.read().await;
+        Some(
+            reloaded
+                && live.brute_force.enabled == enabled
+                && live.brute_force.max_attempts == max
+                && live.brute_force.window_secs == window
+                && live.brute_force.lockout_secs == lockout,
+        )
+    } else {
+        None
+    };
+    // VPN policy → SIGHUP the worker so it rebuilds ITS tracker. No restart,
+    // no dropped sessions. Report a failed signal as pending, not live-applied.
+    let mut vpn_reload_requested = None;
     if let Some((enabled, max, window, lockout)) = vpn {
-        if let Some(tx) = &state.worker_tx {
-            if tx.send(WorkerCmd::ReloadUsers).await.is_err() {
-                log::warn!(
-                    "VPN brute-force settings persisted, but the data-plane worker reload \
-                     could not be signaled (worker channel closed); the worker will pick \
-                     up the new policy on its next start"
-                );
-            }
+        let sent = match &state.worker_tx {
+            Some(tx) => tx.send(WorkerCmd::ReloadUsers).await.is_ok(),
+            None => false,
+        };
+        vpn_reload_requested = Some(sent);
+        if !sent {
+            log::warn!(
+                "VPN brute-force settings persisted, but the data-plane worker reload \
+                 could not be signaled; the worker will pick up the new policy on its next start"
+            );
         }
         log::info!(
             "VPN-auth brute-force policy updated via panel (enabled={}, max_attempts={}, window={}s, lockout={}s)",
@@ -654,9 +811,23 @@ pub async fn set_blocked_settings(
         );
     }
 
+    let message = match (panel_applied, vpn_reload_requested) {
+        (Some(false), Some(false)) => {
+            "brute-force settings saved; panel reload failed and VPN policy awaits worker restart"
+        }
+        (Some(false), _) => {
+            "brute-force settings saved; panel reload failed, check the INI and logs before restart"
+        }
+        (_, Some(false)) => "brute-force settings saved; VPN policy applies on next worker start",
+        (_, Some(true)) => "brute-force settings saved; VPN worker reload requested",
+        _ => "brute-force settings saved and applied live",
+    };
     Ok(Json(json!({
         "ok": true,
-        "message": "brute-force settings saved and applied",
+        "message": message,
+        "panel_applied": panel_applied,
+        "vpn_reload_requested": vpn_reload_requested,
         "path": canon.display().to_string(),
+        "revision": super::config::config_revision(&raw),
     })))
 }

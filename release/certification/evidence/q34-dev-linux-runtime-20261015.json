@@ -1,0 +1,621 @@
+{
+  "status": "FRESH_CURRENT_RUSTLS_LINUX20_RUNTIME_QUALIFIED_CLEANED",
+  "qualification": {
+    "status": "ALL_20_CURRENT_POOL_CLI_RUNTIME_CASES_QUALIFIED_CLEANUP_PENDING",
+    "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+    "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+    "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+    "qualified_rows": [
+      {
+        "id": "linux.outer4.inner4.tcp.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.tcp.full.log",
+        "log_sha256": "422a773351c2b9e0c120a6f8df008b3cdc63e35351be49e9162a31e4edc455bc",
+        "seconds": 6.009066377999261,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.tcp.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.tcp.full.log",
+        "log_sha256": "a452a364c22577c2108e66b01fc4d4b4716c106ab6134d72a3d97070f576d1d8",
+        "seconds": 6.010309003992006,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.tcp.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.tcp.full.log",
+        "log_sha256": "5c0985b471f5da9f85ab9e662326cd8cbf55dcc375ca0ede5943548b226ec53a",
+        "seconds": 6.009341532131657,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.tcp.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.tcp.full.log",
+        "log_sha256": "726bd203d55db85e9159f3a64224af5fb5abc1d497fbca27782920db8fb2c5e8",
+        "seconds": 6.008799729170278,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner4.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.udp-fake-tls.full.log",
+        "log_sha256": "5ee8bb15b4159b9aab679a5a75012a7a7d380901055910efaa1bba5c744166b4",
+        "seconds": 6.009200206026435,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.udp-fake-tls.full.log",
+        "log_sha256": "a1a53cf52c1046876ef6f2db81da944cbad0b84c72d129c8032448715cfa406a",
+        "seconds": 6.012338986853138,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.udp-fake-tls.full.log",
+        "log_sha256": "20f8e689f3884a50fd90cdc9c48ac7f12b8f1198f89fa1aa6c9029e6306ba198",
+        "seconds": 6.008912842953578,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.udp-fake-tls.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.udp-fake-tls.full.log",
+        "log_sha256": "e77f0900cf0b51c5eaa9b4aae9e37fe224652170b28df1b7ccf938f672057e5f",
+        "seconds": 6.009139652829617,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner4.udp-quic.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner4.udp-quic.full.log",
+        "log_sha256": "79a9bef43c9f232a884422c39829965738c4fd34145200391ec632f34f18cab2",
+        "seconds": 6.013430264079943,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer4.inner6.udp-quic.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer4.inner6.udp-quic.full.log",
+        "log_sha256": "f5a18228a8293d3c9ab423f14c63256478674a884932ed12ac0b44a8dcbb2bb3",
+        "seconds": 6.01366197085008,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner4.udp-quic.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner4.udp-quic.full.log",
+        "log_sha256": "472fdff4d958e27647a0f0cdfa73897c0820bfa8d04e11dfccf18ed572b9c0dc",
+        "seconds": 6.013187000062317,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.outer6.inner6.udp-quic.full",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 13,
+        "log": "linux.outer6.inner6.udp-quic.full.log",
+        "log_sha256": "9fc70024100f256ae6b7261c11f19064d57ae096ba303fd71cbb72c27836530a",
+        "seconds": 6.011219758074731,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.dual.tcp.split",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 19,
+        "log": "linux.dual.tcp.split.log",
+        "log_sha256": "cb69d7295ef730df0ef44b61a9734c7f5dcff0a722e6a899d45f2ba2e0958773",
+        "seconds": 8.016317385947332,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.dual.udp.split",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 19,
+        "log": "linux.dual.udp.split.log",
+        "log_sha256": "9d6c566404da8f901837ab40db8bf58bce7c79520bddce84c797ee9b71c313ce",
+        "seconds": 8.016066218959168,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.tap.ndp-ra",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 15,
+        "log": "linux.tap.ndp-ra.log",
+        "log_sha256": "2d96cb3c6ce6d1859ca96560d1b9c233cf074fc14e8f3c24f95274af0b4804b3",
+        "seconds": 8.018431924050674,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.dns.ipv4-ipv6",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 105,
+        "log": "linux.dns.ipv4-ipv6.log",
+        "log_sha256": "0ee884c61d2bef6cfb2b7ea472e96de561ff5ff44d05b2f17af310bea0e267cd",
+        "seconds": 28.060667185811326,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.mtu.1280-pmtu-ptb",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 36,
+        "log": "linux.mtu.1280-pmtu-ptb.log",
+        "log_sha256": "9e90111c1b198a53058179d2e6090f14b45aada7d90a274287c86d25ea0f34c9",
+        "seconds": 18.043284123996273,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.legacy-peer",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 26,
+        "log": "linux.legacy-peer.log",
+        "log_sha256": "fe7fa5bc9175f106cdbb57e25637b57d211ffe085176c1090f115dc247ddf29a",
+        "seconds": 12.042439170880243,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.roaming-flap-soak",
+        "status": "passed",
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+        "checks_passed": 33,
+        "log": "linux.roaming-flap-soak.log",
+        "log_sha256": "8e697dc614931715c6949b5c3eec77cf1d6f216d01550244f6f2a4362b423210",
+        "seconds": 441.1664689271711,
+        "namespaces": {
+          "mnt": "mnt:[4026532327]",
+          "net": "net:[4026532329]",
+          "pid": "pid:[4026532328]"
+        }
+      },
+      {
+        "id": "linux.leak.ipv4-ipv6",
+        "status": "passed",
+        "derived_from": [
+          "linux.dual.tcp.split",
+          "linux.dual.udp.split",
+          "linux.outer4.inner4.tcp.full",
+          "linux.outer4.inner4.udp-fake-tls.full",
+          "linux.outer4.inner4.udp-quic.full",
+          "linux.outer4.inner6.tcp.full",
+          "linux.outer4.inner6.udp-fake-tls.full",
+          "linux.outer4.inner6.udp-quic.full",
+          "linux.outer6.inner4.tcp.full",
+          "linux.outer6.inner4.udp-fake-tls.full",
+          "linux.outer6.inner4.udp-quic.full",
+          "linux.outer6.inner6.tcp.full",
+          "linux.outer6.inner6.udp-fake-tls.full",
+          "linux.outer6.inner6.udp-quic.full"
+        ],
+        "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+        "release_source_digest": "037934fd42b544a7a9d69d8df0638eb7068d9f1a578814c4b21d387d680ae516",
+        "cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa"
+      }
+    ],
+    "failed_rows": [],
+    "all_20_runtime_cases_qualified": true,
+    "actual_ordinary_executions": 19,
+    "aggregate_leak_derived_from_actual_cases": [
+      "linux.dual.tcp.split",
+      "linux.dual.udp.split",
+      "linux.outer4.inner4.tcp.full",
+      "linux.outer4.inner4.udp-fake-tls.full",
+      "linux.outer4.inner4.udp-quic.full",
+      "linux.outer4.inner6.tcp.full",
+      "linux.outer4.inner6.udp-fake-tls.full",
+      "linux.outer4.inner6.udp-quic.full",
+      "linux.outer6.inner4.tcp.full",
+      "linux.outer6.inner4.udp-fake-tls.full",
+      "linux.outer6.inner4.udp-quic.full",
+      "linux.outer6.inner6.tcp.full",
+      "linux.outer6.inner6.udp-fake-tls.full",
+      "linux.outer6.inner6.udp-quic.full"
+    ],
+    "collection_sha256": "e92bcde83503d0a5b21ae19642a9cef500ccfd4224c9dcd99d28df061db07c19",
+    "archive_sha256": "892dcde21abaeec9b3d3d2a33d50f37e3a05b96953ec434cef507793c43c28d4",
+    "host_gate": "PASS",
+    "changed_fields": [],
+    "source_equivalence": {
+      "status": "FRESH_CURRENT_DEV_FACTORY_CLI_UNCHANGED_BUILD_INPUTS_AFTER_ANDROID_TEST_ONLY_DELTA",
+      "source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+      "actual_build_source_commit": "c6587b8140a99bf8facbf18a8a0b897b4fe29d0e",
+      "unchanged_trees": [
+        "qeli",
+        "conformance"
+      ],
+      "unrelated_source_delta": [
+        "qeli-android/app/src/androidTest/kotlin/com/qeli/TransportLifecycleInstrumentedTest.kt"
+      ],
+      "unchanged_runtime_script_closure": {
+        "scripts/update-kernel.sh": "23dd2984b87e87d54279ba17ec7dde5341fc676365f1d06e811e7be79b8ab431",
+        "scripts/roaming_udp_resource_soak_netns_gate.sh": "f405bb673345d2c7d74c0ade6fa5fbb1a88e540bb6c1f6cbffb79aba92c06242",
+        "scripts/roaming_udp_netns_e2e.sh": "1bdca757a71bf89c6326d6f204dc4073ca6fd4e0003e61283820d30a32275d0a",
+        "scripts/roaming_udp_netns_soak_case.sh": "6209dbbb28e8b0b48afb88262048f74e102ce803450e8b0316504a65f9490a05",
+        "scripts/roaming_soak_parameters.sh": "e044320fe7ea072ad617e1aecf0f611263144702287310de20067201ae9ed14c",
+        "scripts/roaming_process_probe.sh": "38f937792c40e8112da4f51163d664708757bb1f3b6292cd7092fc695a38c261",
+        "scripts/roaming_control_stats.py": "cc7a454a07e6e92ae8b003a8a1fdc3088acb222328e8846549559236e3e55b57",
+        "scripts/netns_e2e.sh": "daf2a93de46869f1bd6896ddcf5482f4155b40c7ce5f504cf02a91e54c744cd5",
+        "scripts/roaming_udp_netns_nat_rebind_case.sh": "02d944f79a14793dae022e95287f28fb8406398f9655be3a0104a5645115d95c",
+        "scripts/roaming_udp_netns_frag_loss_case.sh": "9f7152e353d529b0405c7aad6f4783ea712bd7be99f4e10a40549c5a275fa092",
+        "scripts/roaming_udp_netns_family_case.sh": "43b2103473ed6ebc1802c9a8a36cceb011d62c057e6c5ae1497029c09859e7a2",
+        "scripts/roaming_udp_netns_drain_case.sh": "8c8c200c707da4ce63a78b2d6f81944f09057cbbf0948240b19cea1dea6e3c6c",
+        "scripts/roaming_netns_isolation.sh": "8c92dd50bb2376fb448f8f3f2591acbb350e1af535de845ad3a9945e08cb48f6",
+        "scripts/roaming_netns_supervisor.py": "480aef283101a434cc7de0885873e7184463fc1b25cab45b623464b746c13ed8",
+        "scripts/roaming_udp_all_modes_netns_e2e.sh": "9a682b5440a8408c42468f95c8d3d68746606a17e1651e6c92ca6605057a0e9f",
+        "scripts/roaming_tcp_starvation_netns_case.sh": "e44df32d5b2b573f0566def715ca0fbc1e27e71f08361717ed3c23e23233ea7b",
+        "scripts/roaming_bonding_udp_probe.py": "422f61c4fe3eb6d162d6821dcfc11e768a3b0950ca225d941e40b0f8e9f514c0",
+        "scripts/roaming_tcp_resume_netns_case.sh": "c6b6d5404a6a8a4af876ddb4734118f7ba7d8610952124dcc977a917cf6ebc2c",
+        "scripts/roaming_netns_e2e.sh": "fca54d80506cec70e82f2a59ffb1f163eca81b0748b62ab66175c0c0e14bc731",
+        "scripts/roaming_tcp_netns_soak_case.sh": "1dd133e33f3ee847d410e21e9ffdb6961c3d6da66e7f9e19aa5d52b0cee18e7e",
+        "scripts/roaming_tcp_netns_perf_case.sh": "2a80fe5ee9acf7f11797f91e5781da173eb209dbdf354bea2c83a2da37dc85d5",
+        "scripts/roaming_tcp_multinode_netns_case.sh": "fde68810a2dc9c56861c34bdfe34117debca095c603d7ad015593138f1d3f638",
+        "scripts/roaming_tcp_bonding_netns_case.sh": "62c10c92034c4bca9b3aebd597f940185a9b06441bbe5b683274c0123d32b6cf",
+        "scripts/roaming_tcp_perf_netns_gate.sh": "e91a29d0d247159ec9d1634f20923a46cc6ffc7fbb14dd40d6020974db0443f9",
+        "scripts/roaming_tcp_all_modes_netns_e2e.sh": "9ef742fd7d0788718ce4ef9288583f4e364adeb40bc2fb06ea79fd5799ec223c",
+        "scripts/roaming_resource_release_gate.sh": "bc1e4e0bad39fffc11e7ea944b161ae58ae29077a90755291270566bddc83f76",
+        "scripts/roaming_mixed_version_netns_e2e.sh": "88b9f2afd8d872b5fa33e4200e0a142756561ab670c6c82213393f018bbd2f97",
+        "scripts/roaming_exit_node_udp_all_modes_netns_e2e.sh": "ee7fcdcb061d6624407abe9c1e6aa3a155b213c8ab6dae2725f695686250000d",
+        "scripts/roaming_exit_node_netns_e2e.sh": "55628b66c818cf93ef98502fa71ece8327299ab8ed3fd217b83ae18960691c07",
+        "scripts/linux_roaming_release_soak.sh": "b176ed09a53b68638c635452d86407458134b23c6f9181ebbc2178f58603e8ed",
+        "scripts/ipv6_netns_case.sh": "49072d5b7eab4a52f77f7c95a69d16cbb8c8652097d35d32e0cc8f42596866d5",
+        "scripts/tap_ipv6_control_probe.py": "87b55598d5aedaf50d81dbf7a29d28c6ece6a547b4266728d886075d38fa4757",
+        "scripts/dns_test_server.py": "2caab1a8b2d98a4ecc76e062cec57f75547466fa257d180c024220d2d55ba537",
+        "scripts/audit_persistent_tun.py": "35c4390b709856749e168db57fe61c299c1a53d816a2078e68db29e159504a9b",
+        "scripts/audit_outer_udp_capture.py": "3599e1e9f83254665d1c4db84172b99748e31d1d3bee6b7f46dd7b217eb1978c",
+        "scripts/audit_client_mixed_firewall.py": "931ab2f5031034f9657d58c1c1c3af1eb9ff478d2b1f7a1fe70c16794dd68d96",
+        "scripts/ipv6_mtu_pair.sh": "f6896304a6ac63c7abec04b29e20034f501a71f0311594bc9727d148b685157a",
+        "scripts/ipv6_legacy_pair.sh": "98c385d6370134220d1fbba70e8dd146b0e98fe279ca06cca05dad348348a1e6",
+        "scripts/ipv6_dns_pair.sh": "486cfd27b1254b94e92c34ffb2667d53c8b71f5e9f685aeef00411599d5fdcf3",
+        "scripts/install-wireguard.sh": "908f22e675e6eb8962543e150eadb5a22f9ae836b08ad24231581760e0059065",
+        "scripts/install-openvpn.sh": "136042faa44ccadbe806ecfb4e2d47526b60c9a64df58e601b7f7110c0395043",
+        "scripts/ci-check.sh": "5208829a8102f3a68bc21bdfe9e8f3183d1cc6c2474c75f2908667b9ff7c18ac",
+        "scripts/test_ci_check.py": "41aa5b524fdbdc5644f14a9edc00984b15ddbece5d97751c3f2add33ca50acfc",
+        "scripts/audit_test_suite.py": "fca4922dbcb91744e54aeb1148be28d68e36d7aff6121d33bdb95b0ad4a6176b",
+        "scripts/test_audit_test_suite.py": "da2231d351755cb0e4cb15b484e6022114232d4cab24f8180b1f15f42872cb90",
+        "scripts/sync_version.py": "0ec03fe2029f2f30011d44ce3590eeac18b62215a210b31e6fe0e72046270e3f",
+        "scripts/gen_config_bindings.py": "1a11b91506df5c13a30bce50847a33bcd2d9336378fc5ef30b71d3967f466da7",
+        "scripts/check_panel.py": "73dc7722e8071ff5909ec24a5bfddab4b589d85a9f3f827169ad6398f9bf472b",
+        "scripts/check_docs.py": "e260cb024b56fc6257108801d5dae01607dfadfb6cb5458669b3b2e25e808a10",
+        "scripts/add-client.sh": "d01fd52f435f6eb62eee2a95d96d33019a9aa1bed75031610ac9bb137611923b"
+      },
+      "canonical_nonruntime_script_updates": [
+        "scripts/benchmark_report.py",
+        "scripts/native_repro.py",
+        "scripts/perf_ab_p3b1.py",
+        "scripts/perf_allmodes_prod.py",
+        "scripts/perf_facts.py",
+        "scripts/perf_modes_test.py",
+        "scripts/perf_netns_cpu.py",
+        "scripts/perf_prod_live_monitor.py",
+        "scripts/test_benchmark_legacy_guards.py",
+        "scripts/test_benchmark_report.py",
+        "scripts/test_debian_lifecycle.py",
+        "scripts/test_keenetic_templates.py",
+        "scripts/test_native_repro.py",
+        "scripts/test_openwrt_opkg.py",
+        "scripts/verify_ios_ipa.py"
+      ],
+      "actual_cli_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+      "actual_build_qualification_sha256": "3f2758f8e1bfef0a7ed4bf8338c3d82e0beb8e5cc1c1fb172142d4bc60814e62",
+      "actual_build_archive_sha256": "43fc6e1c7fefb24ee3d672d2206602e1dc1d8e7eb462c33c32142172c9a83f55",
+      "old_cli_reused": false,
+      "harness_scripts_unchanged": true
+    },
+    "old_results_reused": false,
+    "q35_eight_hour_endurance_qualified": false,
+    "final_release_certified": false
+  },
+  "executed_at": "2026-10-15T15:00:49.752840+00:00",
+  "cleanup": {
+    "status": "CURRENT_MATRIX_OWNED_RESOURCES_ARCHIVED_REMOVED_PRODUCTION_AND_DNS_PRESERVED",
+    "qualification_sha256": "8ca3dee20e11ae64dc6389d14c0e825fcdba03cb4651c1d2e000af6f6a37957b",
+    "collection_sha256": "e92bcde83503d0a5b21ae19642a9cef500ccfd4224c9dcd99d28df061db07c19",
+    "removed": {
+      "root_absent": true,
+      "archive_absent": true
+    },
+    "unit_absent": true,
+    "host_after": {
+      "snapshot_schema": "all-firewall-v1",
+      "addresses": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+      "routes": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+      "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+      "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+      "qeli_listener": "LISTEN 0      128          0.0.0.0:443       0.0.0.0:*    users:((\"qeli\",pid=845,fd=11))",
+      "active": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n    PID COMMAND\n    777 qeli\n    845 qeli",
+      "boot_id": "cf76e1b8-67e1-4b9e-982b-7682921396a0",
+      "resolver": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+      "namespaces": "",
+      "iptables4": "# Warning: iptables-legacy tables present, use iptables-legacy-save to see them\n# Generated by iptables-save v1.8.11 (nf_tables) on Thu Oct 15 18:11:26 2026\n*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [16:1532]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n# Completed on Thu Oct 15 18:11:26 2026\n# Table `filter' is incompatible, use 'nft' tool.\n# Table `nat' contains incompatible base-chains, use 'nft' tool to list them.\n# Generated by iptables-save v1.8.11 (nf_tables) on Thu Oct 15 18:11:26 2026\n*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [58222:4950921]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT\n# Completed on Thu Oct 15 18:11:26 2026",
+      "iptables6": "# Generated by ip6tables-save v1.8.11 (nf_tables) on Thu Oct 15 18:11:26 2026\n*filter\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\nCOMMIT\n# Completed on Thu Oct 15 18:11:26 2026",
+      "legacy4": "# Generated by iptables-save v1.8.11 on Thu Oct 15 18:11:27 2026\n*filter\n:INPUT ACCEPT [11157154:17529876456]\n:FORWARD ACCEPT [16:1532]\n:OUTPUT ACCEPT [7451065:19678701671]\nCOMMIT\n# Completed on Thu Oct 15 18:11:27 2026\n# Generated by iptables-save v1.8.11 on Thu Oct 15 18:11:27 2026\n*nat\n:PREROUTING ACCEPT [4081:416098]\n:INPUT ACCEPT [4065:414566]\n:OUTPUT ACCEPT [58200:4948981]\n:POSTROUTING ACCEPT [58216:4950513]\nCOMMIT\n# Completed on Thu Oct 15 18:11:27 2026",
+      "legacy6": "",
+      "nft4": "# Warning: iptables-legacy tables present, use iptables-legacy-save to see them\n# Generated by iptables-nft-save v1.8.11 (nf_tables) on Thu Oct 15 18:11:27 2026\n*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [16:1532]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n# Completed on Thu Oct 15 18:11:27 2026\n# Table `filter' is incompatible, use 'nft' tool.\n# Table `nat' contains incompatible base-chains, use 'nft' tool to list them.\n# Generated by iptables-nft-save v1.8.11 (nf_tables) on Thu Oct 15 18:11:27 2026\n*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [58222:4950921]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT\n# Completed on Thu Oct 15 18:11:27 2026",
+      "nft6": "# Generated by ip6tables-nft-save v1.8.11 (nf_tables) on Thu Oct 15 18:11:27 2026\n*filter\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\nCOMMIT\n# Completed on Thu Oct 15 18:11:27 2026",
+      "nft": "{\"nftables\": [{\"metainfo\": {\"version\": \"1.1.3\", \"release_name\": \"Commodore Bullmoose #4\", \"json_schema_version\": 1}}, {\"table\": {\"family\": \"ip\", \"name\": \"nat\", \"handle\": 8}}, {\"chain\": {\"family\": \"ip\", \"table\": \"nat\", \"name\": \"postrouting\", \"handle\": 1, \"type\": \"nat\", \"hook\": \"postrouting\", \"prio\": 100, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip\", \"table\": \"nat\", \"name\": \"POSTROUTING\", \"handle\": 3, \"type\": \"nat\", \"hook\": \"postrouting\", \"prio\": 100, \"policy\": \"accept\"}}, {\"rule\": {\"family\": \"ip\", \"table\": \"nat\", \"chain\": \"postrouting\", \"handle\": 2, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"ens18\"}}, {\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": {\"prefix\": {\"addr\": \"10.8.0.0\", \"len\": 24}}}}, {\"masquerade\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"nat\", \"chain\": \"POSTROUTING\", \"handle\": 4, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": {\"prefix\": {\"addr\": \"10.9.0.0\", \"len\": 24}}}}, {\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"ens18\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"comment\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"xt\": {\"type\": \"target\", \"name\": \"MASQUERADE\"}}]}}, {\"table\": {\"family\": \"ip\", \"name\": \"filter\", \"handle\": 9}}, {\"chain\": {\"family\": \"ip\", \"table\": \"filter\", \"name\": \"forward\", \"handle\": 1, \"type\": \"filter\", \"hook\": \"forward\", \"prio\": 0, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip\", \"table\": \"filter\", \"name\": \"INPUT\", \"handle\": 2, \"type\": \"filter\", \"hook\": \"input\", \"prio\": 0, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip\", \"table\": \"filter\", \"name\": \"FORWARD\", \"handle\": 3, \"type\": \"filter\", \"hook\": \"forward\", \"prio\": 0, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip\", \"table\": \"filter\", \"name\": \"OUTPUT\", \"handle\": 4, \"type\": \"filter\", \"hook\": \"output\", \"prio\": 0, \"policy\": \"accept\"}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 5, \"expr\": [{\"match\": {\"op\": \"in\", \"left\": {\"ct\": {\"key\": \"state\"}}, \"right\": [\"established\", \"related\"]}}, {\"counter\": {\"packets\": 11093509, \"bytes\": 17523428239}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 6, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"iifname\"}}, \"right\": \"lo\"}}, {\"counter\": {\"packets\": 38554, \"bytes\": 3207256}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 7, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"icmp\", \"field\": \"type\"}}, \"right\": \"echo-reply\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 8, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"icmp\", \"field\": \"type\"}}, \"right\": \"destination-unreachable\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 9, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"icmp\", \"field\": \"type\"}}, \"right\": \"time-exceeded\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 10, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"icmp\", \"field\": \"type\"}}, \"right\": \"echo-request\"}}, {\"counter\": {\"packets\": 1, \"bytes\": 60}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 11, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"tcp\", \"field\": \"dport\"}}, \"right\": 80}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 12, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"tcp\", \"field\": \"dport\"}}, \"right\": 443}}, {\"counter\": {\"packets\": 99, \"bytes\": 5756}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 13, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"tcp\", \"field\": \"dport\"}}, \"right\": 8080}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 14, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": \"95.214.10.87\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 15, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": \"89.108.81.177\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 16, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": \"185.217.198.87\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 17, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": {\"prefix\": {\"addr\": \"10.66.0.0\", \"len\": 16}}}}, {\"counter\": {\"packets\": 12689, \"bytes\": 1851904}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 18, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": {\"prefix\": {\"addr\": \"192.168.50.0\", \"len\": 24}}}}, {\"counter\": {\"packets\": 2680, \"bytes\": 139228}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"INPUT\", \"handle\": 19, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"payload\": {\"protocol\": \"ip\", \"field\": \"saddr\"}}, \"right\": {\"prefix\": {\"addr\": \"10.8.0.0\", \"len\": 24}}}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"FORWARD\", \"handle\": 20, \"expr\": [{\"match\": {\"op\": \"in\", \"left\": {\"ct\": {\"key\": \"state\"}}, \"right\": [\"established\", \"related\"]}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"FORWARD\", \"handle\": 21, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"iifname\"}}, \"right\": \"vpn0\"}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"FORWARD\", \"handle\": 22, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"vpn0\"}}, {\"match\": {\"op\": \"in\", \"left\": {\"ct\": {\"key\": \"state\"}}, \"right\": [\"established\", \"related\"]}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"FORWARD\", \"handle\": 24, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"iifname\"}}, \"right\": \"vpn0\"}}, {\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"ens18\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"comment\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"FORWARD\", \"handle\": 25, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"iifname\"}}, \"right\": \"ens18\"}}, {\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"vpn0\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"conntrack\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"comment\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"accept\": null}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"filter\", \"chain\": \"OUTPUT\", \"handle\": 23, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"lo\"}}, {\"counter\": {\"packets\": 498405, \"bytes\": 968994958}}, {\"accept\": null}]}}, {\"table\": {\"family\": \"ip6\", \"name\": \"filter\", \"handle\": 10}}, {\"chain\": {\"family\": \"ip6\", \"table\": \"filter\", \"name\": \"INPUT\", \"handle\": 1, \"type\": \"filter\", \"hook\": \"input\", \"prio\": 0, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip6\", \"table\": \"filter\", \"name\": \"OUTPUT\", \"handle\": 2, \"type\": \"filter\", \"hook\": \"output\", \"prio\": 0, \"policy\": \"accept\"}}, {\"chain\": {\"family\": \"ip6\", \"table\": \"filter\", \"name\": \"FORWARD\", \"handle\": 3, \"type\": \"filter\", \"hook\": \"forward\", \"prio\": 0, \"policy\": \"accept\"}}, {\"table\": {\"family\": \"ip\", \"name\": \"mangle\", \"handle\": 11}}, {\"chain\": {\"family\": \"ip\", \"table\": \"mangle\", \"name\": \"FORWARD\", \"handle\": 1, \"type\": \"filter\", \"hook\": \"forward\", \"prio\": -150, \"policy\": \"accept\"}}, {\"rule\": {\"family\": \"ip\", \"table\": \"mangle\", \"chain\": \"FORWARD\", \"handle\": 2, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"oifname\"}}, \"right\": \"vpn0\"}}, {\"match\": {\"op\": \"==\", \"left\": {\"&\": [{\"payload\": {\"protocol\": \"tcp\", \"field\": \"flags\"}}, {\"|\": [\"syn\", \"rst\"]}]}, \"right\": \"syn\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"comment\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"xt\": {\"type\": \"target\", \"name\": \"TCPMSS\"}}]}}, {\"rule\": {\"family\": \"ip\", \"table\": \"mangle\", \"chain\": \"FORWARD\", \"handle\": 3, \"expr\": [{\"match\": {\"op\": \"==\", \"left\": {\"meta\": {\"key\": \"iifname\"}}, \"right\": \"vpn0\"}}, {\"match\": {\"op\": \"==\", \"left\": {\"&\": [{\"payload\": {\"protocol\": \"tcp\", \"field\": \"flags\"}}, {\"|\": [\"syn\", \"rst\"]}]}, \"right\": \"syn\"}}, {\"xt\": {\"type\": \"match\", \"name\": \"comment\"}}, {\"counter\": {\"packets\": 0, \"bytes\": 0}}, {\"xt\": {\"type\": \"target\", \"name\": \"TCPMSS\"}}]}}]}"
+    },
+    "changed_fields": [],
+    "host_gate": "PASS",
+    "identities_after": {
+      "production": [
+        {
+          "pid": "777",
+          "exe": "/usr/bin/qeli",
+          "sha256": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a",
+          "argv": [
+            "/usr/bin/qeli",
+            "server",
+            "--config",
+            "/etc/qeli/server.conf",
+            ""
+          ],
+          "start_ticks": 358,
+          "cgroup": "0::/system.slice/qeli.service\n",
+          "ns": {
+            "mnt": "mnt:[4026532260]",
+            "net": "net:[4026531840]",
+            "pid": "pid:[4026531836]"
+          }
+        },
+        {
+          "pid": "845",
+          "exe": "/usr/bin/qeli",
+          "sha256": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a",
+          "argv": [
+            "/usr/bin/qeli",
+            "_worker",
+            "-c",
+            "/etc/qeli/server.conf",
+            ""
+          ],
+          "start_ticks": 371,
+          "cgroup": "0::/system.slice/qeli.service\n",
+          "ns": {
+            "mnt": "mnt:[4026532260]",
+            "net": "net:[4026531840]",
+            "pid": "pid:[4026531836]"
+          }
+        }
+      ],
+      "host_account_hashes": {
+        "passwd": "20f0c83621d6214294e25f3b70a718201d541efc625ed3243c4475259bd070e6",
+        "group": "2843c695bb7b1b23a266c3113bda02304c63063c7765e03d0467293060171892"
+      },
+      "staged_sha256": "ABSENT",
+      "dns_dependencies": {
+        "/lib/x86_64-linux-gnu/libacl.so.1": "3c03774961231d8485a4dba36ec359a95939a84719799c58cd26173e44bbde90",
+        "/lib/x86_64-linux-gnu/libaudit.so.1": "e0ed5f40854fcaf3feb9448dd032172908a0b1651330df9397abd5490ff85402",
+        "/lib/x86_64-linux-gnu/libblkid.so.1": "23247e0f669d5cfe0ad0deeeabfb90ee8163a6163508e88bf04715c9a41174c9",
+        "/lib/x86_64-linux-gnu/libc.so.6": "fa430b8f298f817a266046af84a77533185ad6fc4406c7d3787b5a0a0c207826",
+        "/lib/x86_64-linux-gnu/libcap-ng.so.0": "6b5be42df1bed00b8ea1f52e9412dce5ed500c29a6dd22b31e72f5dab5a3a575",
+        "/lib/x86_64-linux-gnu/libcap.so.2": "41217b0af128444f66dee8adda52b2ceaf19da00e5b0b155e2b87b857671286b",
+        "/lib/x86_64-linux-gnu/libcrypt.so.1": "436788729ab71d794a66954d62e930c723e624587f39beb2f4f86ff1000b1d29",
+        "/lib/x86_64-linux-gnu/libcrypto.so.3": "8bb5f3fdffe280d4453eb79a4663c2c47af70b7c247fe2e94e2da703cee1fd3d",
+        "/lib/x86_64-linux-gnu/libm.so.6": "6d567d53e895273ca14a1f9dc164fc6c8d39aed2f60aa46a733c2784228915f3",
+        "/lib/x86_64-linux-gnu/libmount.so.1": "3657d314b5f4915f2bdd8086e71d31dc8267bca04df236c4755c8d3b7c5fa24f",
+        "/lib/x86_64-linux-gnu/libpam.so.0": "7e61037c89b06382c9d22518174914fef77b9e473962f49ab1c90c55c9b5bca2",
+        "/lib/x86_64-linux-gnu/libpcre2-8.so.0": "8ee551e7f9645d6212c017df0938062ba046608a5378aab7d7c01c47b81a9f50",
+        "/lib/x86_64-linux-gnu/libseccomp.so.2": "c851a2378b4ef3a42ada5f8ff1604ad38f6bbcafa2aeea3f6680160d628c2f27",
+        "/lib/x86_64-linux-gnu/libselinux.so.1": "5cb5293b4e7590463b94f7b23152d54807a6a2ccaf8cac9e343908c6692c086c",
+        "/lib/x86_64-linux-gnu/libssl.so.3": "4b34859318555bf96d518131bed5fc4d5e35fefa4e1729f49eaa26bd05263850",
+        "/lib/x86_64-linux-gnu/libz.so.1": "85590dd58edf5445e18bc7193e5ebc01ac5841f1ae187e97705a662e90c6421e",
+        "/lib/x86_64-linux-gnu/libzstd.so.1": "27f07c9a49c2c956bcfb64cd4712976586a66facbf15fc7f09bc37413b5f2b21",
+        "/lib64/ld-linux-x86-64.so.2": "438c546d8e8cc48496bf3a95f753051afd9db66a629a74e31a9ded71586b56e0",
+        "/usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-257.so": "9f6f06ff4883d23eee5e628c625878e8bc7f60613e945e04ead7793ae969f37c"
+      },
+      "dns_tools": {
+        "tools/resolvectl": "e22274b3df6df324a2835b288cce5e222fc026226c807c27c7799afb9a1aff9e",
+        "tools/systemd-resolved": "c584fb960cee6b8e678e1df9fe79d3f572a0d8e935af5c3c84825b0024317712"
+      }
+    }
+  },
+  "cli_build": {
+    "status": "CURRENT_DEV_FACTORY_RELEASE_CLI_QUALIFIED_CLEANED",
+    "source_commit": "c6587b8140a99bf8facbf18a8a0b897b4fe29d0e",
+    "binary_sha256": "dbf16592b8cf3c6a5dfd937b76740012c5242960459ebc3c3b3243c3bc5abafa",
+    "binary_bytes": 14457352,
+    "source_inputs": 919,
+    "steps": [
+      {
+        "label": "fetch-locked",
+        "command": [
+          "/root/.rustup/toolchains/1.97.0-x86_64-unknown-linux-gnu/bin/cargo",
+          "fetch",
+          "--locked"
+        ],
+        "exit": 0,
+        "stop": null,
+        "seconds": 5.00167055404745,
+        "log_sha256": "90ec8f1ae75df2f56e59cf68f9d2e259ca4b138e01266e0c14aa9c6781114e78"
+      },
+      {
+        "label": "factory-release-cli",
+        "command": [
+          "unshare",
+          "--net",
+          "sh",
+          "-c",
+          "ip link set lo up && exec \"$@\"",
+          "isolated-build",
+          "/root/.rustup/toolchains/1.97.0-x86_64-unknown-linux-gnu/bin/cargo",
+          "build",
+          "--offline",
+          "--locked",
+          "--release",
+          "--features",
+          "jemalloc",
+          "--bin",
+          "qeli",
+          "--jobs",
+          "1"
+        ],
+        "exit": 0,
+        "stop": null,
+        "seconds": 515.0711653290782,
+        "log_sha256": "61817a618ffbb804e2a8fd1dfd84f27c8db1cf4752f938b5fb56a69a5a7f5e6a"
+      }
+    ],
+    "factory_profile": {
+      "lto": "fat",
+      "codegen-units": 1,
+      "opt-level": 3,
+      "strip": true,
+      "panic": "abort"
+    },
+    "collection_sha256": "34fc9bb6eaab183bec16d91db835eca298485eb2c91a60ba310d63737aa73c78",
+    "archive_sha256": "43fc6e1c7fefb24ee3d672d2206602e1dc1d8e7eb462c33c32142172c9a83f55",
+    "owned_cleanup_verified": true,
+    "original_finalization_failure_preserved": true,
+    "read_only_recovery_unix": 1792076248.4485602,
+    "new_compilations": 0,
+    "full_Rust_unit_tests_replayed": false,
+    "compiler_bootstrap_replayed": false
+  },
+  "input_archive_sha256": "5ee6381a35a6e43f3ee03059f1cff3ec18538be2807636e863e5753ee21dd654",
+  "archive_sha256": "892dcde21abaeec9b3d3d2a33d50f37e3a05b96953ec434cef507793c43c28d4",
+  "raw_packet": "q34-dev-linux-matrix-20261015",
+  "old_runtime_not_relabelled": true,
+  "physical_platforms_not_requalified": true
+}

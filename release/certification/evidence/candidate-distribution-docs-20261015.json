@@ -1,0 +1,19 @@
+{
+  "status": "DOCUMENTATION_ONLY_DISTRIBUTION_FORMAT_CORRECTED",
+  "candidate_build_commit": "2c98440fffe8bd00b81c3c8b17ab41bf555818f9",
+  "source_digest": "ede2714b031d3a6ce299cb6d44cd551b592c6493cdbc4022c3736dd71f57e9a3",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "changed_document_git_blobs": {
+    "qeli-win/README.md": "ff74d1924160ba497990083a32ff9e8e4b0cf3b3",
+    "release/RELEASE_NOTES_0.8.2.md": "8d0726ef3e121372951e3cc02eadb22d3bf5d939"
+  },
+  "scope": "Two Markdown documents align Windows whole-publish ZIP and per-architecture Mac TAR instructions with already qualified candidate files. No runtime source, native recipe/library, dependency lock, harness or packaged byte changes; Linux20 actual execution facts and21physical statuses retained.",
+  "documentation_checks_passed": 9,
+  "actual_candidate_CI": "https://github.com/litvinovtd/qeli/actions/runs/38774240959",
+  "actual_candidate_CI_required_jobs_passed": 19,
+  "actual_candidate_preflight_passed": true,
+  "actual_binary_payloads_changed": false,
+  "new_runtime_executions": 0,
+  "Android_upgrade_scope": "Additional actual package update check prepared but not executed: SSH authentication refused; not a product FAIL or accepted limitation",
+  "accepted_API34_ENONET_and_physical_scope_unchanged": true
+}

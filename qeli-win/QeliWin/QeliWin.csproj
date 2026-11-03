@@ -35,7 +35,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Custom entry point: routes the service arg to the Windows Service host, else WPF. -->
     <StartupObject>QeliWin.Program</StartupObject>
-    <Version>0.8.1</Version>
+    <Version>0.8.3</Version>
+    <QeliNativeCorePath Condition="'$(QeliNativeCorePath)' == ''">$(MSBuildProjectDirectory)\native\qeli.dll</QeliNativeCorePath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -46,8 +47,8 @@
 
   <ItemGroup>
     <!-- Windows Service host + ServiceController (install/start/stop). -->
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.11" />
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.12" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.12" />
     <!-- QR generation for profile sharing (pure managed, PNG output).
          Version kept in lockstep with qeli-mac (R0 unification). -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
@@ -72,15 +73,11 @@
     <EmbeddedResource Include="wintun\wintun.dll">
       <LogicalName>wintun.dll</LogicalName>
     </EmbeddedResource>
-    <!-- The prebuilt DLL may be redistributed with software using the permitted API only
-         when its license terms travel with the binary. Keep the notice outside both
-         single-file executables so recipients can read it without extracting resources. -->
-    <Content Include="wintun\LICENSE.txt">
-      <Link>Wintun-LICENSE.txt</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-    </Content>
+    <!-- Original terms travel inside each EXE and remain readable/exportable via licenses. -->
+    <EmbeddedResource Include="wintun\LICENSE.txt">
+      <LogicalName>Qeli.Legal/drivers/Wintun-LICENSE.txt</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
     <!-- WinDivert 2.2 packet capture pair used only by per-app profiles. The DLL expects
          the signed x64 driver beside it; NativeLoader extracts both into one protected
          directory before opening the filter. -->
@@ -90,27 +87,42 @@
     <EmbeddedResource Include="windivert\WinDivert64.sys">
       <LogicalName>WinDivert64.sys</LogicalName>
     </EmbeddedResource>
-    <!-- LGPL redistribution notices remain visible beside both published executables;
-         embedding only the driver/library would not give a recipient the license text. -->
-    <Content Include="windivert\LICENSE.txt">
-      <Link>WinDivert-LICENSE.txt</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-    </Content>
-    <Content Include="windivert\NOTICE.txt">
-      <Link>WinDivert-NOTICE.txt</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-    </Content>
-    <!-- Rust whole-client transport core (qeli.dll, current ABI 1.15 with compatibility
-         floor 1.11), cross-built for win-x64.
+    <EmbeddedResource Include="windivert\LICENSE.txt">
+      <LogicalName>Qeli.Legal/drivers/WinDivert-LICENSE.txt</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="windivert\NOTICE.txt">
+      <LogicalName>Qeli.Legal/drivers/WinDivert-NOTICE.txt</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <!-- Rust whole-client transport core (qeli.dll, configuration + transport ABI 1.16), cross-built for win-x64.
          It owns carrier/handshake/crypto/TCP/UDP/QUIC/Reality/bonding and the Wintun
          session/rings; C# retains only interface lifecycle, routes/DNS/trust and UI. -->
-    <EmbeddedResource Include="native\qeli.dll">
+    <EmbeddedResource Include="$(QeliNativeCorePath)">
       <LogicalName>qeli.dll</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The common Cargo.lock superset travels with every published client. -->
+    <EmbeddedResource Include="..\..\qeli\third-party-notices\rust\**\*">
+      <LogicalName>Qeli.Legal/rust/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <!-- Full reviewed NuGet graphs, runtime pack notices and embedded font licenses. -->
+    <EmbeddedResource Include="..\..\qeli-shared\third-party-notices\dotnet\**\*">
+      <LogicalName>Qeli.Legal/dotnet/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\LICENSE">
+      <LogicalName>Qeli.Legal/Qeli-MPL-2.0.txt</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+  </ItemGroup>
+  <Target Name="RequireManagedLegalBundle" BeforeTargets="PrepareForBuild;ComputeFilesToPublish">
+    <Error Condition="!Exists('..\..\qeli-shared\third-party-notices\dotnet\INDEX.tsv')" Text="Missing managed legal bundle; run scripts/managed_licenses.py and review its output." />
+  </Target>
+  <Target Name="RequireNativeLegalBundle" BeforeTargets="PrepareForBuild;ComputeFilesToPublish">
+    <Error Condition="!Exists('..\..\qeli\third-party-notices\rust\INDEX.tsv')" Text="Missing native legal bundle; run scripts/native_licenses.py and review its output." />
+  </Target>
 </Project>

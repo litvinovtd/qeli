@@ -97,13 +97,32 @@ fn put_list(sec: &mut Section, key: &str, vals: &[String]) {
 impl ServerConfig {
     /// Parse a server config from the flat-INI format.
     pub fn from_ini(doc: &IniDoc) -> anyhow::Result<ServerConfig> {
+        let mut singletons = std::collections::HashSet::new();
+        for section in &doc.sections {
+            match section.kind.as_str() {
+                "auth" | "web" | "logging" => {
+                    if section.instance.is_some() || !singletons.insert(section.kind.as_str()) {
+                        anyhow::bail!("server config: {} must be a unique singleton section without an instance", section.header());
+                    }
+                }
+                "profile" | "user" | "group" => {}
+                _ => anyhow::bail!("server config: unknown section {}", section.header()),
+            }
+        }
         // Repeatable section instances are executable/configuration identities, not display
         // labels. Validate file-authored names at the same boundary as panel-authored names;
         // otherwise a manual `[profile:]` is silently normalised/dropped and an overlong
         // profile reaches iptables comments that cannot represent it.
         for kind in ["profile", "user", "group"] {
+            let mut seen = std::collections::HashSet::new();
             for section in doc.sections_of(kind) {
                 let name = section.instance.as_deref().unwrap_or("");
+                if !seen.insert(name) {
+                    anyhow::bail!("server config: duplicate [{kind}:{name}] section");
+                }
+                if kind == "profile" && !crate::util::is_valid_profile_name(name) {
+                    anyhow::bail!("server config: invalid profile name {name:?}; commas and path separators are not allowed in profile names");
+                }
                 if !crate::util::is_valid_ident(name) {
                     anyhow::bail!(
                         "server config: invalid [{kind}:<name>] instance {name:?} (must be 1..=128 bytes, without edge whitespace or control characters)"
@@ -128,35 +147,8 @@ impl ServerConfig {
                 .unwrap_or_else(baseline_logging),
             ..Default::default()
         };
-        // inline [user:*] / [group:*] override auth.users / auth.groups
-        //
-        // De-duplicate by username, first-wins — the SAME rule `UsersDb::from_ini` applies
-        // (L7). This path did not, and the asymmetry was a security bug rather than a
-        // cosmetic one: `find_user` returns the first entry that matches AND is enabled, so
-        // a stale `[user:alice]` left above a newly added `[user:alice] enabled = false`
-        // meant the admin disabled the account, saw it listed as disabled, and the shadow
-        // copy went on authenticating. Reachable through the panel too — `put_config`
-        // validates each username with `is_valid_ident` but never checks uniqueness, and
-        // `to_ini_string` faithfully writes both sections back out.
-        // (Audit 2026-07-27, C7.)
-        let mut seen_users = std::collections::HashSet::new();
-        let users: Vec<UserEntry> = doc
-            .sections_of("user")
-            .map(user_from)
-            .filter(|u| !u.username.is_empty())
-            .filter(|u| {
-                if seen_users.insert(u.username.clone()) {
-                    true
-                } else {
-                    log::warn!(
-                        "config: duplicate inline [user:{}] — keeping the first block and \
-                         ignoring the later one (the lookup only ever saw the first)",
-                        crate::util::log_identity(&u.username)
-                    );
-                    false
-                }
-            })
-            .collect();
+        // Reject duplicate identities before folding sections into runtime entries.
+        let users: Vec<UserEntry> = doc.sections_of("user").map(user_from).collect();
         if !users.is_empty() {
             // Both sources are intentional: the worker merges them and the external file wins
             // duplicate users/groups. Only flag an explicit path so operators can see the
@@ -202,7 +194,9 @@ impl ServerConfig {
         for u in &self.auth.users {
             doc.push(user_to(u));
         }
-        for (name, g) in &self.auth.groups {
+        let mut groups: Vec<_> = self.auth.groups.iter().collect();
+        groups.sort_unstable_by_key(|(name, _)| *name);
+        for (name, g) in groups {
             doc.push(group_to(name, g));
         }
         doc.push(web_to(&self.web));
@@ -340,14 +334,14 @@ fn web_from(s: &Section) -> WebConfig {
     w.tls = s.bool_or("tls", base.tls);
     w.tls_cert = s.str_or("tls_cert", &base.tls_cert).to_string();
     w.tls_key = s.str_or("tls_key", &base.tls_key).to_string();
-    if s.get("allowed_ips").is_some() {
+    if s.contains_key("allowed_ips") {
         w.allowed_ips = s.list("allowed_ips");
     }
     w.public_host = s.str_or("public_host", &base.public_host).to_string();
-    if s.get("allowed_origins").is_some() {
+    if s.contains_key("allowed_origins") {
         w.allowed_origins = s.list("allowed_origins");
     }
-    if s.get("trusted_proxies").is_some() {
+    if s.contains_key("trusted_proxies") {
         w.trusted_proxies = s.list("trusted_proxies");
     }
     w.base_path = s.str_or("base_path", &base.base_path).to_string();
@@ -433,14 +427,18 @@ fn profile_to(p: &ProfileConfig) -> Section {
     // pool
     put_str(&mut s, "pool.cidr", &p.pool.cidr);
     put_list(&mut s, "pool.exclude", &p.pool.exclude);
-    for (name, ip) in &p.pool.static_reservations {
+    let mut reservations: Vec<_> = p.pool.static_reservations.iter().collect();
+    reservations.sort_unstable_by_key(|(name, _)| *name);
+    for (name, ip) in reservations {
         put_str(&mut s, &format!("pool.reservation.{}", name), ip);
     }
     if !p.pool.ipv6.cidr.is_empty() {
         put_str(&mut s, "pool.ipv6.cidr", &p.pool.ipv6.cidr);
     }
     put_list(&mut s, "pool.ipv6.exclude", &p.pool.ipv6.exclude);
-    for (name, ip) in &p.pool.ipv6.static_reservations {
+    let mut reservations: Vec<_> = p.pool.ipv6.static_reservations.iter().collect();
+    reservations.sort_unstable_by_key(|(name, _)| *name);
+    for (name, ip) in reservations {
         put_str(&mut s, &format!("pool.ipv6.reservation.{}", name), ip);
     }
     // routing
@@ -830,15 +828,16 @@ fn profile_from(s: &Section) -> ProfileConfig {
     p.tun.queues = s.parse_or("tun.queues", base.tun.queues);
     // pool
     p.pool.cidr = s.str_or("pool.cidr", &base.pool.cidr).to_string();
-    if s.get("pool.exclude").is_some() {
+    if s.contains_key("pool.exclude") {
         p.pool.exclude = s.list("pool.exclude");
     }
     p.pool.static_reservations = HashMap::new();
     for (name, v) in s.entries_with_prefix("pool.reservation.") {
-        if name.is_empty() {
-            log::warn!(
-                "config: skipping reservation with empty username ('pool.reservation. = {v}')"
-            );
+        if !crate::util::is_valid_ident(name) {
+            s.record_bad_value(format!(
+                "{} invalid reservation username {name:?}",
+                s.header()
+            ));
             continue;
         }
         p.pool
@@ -850,15 +849,16 @@ fn profile_from(s: &Section) -> ProfileConfig {
         .map(str::trim)
         .unwrap_or("")
         .to_string();
-    if s.get("pool.ipv6.exclude").is_some() {
+    if s.contains_key("pool.ipv6.exclude") {
         p.pool.ipv6.exclude = s.list("pool.ipv6.exclude");
     }
     p.pool.ipv6.static_reservations = HashMap::new();
     for (name, v) in s.entries_with_prefix("pool.ipv6.reservation.") {
-        if name.is_empty() {
-            log::warn!(
-                "config: skipping IPv6 reservation with empty username ('pool.ipv6.reservation. = {v}')"
-            );
+        if !crate::util::is_valid_ident(name) {
+            s.record_bad_value(format!(
+                "{} invalid reservation username {name:?}",
+                s.header()
+            ));
             continue;
         }
         p.pool
@@ -891,11 +891,7 @@ fn profile_from(s: &Section) -> ProfileConfig {
     p.routing.post_down = s
         .str_or("routing.post_down", &base.routing.post_down)
         .to_string();
-    p.routing.advertised_routes = s
-        .all("route")
-        .iter()
-        .filter_map(|l| parse_route_checked(l))
-        .collect();
+    p.routing.advertised_routes = routes_from(s);
     // dns
     p.dns.enabled = s.bool_or("dns.enabled", base.dns.enabled);
     p.dns.listen = s.str_or("dns.listen", &base.dns.listen).to_string();
@@ -904,7 +900,7 @@ fn profile_from(s: &Section) -> ProfileConfig {
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string);
     p.dns.port = s.parse_or("dns.port", base.dns.port);
-    if s.get("dns.upstream").is_some() {
+    if s.contains_key("dns.upstream") {
         p.dns.upstream = s.list("dns.upstream");
     }
     p.dns.upstream_protocol = s
@@ -912,10 +908,10 @@ fn profile_from(s: &Section) -> ProfileConfig {
         .to_string();
     p.dns.cache_size = s.parse_or("dns.cache_size", base.dns.cache_size);
     p.dns.timeout_secs = s.parse_or("dns.timeout_secs", base.dns.timeout_secs);
-    if s.get("dns.blocklist").is_some() {
+    if s.contains_key("dns.blocklist") {
         p.dns.blocklist = s.list("dns.blocklist");
     }
-    if s.get("dns.push_servers").is_some() {
+    if s.contains_key("dns.push_servers") {
         p.dns.push_servers = s.list("dns.push_servers");
     }
     // dhcp
@@ -953,7 +949,7 @@ fn profile_from(s: &Section) -> ProfileConfig {
         "obf.tls.reality_proxy.target_port",
         bo.tls.reality_proxy.target_port,
     );
-    if s.get("obf.tls.reality_proxy.short_ids").is_some() {
+    if s.contains_key("obf.tls.reality_proxy.short_ids") {
         o.tls.reality_proxy.short_ids = s.list("obf.tls.reality_proxy.short_ids");
     }
     o.tls.reality_proxy.real_tls = s.bool_or(
@@ -997,11 +993,17 @@ fn profile_from(s: &Section) -> ProfileConfig {
         "obf.traffic_normalization.enabled",
         bo.traffic_normalization.enabled,
     );
-    if s.get("obf.traffic_normalization.round_sizes").is_some() {
+    if s.contains_key("obf.traffic_normalization.round_sizes") {
         o.traffic_normalization.round_sizes = s
             .list("obf.traffic_normalization.round_sizes")
             .iter()
-            .filter_map(|x| x.parse().ok())
+            .filter_map(|x| match x.parse() {
+                Ok(size) => Some(size),
+                Err(_) => {
+                    s.record_bad_value(format!("{} obf.traffic_normalization.round_sizes contains an invalid integer {x:?}", s.header()));
+                    None
+                }
+            })
             .collect();
     }
     o.traffic_shaping.enabled =
@@ -1165,56 +1167,32 @@ mod route_line_tests {
     /// pushed to clients, which silently dropped it. Now it is refused at load.
     #[test]
     fn empty_cidr_from_subnet_in_gateway_is_rejected() {
-        assert!(parse_route_checked(" gateway=172.16.20.0/24 metric=100").is_none());
+        assert!(parse_route_checked(" gateway=172.16.20.0/24 metric=100").is_err());
     }
 
     #[test]
     fn malformed_lines_are_rejected() {
-        assert!(parse_route_checked("").is_none());
-        assert!(parse_route_checked("172.16.20.0").is_none()); // no prefix
-        assert!(parse_route_checked("172.16.20.0/33").is_none()); // bad prefix
-        assert!(parse_route_checked("nonsense").is_none());
+        assert!(parse_route_checked("").is_err());
+        assert!(parse_route_checked("172.16.20.0").is_err()); // no prefix
+        assert!(parse_route_checked("172.16.20.0/33").is_err()); // bad prefix
+        assert!(parse_route_checked("nonsense").is_err());
         // gateway must be a next-hop IP, never a subnet
-        assert!(parse_route_checked("10.20.0.0/16 gateway=172.16.20.0/24").is_none());
+        assert!(parse_route_checked("10.20.0.0/16 gateway=172.16.20.0/24").is_err());
         // Route and next-hop must use the same address family.
-        assert!(parse_route_checked("2001:db8::/64 gateway=10.0.0.1").is_none());
-        assert!(parse_route_checked("10.0.0.0/8 gateway=fd00::1").is_none());
+        assert!(parse_route_checked("2001:db8::/64 gateway=10.0.0.1").is_err());
+        assert!(parse_route_checked("10.0.0.0/8 gateway=fd00::1").is_err());
     }
 }
 
-/// Parse AND validate a `route` line, dropping — with a loud warning — anything
-/// whose CIDR or gateway is missing/malformed, so a typo can never reach clients
-/// as a bogus pushed route.
-///
-/// The classic mistake (what the panel emits when the CIDR field is left empty)
-/// is putting the subnet into `gateway=`:
-/// ```text
-/// route = " gateway=172.16.20.0/24 metric=100"   # WRONG: cidr empty, quoted
-/// route = 172.16.20.0/24 gateway=10.0.0.1        # right: cidr first, gw = next hop
-/// ```
-/// Before 0.7.12 such a line parsed to an empty-cidr route and was pushed to
-/// clients verbatim; they dropped it, and nothing was logged on either side.
-fn parse_route_checked(line: &str) -> Option<PushedRoute> {
-    let r = parse_route(line);
+/// Validate a pushed route, preserving an explanation for strict config callers.
+fn parse_route_checked(line: &str) -> Result<PushedRoute, String> {
+    let r = parse_route(line)?;
     if !crate::util::is_valid_cidr(&r.cidr) {
-        log::warn!(
-            "config: ignoring route {:?} — its CIDR is missing or invalid ({:?}). \
-             Expected `route = <cidr> [gateway=<ip>] [metric=<n>]`, e.g. `route = 172.16.20.0/24` \
-             (the CIDR comes FIRST; `gateway=` takes a next-hop IP, not a subnet).",
-            line,
-            r.cidr
-        );
-        return None;
+        return Err("missing or invalid CIDR; expected <cidr> [gateway=<ip>] [metric=<n>]".into());
     }
     if let Some(gw) = &r.gateway {
         if !crate::util::is_valid_gateway(gw) {
-            log::warn!(
-                "config: ignoring route {:?} — gateway {:?} is not a bare IP address \
-                 (it is the next hop, not a subnet).",
-                line,
-                gw
-            );
-            return None;
+            return Err("gateway must be a bare IP address, not a subnet".into());
         }
         let route_family = r
             .cidr
@@ -1226,47 +1204,80 @@ fn parse_route_checked(line: &str) -> Option<PushedRoute> {
             (Some(std::net::IpAddr::V4(_)), Some(std::net::IpAddr::V4(_)))
                 | (Some(std::net::IpAddr::V6(_)), Some(std::net::IpAddr::V6(_)))
         ) {
-            log::warn!(
-                "config: ignoring route {:?} — route CIDR and gateway use different address families",
-                line
-            );
-            return None;
+            return Err("CIDR and gateway use different address families".into());
         }
     }
-    Some(r)
+    Ok(r)
 }
 
-/// Parse a `route` line: `<cidr> [gateway=<ip>] [metric=<n>]`.
-fn parse_route(line: &str) -> PushedRoute {
+/// Parse route options without dropping unknown, duplicate or malformed values.
+fn parse_route(line: &str) -> Result<PushedRoute, String> {
     let mut r = PushedRoute::default();
-    // Split `desc=` off FIRST: it is the last key and takes the whole remainder of the
-    // line (a description contains spaces, so it can't be whitespace-tokenized like
-    // cidr/gateway/metric). Everything before it is parsed as before.
-    let head = match line.find("desc=") {
-        Some(i) => {
-            let d = line[i + "desc=".len()..].trim();
-            if !d.is_empty() {
-                r.description = Some(d.to_string());
-            }
-            &line[..i]
-        }
-        None => line,
+    // Description is the final option and consumes the remainder. Match an option
+    // boundary, so `notdesc=` or `gateway=...desc=` cannot hide malformed input.
+    let description = line.match_indices("desc=").find(|(i, _)| {
+        *i == 0
+            || line[..*i]
+                .chars()
+                .next_back()
+                .is_some_and(char::is_whitespace)
+    });
+    let head = if let Some((i, _)) = description {
+        r.description = Some(line[i + "desc=".len()..].trim().to_string());
+        &line[..i]
+    } else {
+        line
     };
+    let mut seen = std::collections::HashSet::new();
     for (i, tok) in head.split_whitespace().enumerate() {
-        if i == 0 && !tok.contains('=') {
-            r.cidr = tok.to_string();
-        } else if let Some(v) = tok.strip_prefix("cidr=") {
-            r.cidr = v.to_string();
-        } else if let Some(v) = tok.strip_prefix("gateway=") {
-            r.gateway = Some(v.to_string());
-        } else if let Some(v) = tok.strip_prefix("metric=") {
-            match v.parse() {
-                Ok(m) => r.metric = Some(m),
-                Err(_) => log::warn!("config: ignoring invalid route metric {v:?} in {line:?}"),
+        let (key, value) = if i == 0 && !tok.contains('=') {
+            ("cidr", tok)
+        } else {
+            tok.split_once('=')
+                .ok_or_else(|| format!("unexpected route token {tok:?}"))?
+        };
+        if !seen.insert(key) {
+            return Err(format!("duplicate route option {key:?}"));
+        }
+        match key {
+            "cidr" => r.cidr = value.to_string(),
+            "gateway" => r.gateway = Some(value.to_string()),
+            "metric" => {
+                r.metric = Some(value.parse().map_err(|_| {
+                    format!("invalid route metric {value:?}; expected 0..=4294967295")
+                })?)
             }
+            _ => return Err(format!("unknown route option {key:?}")),
         }
     }
-    r
+    Ok(r)
+}
+
+/// Preserve parse failures in the document's findings, so every strict entry
+/// point (startup, reload, panel and users-file loading) rejects the same input.
+fn routes_from(s: &Section) -> Vec<PushedRoute> {
+    s.all("route")
+        .into_iter()
+        .filter_map(|line| {
+            let parsed = parse_route_checked(line).and_then(|mut route| {
+                if s.kind == "user" && route.description.is_some() {
+                    Err("desc is supported only for profile routes".to_string())
+                } else {
+                    if route.description.as_deref() == Some("") {
+                        route.description = None;
+                    }
+                    Ok(route)
+                }
+            });
+            match parsed {
+                Ok(route) => Some(route),
+                Err(error) => {
+                    s.record_bad_value(format!("{} invalid route {line:?}: {error}", s.header()));
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
 // =============================== UsersDb (file) ==============================
@@ -1301,7 +1312,9 @@ impl UsersDb {
         for u in &self.users {
             doc.push(user_to(u));
         }
-        for (name, g) in &self.groups {
+        let mut groups: Vec<_> = self.groups.iter().collect();
+        groups.sort_unstable_by_key(|(name, _)| *name);
+        for (name, g) in groups {
             doc.push(group_to(name, g));
         }
         doc.to_string()
@@ -1339,7 +1352,9 @@ fn user_to(u: &UserEntry) -> Section {
         put(&mut s, "bandwidth.limit_mbps", u.bandwidth.limit_mbps);
         put(&mut s, "bandwidth.burst_mbps", u.bandwidth.burst_mbps);
     }
-    for (k, v) in &u.metadata {
+    let mut metadata: Vec<_> = u.metadata.iter().collect();
+    metadata.sort_unstable_by_key(|(name, _)| *name);
+    for (k, v) in metadata {
         put_str(&mut s, &format!("metadata.{}", k), v);
     }
     for r in &u.routes {
@@ -1361,16 +1376,12 @@ fn user_from(s: &Section) -> UserEntry {
     for (name, v) in s.entries_with_prefix("metadata.") {
         metadata.insert(name.to_string(), v.to_string());
     }
-    let routes = s
-        .all("route")
-        .iter()
-        .map(|l| {
-            let r = parse_route(l);
-            UserRoute {
-                cidr: r.cidr,
-                gateway: r.gateway,
-                metric: r.metric,
-            }
+    let routes = routes_from(s)
+        .into_iter()
+        .map(|r| UserRoute {
+            cidr: r.cidr,
+            gateway: r.gateway,
+            metric: r.metric,
         })
         .collect();
     UserEntry {
@@ -1447,7 +1458,7 @@ fn group_from(s: &Section) -> GroupTemplate {
     GroupTemplate {
         bandwidth_limit_mbps: opt_parse(s, "bandwidth_limit_mbps"),
         max_sessions: opt_parse(s, "max_sessions"),
-        allowed_networks: if s.get("allowed_networks").is_some() {
+        allowed_networks: if s.contains_key("allowed_networks") {
             Some(s.list("allowed_networks"))
         } else {
             None
@@ -1528,20 +1539,33 @@ routing.ipv6.interface = ens3
 routing.ipv6.ndp_proxy = required
 routing.ipv6.ndp_proxy_interface = ens3
 "#;
-        let original = crate::config::parse_server_config(source).unwrap();
-        let profile = &original.profiles[0];
-        assert_eq!(profile.routing.ipv6.ndp_proxy, Ipv6NdpProxyMode::Required);
-        assert_eq!(profile.routing.ipv6.ndp_proxy_interface, "ens3");
-        crate::config::server::validate_ipv6_profile(profile).unwrap();
+        for mode in ["route", "manual"] {
+            let original = crate::config::parse_server_config(
+                &source.replace("mode = route", &format!("mode = {mode}")),
+            )
+            .unwrap();
+            let profile = &original.profiles[0];
+            assert_eq!(profile.routing.ipv6.ndp_proxy, Ipv6NdpProxyMode::Required);
+            assert_eq!(profile.routing.ipv6.ndp_proxy_interface, "ens3");
+            crate::config::server::validate_ipv6_profile(profile).unwrap();
 
-        let serialized = original.to_ini_string();
-        assert!(serialized.contains("routing.ipv6.ndp_proxy = required"));
-        assert!(serialized.contains("routing.ipv6.ndp_proxy_interface = ens3"));
-        let reparsed = crate::config::parse_server_config(&serialized).unwrap();
-        assert_eq!(
-            serde_json::to_value(&original).unwrap(),
-            serde_json::to_value(&reparsed).unwrap()
-        );
+            assert_eq!(profile.routing.ipv6.mode.to_string(), mode);
+            let api_json = serde_json::to_value(&original).unwrap();
+            let from_api: ServerConfig = serde_json::from_value(api_json).unwrap();
+            assert_eq!(
+                from_api.profiles[0].routing.ipv6.mode,
+                profile.routing.ipv6.mode
+            );
+            let serialized = original.to_ini_string();
+            assert!(serialized.contains(&format!("routing.ipv6.mode = {mode}")));
+            assert!(serialized.contains("routing.ipv6.ndp_proxy = required"));
+            assert!(serialized.contains("routing.ipv6.ndp_proxy_interface = ens3"));
+            let reparsed = crate::config::parse_server_config(&serialized).unwrap();
+            assert_eq!(
+                serde_json::to_value(&original).unwrap(),
+                serde_json::to_value(&reparsed).unwrap()
+            );
+        }
     }
 
     #[test]
@@ -1576,14 +1600,14 @@ routing.ipv6.ndp_proxy_interface = ens3
     /// the line, so multi-word descriptions (and `=` inside them) round-trip too.
     #[test]
     fn route_description_round_trips() {
-        let r = parse_route("10.0.0.0/8 gateway=10.0.0.1 metric=50 desc=office LAN (a=b)");
+        let r = parse_route("10.0.0.0/8 gateway=10.0.0.1 metric=50 desc=office LAN (a=b)").unwrap();
         assert_eq!(r.cidr, "10.0.0.0/8");
         assert_eq!(r.gateway.as_deref(), Some("10.0.0.1"));
         assert_eq!(r.metric, Some(50));
         assert_eq!(r.description.as_deref(), Some("office LAN (a=b)"));
 
         // A route with no description stays clean (no stray `desc=`).
-        let plain = parse_route("192.168.0.0/24");
+        let plain = parse_route("192.168.0.0/24").unwrap();
         assert_eq!(plain.cidr, "192.168.0.0/24");
         assert!(plain.description.is_none());
     }
@@ -1736,43 +1760,200 @@ obf.quic.enabled = true
         assert!(bp.obfuscation.quic.enabled);
     }
 
-    /// A duplicate inline `[user:*]` must collapse to the FIRST block, exactly as
-    /// `UsersDb::from_ini` already did — otherwise disabling an account does nothing.
-    ///
-    /// `find_user` returns the first entry that matches AND is enabled, so a stale block
-    /// above a newly-disabled one kept authenticating while the panel showed the account
-    /// as disabled. (Audit 2026-07-27, C7.)
     #[test]
-    fn duplicate_inline_user_keeps_only_the_first_block() {
-        let src = "\
-[profile:main]
-bind.transport = tcp
+    fn structured_form_rejects_unknown_keys_at_every_configuration_layer() {
+        let cfg = crate::config::parse_server_config("[profile:main]\n[user:alice]\n").unwrap();
+        for pointer in [
+            "",
+            "/web",
+            "/auth",
+            "/logging",
+            "/profiles/0",
+            "/profiles/0/bind",
+            "/profiles/0/obfuscation",
+            "/profiles/0/performance/udp",
+            "/auth/users/0",
+            "/auth/users/0/bandwidth",
+        ] {
+            let mut value = serde_json::to_value(&cfg).unwrap();
+            value
+                .pointer_mut(pointer)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert("misspelled_setting".into(), serde_json::json!(true));
+            assert!(
+                crate::config::decode_server_form(value).is_err(),
+                "accepted unknown field at {pointer}"
+            );
+        }
+        let mut value = serde_json::to_value(&cfg).unwrap();
+        value["auth"]["users"][0]["metadata"] = serde_json::json!({"custom_label": "retained"});
+        assert!(crate::config::decode_server_form(value).is_ok());
+    }
 
-[user:alice]
-password_hash = $argon2id$first
-enabled = true
+    #[test]
+    fn standalone_users_reject_duplicate_users_and_groups() {
+        for kind in ["user", "group"] {
+            let raw = format!("[{kind}:alice]\n[{kind}: alice ]\n");
+            assert!(UsersDb::parse_strict(&raw, "test-users.conf")
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate"));
+        }
+    }
 
-[user:alice]
-password_hash = $argon2id$second
-enabled = false
+    #[test]
+    fn duplicate_identity_sections_are_rejected_before_folding() {
+        for kind in ["user", "group", "profile"] {
+            let raw = format!("[profile:main]\n[{kind}:same]\n[{kind}: same ]\n");
+            assert!(crate::config::parse_server_config(&raw)
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate"));
+        }
+        let raw = "[profile:main]\n[user:alice]\nenabled=true\n[user:alice]\nenabled=false\n";
+        assert!(crate::config::parse_server_config_reporting(raw).is_err());
+    }
 
-[user:bob]
-password_hash = $argon2id$bob
-";
-        let cfg = crate::config::parse_server_config(src).expect("parses");
-        let alices: Vec<_> = cfg
-            .auth
-            .users
-            .iter()
-            .filter(|u| u.username == "alice")
-            .collect();
-        assert_eq!(alices.len(), 1, "the shadow copy must be dropped");
-        assert_eq!(
-            alices[0].password_hash, "$argon2id$first",
-            "first block wins, matching find_user"
+    #[test]
+    fn comma_profile_names_are_rejected_in_ini_and_api_models() {
+        assert!(crate::config::parse_server_config("[profile:a,b]\n").is_err());
+        let mut cfg = crate::config::parse_server_config("[profile:a]\n[user:alice]\n").unwrap();
+        cfg.auth.users[0].profiles = vec!["a,b".into()];
+        let db = UsersDb {
+            users: cfg.auth.users,
+            groups: cfg.auth.groups,
+        };
+        assert!(db.validate_network_fields().is_err());
+    }
+
+    #[test]
+    fn group_sections_have_stable_order_in_server_and_users_ini() {
+        let mut first = UsersDb::default();
+        first.groups.insert(
+            "zeta".into(),
+            GroupTemplate {
+                max_sessions: Some(2),
+                ..Default::default()
+            },
         );
-        assert!(cfg.auth.users.iter().any(|u| u.username == "bob"));
-        assert_eq!(cfg.auth.users.len(), 2);
+        first.groups.insert(
+            "alpha".into(),
+            GroupTemplate {
+                max_sessions: Some(1),
+                ..Default::default()
+            },
+        );
+        let mut second = UsersDb::default();
+        second.groups.insert(
+            "alpha".into(),
+            GroupTemplate {
+                max_sessions: Some(1),
+                ..Default::default()
+            },
+        );
+        second.groups.insert(
+            "zeta".into(),
+            GroupTemplate {
+                max_sessions: Some(2),
+                ..Default::default()
+            },
+        );
+
+        let first_users_ini = first.to_ini_string();
+        assert_eq!(first_users_ini, second.to_ini_string());
+        assert!(
+            first_users_ini.find("[group:alpha]").unwrap()
+                < first_users_ini.find("[group:zeta]").unwrap()
+        );
+
+        let mut first_server = ServerConfig::default();
+        first_server.auth.groups = first.groups;
+        let mut second_server = ServerConfig::default();
+        second_server.auth.groups = second.groups;
+        let first_server_ini = first_server.to_ini_string();
+        assert_eq!(first_server_ini, second_server.to_ini_string());
+        assert!(
+            first_server_ini.find("[group:alpha]").unwrap()
+                < first_server_ini.find("[group:zeta]").unwrap()
+        );
+    }
+
+    #[test]
+    fn dynamic_profile_and_user_keys_have_stable_order() {
+        let mut first_profile = ProfileConfig::default();
+        let mut second_profile = ProfileConfig::default();
+        for (name, ipv4, ipv6) in [
+            ("zeta", "10.0.0.2", "fd00::2"),
+            ("alpha", "10.0.0.1", "fd00::1"),
+        ] {
+            first_profile
+                .pool
+                .static_reservations
+                .insert(name.into(), ipv4.into());
+            first_profile
+                .pool
+                .ipv6
+                .static_reservations
+                .insert(name.into(), ipv6.into());
+        }
+        for (name, ipv4, ipv6) in [
+            ("alpha", "10.0.0.1", "fd00::1"),
+            ("zeta", "10.0.0.2", "fd00::2"),
+        ] {
+            second_profile
+                .pool
+                .static_reservations
+                .insert(name.into(), ipv4.into());
+            second_profile
+                .pool
+                .ipv6
+                .static_reservations
+                .insert(name.into(), ipv6.into());
+        }
+        let first_server = ServerConfig {
+            profiles: vec![first_profile],
+            ..Default::default()
+        };
+        let second_server = ServerConfig {
+            profiles: vec![second_profile],
+            ..Default::default()
+        };
+        let ini = first_server.to_ini_string();
+        assert_eq!(ini, second_server.to_ini_string());
+        for prefix in ["pool.reservation.", "pool.ipv6.reservation."] {
+            assert!(
+                ini.find(&format!("{prefix}alpha")).unwrap()
+                    < ini.find(&format!("{prefix}zeta")).unwrap()
+            );
+        }
+
+        let mut first_user = UserEntry {
+            username: "alice".into(),
+            ..Default::default()
+        };
+        first_user.metadata.insert("zeta".into(), "2".into());
+        first_user.metadata.insert("alpha".into(), "1".into());
+        let mut second_user = UserEntry {
+            username: "alice".into(),
+            ..Default::default()
+        };
+        second_user.metadata.insert("alpha".into(), "1".into());
+        second_user.metadata.insert("zeta".into(), "2".into());
+        let first_users = UsersDb {
+            users: vec![first_user],
+            ..Default::default()
+        };
+        let second_users = UsersDb {
+            users: vec![second_user],
+            ..Default::default()
+        };
+        let users_ini = first_users.to_ini_string();
+        assert_eq!(users_ini, second_users.to_ini_string());
+        assert!(
+            users_ini.find("metadata.alpha").unwrap() < users_ini.find("metadata.zeta").unwrap()
+        );
     }
 
     #[test]
@@ -1893,18 +2074,15 @@ max_sessions = 5
         assert!(!back.profiles[0].performance.udp.recv_buffer_auto);
     }
 
-    /// EXHAUSTIVE round-trip: every key server_ini.rs reads is set to a
-    /// non-default value here (coverage proven mechanically by
-    /// scripts/gen_roundtrip_fixture.py), then parse -> to_ini_string -> parse
-    /// must reproduce the config byte-identically at the struct level. This is
-    /// the read-AND-persist guard for the WHOLE server config surface: any key
-    /// the codec reads but forgets to write (the logging_to/time_format bug
-    /// class) flips its field back to default on the second parse and trips the
-    /// serde_json equality below.
+    /// Every statically read key and dynamic key family is present in this fixture;
+    /// scripts/gen_roundtrip_fixture.py --check verifies coverage and fixture parity.
+    /// Compare the complete parsed structures to catch fields lost on serialization.
+    /// Runtime ranges and non-default value coverage require separate tests.
     #[test]
     fn exhaustive_round_trip_every_server_key() {
         let ini_src = r####"
 [auth]
+users_file = /tmp/qeli-roundtrip-users.conf
 require_client_key_proof = true
 bind_static_to_session = false
 brute_force.enabled = false
@@ -1946,6 +2124,7 @@ brute_force.lockout_secs = 300
 [user:carol]
 password_hash = $argon2id$v=19$m=16384,t=2,p=1$c2FsdHNhbHQ$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 password_enc = ENCVAL123
+metadata.note = roundtrip annotation
 static_ip = 10.5.0.77
 static_ipv6 = fd42:5::77
 enabled = false
@@ -1967,10 +2146,15 @@ allowed_networks = 10.0.0.0/8
 
 [profile:tcpx]
 enabled = false
+roaming.enabled = true
+roaming.grace_secs = 51
+roaming.max_orphaned = 77
+roaming.max_orphan_bytes = 8388608
 identity_key = /tmp/id-t.key
 bind.address = 192.168.5.5
 bind.port = 8501
 bind.transport = tcp
+listen = 192.168.5.6:8501 tcp
 tun.name = tunat
 tun.address = 10.5.0.1
 tun.ip_mode = dual
@@ -1984,12 +2168,15 @@ pool.ipv6.cidr = fd42:5::/64
 pool.ipv6.exclude = fd42:5::2
 pool.exclude = 10.5.0.2
 pool.reservation.alice = 10.5.0.50
+pool.ipv6.reservation.alice = fd42:5::50
 routing.client_to_client = true
 routing.forward_private = false
 routing.nat.enabled = true
 routing.nat.interface = eth7
-routing.ipv6.mode = nat66
+routing.ipv6.mode = route
 routing.ipv6.interface = eth7
+routing.ipv6.ndp_proxy = required
+routing.ipv6.ndp_proxy_interface = eth7
 routing.post_up = echo up
 routing.post_down = echo down
 route = 10.5.9.0/24 gateway=10.5.0.1 metric=42 desc=lan seg
@@ -2044,7 +2231,7 @@ obf.traffic_shaping.min_size = 50
 obf.traffic_shaping.max_size = 900
 obf.traffic_shaping.stealth = true
 obf.traffic_shaping.stealth_rate_mbps = 5
-obf.recordizer.policy = required
+obf.recordizer.policy = prefer
 obf.recordizer.batch.delay_min_ms = 3
 obf.recordizer.batch.delay_max_ms = 11
 obf.recordizer.batch.max_packets = 7
@@ -2071,6 +2258,8 @@ perf.tcp.nodelay = false
 perf.tcp.keepalive_secs = 45
 perf.tcp.send_buffer_size = 131072
 perf.tcp.recv_buffer_size = 131072
+perf.udp.send_buffer_size = 131072
+perf.udp.recv_buffer_size = 2097152
 perf.tun.read_buffer_size = 32768
 perf.connection.max_clients = 64
 perf.connection.handshake_timeout_secs = 8
@@ -2080,10 +2269,15 @@ perf.connection.new_session_rate_window_secs = 11
 
 [profile:udpx]
 enabled = false
+roaming.enabled = true
+roaming.grace_secs = 51
+roaming.max_orphaned = 77
+roaming.max_orphan_bytes = 8388608
 identity_key = /tmp/id-u.key
 bind.address = 192.168.5.5
 bind.port = 8502
 bind.transport = udp
+listen = 192.168.5.6:8502 udp
 tun.name = tunau
 tun.address = 10.6.0.1
 tun.ip_mode = dual
@@ -2097,12 +2291,15 @@ pool.ipv6.cidr = fd42:6::/64
 pool.ipv6.exclude = fd42:6::2
 pool.exclude = 10.6.0.2
 pool.reservation.alice = 10.6.0.50
+pool.ipv6.reservation.alice = fd42:6::50
 routing.client_to_client = true
 routing.forward_private = false
 routing.nat.enabled = true
 routing.nat.interface = eth7
-routing.ipv6.mode = nat66
+routing.ipv6.mode = route
 routing.ipv6.interface = eth7
+routing.ipv6.ndp_proxy = required
+routing.ipv6.ndp_proxy_interface = eth7
 routing.post_up = echo up
 routing.post_down = echo down
 route = 10.6.9.0/24 gateway=10.6.0.1 metric=42 desc=lan seg
@@ -2157,6 +2354,20 @@ obf.traffic_shaping.min_size = 50
 obf.traffic_shaping.max_size = 900
 obf.traffic_shaping.stealth = true
 obf.traffic_shaping.stealth_rate_mbps = 5
+obf.recordizer.policy = required
+obf.recordizer.batch.delay_min_ms = 3
+obf.recordizer.batch.delay_max_ms = 11
+obf.recordizer.batch.max_packets = 7
+obf.recordizer.batch.max_queue_bytes = 123456
+obf.recordizer.record.max_payload_bytes = 1200
+obf.recordizer.record.small_min_ratio = 0.2
+obf.recordizer.record.small_max_ratio = 0.7
+obf.recordizer.record.full_probability = 0.33
+obf.recordizer.fragment.enabled = false
+obf.recordizer.fragment.reassembly_timeout_ms = 4321
+obf.recordizer.fragment.max_inflight_packets = 23
+obf.recordizer.fragment.max_reassembly_bytes = 765432
+obf.recordizer.fragment.max_fragments_per_packet = 17
 obf.anti_fingerprinting.enabled = true
 obf.anti_fingerprinting.add_jitter_to_handshake = false
 obf.awg.enabled = true
@@ -2176,6 +2387,8 @@ perf.connection.new_session_rate_window_secs = 11
         let ini = orig.to_ini_string();
         let doc = IniDoc::parse(&ini).unwrap();
         let back = ServerConfig::from_ini(&doc).unwrap();
+        assert!(doc.bad_values().is_empty(), "{:?}", doc.bad_values());
+        assert!(doc.unread_keys().is_empty(), "{:?}", doc.unread_keys());
         let a = serde_json::to_value(&orig).unwrap();
         let b = serde_json::to_value(&back).unwrap();
         assert_eq!(a, b, "server INI round-trip dropped or altered a field");

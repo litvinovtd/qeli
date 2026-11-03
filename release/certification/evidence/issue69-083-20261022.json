@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "status": "RUNTIME_AND_TARGETED_CHECKS_PASS",
+  "candidate_commit": "27aea9a4a58c292a085644cfbb7beea10c34f1b3",
+  "native_source": {
+    "source_digest": "932733d25edea48c5af9b2dc410f357e9f61321fe705370c7002593c7c055dcc",
+    "source_commit": "73f2331242b1ecab7a0c5ff3e9c7457dbfffedee",
+    "source_dirty": false,
+    "source_date_epoch": 1792633465,
+    "archive_sha256": "ce83cb24ce560b064b5adb221d54badfc92373427f39504ff6a12b4d279de308"
+  },
+  "runtime": {
+    "status": "PASS",
+    "commit": "27aea9a4a58c292a085644cfbb7beea10c34f1b3",
+    "binary_sha256": "95cf32f8a9bd76de855e1e599c88fc9feb94a677ccef99c61b35762f27d467f7",
+    "source_digest": "e85cbd8ab2dcfcb6e308a49b69f1ed0c4b49b5846170ae481f0eca6ca644b35d",
+    "udp_quic_cases": 12,
+    "qualification_scenarios": 19,
+    "mandatory_automated_cases": 20,
+    "physical_advisory_cases": 21,
+    "pcap_retained": false,
+    "host_restoration": {
+      "status": "PASS",
+      "runtime_result": "PASS",
+      "checks": {
+        "iptables": true,
+        "ip6tables": true,
+        "addresses": true,
+        "routes": true
+      },
+      "systemd_resolved_installed_on_host": false
+    },
+    "test_state_storage": {
+      "journals_tmpfs_mib": 16,
+      "work_tmpfs_mib": 128,
+      "physical_disk_durability_tested": false
+    },
+    "scope": "Isolated Linux namespaces, final candidate binary; no throughput or physical switch certification"
+  },
+  "checks": {
+    "minimum_features": {
+      "status": "PASS",
+      "checks": [
+        {
+          "feature": "server",
+          "exit": 0
+        },
+        {
+          "feature": "client-bin",
+          "exit": 0
+        },
+        {
+          "feature": "transport-core-ffi",
+          "exit": 0
+        }
+      ]
+    },
+    "library_regressions": {
+      "status": "PASS",
+      "checks": [
+        {
+          "group": "capacity",
+          "exit": 0
+        },
+        {
+          "group": "editor",
+          "exit": 0
+        },
+        {
+          "group": "conformance",
+          "exit": 0
+        }
+      ],
+      "initial_full_lib": "2514 passed, one failed at the lab SSH soft RLIMIT_NOFILE=1024, 61 ignored",
+      "child_nofile_before": 1024,
+      "child_nofile_after": 4096,
+      "host_limits_unchanged": true
+    },
+    "editor_cases": 55,
+    "canonical_fixtures": 6,
+    "ffi_cases": 64,
+    "windows_local_cases": 19,
+    "managed_conformance_cases": 324,
+    "native_namespace": {
+      "status": "PASS",
+      "exit": 0,
+      "log_sha256": "0cb2fcae3f95c829954cfc2326762129d6a6a23ea830ca98224aa94f0539a87c"
+    },
+    "python_native_contracts": 105,
+    "docs_markdown_files": 777,
+    "docs_checks": 9
+  },
+  "logs_sha256": {
+    "full-lib-final.log": "b41df5274a79fcaf8efc21b97dcd802c73382fd5b85a97631995dd8e4a8075ca",
+    "capacity-final.log": "03113e67c84bf42423e8f5e196a6866be8452a2ed5f5f5b6cb4345d9a23c6d8f",
+    "editor-final.log": "c7c0d461950daf1c12cd8a36c222fea66009b9417dd20d0cf05d8f7d045b30a4",
+    "conformance-final.log": "e1cb6ae78a6de0aeeced3d219cb390446e113196d5644796a9a54a01af832e09",
+    "ndp-native-final.log": "0cb2fcae3f95c829954cfc2326762129d6a6a23ea830ca98224aa94f0539a87c",
+    "conformance-full.log": "c25e3ccacf9d8028e15bd11185982aa11f48a6d60e8b7c241c5716c864d2ec94",
+    "ffi-core-checks.txt": "b2167794d81e5a95a127e723e6dbd8b83211745057a1509a830c41996ce4671b",
+    "windows-local-checks.txt": "1553e1a90f3d5c04b78a004379c7edd81f58e3f3d4b638d2b5227a65e0614626"
+  },
+  "first_runtime_failure": {
+    "status": "FAIL_PRESERVED",
+    "binary_sha256": "061bb3a8e03a167adafde64cf5f725505f2d7f434ca9ee024fd408e7971710dd",
+    "id": "linux.roaming-flap-soak",
+    "reason": "TCP iteration 54 observed the previous carrier bypass after extra Wake handovers during high disk wait. A prior candidate also reproduced a bounded-soak failure under compilation; no claim that this is a new-code regression or a fixed product defect.",
+    "evidence_log_sha256": "431e0a3ad32a8dc0ae8ae7bcc44622acd27bbb21f6d50741c6e9e98571478478",
+    "environment": {
+      "cpu": "some avg10=0.00 avg60=0.00 avg300=1.57 total=2410317439\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n",
+      "memory": "some avg10=0.00 avg60=0.00 avg300=0.00 total=2792078\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=2729686\n",
+      "io": "some avg10=6.95 avg60=19.59 avg300=24.35 total=943903249\nfull avg10=6.95 avg60=19.45 avg300=23.55 total=891162796\n"
+    },
+    "baseline_control": [
+      {
+        "label": "baseline",
+        "status": "FAIL",
+        "exit": 1,
+        "sha256": "72f6fedc62516912a16ee1687dc72c871167387db0464bc6931939a91a5b093c",
+        "duration": 117.566,
+        "log_sha256": "8eb73687d261cd5df9475e5cb0dc13d2db82d4b5b92c0a259cdffa9e6ec0429f",
+        "pressure_before": "some avg10=0.27 avg60=6.08 avg300=18.96 total=944691634\nfull avg10=0.27 avg60=6.05 avg300=18.34 total=891950666\n",
+        "pressure_after": "some avg10=49.26 avg60=18.30 avg300=17.41 total=960853067\nfull avg10=48.88 avg60=18.11 avg300=16.93 total=907962894\n",
+        "tmpfs_limit_mib": 128,
+        "iterations": 100
+      }
+    ],
+    "final_run": "Repeated without lab compilation; original deadlines and 100 TCP/100 UDP QUIC flips retained.",
+    "idle_baseline_control": {
+      "label": "baseline-idle-private-state",
+      "status": "PASS",
+      "exit": 0,
+      "sha256": "72f6fedc62516912a16ee1687dc72c871167387db0464bc6931939a91a5b093c",
+      "duration": 221.522,
+      "iterations": 100,
+      "log_sha256": "37aeeffa74bd30a92010f4330b3322f230c5f2f33f1e867d474b78eaf0316b55",
+      "work_tmpfs_mib": 128,
+      "journal_tmpfs_mib": 16,
+      "source_script_sha256": "1dd133e33f3ee847d410e21e9ffdb6961c3d6da66e7f9e19aa5d52b0cee18e7e",
+      "physical_disk_durability_tested": false
+    }
+  },
+  "limitations": [
+    "Prior audit 37/37 refers to the agreed scope; accepted unfixed Android API34 generic/null DnsResolver ENONET and its original FAIL remain.",
+    "21 physical platform cases remain unavailable/advisory.",
+    "Mocked Windows binding tests and CIM schema inspection do not certify real adapter mutation.",
+    "Linux source/MLD join+leave tests do not qualify provider multicast-snooping behavior.",
+    "Fit-path, periodic NDP and an adapter surviving Disconnect remain separate optional stages."
+  ],
+  "integration_corrections": [
+    {
+      "run": 39706642463,
+      "result": "FAIL_PRESERVED",
+      "corrected": [
+        "Missing GUI-only admission of windows_disable_sharing",
+        "Incomplete client key union/default matrices and stale schema cardinalities",
+        "Client-only metadata setter compiled as unused in server-only -D warnings build"
+      ]
+    },
+    {
+      "run": 39710395131,
+      "result": "FAIL_PRESERVED",
+      "corrected": [
+        "Plan was placed in release root, which permits only release notes; moved into certification/plans and fixed both links without weakening the layout guard"
+      ]
+    }
+  ]
+}

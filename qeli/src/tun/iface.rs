@@ -12,13 +12,8 @@ use std::os::unix::io::{AsRawFd, RawFd};
 const TUNSETIFF: libc::c_ulong = 0x800454ca;
 #[cfg(not(any(target_arch = "mips", target_arch = "mips64")))]
 const TUNSETIFF: libc::c_ulong = 0x400454ca;
-const IFF_TUN: libc::c_short = 0x0001;
-const IFF_TAP: libc::c_short = 0x0002;
-const IFF_NO_PI: libc::c_short = 0x1000;
-// Allow several independent fds (queues) to attach to one device; the kernel then
-// RSS-distributes packets across them so the data plane can read/write the TUN
-// from multiple cores in parallel (Linux IFF_MULTI_QUEUE).
-const IFF_MULTI_QUEUE: libc::c_short = 0x0100;
+pub use super::open::DeviceType;
+use super::open::{self, OpenMode, QueueIoctl};
 
 #[repr(C)]
 struct IfReq {
@@ -27,16 +22,49 @@ struct IfReq {
     ifr_pad: [u8; 22],
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum DeviceType {
-    Tun,
-    Tap,
-}
-
 pub struct TunInterface {
     pub fd: File,
     pub name: String,
     pub mtu: i32,
+}
+
+struct QueueDescriptor<'a>(&'a File);
+
+impl QueueIoctl for QueueDescriptor<'_> {
+    fn set_creation_index(&mut self, index: u32) -> io::Result<()> {
+        // SAFETY: ioctl reads one initialized u32 and self.0 owns the live TUN fd.
+        let result = unsafe { libc::ioctl(self.0.as_raw_fd(), libc::TUNSETIFINDEX as _, &index) };
+        if result < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    fn set_interface(&mut self, name: &str, flags: i16) -> io::Result<String> {
+        let mut ifr = IfReq {
+            ifr_name: [0u8; 16],
+            ifr_flags: flags,
+            ifr_pad: [0u8; 22],
+        };
+        let name_bytes = name.as_bytes();
+        let copy_len = std::cmp::min(name_bytes.len(), 15);
+        ifr.ifr_name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
+        let ret = unsafe {
+            libc::ioctl(
+                self.0.as_raw_fd(),
+                TUNSETIFF as _,
+                &mut ifr as *mut _ as *mut libc::c_void,
+            )
+        };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let actual_name = std::str::from_utf8(&ifr.ifr_name)
+            .unwrap_or(name)
+            .trim_end_matches('\0')
+            .to_string();
+        Ok(actual_name)
+    }
 }
 
 impl TunInterface {
@@ -52,6 +80,7 @@ impl TunInterface {
     /// the configured name. Linux requires IFF_MULTI_QUEUE to match the existing device;
     /// TUNSETIFF otherwise fails with EINVAL. qeli's packet pump also requires IFF_NO_PI.
     pub fn attach(name: &str, mtu: i32, device_type: DeviceType) -> io::Result<Self> {
+        let index = Self::verify_sysfs_index(name)?;
         let flags_path = format!("/sys/class/net/{name}/tun_flags");
         let flags_text = std::fs::read_to_string(&flags_path).map_err(|error| {
             io::Error::new(
@@ -59,35 +88,49 @@ impl TunInterface {
                 format!("could not inspect existing TUN/TAP '{name}' via {flags_path}: {error}"),
             )
         })?;
-        let flags = parse_tun_flags(&flags_text)?;
-        let expected_kind = match device_type {
-            DeviceType::Tun => IFF_TUN,
-            DeviceType::Tap => IFF_TAP,
-        };
-        let actual_kind = flags & (IFF_TUN | IFF_TAP);
-        if actual_kind != expected_kind {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "existing interface '{name}' has tun_flags {:#x}, which does not match device_type = {}",
-                    flags,
-                    if device_type == DeviceType::Tap { "tap" } else { "tun" }
-                ),
-            ));
+        let observed = open::parse_tun_flags(&flags_text)?;
+        let flags = open::attachment_flags(name, device_type, observed)?;
+        if Self::verify_sysfs_index(name)? != index {
+            return Err(io::Error::other(format!(
+                "existing TUN/TAP '{name}' changed while inspecting sysfs"
+            )));
         }
-        if flags & IFF_NO_PI == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "existing interface '{name}' includes a packet-information header; qeli dev_attach requires IFF_NO_PI"
-                ),
-            ));
+        Self::open_device(name, mtu, flags)
+    }
+
+    /// sysfs can remain mounted from another network namespace after setns/unshare.
+    /// An index mismatch proves its tun_flags belong to a different link. Matching
+    /// indexes alone do not prove identity across namespaces (indexes can be reused).
+    fn verify_sysfs_index(name: &str) -> io::Result<u32> {
+        let current = open::interface_index(name)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("TUN/TAP '{name}' does not exist"),
+            )
+        })?;
+        let path = format!("/sys/class/net/{name}/ifindex");
+        let text = std::fs::read_to_string(&path).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("could not inspect existing TUN/TAP '{name}' via {path}: {error}"),
+            )
+        })?;
+        let mounted = text.trim().parse::<u32>().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid TUN/TAP ifindex in {path}: {error}"),
+            )
+        })?;
+        if current != mounted {
+            return Err(io::Error::other(format!(
+                "TUN/TAP '{name}' has index {current} in the current network namespace but index {mounted} in sysfs; refusing foreign tun_flags"
+            )));
         }
-        Self::open_device(name, mtu, device_type, flags & IFF_MULTI_QUEUE != 0)
+        Ok(current)
     }
 
     fn create_device(name: &str, mtu: i32, device_type: DeviceType) -> io::Result<Self> {
-        Self::open_device(name, mtu, device_type, false)
+        Self::open_device(name, mtu, open::flags(device_type, false, OpenMode::Create))
     }
 
     /// Create `n` multi-queue fds attached to ONE device `name`. The first fd
@@ -100,63 +143,23 @@ impl TunInterface {
         device_type: DeviceType,
         n: usize,
     ) -> io::Result<Vec<Self>> {
-        let n = n.max(1);
-        let mut queues = Vec::with_capacity(n);
-        for _ in 0..n {
-            queues.push(Self::open_device(name, mtu, device_type, true)?);
-        }
-        Ok(queues)
+        open::create_queues(
+            name,
+            device_type,
+            n,
+            |name, flags| Self::open_device(name, mtu, flags),
+            |queue| queue.name.as_str(),
+        )
     }
 
-    /// Open a single TUN/TAP queue fd. With `multiqueue`, sets `IFF_MULTI_QUEUE` so
-    /// several fds can attach to the same named device.
-    fn open_device(
-        name: &str,
-        mtu: i32,
-        device_type: DeviceType,
-        multiqueue: bool,
-    ) -> io::Result<Self> {
+    /// Open one queue using the shared create/attach policy. IFF_TUN_EXCL makes
+    /// creation reject a device that appeared after the caller's existence check.
+    fn open_device(name: &str, mtu: i32, flags: i16) -> io::Result<Self> {
         let fd = OpenOptions::new()
             .read(true)
             .write(true)
             .open("/dev/net/tun")?;
-
-        let mut flags = match device_type {
-            DeviceType::Tun => IFF_TUN | IFF_NO_PI,
-            DeviceType::Tap => IFF_TAP | IFF_NO_PI,
-        };
-        if multiqueue {
-            flags |= IFF_MULTI_QUEUE;
-        }
-
-        let mut ifr = IfReq {
-            ifr_name: [0u8; 16],
-            ifr_flags: flags,
-            ifr_pad: [0u8; 22],
-        };
-
-        let name_bytes = name.as_bytes();
-        let copy_len = std::cmp::min(name_bytes.len(), 15);
-        ifr.ifr_name[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
-
-        let ret = unsafe {
-            libc::ioctl(
-                fd.as_raw_fd(),
-                // `as _`: тип запроса — c_ulong (glibc) или c_int (musl).
-                TUNSETIFF as _,
-                &ifr as *const _ as *const libc::c_void,
-            )
-        };
-
-        if ret < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        let actual_name = std::str::from_utf8(&ifr.ifr_name)
-            .unwrap_or(name)
-            .trim_end_matches('\0')
-            .to_string();
-
+        let actual_name = open::configure_queue(&mut QueueDescriptor(&fd), name, flags)?;
         Ok(TunInterface {
             fd,
             name: actual_name,
@@ -185,7 +188,7 @@ impl TunInterface {
                 ),
             ));
         }
-        let output = std::process::Command::new("ip")
+        let output = crate::system_command::Command::new("ip")
             .args([
                 "addr",
                 "add",
@@ -205,7 +208,7 @@ impl TunInterface {
     }
 
     pub fn set_up(ifname: &str, mtu: i32) -> io::Result<()> {
-        let output = std::process::Command::new("ip")
+        let output = crate::system_command::Command::new("ip")
             .args(["link", "set", "dev", ifname, "up", "mtu", &mtu.to_string()])
             .output()?;
 
@@ -223,7 +226,7 @@ impl TunInterface {
             .map(|byte| format!("{byte:02x}"))
             .collect::<Vec<_>>()
             .join(":");
-        let output = std::process::Command::new("ip")
+        let output = crate::system_command::Command::new("ip")
             .args(["link", "set", "dev", ifname, "address", &address])
             .output()?;
         if !output.status.success() {
@@ -235,61 +238,98 @@ impl TunInterface {
     }
 
     pub fn set_queue_len(ifname: &str, len: u32) -> io::Result<()> {
-        let output = std::process::Command::new("ip")
+        Self::set_queue_len_impl(ifname, len, true)
+    }
+
+    /// Client policy must not report a configured queue if the kernel rejected it.
+    pub fn set_queue_len_strict(ifname: &str, len: u32) -> io::Result<()> {
+        Self::set_queue_len_impl(ifname, len, false)
+    }
+
+    fn set_queue_len_impl(ifname: &str, len: u32, allow_unsupported: bool) -> io::Result<()> {
+        let output = crate::system_command::Command::new("ip")
             .args(["link", "set", "dev", ifname, "txqueuelen", &len.to_string()])
             .output()?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            if !stderr.contains("Operation not supported") {
+            if !allow_unsupported || !stderr.contains("Operation not supported") {
                 return Err(io::Error::other(stderr.to_string()));
             }
         }
         Ok(())
     }
 
-    pub fn delete(ifname: &str) -> io::Result<()> {
-        // Try both tuntap modes, each with and without `multi_queue`. The device is exactly
-        // one combination, and the name prefix doesn't reliably tell us which (a TAP may be
-        // named "vpn0", a TUN "tap0"). The matching form removes it; the others no-op with
-        // "No such device". This stays scoped to tuntap, so a same-named non-tuntap interface
-        // (WireGuard / ethernet) is never touched.
-        //
-        // The `multi_queue` variants are why this is a four-way loop rather than the original
-        // two: `ip tuntap del` reconstructs the interface flags and calls TUNSETIFF, so
-        // deleting an IFF_MULTI_QUEUE device WITHOUT that flag fails with a bare
-        // `ioctl(TUNSETIFF): Invalid argument`. Every server profile creates a multi-queue
-        // device (`create_multiqueue`, queues default to one per core), so this function could
-        // not delete the devices this codebase actually makes — silently, because both call
-        // sites used `.ok()`. That left a stale interface behind whenever a profile stopped or
-        // failed to start, and made the "delete any leftover first" step at profile start a
-        // no-op. Verified on the lab: plain del → EINVAL and the device survives; with
-        // `multi_queue` → removed. (Audit 2026-08-01, §5.)
-        let mut hard_err = None;
-        for mode in ["tun", "tap"] {
-            for mq in [true, false] {
-                let mut args = vec!["tuntap", "del", "mode", mode];
-                if mq {
-                    args.push("multi_queue");
-                }
-                args.extend(["name", ifname]);
-                let output = std::process::Command::new("ip").args(&args).output()?;
-                if output.status.success() {
-                    return Ok(());
-                }
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if stderr.contains("No such device") || stderr.contains("does not exist") {
-                    continue; // wrong mode/queueing for this device, or it's already gone
-                }
-                hard_err = Some(stderr.to_string());
+    /// Observe the device attached to this descriptor, including a renamed interface.
+    /// None means the original was externally unregistered; never resolve its saved name.
+    #[cfg(any(test, feature = "client"))]
+    fn attached_name(&self) -> io::Result<Option<String>> {
+        let mut ifr = IfReq {
+            ifr_name: [0; 16],
+            ifr_flags: 0,
+            ifr_pad: [0; 22],
+        };
+        // SAFETY: the descriptor is owned, and ifr provides the complete writable ifreq.
+        if unsafe { libc::ioctl(self.as_raw_fd(), libc::TUNGETIFF as _, &mut ifr) } < 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EBADFD) {
+                return Ok(None);
             }
+            return Err(error);
         }
-        // Nothing deleted it: either it was absent (fine) or one form failed for a real reason
-        // (busy/permission) — surface that.
-        match hard_err {
-            Some(e) => Err(io::Error::other(e)),
-            None => Ok(()),
+        let name = std::ffi::CStr::from_bytes_until_nul(&ifr.ifr_name)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+            .to_str()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        Ok(Some(name.to_string()))
+    }
+
+    #[cfg(any(test, feature = "client"))]
+    fn require_attached_namespace(&self) -> io::Result<bool> {
+        use std::os::unix::{fs::MetadataExt, io::FromRawFd};
+        // SAFETY: this ioctl returns a newly owned namespace fd on success.
+        let fd = unsafe { libc::ioctl(self.as_raw_fd(), libc::TUNGETDEVNETNS as _) };
+        if fd < 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EBADFD) {
+                return Ok(false);
+            }
+            return Err(io::Error::new(
+                error.kind(),
+                format!("cannot verify TUN namespace with TUNGETDEVNETNS: {error}"),
+            ));
         }
+        // SAFETY: the successful ioctl transferred this new fd, released on every exit.
+        let namespace = unsafe { File::from_raw_fd(fd) };
+        let original = namespace.metadata()?;
+        let current = std::fs::metadata("/proc/thread-self/ns/net")?;
+        if (original.dev(), original.ino()) != (current.dev(), current.ino()) {
+            return Err(io::Error::other(
+                "TUN belongs to a different network namespace",
+            ));
+        }
+        Ok(true)
+    }
+
+    #[cfg(any(test, feature = "client"))]
+    pub(crate) fn attached_link(&self) -> io::Result<Option<(String, u32)>> {
+        if !self.require_attached_namespace()? {
+            return Ok(None);
+        }
+        let Some(name) = self.attached_name()? else {
+            return Ok(None);
+        };
+        let index = open::interface_index(&name)?;
+        let Some(after) = self.attached_name()? else {
+            return Ok(None);
+        };
+        if !self.require_attached_namespace()? {
+            return Ok(None);
+        }
+        if name != after || index.is_none() {
+            return Err(io::Error::other("TUN identity changed during observation"));
+        }
+        Ok(Some((name, index.expect("checked above"))))
     }
 
     pub fn set_nonblocking(&self) -> io::Result<()> {
@@ -304,25 +344,6 @@ impl TunInterface {
         }
         Ok(())
     }
-}
-
-fn parse_tun_flags(value: &str) -> io::Result<libc::c_short> {
-    let value = value.trim();
-    let parsed = if let Some(hex) = value
-        .strip_prefix("0x")
-        .or_else(|| value.strip_prefix("0X"))
-    {
-        u16::from_str_radix(hex, 16)
-    } else {
-        value.parse::<u16>()
-    }
-    .map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("invalid tun_flags value '{value}': {error}"),
-        )
-    })?;
-    Ok(parsed as libc::c_short)
 }
 
 impl Read for TunInterface {
@@ -345,17 +366,7 @@ impl AsRawFd for TunInterface {
         self.fd.as_raw_fd()
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn tun_flags_parser_accepts_kernel_hex_and_decimal_forms() {
-        assert_eq!(
-            parse_tun_flags("0x1102\n").unwrap(),
-            IFF_TAP | IFF_NO_PI | IFF_MULTI_QUEUE
-        );
-        assert_eq!(parse_tun_flags("4097").unwrap(), IFF_TUN | IFF_NO_PI);
-        assert!(parse_tun_flags("not-flags").is_err());
-    }
-}
+#[cfg(test)]
+#[path = "attach_linux_tests.rs"]
+mod linux_tests;

@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_APK_BUILDER_PROCESS_LIFECYCLE_SCOPED",
+  "source_digest": "e1e2d6951fdcc2bde60d4eb1bb00af9294da164f994dd61d2c248d1287ac828c",
+  "qualification_source_commit": "602f58b96f18b8453575db6d5f673e393e6a603b",
+  "product_source_commit": "602f58b96f18b8453575db6d5f673e393e6a603b",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F491/Q34-F045"
+  ],
+  "verification": {
+    "concurrency": {
+      "status": "PASS_CONTROLLED_CONCURRENCY",
+      "pid_namespace_init": 1,
+      "baseline_command": "pkill -9 -f GradleDaemon 2>/dev/null; rm -rf /root/.gradle/caches/journal-1 2>/dev/null; true",
+      "baseline_shell_returncode": -9,
+      "baseline_foreign_worker_returncode": -9,
+      "baseline_cache_deletion_claim": false,
+      "fixed_foreign_worker": "ALIVE",
+      "fixed_foreign_cache": "UNCHANGED",
+      "actual_fixed_build_arguments": [
+        "clean",
+        "testDebugUnitTest",
+        "assembleDebug",
+        "--offline",
+        "--no-daemon",
+        "--max-workers=1",
+        "-Dorg.gradle.vfs.watch=false",
+        "-Dorg.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8"
+      ],
+      "actual_fixed_commands": [
+        "mkdir -p /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/android/app/src/main/jniLibs/arm64-v8a",
+        "mkdir -p /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/android/app/src/main/jniLibs/x86_64",
+        "rm -rf -- /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/android/app/src/androidTest",
+        "rm -rf -- /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/android/app/src/main/kotlin",
+        "rm -rf -- /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/android/app/src/main/res",
+        "rm -rf -- /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/android/app/src/test",
+        "mkdir -p ",
+        "grep -E 'versionCode|versionName' /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/android/app/build.gradle.kts",
+        "export PATH=/root/.cargo/bin:$PATH; cd /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/qeli && cargo +1.97.0 build --locked --offline --no-default-features --features transport-core-ffi --lib",
+        "nm -D /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/qeli/target/debug/libqeli_core.so | grep -c 'Java_com_qeli_ConfigCore_nativeRequest$'",
+        "cd /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/android && chmod +x gradlew && QELI_CONFIG_NATIVE_LIBRARY=/var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/qeli/target/debug/libqeli_core.so ./gradlew clean testDebugUnitTest assembleDebug --offline --no-daemon --max-workers=1 -Dorg.gradle.vfs.watch=false '-Dorg.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8' 2>&1"
+      ],
+      "build_output": "=== 1. push repo jniLibs/*.so -> .11 ===\n  [push] arm64-v8a/libqeli.so (16 bytes)\n  [push] x86_64/libqeli.so (16 bytes)\n=== 2. sync sources + shared conformance (preserving jniLibs) ===\n  [sync] 0 files including shared conformance fixtures\n  [versionName on .11]: \n=== 2b. sync Rust source and build Linux host core for JVM tests ===\n  [sync] 1 Rust source/assets files\n\n  [host core] /var/tmp/qeli-docker-latest-20261009.aw1fGD1e/tmprd3zhe72/qeli/target/debug/libqeli_core.so: ConfigCore JNI export present\n=== 3. ./gradlew testDebugUnitTest assembleDebug --offline ===\ncontrolled compile failure\n",
+      "scope": "Real baseline shell/pkill and fixed orchestration with controlled failing gradlew; no actual APK/Gradle/compiler execution; all processes/cache inside private mount/PID namespace"
+    },
+    "preserved_commands": {
+      "status": "PASS",
+      "baseline_sh_calls": 14,
+      "fixed_sh_calls": 13,
+      "removed_only": [
+        "Constant(value='pkill -9 -f GradleDaemon 2>/dev/null; rm -rf /root/.gradle/caches/journal-1 2>/dev/null; true')"
+      ],
+      "scope": "All remaining sh command AST expressions preserved; actual compiler/APK execution not rerun"
+    },
+    "windows": {
+      "status": "PASS",
+      "runs": [
+        {
+          "test": "test_rebuild_apk.py",
+          "returncode": 0
+        },
+        {
+          "test": "test_native_recipes.py",
+          "returncode": 0
+        },
+        {
+          "test": "test_check_workflows.py",
+          "returncode": 0
+        }
+      ],
+      "actionlint": "PASS4 official1.7.12"
+    },
+    "linux": {
+      "status": "PASS",
+      "tests": 7,
+      "versions": "Python 3.13.5\ngit version 2.47.3",
+      "returncode": 0,
+      "root": "/var/tmp/qeli-docker-latest-20261009.aw1fGD1e",
+      "recovered": [
+        {
+          "path": "scripts/rebuild_apk.py",
+          "size": 9240,
+          "sha256": "39cd6ca6626892fc98ea211dc8c36b5b9dbe17a2a6c786e598fd519f7c7dd31d"
+        },
+        {
+          "path": "scripts/test_rebuild_apk.py",
+          "size": 4674,
+          "sha256": "2586e4e43442fb6c43a992b8256a3434d42c0bdc77ef5cf836fd392b0371d899"
+        },
+        {
+          "path": "scripts/native_lab.py",
+          "size": 9894,
+          "sha256": "da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0"
+        },
+        {
+          "path": "scripts/native_repro.py",
+          "size": 16523,
+          "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+        },
+        {
+          "path": "scripts/ssh_command.py",
+          "size": 953,
+          "sha256": "ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b"
+        },
+        {
+          "path": ".github/workflows/ci.yml",
+          "size": 51653,
+          "sha256": "aa6656e08a68aab5a81de19cec9286698547636f8aa1900141c780ad92730f15"
+        },
+        {
+          "path": "test.log",
+          "size": 1039,
+          "sha256": "a63d564189d0bab33b2472980df52702a5e439f2c8157551970f2c523e367e7f"
+        },
+        {
+          "path": "linux-probe.py",
+          "size": 4293,
+          "sha256": "2208c2247b010254fb7d85d63ad08ae845011508ef5d72e16c3791027390ae9b"
+        },
+        {
+          "path": "baseline-rebuild_apk.py",
+          "size": 8460,
+          "sha256": "cfe306049b1018af7d653a2cf171420c689b13049cdf183d5d1efcde1edfca21"
+        },
+        {
+          "path": "probe.log",
+          "size": 126,
+          "sha256": "68cbb1de08cf160225a8cb9421f97072d9652d4c846e59151527045206ddcc40"
+        },
+        {
+          "path": "probe-result.json",
+          "size": 3028,
+          "sha256": "821f78ee5ad5bec4e956a9c442a6353c3a436b82bcd6a1945b5a90d0787386c5"
+        }
+      ],
+      "cleanup": {
+        "cleanup": "REMOVED",
+        "process_references": [],
+        "mount_guard": "PASS",
+        "nonrecursive_known_files_only": true
+      },
+      "before": "active\nMainPID=777\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n777\n845",
+      "after": "active\nMainPID=777\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli\n777\n845",
+      "scope": "Real Linux APK builder lifecycle/concurrency tests; no Docker build/push/network configuration or global installation; .10 unused"
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-CLIENT-SUPPLY.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-CLIENT-SUPPLY.md",
+        "scripts/rebuild_apk.py",
+        "scripts/test_rebuild_apk.py"
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "qualified_paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "aa6656e08a68aab5a81de19cec9286698547636f8aa1900141c780ad92730f15",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/rebuild_apk.py",
+          "sha256": "39cd6ca6626892fc98ea211dc8c36b5b9dbe17a2a6c786e598fd519f7c7dd31d",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_rebuild_apk.py",
+          "sha256": "2586e4e43442fb6c43a992b8256a3434d42c0bdc77ef5cf836fd392b0371d899",
+          "normalization": "LF"
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-apk-builder-20261009",
+    "files": 36,
+    "bytes": 1205550,
+    "manifest_sha256": "bf6a65063b2ee57f87813097cb2601d15d075dffa25ebf0a9007139abcaa8bf9",
+    "runtime_status": "PASS_Q34_APK_BUILDER_PROCESS_LIFECYCLE_WINDOWS_LINUX_SCOPED",
+    "path": "audit-debt-20260924/q34-apk-builder-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F491/Q34-F045 APK builder global process/cache interference closed: removed exact pkill-9-fGradleDaemon/sharedjournal deletion; all other13sh AST command expressions preserved,offline/no-daemon/oneworker/native mirror/release apksigner/SHA download retained. Import-safe build/main,invalid CLI admission beforeSSH,try/finally closes SSH/SFTP after open/build/close failures.7newWindows+7Linux lifecycle/orchestration methods plus38native recipe+11workflowWindows methods PASS; new suite in CI; officialSHA-qualifiedactionlint1.7.12 accepts4workflows;724Markdown9checks/diffPASS. Actual baseline shell executed only in PID1/private mount/PID namespace with fake foreign-named worker and bind-mounted private cache: both worker/shellSIGKILLrc-9; do not claim baselinejournaldeletion because shell diedfirst. Fixedactualorchestration executescontrolledgradlew that fails7,correctrefusal and foreignworkerALIVE/cacheunchanged; noactualGradle/compiler/APK. Complete inputs/logs/proof SHA-recovered,ownedroot knownfiles-only nonrecursive cleanup after process/fd/mountguards; original777845/CLI75bc retained,.10unused. Builder stillhasfixedsharedsource directories; concurrentdifferentAPKsourcebuilds andexpectedreleasepublisher notqualified; validapksigner alone notpublishersourcequalification. Nativee3fb14SHA/protected/qelitree/existingOpenWrtgate unchanged; inheritedqualification notrerun; nohostedActions/signing/push/deploy/release.41cases92priorsupplements preserved modulo source_digest bookkeeping;append93scoped.Q34IN_PROGRESS30/37DONE81.1percent7remain;F459bracesOPEN/Q29SIGKILLFAIL-ENONET/Q30Q31/D06accepted/USER_EXCLUDED retained.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

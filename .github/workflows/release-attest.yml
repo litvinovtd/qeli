@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
   id-token: write
   attestations: write
 
@@ -24,6 +25,10 @@ concurrency:
 
 jobs:
   linux-package:
+    # Prereleases publish the already qualified candidate bytes. Rebuilding here
+    # would replace that package and its sealed checksums after publication.
+    # Explicit manual runs and stable releases retain the CI build/attest path.
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
     runs-on: ubuntu-latest
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
@@ -31,27 +36,25 @@ jobs:
       - name: Check out the exact release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          ref: refs/tags/${{ github.event.release.tag_name || inputs.tag }}
           fetch-depth: 0
 
-      - name: Refuse a tag/source/version mismatch
+      - name: Admit exact tag, runtime certification and successful CI commit
         id: meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          tagged_commit="$(git rev-list -n1 "$TAG")"
-          checked_commit="$(git rev-parse HEAD)"
-          test "$tagged_commit" = "$checked_commit"
-          version="$(python3 -c "import tomllib; print(tomllib.load(open('qeli/Cargo.toml','rb'))['package']['version'])")"
-          test "$TAG" = "v$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "commit=$checked_commit" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release_tag.py --tag "$TAG" --require-ci --wait-ci 1800 --require-certification --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate common native legal resources before building
+        run: python3 scripts/native_licenses.py
 
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: 0.13.0
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          toolchain: ${{ steps.meta.outputs.rust_toolchain }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: qeli
 
@@ -86,6 +89,7 @@ jobs:
           trap 'rm -rf "$extracted"' EXIT
           dpkg-deb -x "${{ steps.pkg.outputs.source }}" "$extracted"
           "$extracted/usr/bin/qeli" version
+          python3 scripts/native_licenses.py --bundle "$extracted/usr/share/doc/qeli/licenses/rust"
           for name in server server-multiprofile server-ipv6 server-maxobf users client client-reality client-maxobf; do
             test -f "$extracted/etc/qeli/$name.conf.example"
           done
@@ -121,7 +125,7 @@ jobs:
           subject-path: ${{ steps.assets.outputs.subject }}
 
       - name: Preserve the package and checksum as workflow artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: qeli-linux-${{ steps.meta.outputs.version }}
           path: |
@@ -139,25 +143,6 @@ jobs:
             "${{ steps.assets.outputs.subject }}" dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --clobber
 
-      # Other platform assets are still produced by their platform release processes.
-      # Keep the previous signed publication evidence for them, but do not call it build
-      # provenance. The .deb is excluded because its stronger attestation was minted above.
-      - name: Detect independently-produced non-Linux assets
-        id: other
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -n "$(find dist -maxdepth 1 -type f ! -name 'SHA256SUMS' ! -name '*.deb' -print -quit)" ]; then
-            echo 'present=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'present=false' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Attest non-Linux release assets (publication evidence only)
-        if: steps.other.outputs.present == 'true'
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
-        with:
-          subject-path: |
-            dist/*
-            !dist/SHA256SUMS
-            !dist/*.deb
+      # Downloaded platform assets participate in SHA256SUMS only. Their build
+      # provenance must come from the jobs that actually built them; this Linux
+      # job must not mint build provenance for externally produced bytes.

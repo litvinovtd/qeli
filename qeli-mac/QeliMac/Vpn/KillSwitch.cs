@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using QeliMac.Service;
 
 namespace QeliMac.Vpn;
 
@@ -16,7 +17,7 @@ namespace QeliMac.Vpn;
 /// manually, flush the anchor — NOT <c>pfctl -f /etc/pf.conf</c>, which reloads the FILE
 /// rather than whatever the host actually had loaded:
 /// <c>sudo pfctl -a com.apple/qeli -F rules ; sudo pfctl -a qeli -F rules</c>
-/// (and <c>sudo pfctl -d</c> if pf was off before).
+/// Global pf stays enabled to preserve other tools' references/policies.
 ///
 /// REQUIRES root (the tunnel already does). Before loading the fail-closed rules, the
 /// system-TUN path reserves the real utun device and passes that exact name here. During
@@ -43,9 +44,15 @@ public static class KillSwitch
     // ".../qeli", which on a case-SENSITIVE volume split kill-switch state into a second dir
     // from the daemon's (harmless on the default case-insensitive APFS). (client-audit LOW)
     private static readonly string Dir = QeliMac.Model.Paths.ServiceDir;
-    private static readonly string StatePath = Path.Combine(Dir, "killswitch.state");
     private static readonly string RulesPath = Path.Combine(Dir, "killswitch.pf.conf");
-    private static readonly string OperationLockPath = Path.Combine(Dir, "killswitch.lock");
+    private static PfRecovery Recovery() => new(
+        () => ServiceState.ReadProtected("killswitch.state", 4096),
+        () => { Pf($"-a {AnchorName} -F rules", true); Pf($"-a {AppleAnchorPath} -F rules", true); },
+        () => ServiceState.DeleteProtected("killswitch.pf.conf"),
+        () => ServiceState.DeleteProtected("killswitch.state"),
+        DnsJournal.IsOwnerAlive, DnsJournal.CurrentOwner());
+    private static bool HasState() => ServiceState.ReadProtected("killswitch.state", 4096) is not null;
+    private static void WriteRules(string rules) => ServiceState.WriteProtected("killswitch.pf.conf", Encoding.UTF8.GetBytes(rules));
     // Access is serialized by OperationLockPath. These are the exact live ownership set
     // reused when DDNS or a persisted-plan replacement atomically reloads the anchor.
     private static IReadOnlyList<string> _activeTunnelInterfaces = Array.Empty<string>();
@@ -62,9 +69,9 @@ public static class KillSwitch
             throw new InvalidOperationException(
                 $"kill-switch: cannot resolve server '{serverAddress}' to an IP to allow through");
 
-        Directory.CreateDirectory(Dir);
+        ServiceState.EnsureDir();
         using var operation = AcquireOperation();
-        if (File.Exists(StatePath))
+        if (HasState())
         {
             if (OwnerAlive())
                 throw new InvalidOperationException(
@@ -79,10 +86,9 @@ public static class KillSwitch
             // Stamp the state with THIS process's identity so the startup Sweep can tell a
             // genuine crash (owner gone) from a still-live tunnel owned by ANOTHER qeli
             // instance — a second launch must NOT sweep away an active kill-switch. (C-04)
-            // The pid/start lines are ignored by Disengage's `enabled=0` check.
-            var self = Process.GetCurrentProcess();
-            File.WriteAllText(StatePath,
-                $"pid={self.Id}\nstart={self.StartTime.Ticks}\n" + (wasEnabled ? "enabled=1\n" : "enabled=0\n"));
+            // The enabled flag is diagnostic; cleanup never disables global pf.
+            if (!ServiceState.WriteProtected("killswitch.state", PfRecovery.Encode(DnsJournal.CurrentOwner(), wasEnabled), replace: false))
+                throw new InvalidOperationException("Kill-switch recovery state was claimed by another writer");
 
             // DNS: scope the port-53 pass to the system's configured resolvers, NEVER `to any`.
             // A blanket `pass 53 to any` let every app's DNS query egress in cleartext on the
@@ -95,7 +101,7 @@ public static class KillSwitch
             // Residual (accepted): an app querying those same resolvers still leaks its query
             // metadata; removing that entirely would break server re-resolution while down.
             var dnsResolvers = ResolveSystemDnsServers();
-            File.WriteAllText(RulesPath, BuildRules(ips, dnsResolvers, tunnels));
+            WriteRules(BuildRules(ips, dnsResolvers, tunnels));
 
             // ANCHOR-BASED (Р3 / C-09). Loading these as the GLOBAL ruleset replaced whatever
             // pf was already enforcing — corporate MDM rules, Little Snitch, Docker/vmnet
@@ -118,7 +124,7 @@ public static class KillSwitch
                 $"{string.Join(", ", ips)}, DHCP, and DNS to {(dnsResolvers.Count > 0 ? string.Join(", ", dnsResolvers) : "<none — physical DNS blocked>")}. " +
                 $"Other pf rules on this host are left intact. " +
                 $"Stays up across reconnects; a crash leaves it (no leak) — clear with: " +
-                $"sudo pfctl -a {anchor} -F rules" + (wasEnabled ? "" : " ; sudo pfctl -d"));
+                $"sudo pfctl -a {anchor} -F rules");
         }
         catch (Exception engageError)
         {
@@ -128,14 +134,7 @@ public static class KillSwitch
             // partially engaged, host-blocking ruleset.
             try
             {
-                Pf($"-a {AnchorName} -F rules", critical: true);
-                Pf($"-a {AppleAnchorPath} -F rules", critical: true);
-                if (!wasEnabled && Pf("-s info", critical: true).Contains("Status: Enabled"))
-                    Pf("-d", critical: true);
-                if (File.Exists(StatePath)) File.Delete(StatePath);
-                if (File.Exists(RulesPath)) File.Delete(RulesPath);
-                _activeTunnelInterfaces = Array.Empty<string>();
-                _activeServerIps = Array.Empty<string>();
+                DisengageLocked(log);
             }
             catch (Exception restoreError)
             {
@@ -154,16 +153,16 @@ public static class KillSwitch
     public static void UpdateServerAddresses(IReadOnlyList<string> ips, Action<string> log)
     {
         using var operation = AcquireOperation();
+        Recovery().RequireCurrentOwner();
         if (ips.Count == 0)
             throw new InvalidOperationException("kill-switch: refusing an empty server allowlist");
-        if (!File.Exists(StatePath))
+        if (!HasState())
             throw new InvalidOperationException("kill-switch: cannot refresh an allowlist that is not engaged");
         if (_activeTunnelInterfaces.Count == 0)
             throw new InvalidOperationException("kill-switch: no owned utun interface is recorded");
 
         var dnsResolvers = ResolveSystemDnsServers();
-        File.WriteAllText(RulesPath,
-            BuildRules(ips, dnsResolvers, _activeTunnelInterfaces));
+        WriteRules(BuildRules(ips, dnsResolvers, _activeTunnelInterfaces));
         string anchor = ResolveAnchorPath(log);
         // pfctl parses the complete file before replacing the anchor; a parse/load failure
         // leaves the already active fail-closed rules available to the caller's fallback.
@@ -179,15 +178,15 @@ public static class KillSwitch
         IReadOnlyList<string> tunnelInterfaces, Action<string> log)
     {
         using var operation = AcquireOperation();
-        if (!File.Exists(StatePath) || _activeServerIps.Count == 0)
+        Recovery().RequireCurrentOwner();
+        if (!HasState() || _activeServerIps.Count == 0)
             throw new InvalidOperationException(
                 "kill-switch: cannot refresh tunnel interfaces before engage");
         var tunnels = NormalizeTunnelInterfaces(tunnelInterfaces);
         if (_activeTunnelInterfaces.SequenceEqual(tunnels))
             return;
         var dnsResolvers = ResolveSystemDnsServers();
-        File.WriteAllText(RulesPath,
-            BuildRules(_activeServerIps, dnsResolvers, tunnels));
+        WriteRules(BuildRules(_activeServerIps, dnsResolvers, tunnels));
         string anchor = ResolveAnchorPath(log);
         Pf($"-a {anchor} -f \"{RulesPath}\"", critical: true);
         _activeTunnelInterfaces = tunnels;
@@ -200,6 +199,9 @@ public static class KillSwitch
         IReadOnlyList<string> dnsResolvers,
         IReadOnlyList<string> tunnelInterfaces)
     {
+        ips = NormalizeAddresses(ips);
+        dnsResolvers = NormalizeAddresses(dnsResolvers, resolver: true);
+        tunnelInterfaces = NormalizeTunnelInterfaces(tunnelInterfaces);
         // Rules for OUR ANCHOR only — no `set block-policy`, no global directives: an
         // anchor ruleset may not carry them, and they belong to the main ruleset anyway.
         var sb = new StringBuilder();
@@ -218,6 +220,22 @@ public static class KillSwitch
         return sb.ToString();
     }
 
+    private static IReadOnlyList<string> NormalizeAddresses(IReadOnlyList<string> values, bool resolver = false)
+    {
+        return values.Select(value =>
+        {
+            if (!System.Net.IPAddress.TryParse(value, out var address))
+                throw new InvalidOperationException("kill-switch: invalid address in rules");
+            if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+            bool unicast = !address.Equals(System.Net.IPAddress.Any) && !address.Equals(System.Net.IPAddress.IPv6Any)
+                && (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                    ? !address.IsIPv6Multicast : address.GetAddressBytes()[0] < 224);
+            if (!unicast || (resolver && !UsableResolver(address)))
+                throw new InvalidOperationException("kill-switch: unusable address in rules");
+            return address.ToString();
+        }).Distinct().ToArray();
+    }
+
     private static IReadOnlyList<string> NormalizeTunnelInterfaces(
         IReadOnlyList<string> tunnelInterfaces)
     {
@@ -226,9 +244,7 @@ public static class KillSwitch
             .Select(name => name.Trim())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        if (result.Length == 0 || result.Any(name =>
-                !name.StartsWith("utun", StringComparison.Ordinal) ||
-                !int.TryParse(name.AsSpan(4), out int index) || index < 0))
+        if (result.Length == 0 || result.Any(name => !UtunDevice.ValidName(name)))
             throw new InvalidOperationException(
                 "kill-switch: tunnel allowlist must contain only actual utunN interface names");
         return result;
@@ -260,10 +276,18 @@ public static class KillSwitch
         try { NormalizeTunnelInterfaces(new[] { "en0" }); }
         catch (InvalidOperationException) { rejected = true; }
         check("macOS kill-switch rejects non-utun interface aliases", rejected);
+        check("macOS server endpoint accepts loopback without weakening physical DNS", BuildRules(new[] { "127.0.0.1" }, Array.Empty<string>(), new[] { "utun7" }).Contains("to 127.0.0.1"));
+        check("macOS server endpoint preserves unicast link-local", BuildRules(new[] { "169.254.1.1" }, Array.Empty<string>(), new[] { "utun7" }).Contains("to 169.254.1.1"));
+        foreach (string malformed in new[] { "1.1.1.1\npass out all", "224.0.0.1" })
+        {
+            bool invalid = false;
+            try { _ = BuildRules(new[] { malformed }, Array.Empty<string>(), new[] { "utun7" }); } catch (InvalidOperationException) { invalid = true; }
+            check("macOS pf rules refuse malformed/nonunicast endpoint", invalid);
+        }
     }
 
-    /// <summary>Restore pf to its pre-engage state (flush our anchors, and disable pf
-    /// if it was off before). Throws unless every security-relevant step succeeds.</summary>
+    /// <summary>Flush owned Qeli anchors, preserving global pf and foreign rules.
+    /// Throws unless all cleanup succeeds; a live foreign owner is refused.</summary>
     public static void Disengage(Action<string>? log = null)
     {
         using var operation = AcquireOperation();
@@ -272,32 +296,10 @@ public static class KillSwitch
 
     private static void DisengageLocked(Action<string>? log)
     {
-        // Flush ONLY our anchor. The old code reloaded /etc/pf.conf, which wiped any rules
-        // another tool had loaded and restored the file's contents rather than the state we
-        // replaced. Flushing the anchor removes exactly what we added. (Р3)
-        //
-        // BOTH candidate paths, unconditionally: Engage picks between `qeli` and
-        // `com.apple/qeli` depending on what the main ruleset references (see
-        // ResolveAnchorPath), and a Sweep after a crash — or after an upgrade from a build
-        // that only ever used the top-level anchor — must not leave the other one loaded and
-        // still blocking. Flushing an anchor that holds nothing is a no-op.
-        // (Audit 2026-07-27, N3)
-        Pf($"-a {AnchorName} -F rules", critical: true);
-        Pf($"-a {AppleAnchorPath} -F rules", critical: true);
-        bool wasEnabled = true;
-        try
-        {
-            foreach (var line in File.ReadAllLines(StatePath))
-                if (line.Trim() == "enabled=0") wasEnabled = false;
-        }
-        catch { /* no state -> assume pf was on, leave it on */ }
-        if (!wasEnabled && Pf("-s info", critical: true).Contains("Status: Enabled"))
-            Pf("-d", critical: true); // pf was off before us -> turn it back off
-        if (File.Exists(StatePath)) File.Delete(StatePath);
-        if (File.Exists(RulesPath)) File.Delete(RulesPath);
+        if (!Recovery().Release(staleOnly: false)) return;
         _activeTunnelInterfaces = Array.Empty<string>();
         _activeServerIps = Array.Empty<string>();
-        log?.Invoke("Kill-switch disengaged (pf restored)");
+        log?.Invoke("Kill-switch disengaged; Qeli anchors removed, global pf remains enabled");
     }
 
     /// <summary>Startup sweep: if a state file is present, a previous run crashed
@@ -305,7 +307,7 @@ public static class KillSwitch
     public static void Sweep(Action<string>? log = null)
     {
         using var operation = AcquireOperation();
-        if (!File.Exists(StatePath)) return;
+        if (!HasState()) return;
         // Only a CRASHED run's kill-switch should be swept. If the state's owning process
         // is still alive, it is an active tunnel (possibly another qeli instance) — leave
         // its kill-switch engaged rather than tearing down its protection. (C-04)
@@ -319,165 +321,26 @@ public static class KillSwitch
     }
 
     /// <summary>Owning process's pid + start-time recorded in the state file, if any.</summary>
-    private static (int pid, long start)? ReadOwner()
-    {
-        try
-        {
-            int pid = -1; long start = -1;
-            foreach (var line in File.ReadAllLines(StatePath))
-            {
-                int i = line.IndexOf('=');
-                if (i <= 0) continue;
-                var k = line[..i].Trim();
-                var v = line[(i + 1)..].Trim();
-                if (k == "pid") int.TryParse(v, out pid);
-                else if (k == "start") long.TryParse(v, out start);
-            }
-            if (pid > 0 && start >= 0) return (pid, start);
-        }
-        catch { }
-        return null;
-    }
-
-    /// <summary>True if the state file's owning process is still running (same pid AND
-    /// start-time). Legacy state without owner info is treated as crashed (swept).</summary>
     private static bool OwnerAlive()
     {
-        var owner = ReadOwner();
-        if (owner is null) return false;
-        try
-        {
-            using var p = Process.GetProcessById(owner.Value.pid);
-            return p.StartTime.Ticks == owner.Value.start;
-        }
-        catch { return false; }
+        var bytes = ServiceState.ReadProtected("killswitch.state", 4096);
+        return bytes is not null && DnsJournal.IsOwnerAlive(PfRecovery.Decode(bytes).Owner);
     }
 
-    // ── helpers ───────────────────────────────────────────────────────────────
+    // Filter-only output cannot prove absence of NAT/rdr/scrub or foreign anchors.
+    private static string ResolveAnchorPath(Action<string> log) =>
+        PfRecovery.Anchor(Pf("-sr", critical: true));
 
-    /// <summary>
-    /// Choose the anchor path to load our rules into: one the loaded main ruleset ALREADY
-    /// references, because an anchor nothing references is inert — a kill-switch that
-    /// silently protects nothing. Throws if there is no such reference, so Engage fails
-    /// closed and the caller refuses to connect unprotected.
-    ///
-    /// WHY THIS NO LONGER WRITES THE MAIN RULESET (N3). The previous version read the main
-    /// ruleset with `pfctl -sr`, appended `anchor "qeli"` and reloaded the result. `-sr`
-    /// prints FILTER rules only, so that reload silently dropped every `nat`, `rdr`, `scrub`
-    /// and `set` line the host had loaded — and `Disengage` restored none of it, because it
-    /// only flushes our anchor. On a machine running Docker/vmnet (or an enterprise agent)
-    /// that permanently broke port forwarding, and the damage outlived the VPN session.
-    /// Restoring a faithful copy of the full ruleset is not achievable from pfctl's
-    /// per-class output either, so the fix is to stop rewriting it altogether:
-    ///
-    ///  1. `anchor "qeli"` already referenced (a hand-edited /etc/pf.conf, or a main ruleset
-    ///     a previous build of this code rewrote) → use the top-level `qeli` anchor.
-    ///  2. Stock macOS: /etc/pf.conf ends with `anchor "com.apple/*"`, a WILDCARD reference
-    ///     that evaluates every child anchor of `com.apple`. Loading into `com.apple/qeli`
-    ///     is therefore live immediately, with zero changes to the main ruleset — the same
-    ///     mechanism other macOS network tools use. It is also the last filter directive in
-    ///     the stock file, so our non-quick `block drop out all` is still the last match,
-    ///     exactly as when we appended the reference ourselves.
-    ///  3. Neither present → refuse. Adding the reference means rewriting the main ruleset,
-    ///     which is the bug. The message tells the operator the one-line fix.
-    /// </summary>
-    private static string ResolveAnchorPath(Action<string> log)
+    private static IDisposable AcquireOperation()
     {
-        string current = Pf("-sr", critical: false);
-        if (current.Contains($"anchor \"{AnchorName}\"", StringComparison.Ordinal))
-            return AnchorName;
-        if (current.Contains(AppleWildcardRef, StringComparison.Ordinal))
-        {
-            log($"pf: loading kill-switch rules into '{AppleAnchorPath}' " +
-                $"(covered by the existing `{AppleWildcardRef}` reference — main ruleset untouched)");
-            return AppleAnchorPath;
-        }
-        // NOTHING is loaded — the stock state of a Mac that has never enabled pf, which is
-        // the default. Refusing here was wrong and made the client unusable: with
-        // `kill_switch = true` the caller fails closed and never connects at all, so a
-        // perfectly ordinary Mac simply stopped working on upgrade (0.7.12 got away with it
-        // because it reloaded /etc/pf.conf outright).
-        //
-        // Loading the system's own /etc/pf.conf is safe in exactly this case and only this
-        // case: the reason we refuse to touch the main ruleset is that it may carry another
-        // tool's nat/rdr/scrub rules — and here there are none to lose. /etc/pf.conf is
-        // Apple's file, it already carries `anchor "com.apple/*"`, and loading it is what
-        // macOS's own tooling does. A NON-empty ruleset without our anchors still refuses:
-        // there we would be destroying someone's live rules to make room for ours.
-        if (current.Trim().Length == 0)
-        {
-            log("pf: no ruleset is loaded — loading the system /etc/pf.conf so an anchor can "
-                + "be evaluated (nothing to overwrite: the ruleset was empty)");
-            Pf("-f /etc/pf.conf", critical: false);
-            current = Pf("-sr", critical: false);
-            if (current.Contains(AppleWildcardRef, StringComparison.Ordinal))
-                return AppleAnchorPath;
-            if (current.Contains($"anchor \"{AnchorName}\"", StringComparison.Ordinal))
-                return AnchorName;
-        }
-
-        throw new InvalidOperationException(
-            "kill-switch: the loaded pf ruleset references neither `anchor \"com.apple/*\"` " +
-            $"nor `anchor \"{AnchorName}\"`, so rules loaded into an anchor would never be " +
-            "evaluated. Add `anchor \"" + AnchorName + "\"` to /etc/pf.conf and reload it " +
-            "(`sudo pfctl -f /etc/pf.conf`). Refusing to engage rather than rewriting the " +
-            "host's main ruleset, which would drop its nat/rdr/scrub rules.");
-    }
-
-    private static FileStream AcquireOperation()
-    {
-        Directory.CreateDirectory(Dir);
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
-        while (true)
-        {
-            try
-            {
-                return new FileStream(OperationLockPath, FileMode.OpenOrCreate,
-                    FileAccess.ReadWrite, FileShare.None);
-            }
-            catch (IOException) when (DateTime.UtcNow < deadline)
-            {
-                Thread.Sleep(100);
-            }
-            if (DateTime.UtcNow >= deadline)
-                throw new TimeoutException(
-                    "kill-switch: timed out waiting for another pf operation to finish");
-        }
+        return ServiceState.EnterOperation("killswitch.lock");
     }
 
     private static string Pf(string args, bool critical)
     {
-        var psi = new ProcessStartInfo("/sbin/pfctl", args)
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using var p = Process.Start(psi)!;
-        // Drain both pipes CONCURRENTLY and bound the call. Reading stdout to the end and
-        // only then reading stderr deadlocks whenever pfctl fills the stderr buffer first
-        // (it writes status there even on success): pfctl blocks on a full pipe nobody is
-        // reading, we block on a stdout EOF that never comes. And with no timeout on
-        // WaitForExit, a wedged pfctl hung the connect — or, worse, the kill-switch
-        // TEARDOWN — forever. Same shape ServiceManager.Run2 already uses. (C-24)
-        var so = p.StandardOutput.ReadToEndAsync();
-        var se = p.StandardError.ReadToEndAsync();
-        if (!p.WaitForExit(20_000))
-        {
-            try { p.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            if (critical)
-                throw new InvalidOperationException(
-                    $"kill-switch: pfctl {args} timed out after 20s and was killed");
-            return "timed out";
-        }
-        string o = so.GetAwaiter().GetResult();
-        string e = se.GetAwaiter().GetResult();
-        if (critical && p.ExitCode != 0)
-            throw new InvalidOperationException(
-                $"kill-switch: pfctl {args} failed (exit {p.ExitCode}): {e.Trim()}");
-        // pfctl writes status to stderr even on success, so merge both streams.
-        return o + e;
+        var result = ToolProcess.Run(new ProcessStartInfo("/sbin/pfctl", args));
+        if (critical) ToolProcess.RequireSuccess(result, $"kill-switch pfctl {args}");
+        return result.Output + result.Error;
     }
 
     private static List<string> ResolveIps(string serverAddress)
@@ -504,15 +367,8 @@ public static class KillSwitch
     /// between "DNS allowed to these servers" and the fail-closed "physical DNS blocked".
     /// Link-local and the deprecated `fec0::/10` site-local range are phantoms in the same
     /// way; see the Windows counterpart for the full reasoning.</summary>
-    private static bool UsableResolver(System.Net.IPAddress a)
-    {
-        if (System.Net.IPAddress.IsLoopback(a)) return false;
-        if (a.Equals(System.Net.IPAddress.Any) || a.Equals(System.Net.IPAddress.IPv6Any)) return false;
-        if (a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
-            return !a.IsIPv6LinkLocal && !a.IsIPv6SiteLocal && !a.IsIPv6Multicast;
-        var b = a.GetAddressBytes();
-        return !(b[0] == 169 && b[1] == 254);   // APIPA
-    }
+    private static bool UsableResolver(System.Net.IPAddress address) =>
+        Qeli.Shared.Vpn.PhysicalDnsPolicy.IsUsableResolver(address);
 
     private static List<string> ResolveSystemDnsServers()
     {

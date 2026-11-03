@@ -46,11 +46,23 @@ final class RoamingPolicyTests: XCTestCase {
         XCTAssertNoThrow(try required.toINI())
         XCTAssertEqual(try VPNConfig(parsing: required.toINI()).roamingPolicy, "required")
 
-        required.carriedKeys["local"] = "192.0.2.10"
-        XCTAssertThrowsError(try required.toINI())
-        required.carriedKeys.removeValue(forKey: "local")
-        required.carriedKeys["lport"] = "41000"
-        XCTAssertThrowsError(try required.toINI())
+        // Export preserves invalid drafts for editing; validation/runtime must refuse
+        // a required migration policy with a pinned carrier socket.
+        for (key, pin) in [("local", "192.0.2.10"), ("local", "2001:db8::10"), ("lport", "41000")] {
+            var pinned = required
+            pinned.carriedKeys[key] = pin
+            let text = try pinned.toINI()
+            let draft = try VPNConfig.fromINI(text)
+            XCTAssertEqual(draft.roamingPolicy, "required")
+            XCTAssertEqual(draft.carriedKeys[key], pin)
+            XCTAssertFalse(draft.allowsNativePathRoaming)
+            XCTAssertThrowsError(try pinned.validate())
+            XCTAssertThrowsError(try pinned.toTransportCoreINI())
+            XCTAssertThrowsError(try VPNConfig(parsing: text))
+        }
+        required.carriedKeys["lport"] = "0"
+        XCTAssertNoThrow(try required.validate())
+        XCTAssertNoThrow(try required.toTransportCoreINI())
     }
 
     func testPathContractRejectsMismatchedFamiliesAndUnknownCommandFields() throws {

@@ -16,7 +16,7 @@ public partial class App : Application
 
     private static readonly string[] CliVerbs = { "selftest", "windivert-smoke", "handshake", "connect", "genassets", "uishot", "editshot", "mainshot" };
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         if (e.Args.Length > 0 && CliVerbs.Contains(e.Args[0].ToLowerInvariant()))
         {
@@ -39,6 +39,12 @@ public partial class App : Application
         var settings = Model.AppSettings.Current;
         Loc.SetLanguage(settings.Language);
         Toast.Enabled = settings.ToastsEnabled;
+        if (!await StorageMigration.PrepareGuiAsync(e.Args.Any(a =>
+                a.Equals("--autostart", StringComparison.OrdinalIgnoreCase))))
+        {
+            Shutdown(1);
+            return;
+        }
         base.OnStartup(e);
 
         bool autostart = e.Args.Any(a => a.Equals("--autostart", StringComparison.OrdinalIgnoreCase));
@@ -46,7 +52,8 @@ public partial class App : Application
 
         var win = new MainWindow();
         if (!minimized) win.Show();
-        win.RunStartupActions();
+        // An explicit migration is not permission to reconnect automatically.
+        if (!StorageMigration.PreparedThisLaunch) win.RunStartupActions();
     }
 
     private void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)

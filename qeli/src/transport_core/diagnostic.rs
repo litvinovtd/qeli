@@ -73,11 +73,8 @@ fn udp_reachability_blocking(
             udp_reachability_async(config, host, per_attempt_timeout).await
         }
     });
-    // `lookup_host` may have delegated libc DNS to Tokio's blocking pool. Dropping a Runtime
-    // waits indefinitely for such work even after `select!` cancelled the async lookup, which
-    // would make Android's coroutine cancellation appear to hang. Bound shutdown here; the
-    // abandoned resolver worker owns no socket/config reference and exits on its own.
-    runtime.shutdown_timeout(Duration::from_millis(50));
+    // Shared DNS uses independently bounded workers, not this runtime's blocking pool.
+    drop(runtime);
     result
 }
 
@@ -187,9 +184,8 @@ async fn resolve_candidates(
     port: u16,
     timeout: Duration,
 ) -> anyhow::Result<Vec<SocketAddr>> {
-    let addresses = tokio::time::timeout(timeout, tokio::net::lookup_host((host, port)))
-        .await
-        .map_err(|_| anyhow::anyhow!("UDP probe DNS resolution timed out"))??;
+    let addresses =
+        super::resolver::lookup(host, port, tokio::time::Instant::now() + timeout).await?;
     let candidates = collect_candidates(addresses);
     if candidates.is_empty() {
         anyhow::bail!("probe host '{host}' has no IP address");

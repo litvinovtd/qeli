@@ -1,0 +1,3316 @@
+{
+  "schema_version": 1,
+  "finding": "Q37-F005",
+  "status": "SCOPED_SERVER_DOCUMENTATION_PARITY_VERIFIED_HOST_FAILURES_RETAINED",
+  "source_baseline_commit": "20b2ef64d19dfe6bdb7cd65407df015203e3a536",
+  "factory_cli_sha256": "35da83fd0a727a31a93c4527f8c814777aabcc7ef48dd92e0a0de65f5cbc7050",
+  "native_input_digest": "7d42e38ff1b3727970c87eed1903d29abb6fc1eccac4cc67f0a908bbb3d21e35",
+  "scope": "134 explicit scalar INI reader assignments; all CONFIG Qeli INI fences, with recorded context and placeholder materialization. Not runtime connectivity, full defaults/options/lists/user/group coverage or full Q37.",
+  "inputs": {
+    "docs/ru/manuals/CONFIG.md": "6850a60635c3ceb4b1dcf060946f7ecd91413dd97589c41b04563732cdaa825a",
+    "docs/eng/manuals/CONFIG.md": "8b619895a5a88c6634dfe3f636a7139bd4fade662303a189b8aadac7c9021aea",
+    "scripts/test_server_config_examples.py": "b58b03b9e866a6c05a658c81adf2e3016d028799ebaacb9b0078852dbc4090ed",
+    "scripts/test_server_config_defaults.py": "b2df51cd725817518683f623a35e9b56e6258da490cb745a01d17103222b1cce",
+    "scripts/test_native_config_keys.py": "0e0d878fd7144938adfa9983f0866a1775c2c913a898a045bf12e50072e39aa0",
+    ".github/workflows/ci.yml": "1120063c9c2381c552db28ac941df4904ebae11a6045307a923432227e965d1a",
+    "qeli/src/config/mod.rs": "fa79dc668aa3a5c8ab4e5cff0a34c49aa1911baf318dfe62445bdd9761da2703",
+    "qeli/src/config/server.rs": "7f18d08ddf523edcc2e043ffb836b57b7aa89a392d446c0ed06934d0f6f4349f",
+    "qeli/src/config/server_ini.rs": "1e928532fc24bb80e28338057ff784d32ad4b60d2d16b63a61324a4ffb22d842",
+    "qeli/src/transport_core/udp_buffer.rs": "6424a0f5bc5e320b0c8aa0fb55b85d228428d199cf49d4de5ad6f045e9b46136",
+    "qeli/config/users.conf": "8f7e2481cbd17d2aa52e9639483bc4771b61406e04915c410d41d4b65cd3351f"
+  },
+  "scalar_defaults": {
+    "count": 134,
+    "language_comparisons": 268,
+    "reader_inventory": {
+      "profile.enabled": {
+        "value": "true",
+        "struct": "ProfileConfig",
+        "field": "enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.roaming.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "roaming.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.roaming.grace_secs": {
+        "value": "30",
+        "struct": "ProfileConfig",
+        "field": "roaming.grace_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.roaming.max_orphaned": {
+        "value": "256",
+        "struct": "ProfileConfig",
+        "field": "roaming.max_orphaned",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.roaming.max_orphan_bytes": {
+        "value": "67108864",
+        "struct": "ProfileConfig",
+        "field": "roaming.max_orphan_bytes",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.bind.address": {
+        "value": "0.0.0.0",
+        "struct": "ProfileConfig",
+        "field": "bind.address",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.bind.port": {
+        "value": "443",
+        "struct": "ProfileConfig",
+        "field": "bind.port",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.bind.transport": {
+        "value": "tcp",
+        "struct": "ProfileConfig",
+        "field": "bind.transport",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.tun.ip_mode": {
+        "value": "ipv4",
+        "struct": "ProfileConfig",
+        "field": "tun.ip_mode",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.tun.name": {
+        "value": "vpn0",
+        "struct": "ProfileConfig",
+        "field": "tun.name",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.tun.address": {
+        "value": "10.9.0.1",
+        "struct": "ProfileConfig",
+        "field": "tun.address",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.tun.mtu": {
+        "value": "1400",
+        "struct": "ProfileConfig",
+        "field": "tun.mtu",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.tun.tx_queue_len": {
+        "value": "1000",
+        "struct": "ProfileConfig",
+        "field": "tun.tx_queue_len",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.tun.device_type": {
+        "value": "tun",
+        "struct": "ProfileConfig",
+        "field": "tun.device_type",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.tun.queues": {
+        "value": "0",
+        "struct": "ProfileConfig",
+        "field": "tun.queues",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.pool.cidr": {
+        "value": "10.9.0.0/24",
+        "struct": "ProfileConfig",
+        "field": "pool.cidr",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.routing.client_to_client": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "routing.client_to_client",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.routing.forward_private": {
+        "value": "true",
+        "struct": "ProfileConfig",
+        "field": "routing.forward_private",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.routing.nat.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "routing.nat.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.routing.nat.interface": {
+        "value": "eth0",
+        "struct": "ProfileConfig",
+        "field": "routing.nat.interface",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.routing.ipv6.mode": {
+        "value": "off",
+        "struct": "ProfileConfig",
+        "field": "routing.ipv6.mode",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.routing.ipv6.interface": {
+        "value": "",
+        "struct": "ProfileConfig",
+        "field": "routing.ipv6.interface",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.routing.ipv6.ndp_proxy": {
+        "value": "off",
+        "struct": "ProfileConfig",
+        "field": "routing.ipv6.ndp_proxy",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.routing.ipv6.ndp_proxy_interface": {
+        "value": "",
+        "struct": "ProfileConfig",
+        "field": "routing.ipv6.ndp_proxy_interface",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.routing.post_up": {
+        "value": "",
+        "struct": "ProfileConfig",
+        "field": "routing.post_up",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.routing.post_down": {
+        "value": "",
+        "struct": "ProfileConfig",
+        "field": "routing.post_down",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.dns.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "dns.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.dns.listen": {
+        "value": "10.9.0.1",
+        "struct": "ProfileConfig",
+        "field": "dns.listen",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.dns.port": {
+        "value": "53",
+        "struct": "ProfileConfig",
+        "field": "dns.port",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.dns.upstream_protocol": {
+        "value": "udp",
+        "struct": "ProfileConfig",
+        "field": "dns.upstream_protocol",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.dns.cache_size": {
+        "value": "1000",
+        "struct": "ProfileConfig",
+        "field": "dns.cache_size",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.dns.timeout_secs": {
+        "value": "5",
+        "struct": "ProfileConfig",
+        "field": "dns.timeout_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.dhcp.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "dhcp.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.dhcp.listen": {
+        "value": "",
+        "struct": "ProfileConfig",
+        "field": "dhcp.listen",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.dhcp.lease_time_secs": {
+        "value": "86400",
+        "struct": "ProfileConfig",
+        "field": "dhcp.lease_time_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.dhcp.domain_name": {
+        "value": "vpn",
+        "struct": "ProfileConfig",
+        "field": "dhcp.domain_name",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.obf.mode": {
+        "value": "fake-tls",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.mode",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.obf.obfs_key": {
+        "value": "",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.obfs_key",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.obf.obfs_fronting": {
+        "value": "websocket",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.fronting",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.obf.tls.server_name": {
+        "value": "www.cloudflare.com",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.tls.server_name",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.obf.tls.reality_proxy.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.tls.reality_proxy.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.tls.reality_proxy.target": {
+        "value": "www.cloudflare.com",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.tls.reality_proxy.target",
+        "accessor": "str_or",
+        "error": null
+      },
+      "profile.obf.tls.reality_proxy.target_port": {
+        "value": "443",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.tls.reality_proxy.target_port",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.tls.reality_proxy.real_tls": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.tls.reality_proxy.real_tls",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.tls.reality_proxy.handrolled": {
+        "value": "true",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.tls.reality_proxy.handrolled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.tls.reality_proxy.peek_timeout_ms": {
+        "value": "1500",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.tls.reality_proxy.peek_timeout_ms",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.padding.enabled": {
+        "value": "true",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.padding.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.padding.min_bytes": {
+        "value": "32",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.padding.min_bytes",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.padding.max_bytes": {
+        "value": "512",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.padding.max_bytes",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.padding.randomize": {
+        "value": "true",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.padding.randomize",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.padding.probability": {
+        "value": "1.0",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.padding.probability",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.fragmentation.enabled": {
+        "value": "true",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.fragmentation.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.fragmentation.min_chunk_size": {
+        "value": "256",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.fragmentation.min_chunk_size",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.fragmentation.max_chunk_size": {
+        "value": "1024",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.fragmentation.max_chunk_size",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.fragmentation.max_fragments_per_packet": {
+        "value": "4",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.fragmentation.max_fragments_per_packet",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.heartbeat.enabled": {
+        "value": "true",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.heartbeat.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.heartbeat.interval_ms": {
+        "value": "15000",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.heartbeat.interval_ms",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.heartbeat.data_size_bytes": {
+        "value": "16",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.heartbeat.data_size_bytes",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.heartbeat.jitter_ms": {
+        "value": "5000",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.heartbeat.jitter_ms",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.traffic_normalization.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.traffic_normalization.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.traffic_shaping.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.traffic_shaping.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.traffic_shaping.idle_gap_mean_ms": {
+        "value": "700",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.traffic_shaping.idle_gap_mean_ms",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.traffic_shaping.idle_gap_min_ms": {
+        "value": "40",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.traffic_shaping.idle_gap_min_ms",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.traffic_shaping.idle_gap_max_ms": {
+        "value": "6000",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.traffic_shaping.idle_gap_max_ms",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.traffic_shaping.budget_bytes_per_sec": {
+        "value": "16384",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.traffic_shaping.budget_bytes_per_sec",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.traffic_shaping.min_size": {
+        "value": "64",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.traffic_shaping.min_size",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.traffic_shaping.max_size": {
+        "value": "1024",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.traffic_shaping.max_size",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.traffic_shaping.stealth": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.traffic_shaping.stealth",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.traffic_shaping.stealth_rate_mbps": {
+        "value": "2",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.traffic_shaping.stealth_rate_mbps",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.batch.delay_min_ms": {
+        "value": "2",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.batch.delay_min_ms",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.batch.delay_max_ms": {
+        "value": "8",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.batch.delay_max_ms",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.batch.max_packets": {
+        "value": "16",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.batch.max_packets",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.batch.max_queue_bytes": {
+        "value": "262144",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.batch.max_queue_bytes",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.record.max_payload_bytes": {
+        "value": "0",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.record.max_payload_bytes",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.record.small_min_ratio": {
+        "value": "0.25",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.record.small_min_ratio",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.record.small_max_ratio": {
+        "value": "0.875",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.record.small_max_ratio",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.record.full_probability": {
+        "value": "0.72",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.record.full_probability",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.fragment.enabled": {
+        "value": "true",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.fragment.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.recordizer.fragment.reassembly_timeout_ms": {
+        "value": "3000",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.fragment.reassembly_timeout_ms",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.fragment.max_inflight_packets": {
+        "value": "64",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.fragment.max_inflight_packets",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.fragment.max_reassembly_bytes": {
+        "value": "4194304",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.fragment.max_reassembly_bytes",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.recordizer.fragment.max_fragments_per_packet": {
+        "value": "64",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.recordizer.fragment.max_fragments_per_packet",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.anti_fingerprinting.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.anti_fingerprinting.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.anti_fingerprinting.add_jitter_to_handshake": {
+        "value": "true",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.anti_fingerprinting.add_jitter_to_handshake",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.quic.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.quic.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.multipath.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.multipath.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.multipath.max_streams": {
+        "value": "4",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.multipath.max_streams",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.multipath.adaptive": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.multipath.adaptive",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.awg.enabled": {
+        "value": "false",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.awg.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.obf.awg.jc": {
+        "value": "0",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.awg.jc",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.awg.jmin": {
+        "value": "40",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.awg.jmin",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.obf.awg.jmax": {
+        "value": "300",
+        "struct": "ProfileConfig",
+        "field": "obfuscation.awg.jmax",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.tcp.nodelay": {
+        "value": "true",
+        "struct": "ProfileConfig",
+        "field": "performance.tcp.nodelay",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "profile.perf.tcp.keepalive_secs": {
+        "value": "60",
+        "struct": "ProfileConfig",
+        "field": "performance.tcp.keepalive_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.tcp.send_buffer_size": {
+        "value": "262144",
+        "struct": "ProfileConfig",
+        "field": "performance.tcp.send_buffer_size",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.tcp.recv_buffer_size": {
+        "value": "262144",
+        "struct": "ProfileConfig",
+        "field": "performance.tcp.recv_buffer_size",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.udp.send_buffer_size": {
+        "value": "0",
+        "struct": "ProfileConfig",
+        "field": "performance.udp.send_buffer_size",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.udp.recv_buffer_size": {
+        "value": "4194304",
+        "struct": "ProfileConfig",
+        "field": "performance.udp.recv_buffer_size",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.tun.read_buffer_size": {
+        "value": "65535",
+        "struct": "ProfileConfig",
+        "field": "performance.tun.read_buffer_size",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.connection.max_clients": {
+        "value": "128",
+        "struct": "ProfileConfig",
+        "field": "performance.connection.max_clients",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.connection.handshake_timeout_secs": {
+        "value": "10",
+        "struct": "ProfileConfig",
+        "field": "performance.connection.handshake_timeout_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.connection.idle_timeout_secs": {
+        "value": "300",
+        "struct": "ProfileConfig",
+        "field": "performance.connection.idle_timeout_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.connection.new_session_rate_max": {
+        "value": "10",
+        "struct": "ProfileConfig",
+        "field": "performance.connection.new_session_rate_max",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "profile.perf.connection.new_session_rate_window_secs": {
+        "value": "60",
+        "struct": "ProfileConfig",
+        "field": "performance.connection.new_session_rate_window_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "auth.users_file": {
+        "value": "/etc/qeli/users.conf",
+        "struct": "AuthConfig",
+        "field": "users_file",
+        "accessor": "str_or",
+        "error": null
+      },
+      "auth.require_client_key_proof": {
+        "value": "false",
+        "struct": "AuthConfig",
+        "field": "require_client_key_proof",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "auth.bind_static_to_session": {
+        "value": "true",
+        "struct": "AuthConfig",
+        "field": "bind_static_to_session",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "auth.brute_force.enabled": {
+        "value": "true",
+        "struct": "AuthConfig",
+        "field": "brute_force.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "auth.brute_force.max_attempts": {
+        "value": "5",
+        "struct": "AuthConfig",
+        "field": "brute_force.max_attempts",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "auth.brute_force.window_secs": {
+        "value": "300",
+        "struct": "AuthConfig",
+        "field": "brute_force.window_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "auth.brute_force.lockout_secs": {
+        "value": "900",
+        "struct": "AuthConfig",
+        "field": "brute_force.lockout_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "web.enabled": {
+        "value": "false",
+        "struct": "WebConfig",
+        "field": "enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "web.bind": {
+        "value": "127.0.0.1",
+        "struct": "WebConfig",
+        "field": "bind",
+        "accessor": "str_or",
+        "error": null
+      },
+      "web.port": {
+        "value": "8080",
+        "struct": "WebConfig",
+        "field": "port",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "web.username": {
+        "value": "admin",
+        "struct": "WebConfig",
+        "field": "username",
+        "accessor": "str_or",
+        "error": null
+      },
+      "web.password_hash": {
+        "value": "",
+        "struct": "WebConfig",
+        "field": "password_hash",
+        "accessor": "str_or",
+        "error": null
+      },
+      "web.secure_cookie": {
+        "value": "false",
+        "struct": "WebConfig",
+        "field": "secure_cookie",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "web.insecure_no_auth": {
+        "value": "false",
+        "struct": "WebConfig",
+        "field": "insecure_no_auth",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "web.persist_session_key": {
+        "value": "true",
+        "struct": "WebConfig",
+        "field": "persist_session_key",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "web.tls": {
+        "value": "false",
+        "struct": "WebConfig",
+        "field": "tls",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "web.tls_cert": {
+        "value": "",
+        "struct": "WebConfig",
+        "field": "tls_cert",
+        "accessor": "str_or",
+        "error": null
+      },
+      "web.tls_key": {
+        "value": "",
+        "struct": "WebConfig",
+        "field": "tls_key",
+        "accessor": "str_or",
+        "error": null
+      },
+      "web.public_host": {
+        "value": "",
+        "struct": "WebConfig",
+        "field": "public_host",
+        "accessor": "str_or",
+        "error": null
+      },
+      "web.base_path": {
+        "value": "",
+        "struct": "WebConfig",
+        "field": "base_path",
+        "accessor": "str_or",
+        "error": null
+      },
+      "web.csrf": {
+        "value": "true",
+        "struct": "WebConfig",
+        "field": "csrf",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "web.update_check": {
+        "value": "false",
+        "struct": "WebConfig",
+        "field": "update_check",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "web.session_ttl_secs": {
+        "value": "86400",
+        "struct": "WebConfig",
+        "field": "session_ttl_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "web.brute_force.enabled": {
+        "value": "true",
+        "struct": "WebConfig",
+        "field": "brute_force.enabled",
+        "accessor": "bool_or",
+        "error": null
+      },
+      "web.brute_force.max_attempts": {
+        "value": "5",
+        "struct": "WebConfig",
+        "field": "brute_force.max_attempts",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "web.brute_force.window_secs": {
+        "value": "300",
+        "struct": "WebConfig",
+        "field": "brute_force.window_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "web.brute_force.lockout_secs": {
+        "value": "900",
+        "struct": "WebConfig",
+        "field": "brute_force.lockout_secs",
+        "accessor": "parse_or",
+        "error": null
+      },
+      "logging.level": {
+        "value": "info",
+        "struct": "LoggingConfig",
+        "field": "level",
+        "accessor": "str_or",
+        "error": null
+      },
+      "logging.format": {
+        "value": "plain",
+        "struct": "LoggingConfig",
+        "field": "format",
+        "accessor": "str_or",
+        "error": null
+      },
+      "logging.time_format": {
+        "value": "datetime",
+        "struct": "LoggingConfig",
+        "field": "time_format",
+        "accessor": "str_or",
+        "error": null
+      }
+    },
+    "original_document_refusals": [
+      {
+        "lang": "ru",
+        "actual_method": "test_all_explicit_scalar_reader_defaults_match_both_references",
+        "tests_run": 1,
+        "failure_count": 28,
+        "errors": 0
+      },
+      {
+        "lang": "eng",
+        "actual_method": "test_all_explicit_scalar_reader_defaults_match_both_references",
+        "tests_run": 1,
+        "failure_count": 28,
+        "errors": 0
+      }
+    ]
+  },
+  "local_tests": {
+    "relevant_contract_methods": 11,
+    "ci_server_contract_step": true,
+    "docs_checks": 9,
+    "versions": "PASS",
+    "generated_projections": "PASS",
+    "workflow_actionlint": "PASS",
+    "diff_check": "PASS"
+  },
+  "actual_parser_cases": {
+    "total": 134,
+    "original": 66,
+    "corrected": 68,
+    "accepted": 126,
+    "original_refusals": 8,
+    "all_expected_outcomes": true,
+    "total_invocations": 143,
+    "retest_invocations": 9,
+    "results": [
+      {
+        "name": "ru-before-ini-0",
+        "client": true,
+        "changes": [],
+        "expected_exit": 0,
+        "sha256": "4d4a4fba83de63d00fbfae266612a0917e3e753310111aeae128c6349b8de63e",
+        "uploaded_sha256": "4d4a4fba83de63d00fbfae266612a0917e3e753310111aeae128c6349b8de63e",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-0.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-0.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-0.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-1",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "uploaded_sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-1.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-1.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-1.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-2",
+        "client": false,
+        "changes": [],
+        "expected_exit": 0,
+        "sha256": "d19d71a3bd9fb172088445a0f0c2ead89dfec368a46ec92c2636c7d447b113e6",
+        "uploaded_sha256": "a560fe9180554c0c520295823a14cfeb303218c289f847849f60f2bce2866050",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-2.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-2.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:34.994 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-2.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-3",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "a947cb50949c64550b6b309bb85572bda12472189006df2fca47b70aa3fa0bd5",
+        "uploaded_sha256": "685fd893982a90bc36a4e6b1a318a3238554b784b3d3ce796a274488ccdd210c",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-3.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-3.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:35.236 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-3.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-4",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "10aa85323058ba43a40c3c8d12a17f72e7276e7815d24607f798d693013434f2",
+        "uploaded_sha256": "78ce3c05dc4fdd238c074364711dadb81d3c58f335c2d8c4f6cba5bc457927b2",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-4.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-4.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:35.474 WARN  qeli_core::server: profile 'reality-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-4.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-5",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "1af84150eeb77edae2587a1580f30f2e257bd97c425fd0006cc11696cbba30c5",
+        "uploaded_sha256": "1af84150eeb77edae2587a1580f30f2e257bd97c425fd0006cc11696cbba30c5",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-5.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-5.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-5.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-6",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "301f7ff011d26b4fd58896a7ff5800f80dcf2c2c401296dce09adae5b471214e",
+        "uploaded_sha256": "801af235d12a7159802075f19ac9bff9ca3fc4906994048e0ac0ba1ddde0635d",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-6.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-6.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:35.953 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-6.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-8",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "50e3cab341287636726f2ebb82e8a66e097a589829603669c165908a0fb77dd8",
+        "uploaded_sha256": "22ec08ee4c89be39bf19a6a98596eee5c21d7e4fe52e29b6671f94af9a258246",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-7.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-7.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:36.196 WARN  qeli_core::server: profile 'reality-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-7.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-9",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "b385c1ffefb7be0464f6b78dc45c0cd431b151c0344ed9f50ec5fda96129c353",
+        "uploaded_sha256": "b8d6b00c4d261b2b53c0c12d725734eb1b66bcfb556a62b6a8f33266cc354759",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-8.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-8.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:36.438 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-8.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-10",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "947cb57a50d3aebf817790f2353f29d0721a16f49c0484966f112058c2026a29",
+        "uploaded_sha256": "908f92c949aa2e537eaa6f7d0e07769df762df7d9e15b739eeab67835c42d88f",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-9.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-9.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-9.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-11",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "e3b8f8aaff387021b0e3a511eb39da6d7834702d53154c978f36300d9e589023",
+        "uploaded_sha256": "e3b8f8aaff387021b0e3a511eb39da6d7834702d53154c978f36300d9e589023",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-10.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-10.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-10.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-12",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only",
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "4b1f1579a7aa9ea47e22c5dfaa851ae911a4c330f966ccc95acd2a25bb62240d",
+        "uploaded_sha256": "4b1f1579a7aa9ea47e22c5dfaa851ae911a4c330f966ccc95acd2a25bb62240d",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-11.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-11.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-11.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-13",
+        "client": false,
+        "changes": [
+          "documented fragment context: [auth]",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "c455502386830738b5d72303712c28406e6e67c542b1ccef1ef9afc8eee2876b",
+        "uploaded_sha256": "c455502386830738b5d72303712c28406e6e67c542b1ccef1ef9afc8eee2876b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-12.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-12.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:37.398 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-12.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-14",
+        "client": false,
+        "changes": [
+          "documented fragment context: [auth]",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 1,
+        "sha256": "5c64accab4b016e67b10dd4bdf107dae0a4e606b16f279595c0f05797e052f43",
+        "uploaded_sha256": "5c64accab4b016e67b10dd4bdf107dae0a4e606b16f279595c0f05797e052f43",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-13.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-13.conf",
+        "exit": 1,
+        "output": "2026-10-11 15:25:37.641 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-13.conf: 1 key(s) that nothing reads — check the spelling:\n  [auth] bind_static\nUnknown keys prevent startup; correct or remove the reported fields.",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-15",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "081f00f6db58d9303843d287e35a8c13c7320540805e0fa766cbb54b0d64d9e9",
+        "uploaded_sha256": "95246d8355010412ce14c1565857cbe4c3eaf4c7bc817eddf45319fe2d1af41b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-14.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-14.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:37.883 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:37.883 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-14.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-16",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "1b671ce6fe7527aa0a333b8b9079aa095f3330789632375ee085feb99efe6729",
+        "uploaded_sha256": "ee8ba3e30b9fe2b3b9c8a940a64621d833d1dfa90bf28b12d76a156bbb5646d3",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-15.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-15.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:38.122 WARN  qeli_core::server: profile 'mobile-udp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-15.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-17",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "2 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "21f618fc7931b945d9aa36431a08b5c64f46866315736626d46af7b81dd5e222",
+        "uploaded_sha256": "bcacac270916648f0efdb3cc1a47e74a229bf7cc956d14f74988ca909b885bf3",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-16.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-16.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:38.362 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:38.362 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-16.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-18",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "432c98e15e03d765651e33b1177936a8ad2692a0378255fd5d70a6b7be74e03c",
+        "uploaded_sha256": "f573ad745bb7364c248c9aa6879652f70ff1e0a9545e6bc15d3c862c61026815",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-17.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-17.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:38.602 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:38.602 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-17.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-19",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "0b3636fdd54d0974000d6969fe174571255939ce4945bdc459f4f7d2af0775c7",
+        "uploaded_sha256": "0b3636fdd54d0974000d6969fe174571255939ce4945bdc459f4f7d2af0775c7",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-18.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-18.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-18.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-20",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "94fa4d74494f460c7a15a39cf4fa5f5753a27c12995d023b844e01e70c935ca2",
+        "uploaded_sha256": "83bc521532394ee17aa42302fce450c7cacee7ec7994a69681b16df07c9211a2",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-19.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-19.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:39.081 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:39.081 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-19.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-21",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "4d2acaa42a3e1fbc9177fa81ad2093aba31ced690a4bcc4ba44a58adb6867751",
+        "uploaded_sha256": "72d893bdcf92b907d96d118e69ba04c3b62f39725b4b8593fdb84ffcac536efe",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-20.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-20.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:39.318 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-20.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-22",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "d7d15a6fbb0c123f039054ee7e4b9ace3037e18c7e5e663642d3c5e523d931ea",
+        "uploaded_sha256": "d7d15a6fbb0c123f039054ee7e4b9ace3037e18c7e5e663642d3c5e523d931ea",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-21.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-21.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-21.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-23",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "829fb45d3fd6df4aa58212f4d4a15254a8af515487c9c616e679ee671222e60e",
+        "uploaded_sha256": "829fb45d3fd6df4aa58212f4d4a15254a8af515487c9c616e679ee671222e60e",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-22.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-22.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-22.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-24",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "3 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 1,
+        "sha256": "9322428c5cf04137ae1b3dd2e527b15e7f45d2000f2b9b0b6deb0f84712a1d5f",
+        "uploaded_sha256": "4b1cfc6d1e831c3a388b2e5a3506836f4ba33ae2234f22d54886aa9c50afec76",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-23.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-23.conf",
+        "exit": 1,
+        "output": "2026-10-11 15:25:40.046 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\nError: /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-23.conf: user 'exit': client_subnet entry '0.0.0.0/0         # «за этим клиентом — весь интернет» (inbound iroute)' is not a valid IPv4/IPv6 CIDR or address",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-25",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "uploaded_sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-24.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-24.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-24.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-26",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "92771844237a98504c56e06075d03792151c3a9b0b9666ca88261a924bb747b4",
+        "uploaded_sha256": "0a15f1a07ae9e3780641eb66075f99cc0f51f038706deaabdd86e1131172c141",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-25.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-25.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:40.530 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:40.530 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-25.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-27",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "c112ab11ab55fbf1dff9ce072d303c21df694a49b2acadefa84fa3fac9fceb25",
+        "uploaded_sha256": "c112ab11ab55fbf1dff9ce072d303c21df694a49b2acadefa84fa3fac9fceb25",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-26.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-26.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-26.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-28",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 1,
+        "sha256": "dc8830eae1993c9be3260a57efe852a6ede5d7ba23a503a79a2ffa4259a37da9",
+        "uploaded_sha256": "711ebae768f020dfa5a7f1060a1a0645f8e2b7ea52e9385dddbc92e80e2d01a1",
+        "remote": "/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-0.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/qeli check-config --config /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-0.conf",
+        "exit": 1,
+        "output": "Error: 'main' (bind 0.0.0.0:443) and 'main' (listen 203.0.113.5:443) both bind port 443/tcp on overlapping addresses — on UDP SO_REUSEPORT lets both succeed and the kernel then splits clients between them at random",
+        "pass_": true,
+        "attempt": 2
+      },
+      {
+        "name": "ru-before-ini-29",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "uploaded_sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-28.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-28.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-28.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-30",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "8f2aeeca85ec091354d2c854905776f7e3bb85e22ec9530c65e419a3b339e408",
+        "uploaded_sha256": "73ce6b6ca3fc88c3d6d486718ddf639e00ae33c414b72362c68d68eaf65d0c48",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-29.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-29.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:41.496 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-29.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-31",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 1,
+        "sha256": "351a14d9c0fbc68eadb426e79090f55a963ba938ba32c42cfd3b583df0fbcd68",
+        "uploaded_sha256": "16358b7ff5b0714603a2dbf4854dec36a6f394410bd61ea44d7e010f87857c25",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-30.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-30.conf",
+        "exit": 1,
+        "output": "Error: web.base_path = \"# (опц.) сабпас за reverse-proxy, напр. /qeli; пусто = в корне\" is not a plain URL path (example: /qeli)",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-32",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "297fca5ab58fac6b665530a9d8268500def7b9f00cd714c3415620d944b456fd",
+        "uploaded_sha256": "d036f33d85cc08c28f353e448f5637b5d883ad0033d124177938455f3d584c81",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-31.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-31.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:41.982 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-31.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-before-ini-33",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "2ec7cab538de4d5709d29f88ad19201206ec988aa9d6d9c54771f643d835011d",
+        "uploaded_sha256": "2b122df822f72a76a2cacfc4bb4b80245d459d8d5270f76bc78721abe7b71bfd",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-32.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-32.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:42.232 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-32.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-0",
+        "client": true,
+        "changes": [],
+        "expected_exit": 0,
+        "sha256": "4d4a4fba83de63d00fbfae266612a0917e3e753310111aeae128c6349b8de63e",
+        "uploaded_sha256": "4d4a4fba83de63d00fbfae266612a0917e3e753310111aeae128c6349b8de63e",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-33.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-33.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-33.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-1",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "uploaded_sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-34.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-34.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-34.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-2",
+        "client": false,
+        "changes": [],
+        "expected_exit": 0,
+        "sha256": "d19d71a3bd9fb172088445a0f0c2ead89dfec368a46ec92c2636c7d447b113e6",
+        "uploaded_sha256": "a560fe9180554c0c520295823a14cfeb303218c289f847849f60f2bce2866050",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-35.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-35.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:42.958 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-35.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-3",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "a947cb50949c64550b6b309bb85572bda12472189006df2fca47b70aa3fa0bd5",
+        "uploaded_sha256": "685fd893982a90bc36a4e6b1a318a3238554b784b3d3ce796a274488ccdd210c",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-36.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-36.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:43.202 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-36.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-4",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "10aa85323058ba43a40c3c8d12a17f72e7276e7815d24607f798d693013434f2",
+        "uploaded_sha256": "78ce3c05dc4fdd238c074364711dadb81d3c58f335c2d8c4f6cba5bc457927b2",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-37.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-37.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:43.442 WARN  qeli_core::server: profile 'reality-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-37.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-5",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "1af84150eeb77edae2587a1580f30f2e257bd97c425fd0006cc11696cbba30c5",
+        "uploaded_sha256": "1af84150eeb77edae2587a1580f30f2e257bd97c425fd0006cc11696cbba30c5",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-38.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-38.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-38.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-6",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "301f7ff011d26b4fd58896a7ff5800f80dcf2c2c401296dce09adae5b471214e",
+        "uploaded_sha256": "801af235d12a7159802075f19ac9bff9ca3fc4906994048e0ac0ba1ddde0635d",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-39.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-39.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:43.922 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-39.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-8",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "50e3cab341287636726f2ebb82e8a66e097a589829603669c165908a0fb77dd8",
+        "uploaded_sha256": "22ec08ee4c89be39bf19a6a98596eee5c21d7e4fe52e29b6671f94af9a258246",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-40.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-40.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:44.162 WARN  qeli_core::server: profile 'reality-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-40.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-9",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "2f2240b70081022a20a13789ec7ab5b9acbd85c0106e450c6ef91ae1bc4d642e",
+        "uploaded_sha256": "7e34208184d35222245c7fb3d093d1fc60a10b1388bbb95ee7b32914448e70c9",
+        "remote": "/var/tmp/qeli-q37-examples-432b05b470434904a5817f02be74a018/case-0.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-432b05b470434904a5817f02be74a018/qeli check-config --config /var/tmp/qeli-q37-examples-432b05b470434904a5817f02be74a018/case-0.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:34:50.870 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-432b05b470434904a5817f02be74a018/case-0.conf: OK",
+        "pass_": true,
+        "attempt": 3
+      },
+      {
+        "name": "ru-after-ini-10",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "947cb57a50d3aebf817790f2353f29d0721a16f49c0484966f112058c2026a29",
+        "uploaded_sha256": "908f92c949aa2e537eaa6f7d0e07769df762df7d9e15b739eeab67835c42d88f",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-42.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-42.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-42.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-11",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "e3b8f8aaff387021b0e3a511eb39da6d7834702d53154c978f36300d9e589023",
+        "uploaded_sha256": "e3b8f8aaff387021b0e3a511eb39da6d7834702d53154c978f36300d9e589023",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-43.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-43.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-43.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-12",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only",
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "4b1f1579a7aa9ea47e22c5dfaa851ae911a4c330f966ccc95acd2a25bb62240d",
+        "uploaded_sha256": "4b1f1579a7aa9ea47e22c5dfaa851ae911a4c330f966ccc95acd2a25bb62240d",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-44.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-44.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-44.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-13",
+        "client": false,
+        "changes": [
+          "documented fragment context: [auth]",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "c455502386830738b5d72303712c28406e6e67c542b1ccef1ef9afc8eee2876b",
+        "uploaded_sha256": "c455502386830738b5d72303712c28406e6e67c542b1ccef1ef9afc8eee2876b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-45.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-45.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:45.361 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-45.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-14",
+        "client": false,
+        "changes": [
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "fc24b0b633784441cca0e67ba9de967435d02e7533d5301205aebb76a2982922",
+        "uploaded_sha256": "fc24b0b633784441cca0e67ba9de967435d02e7533d5301205aebb76a2982922",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-46.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-46.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:45.603 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-46.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-15",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "22724cb860fc5fd8ab620d96535397985f95a45c66a0867524dbeb1d465ed30e",
+        "uploaded_sha256": "22724cb860fc5fd8ab620d96535397985f95a45c66a0867524dbeb1d465ed30e",
+        "remote": "/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-1.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/qeli check-config --client --config /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-1.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-1.conf: OK",
+        "pass_": true,
+        "attempt": 2
+      },
+      {
+        "name": "ru-after-ini-16",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "081f00f6db58d9303843d287e35a8c13c7320540805e0fa766cbb54b0d64d9e9",
+        "uploaded_sha256": "95246d8355010412ce14c1565857cbe4c3eaf4c7bc817eddf45319fe2d1af41b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-48.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-48.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:46.082 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:46.083 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-48.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-17",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "1b671ce6fe7527aa0a333b8b9079aa095f3330789632375ee085feb99efe6729",
+        "uploaded_sha256": "ee8ba3e30b9fe2b3b9c8a940a64621d833d1dfa90bf28b12d76a156bbb5646d3",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-49.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-49.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:46.323 WARN  qeli_core::server: profile 'mobile-udp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-49.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-18",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "2 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "21f618fc7931b945d9aa36431a08b5c64f46866315736626d46af7b81dd5e222",
+        "uploaded_sha256": "bcacac270916648f0efdb3cc1a47e74a229bf7cc956d14f74988ca909b885bf3",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-50.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-50.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:46.562 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:46.562 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-50.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-19",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "432c98e15e03d765651e33b1177936a8ad2692a0378255fd5d70a6b7be74e03c",
+        "uploaded_sha256": "f573ad745bb7364c248c9aa6879652f70ff1e0a9545e6bc15d3c862c61026815",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-51.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-51.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:46.803 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:46.804 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-51.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-20",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "0b3636fdd54d0974000d6969fe174571255939ce4945bdc459f4f7d2af0775c7",
+        "uploaded_sha256": "0b3636fdd54d0974000d6969fe174571255939ce4945bdc459f4f7d2af0775c7",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-52.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-52.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-52.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-21",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "94fa4d74494f460c7a15a39cf4fa5f5753a27c12995d023b844e01e70c935ca2",
+        "uploaded_sha256": "83bc521532394ee17aa42302fce450c7cacee7ec7994a69681b16df07c9211a2",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-53.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-53.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:47.287 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:47.288 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-53.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-22",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "4d2acaa42a3e1fbc9177fa81ad2093aba31ced690a4bcc4ba44a58adb6867751",
+        "uploaded_sha256": "72d893bdcf92b907d96d118e69ba04c3b62f39725b4b8593fdb84ffcac536efe",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-54.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-54.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:47.526 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-54.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-23",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "d7d15a6fbb0c123f039054ee7e4b9ace3037e18c7e5e663642d3c5e523d931ea",
+        "uploaded_sha256": "d7d15a6fbb0c123f039054ee7e4b9ace3037e18c7e5e663642d3c5e523d931ea",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-55.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-55.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-55.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-24",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "829fb45d3fd6df4aa58212f4d4a15254a8af515487c9c616e679ee671222e60e",
+        "uploaded_sha256": "829fb45d3fd6df4aa58212f4d4a15254a8af515487c9c616e679ee671222e60e",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-56.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-56.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-56.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-25",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "3 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "247a5e0b2c3a79535bca9a6bbe44566f76e0aeb5fd5e0b6ae885468d936aa639",
+        "uploaded_sha256": "69b15210b70426d9a5fa828bb83c69514b83d6a5c6819a44a61ac9ed62bf9bf5",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-57.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-57.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:48.246 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:48.246 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-57.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-26",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "uploaded_sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-58.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-58.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-58.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-27",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "92771844237a98504c56e06075d03792151c3a9b0b9666ca88261a924bb747b4",
+        "uploaded_sha256": "0a15f1a07ae9e3780641eb66075f99cc0f51f038706deaabdd86e1131172c141",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-59.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-59.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:48.727 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:48.727 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-59.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-28",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "c112ab11ab55fbf1dff9ce072d303c21df694a49b2acadefa84fa3fac9fceb25",
+        "uploaded_sha256": "c112ab11ab55fbf1dff9ce072d303c21df694a49b2acadefa84fa3fac9fceb25",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-60.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-60.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-60.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-29",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "1cd1d39c0d9b0b12939564b70cf22b90f728d46774de1a53afc1b6f3942ec0e2",
+        "uploaded_sha256": "c7099bc51b75961bc0f7a350d6aa7339d122fc92fc35b4211e6dede2ca03342f",
+        "remote": "/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-2.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/qeli check-config --config /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-2.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:30:37.628 WARN  qeli_core::server: profile 'main': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-2.conf: OK",
+        "pass_": true,
+        "attempt": 2
+      },
+      {
+        "name": "ru-after-ini-30",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "uploaded_sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-62.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-62.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-62.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-31",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "8f2aeeca85ec091354d2c854905776f7e3bb85e22ec9530c65e419a3b339e408",
+        "uploaded_sha256": "73ce6b6ca3fc88c3d6d486718ddf639e00ae33c414b72362c68d68eaf65d0c48",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-63.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-63.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:49.687 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-63.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-32",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "e8a55d79d84508075b3b009701380cbd584a9acb3a76ba82565145ee440c7041",
+        "uploaded_sha256": "1ee481e7895da5a8625c961ab17d6532e3b18877cb8aa4dc874231fe96488975",
+        "remote": "/var/tmp/qeli-q37-examples-a9bf50092d824231ad12cee4c26314f6/case-0.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-a9bf50092d824231ad12cee4c26314f6/qeli check-config --config /var/tmp/qeli-q37-examples-a9bf50092d824231ad12cee4c26314f6/case-0.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:36:20.980 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-a9bf50092d824231ad12cee4c26314f6/case-0.conf: OK",
+        "pass_": true,
+        "attempt": 4
+      },
+      {
+        "name": "ru-after-ini-33",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "297fca5ab58fac6b665530a9d8268500def7b9f00cd714c3415620d944b456fd",
+        "uploaded_sha256": "d036f33d85cc08c28f353e448f5637b5d883ad0033d124177938455f3d584c81",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-65.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-65.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:50.166 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-65.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "ru-after-ini-34",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "2ec7cab538de4d5709d29f88ad19201206ec988aa9d6d9c54771f643d835011d",
+        "uploaded_sha256": "2b122df822f72a76a2cacfc4bb4b80245d459d8d5270f76bc78721abe7b71bfd",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-66.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-66.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:50.405 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-66.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-0",
+        "client": true,
+        "changes": [],
+        "expected_exit": 0,
+        "sha256": "1255c4d29eaed4a074aa4b151b41d0238a617bea6cec7494ab035a6dc18913c7",
+        "uploaded_sha256": "1255c4d29eaed4a074aa4b151b41d0238a617bea6cec7494ab035a6dc18913c7",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-67.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-67.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-67.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-1",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "uploaded_sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-68.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-68.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-68.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-2",
+        "client": false,
+        "changes": [],
+        "expected_exit": 0,
+        "sha256": "b893b16dee12126479ead1f86fd0d409275c8fe429d33a15d6a115880b1379b3",
+        "uploaded_sha256": "bc2197748c29327a32edc25146c1765134e4355ba687b22085b44951283f9001",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-69.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-69.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:51.126 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-69.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-3",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "ee7f4663543b6096e143880d2b5cb6745c131f0b2d4c007dab8e90e410ab98ae",
+        "uploaded_sha256": "d615366a36e54b3132bf1529c8c6eb6de5c42f2c5e65bd89de1da94f8b71ae55",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-70.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-70.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:51.366 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-70.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-4",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "c9422842527a055e19f661bc15169fb17f9ed19e59afcfe7c45f3776f1c2d338",
+        "uploaded_sha256": "cb82fdfbe12325fd027648471437b4252a69cc38980c2a53c57c0925e3ae7e75",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-71.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-71.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:51.606 WARN  qeli_core::server: profile 'reality-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-71.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-5",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "3d02de926517644a3bec7a92a64cf909c9baa6a3271225476a0127ceb465211e",
+        "uploaded_sha256": "3d02de926517644a3bec7a92a64cf909c9baa6a3271225476a0127ceb465211e",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-72.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-72.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-72.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-6",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "301f7ff011d26b4fd58896a7ff5800f80dcf2c2c401296dce09adae5b471214e",
+        "uploaded_sha256": "801af235d12a7159802075f19ac9bff9ca3fc4906994048e0ac0ba1ddde0635d",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-73.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-73.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:52.087 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-73.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-8",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "1a1d5be59ee6a73eed88657e2595df355ff0e9a67e5dc50bb8fcab6a3c61b213",
+        "uploaded_sha256": "6470e1f570f6a5289b1c93a797feb40036b2a17186c0c50c5c46e42f55f70277",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-74.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-74.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:52.326 WARN  qeli_core::server: profile 'reality-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-74.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-9",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "377f0e9c55006a049d1ecac91bb8f01bf24a04c7c56cc9a219015134aaadb276",
+        "uploaded_sha256": "c078d043a4d8e43a8dd547d2ec4e61af4ded57cf13fdc720950643c3c8739524",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-75.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-75.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:52.568 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-75.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-10",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "91f50fec5d02c25f70117c85b6cb057120081f09c297c296aae9b56d7f3c8924",
+        "uploaded_sha256": "60b9dcd73ea299008c49d0ed8bd80c69ceea22dc45b02bbd84b83d76673c7950",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-76.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-76.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-76.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-11",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "993de9258fd21807b8f4e682e4119af876f71e3dfea41bc45a44d3b5c17f7cc4",
+        "uploaded_sha256": "993de9258fd21807b8f4e682e4119af876f71e3dfea41bc45a44d3b5c17f7cc4",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-77.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-77.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-77.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-12",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only",
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "fe385e48acad78d1e39d90af78fd35f60cb5ef87529f282a0494e7f40e7f7732",
+        "uploaded_sha256": "fe385e48acad78d1e39d90af78fd35f60cb5ef87529f282a0494e7f40e7f7732",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-78.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-78.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-78.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-13",
+        "client": false,
+        "changes": [
+          "documented fragment context: [auth]",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "3f6b3c3a0c06b782002f42b869a3b5bca5550eaff4f3a92bc3d39e765b529786",
+        "uploaded_sha256": "3f6b3c3a0c06b782002f42b869a3b5bca5550eaff4f3a92bc3d39e765b529786",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-79.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-79.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:53.534 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-79.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-14",
+        "client": false,
+        "changes": [
+          "documented fragment context: [auth]",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 1,
+        "sha256": "c4922f03b81132a09f1f3f69d059d138793061e64934bf887fe033d8541c061b",
+        "uploaded_sha256": "c4922f03b81132a09f1f3f69d059d138793061e64934bf887fe033d8541c061b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-80.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-80.conf",
+        "exit": 1,
+        "output": "2026-10-11 15:25:53.780 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-80.conf: 1 key(s) that nothing reads — check the spelling:\n  [auth] bind_static\nUnknown keys prevent startup; correct or remove the reported fields.",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-15",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "081f00f6db58d9303843d287e35a8c13c7320540805e0fa766cbb54b0d64d9e9",
+        "uploaded_sha256": "95246d8355010412ce14c1565857cbe4c3eaf4c7bc817eddf45319fe2d1af41b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-81.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-81.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:54.023 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:54.023 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-81.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-16",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "1b671ce6fe7527aa0a333b8b9079aa095f3330789632375ee085feb99efe6729",
+        "uploaded_sha256": "ee8ba3e30b9fe2b3b9c8a940a64621d833d1dfa90bf28b12d76a156bbb5646d3",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-82.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-82.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:54.262 WARN  qeli_core::server: profile 'mobile-udp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-82.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-17",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "2 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "63386b37e534427d5ec42b9b6038fdc1060c3229ad9cfc74a38290acc0b0d305",
+        "uploaded_sha256": "d368da57057a5a32472a2971ef7f4a7f5ca99f21a82b8197baf1981c7e8ac470",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-83.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-83.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:54.500 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:54.501 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-83.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-18",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "dd864952706e5830711acef061c54662b576c7a9f5852e2a7e1ed22c76dad20d",
+        "uploaded_sha256": "c32e4572d15ea9d10a7292771cdd93cf521735dbf58f7f8a2082852ce2febc62",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-84.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-84.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:54.740 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:54.740 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-84.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-19",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "485fe5bdf0c42c2866db16a84ae35ea557fa80e977dd8b877b5bf15065af7925",
+        "uploaded_sha256": "485fe5bdf0c42c2866db16a84ae35ea557fa80e977dd8b877b5bf15065af7925",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-85.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-85.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-85.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-20",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "94fa4d74494f460c7a15a39cf4fa5f5753a27c12995d023b844e01e70c935ca2",
+        "uploaded_sha256": "83bc521532394ee17aa42302fce450c7cacee7ec7994a69681b16df07c9211a2",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-86.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-86.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:55.214 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:55.214 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-86.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-21",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "b47667101899e9256100542e2b30fda88e9c119bf8aad122a04e5ebb4bd8d963",
+        "uploaded_sha256": "0e05989ca8d0118ae02e1819f318382accd100db5046ab6704b917e7f54f451f",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-87.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-87.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:55.457 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-87.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-22",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "631d5991f4fa0f34e6bf499f0f22f07cdc4bbb4221c145a480da0924f6c8c209",
+        "uploaded_sha256": "631d5991f4fa0f34e6bf499f0f22f07cdc4bbb4221c145a480da0924f6c8c209",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-88.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-88.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-88.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-23",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "29036c5ff15356d62580c79a9ed326fcbd2b8595741ab1eaa4c1b505a488b07f",
+        "uploaded_sha256": "29036c5ff15356d62580c79a9ed326fcbd2b8595741ab1eaa4c1b505a488b07f",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-89.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-89.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-89.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-24",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "3 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 1,
+        "sha256": "529f8242e5160277c8fc7078dd88f87875d08050b6bc04b5ca55eec69250f116",
+        "uploaded_sha256": "0e055808f242950bf8aee85f737666b331157898569ef981631ddc649d7f9a51",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-90.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-90.conf",
+        "exit": 1,
+        "output": "2026-10-11 15:25:56.183 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\nError: /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-90.conf: user 'exit': client_subnet entry '0.0.0.0/0         # \"the whole internet is behind this client\" (inbound iroute)' is not a valid IPv4/IPv6 CIDR or address",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-25",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "uploaded_sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-91.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-91.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-91.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-26",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "ea6faa35efe6be1f74d3315ed705792c94fd3754a6c4f5fba6e543349f6914b1",
+        "uploaded_sha256": "a65d5a91e043140209d2ce664581998afe9867e330da991c204c33eff0a56502",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-92.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-92.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:56.666 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:25:56.666 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-92.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-27",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "fde1bc1a4025718ff6c5a45130eb81d0a07cf45ddcb1df666dc0b0fd6d04d164",
+        "uploaded_sha256": "fde1bc1a4025718ff6c5a45130eb81d0a07cf45ddcb1df666dc0b0fd6d04d164",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-93.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-93.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-93.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-28",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 1,
+        "sha256": "933f61ada0ded2021d8a69ed9dccb93f9e90dfdf8a7885fcb1885d0625f89ecb",
+        "uploaded_sha256": "2205730a9fea61510b67d27759bb017e604a509a0582d31959cb31fe45c78b1c",
+        "remote": "/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-3.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/qeli check-config --config /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-3.conf",
+        "exit": 1,
+        "output": "Error: 'main' (bind 0.0.0.0:443) and 'main' (listen 203.0.113.5:443) both bind port 443/tcp on overlapping addresses — on UDP SO_REUSEPORT lets both succeed and the kernel then splits clients between them at random",
+        "pass_": true,
+        "attempt": 2
+      },
+      {
+        "name": "eng-before-ini-29",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "uploaded_sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-95.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-95.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-95.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-30",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "56c1032dab8b7a3693eca70543ea1483537341af8e66bd4d54427bf7d1e0c619",
+        "uploaded_sha256": "b3fbc7a59c8d43752c86b385dfd4584cc5bfb082469b61974bbc6aaf203fc113",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-96.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-96.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:57.628 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-96.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-31",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 1,
+        "sha256": "34a0a551c42adaa152316990126f3ae4803e4597f24f6302bdd87459ce84c481",
+        "uploaded_sha256": "17bfbc1cf0d66f03e15a38ef8df72f2cabcc8a9c937fddd613f0c04a97f82055",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-97.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-97.conf",
+        "exit": 1,
+        "output": "Error: web.trusted_proxies entry \"# (opt.) reverse-proxy IPs/CIDRs whose X-Forwarded-For is trusted; empty = none\" is not a valid IP address or CIDR",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-32",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "3eef658254092e77ab2d84e2eaed98c2ca53ab0b4b79c021cc1a2eed5497b00f",
+        "uploaded_sha256": "d5b48b9423915d3faa0cde8b65dc47d632acd22d825dec2514571e59d1923360",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-98.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-98.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:58.107 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-98.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-before-ini-33",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "3239b77a05b24ae273da030e4f408b0d95db0a3297a44118da58f2282cf8e143",
+        "uploaded_sha256": "2b89745293292abab46ecde4d925e48ea146d1cd90958e922a83431aedc69cb1",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-99.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-99.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:58.346 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-99.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-0",
+        "client": true,
+        "changes": [],
+        "expected_exit": 0,
+        "sha256": "1255c4d29eaed4a074aa4b151b41d0238a617bea6cec7494ab035a6dc18913c7",
+        "uploaded_sha256": "1255c4d29eaed4a074aa4b151b41d0238a617bea6cec7494ab035a6dc18913c7",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-100.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-100.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-100.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-1",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "uploaded_sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-101.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-101.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-101.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-2",
+        "client": false,
+        "changes": [],
+        "expected_exit": 0,
+        "sha256": "b893b16dee12126479ead1f86fd0d409275c8fe429d33a15d6a115880b1379b3",
+        "uploaded_sha256": "bc2197748c29327a32edc25146c1765134e4355ba687b22085b44951283f9001",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-102.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-102.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:59.065 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-102.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-3",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "ee7f4663543b6096e143880d2b5cb6745c131f0b2d4c007dab8e90e410ab98ae",
+        "uploaded_sha256": "d615366a36e54b3132bf1529c8c6eb6de5c42f2c5e65bd89de1da94f8b71ae55",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-103.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-103.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:59.308 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-103.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-4",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "c9422842527a055e19f661bc15169fb17f9ed19e59afcfe7c45f3776f1c2d338",
+        "uploaded_sha256": "cb82fdfbe12325fd027648471437b4252a69cc38980c2a53c57c0925e3ae7e75",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-104.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-104.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:25:59.546 WARN  qeli_core::server: profile 'reality-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-104.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-5",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "3d02de926517644a3bec7a92a64cf909c9baa6a3271225476a0127ceb465211e",
+        "uploaded_sha256": "3d02de926517644a3bec7a92a64cf909c9baa6a3271225476a0127ceb465211e",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-105.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-105.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-105.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-6",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "301f7ff011d26b4fd58896a7ff5800f80dcf2c2c401296dce09adae5b471214e",
+        "uploaded_sha256": "801af235d12a7159802075f19ac9bff9ca3fc4906994048e0ac0ba1ddde0635d",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-106.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-106.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:00.030 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-106.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-8",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "1a1d5be59ee6a73eed88657e2595df355ff0e9a67e5dc50bb8fcab6a3c61b213",
+        "uploaded_sha256": "6470e1f570f6a5289b1c93a797feb40036b2a17186c0c50c5c46e42f55f70277",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-107.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-107.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:00.272 WARN  qeli_core::server: profile 'reality-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-107.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-9",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "b38fbbf1105e88c8549ca083bab7f9059265c52062b4f4c41b6b47d384ae80f3",
+        "uploaded_sha256": "0236cb4cf49f64c2aea4d9222798ce08ec311c13133b46cd12147c577ece8733",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-108.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-108.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:00.510 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-108.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-10",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "91f50fec5d02c25f70117c85b6cb057120081f09c297c296aae9b56d7f3c8924",
+        "uploaded_sha256": "60b9dcd73ea299008c49d0ed8bd80c69ceea22dc45b02bbd84b83d76673c7950",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-109.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-109.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-109.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-11",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "993de9258fd21807b8f4e682e4119af876f71e3dfea41bc45a44d3b5c17f7cc4",
+        "uploaded_sha256": "993de9258fd21807b8f4e682e4119af876f71e3dfea41bc45a44d3b5c17f7cc4",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-110.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-110.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-110.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-12",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only",
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "fe385e48acad78d1e39d90af78fd35f60cb5ef87529f282a0494e7f40e7f7732",
+        "uploaded_sha256": "fe385e48acad78d1e39d90af78fd35f60cb5ef87529f282a0494e7f40e7f7732",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-111.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-111.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-111.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-13",
+        "client": false,
+        "changes": [
+          "documented fragment context: [auth]",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "3f6b3c3a0c06b782002f42b869a3b5bca5550eaff4f3a92bc3d39e765b529786",
+        "uploaded_sha256": "3f6b3c3a0c06b782002f42b869a3b5bca5550eaff4f3a92bc3d39e765b529786",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-112.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-112.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:01.470 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-112.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-14",
+        "client": false,
+        "changes": [
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "d5b0958d5064b48091f77edef69db85237e9b421880ac506e25f2648f8eec7b1",
+        "uploaded_sha256": "d5b0958d5064b48091f77edef69db85237e9b421880ac506e25f2648f8eec7b1",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-113.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-113.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:01.711 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-113.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-15",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "1a3112c6a4829248860d520b3176512fba18f229fb98e0059f411c84bbb11ebf",
+        "uploaded_sha256": "1a3112c6a4829248860d520b3176512fba18f229fb98e0059f411c84bbb11ebf",
+        "remote": "/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-4.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/qeli check-config --client --config /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-4.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-4.conf: OK",
+        "pass_": true,
+        "attempt": 2
+      },
+      {
+        "name": "eng-after-ini-16",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "081f00f6db58d9303843d287e35a8c13c7320540805e0fa766cbb54b0d64d9e9",
+        "uploaded_sha256": "95246d8355010412ce14c1565857cbe4c3eaf4c7bc817eddf45319fe2d1af41b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-115.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-115.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:02.190 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:26:02.190 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-115.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-17",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "1b671ce6fe7527aa0a333b8b9079aa095f3330789632375ee085feb99efe6729",
+        "uploaded_sha256": "ee8ba3e30b9fe2b3b9c8a940a64621d833d1dfa90bf28b12d76a156bbb5646d3",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-116.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-116.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:02.435 WARN  qeli_core::server: profile 'mobile-udp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-116.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-18",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "2 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "63386b37e534427d5ec42b9b6038fdc1060c3229ad9cfc74a38290acc0b0d305",
+        "uploaded_sha256": "d368da57057a5a32472a2971ef7f4a7f5ca99f21a82b8197baf1981c7e8ac470",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-117.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-117.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:02.675 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:26:02.675 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-117.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-19",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "dd864952706e5830711acef061c54662b576c7a9f5852e2a7e1ed22c76dad20d",
+        "uploaded_sha256": "c32e4572d15ea9d10a7292771cdd93cf521735dbf58f7f8a2082852ce2febc62",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-118.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-118.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:02.914 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:26:02.914 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-118.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-20",
+        "client": true,
+        "changes": [
+          "documented fragment context: [qeli]",
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "485fe5bdf0c42c2866db16a84ae35ea557fa80e977dd8b877b5bf15065af7925",
+        "uploaded_sha256": "485fe5bdf0c42c2866db16a84ae35ea557fa80e977dd8b877b5bf15065af7925",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-119.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-119.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-119.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-21",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "94fa4d74494f460c7a15a39cf4fa5f5753a27c12995d023b844e01e70c935ca2",
+        "uploaded_sha256": "83bc521532394ee17aa42302fce450c7cacee7ec7994a69681b16df07c9211a2",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-120.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-120.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:03.394 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:26:03.395 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-120.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-22",
+        "client": false,
+        "changes": [
+          "documented fragment context: [profile:tcp]",
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "b47667101899e9256100542e2b30fda88e9c119bf8aad122a04e5ebb4bd8d963",
+        "uploaded_sha256": "0e05989ca8d0118ae02e1819f318382accd100db5046ab6704b917e7f54f451f",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-121.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-121.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:03.633 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-121.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-23",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "631d5991f4fa0f34e6bf499f0f22f07cdc4bbb4221c145a480da0924f6c8c209",
+        "uploaded_sha256": "631d5991f4fa0f34e6bf499f0f22f07cdc4bbb4221c145a480da0924f6c8c209",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-122.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-122.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-122.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-24",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "29036c5ff15356d62580c79a9ed326fcbd2b8595741ab1eaa4c1b505a488b07f",
+        "uploaded_sha256": "29036c5ff15356d62580c79a9ed326fcbd2b8595741ab1eaa4c1b505a488b07f",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-123.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-123.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-123.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-25",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "3 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "9c5e7d7071353fafd676a0646d0248bc9a0784dd26b0bdfd56f5f49499532633",
+        "uploaded_sha256": "07c80beb64b052b05f94b340e433e828968d95a23f9755a9550c0e3969d1b8b2",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-124.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-124.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:04.358 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:26:04.358 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-124.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-26",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "uploaded_sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-125.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-125.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-125.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-27",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "ea6faa35efe6be1f74d3315ed705792c94fd3754a6c4f5fba6e543349f6914b1",
+        "uploaded_sha256": "a65d5a91e043140209d2ce664581998afe9867e330da991c204c33eff0a56502",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-126.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-126.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:04.838 WARN  qeli_core::config::server_ini: config: both inline [user:*] blocks and an explicit auth.users_file are set — both are loaded; users_file takes precedence on duplicates\n2026-10-11 15:26:04.838 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-126.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-28",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "expected_exit": 0,
+        "sha256": "fde1bc1a4025718ff6c5a45130eb81d0a07cf45ddcb1df666dc0b0fd6d04d164",
+        "uploaded_sha256": "fde1bc1a4025718ff6c5a45130eb81d0a07cf45ddcb1df666dc0b0fd6d04d164",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-127.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-127.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-127.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-29",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "e3453777d700052ff1e6dbbc5059bbbec968112cf64f1c839327c5b3e3e34733",
+        "uploaded_sha256": "01e83d2123043f3a38c873f17e82da6ad0041ddc3c6722fe1bbf827dba39f90c",
+        "remote": "/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-5.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/qeli check-config --config /var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-5.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:30:38.358 WARN  qeli_core::server: profile 'main': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0/case-5.conf: OK",
+        "pass_": true,
+        "attempt": 2
+      },
+      {
+        "name": "eng-after-ini-30",
+        "client": true,
+        "changes": [
+          "fragment: added inert endpoint only"
+        ],
+        "expected_exit": 0,
+        "sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "uploaded_sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-129.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --client --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-129.conf",
+        "exit": 0,
+        "output": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-129.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-31",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture"
+        ],
+        "expected_exit": 0,
+        "sha256": "56c1032dab8b7a3693eca70543ea1483537341af8e66bd4d54427bf7d1e0c619",
+        "uploaded_sha256": "b3fbc7a59c8d43752c86b385dfd4584cc5bfb082469b61974bbc6aaf203fc113",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-130.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-130.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:05.798 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-130.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-32",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp",
+          "1 documented PHC placeholders replaced with shipped inert hash"
+        ],
+        "expected_exit": 0,
+        "sha256": "dc88cbc8454302b6a38ec4a8878b28fe99c7afd4a6b093d6a3bae43f24842e68",
+        "uploaded_sha256": "cfa0cd8bcccd1ed5e71b40c8cb8e14e107848bd1b7e60fc3fce1ee2bbdc94cac",
+        "remote": "/var/tmp/qeli-q37-examples-a9bf50092d824231ad12cee4c26314f6/case-1.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-a9bf50092d824231ad12cee4c26314f6/qeli check-config --config /var/tmp/qeli-q37-examples-a9bf50092d824231ad12cee4c26314f6/case-1.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:36:21.226 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-a9bf50092d824231ad12cee4c26314f6/case-1.conf: OK",
+        "pass_": true,
+        "attempt": 4
+      },
+      {
+        "name": "eng-after-ini-33",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "3eef658254092e77ab2d84e2eaed98c2ca53ab0b4b79c021cc1a2eed5497b00f",
+        "uploaded_sha256": "d5b48b9423915d3faa0cde8b65dc47d632acd22d825dec2514571e59d1923360",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-132.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-132.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:06.277 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-132.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      },
+      {
+        "name": "eng-after-ini-34",
+        "client": false,
+        "changes": [
+          "empty-context auth/users fixture",
+          "fragment: added sparse baseline profile tcp"
+        ],
+        "expected_exit": 0,
+        "sha256": "3239b77a05b24ae273da030e4f408b0d95db0a3297a44118da58f2282cf8e143",
+        "uploaded_sha256": "2b89745293292abab46ecde4d925e48ea146d1cd90958e922a83431aedc69cb1",
+        "remote": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-133.conf",
+        "command": "timeout 15s unshare --net /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/qeli check-config --config /var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-133.conf",
+        "exit": 0,
+        "output": "2026-10-11 15:26:06.518 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\n/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7/case-133.conf: OK",
+        "pass_": true,
+        "attempt": 1
+      }
+    ],
+    "excluded_sysctl_inputs": [
+      {
+        "name": "ru-before-ini-7",
+        "reason": "sysctl document, not Qeli INI",
+        "sha256": "434c958b7c2df88a95434175903ef03eb9e366a9604eb72298444c7c8fdb2b7e"
+      },
+      {
+        "name": "ru-after-ini-7",
+        "reason": "sysctl document, not Qeli INI",
+        "sha256": "434c958b7c2df88a95434175903ef03eb9e366a9604eb72298444c7c8fdb2b7e"
+      },
+      {
+        "name": "eng-before-ini-7",
+        "reason": "sysctl document, not Qeli INI",
+        "sha256": "b5ebbf216d4b8a9b9f2ee88a1339de548cec723329a9de60e1ca5b954a771c12"
+      },
+      {
+        "name": "eng-after-ini-7",
+        "reason": "sysctl document, not Qeli INI",
+        "sha256": "b5ebbf216d4b8a9b9f2ee88a1339de548cec723329a9de60e1ca5b954a771c12"
+      }
+    ]
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "status": "FAIL",
+      "cases": 134,
+      "failed_verdicts": [
+        "ru-before-ini-28",
+        "ru-after-ini-15",
+        "ru-after-ini-29",
+        "eng-before-ini-28",
+        "eng-after-ini-15",
+        "eng-after-ini-29"
+      ],
+      "host_gate": "FAIL",
+      "host_changed_fields": [
+        "iptables4",
+        "legacy4"
+      ],
+      "cleanup": "OWNED_FIXTURE_REMOVED",
+      "root": "/var/tmp/qeli-q37-examples-67096c5ba5ae444395a14f543678f9d7",
+      "cookie": "2049:300051"
+    },
+    {
+      "attempt": 2,
+      "status": "PASS",
+      "cases": 6,
+      "failed_verdicts": [],
+      "host_gate": "PASS",
+      "host_changed_fields": [],
+      "cleanup": "OWNED_FIXTURE_REMOVED",
+      "root": "/var/tmp/qeli-q37-examples-f52dd2c6c85148a5bfe9769475deb3a0",
+      "cookie": "2049:313582"
+    },
+    {
+      "attempt": 3,
+      "status": "FAIL",
+      "cases": 1,
+      "failed_verdicts": [],
+      "host_gate": "FAIL",
+      "host_changed_fields": [
+        "iptables4",
+        "legacy4"
+      ],
+      "cleanup": "OWNED_FIXTURE_REMOVED",
+      "root": "/var/tmp/qeli-q37-examples-432b05b470434904a5817f02be74a018",
+      "cookie": "2049:300051"
+    },
+    {
+      "attempt": 4,
+      "status": "FAIL",
+      "cases": 2,
+      "failed_verdicts": [],
+      "host_gate": "FAIL",
+      "host_changed_fields": [
+        "iptables4",
+        "legacy4"
+      ],
+      "cleanup": "OWNED_FIXTURE_REMOVED",
+      "root": "/var/tmp/qeli-q37-examples-a9bf50092d824231ad12cee4c26314f6",
+      "cookie": "2049:313582"
+    }
+  ],
+  "limitations": [
+    "Old FAIL verdicts/host snapshots remain retained. PASS of a later host gate does not erase prior firewall delta FAIL.",
+    "No VPN or panel started; hooks, forwarding, connectivity and sysctl not executed.",
+    "Optional/list/custom default transforms and user/group defaults/errors still need separate review.",
+    "Product sources, factory CLI and native build inputs unchanged."
+  ],
+  "push_deploy_release": false
+}

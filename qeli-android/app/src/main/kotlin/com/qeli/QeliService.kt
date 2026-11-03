@@ -1,10 +1,6 @@
 package com.qeli
 
 import android.Manifest
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -12,6 +8,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
@@ -71,14 +68,17 @@ class VpnServiceImpl : VpnService() {
     @Volatile private var transportJob: Job? = null
     @Volatile private var activeConfig: VpnConfig? = null
     @Volatile private var activePlanGeneration = 0L
+    private var vpnPublicationJob: Job? = null // guarded by the service monitor
     private val pathUpdateSequence = AtomicLong(0)
     @Volatile private var nativeFatalError: Throwable? = null
+    @Volatile private var attemptConnectedAt = -1L
+    @Volatile private var attemptEndedAt = -1L
     private var wakeLock: PowerManager.WakeLock? = null
     private var wakeLockRenewalJob: Job? = null
     // Watches the physical network (Wi-Fi <-> LTE switch). A feature TCP core receives a
     // generation-scoped candidate path; unsupported/default builds retain the immediate full
     // reconnect fallback instead of waiting for their dead-connection timeout.
-    private var netCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var netCallback: ConnectivityManager.NetworkCallback? = null
     private var screenReceiver: BroadcastReceiver? = null
     private var wakeReconnectJob: Job? = null
     @Volatile private var roamingUpdateJob: Job? = null
@@ -88,14 +88,10 @@ class VpnServiceImpl : VpnService() {
     @Volatile private var screenOffAt = 0L
     @Volatile
     private var currentNetwork: Network? = null
-    // Every non-VPN network we currently see, used ONLY on the pre-31 fallback path of
-    // [registerNetworkCallback] to tell "the link we are on died" from "some other link
-    // appeared". Empty on API 31+, which gets the best-matching callback instead.
-    private val underlyingNets = java.util.Collections.synchronizedSet(mutableSetOf<Network>())
-    private val networkSignatures = java.util.concurrent.ConcurrentHashMap<Network, String>()
-    // Offline time is not a failed connection attempt. The callback only wakes this conflated
-    // gate; the retry loop re-validates the selected carrier before starting a generation.
-    private val carrierAvailable = Channel<Unit>(Channel.CONFLATED)
+    private val networkSignatures = AndroidNetworkSignatureCache<Network>()
+    // Offline time is not a failed connection attempt. Callbacks accelerate this cancellable
+    // gate, which also rechecks readiness if Android omits or races a notification.
+    private val carrierGate = AndroidCarrierGate()
 
     // Network.getAllByName is a blocking platform call and ignores thread interruption on
     // several Android resolver implementations. Keep a bounded service-owned pool: one old
@@ -112,6 +108,7 @@ class VpnServiceImpl : VpnService() {
     private val teardownSupervisor = SupervisorJob()
     private val teardownScope = CoroutineScope(teardownSupervisor + Dispatchers.IO)
     @Volatile private var teardownJob: Job? = null
+    private var pendingReconfigureConfig: VpnConfig? = null
 
     private data class CarrierDnsRequest(
         val key: String,
@@ -126,6 +123,11 @@ class VpnServiceImpl : VpnService() {
 
     @Volatile
     private var userRequestedDisconnect = false
+    // Serialize the final clear with service log writes so a late callback or
+    // onDestroy diagnostic cannot recreate the journal after shutdown.
+    private val diagnosticLogLock = Any()
+    private var diagnosticLogClosed = false
+    private val diagnosticJournal by lazy { AndroidDiagnosticJournal.get(noBackupFilesDir) }
 
     @Volatile
     private var stopping = false
@@ -157,8 +159,9 @@ class VpnServiceImpl : VpnService() {
     private var trustedWifiLocationTypeActive = false
     private var currentNotificationText: String? = null
 
-    private val CHANNEL_ID = "vpn_obfuscated_channel"
-    private val NOTIFICATION_ID = 1001
+    private val NOTIFICATION_ID = VpnForegroundNotification.ID
+    private var recoveryConfigReady = false
+    private var recoveryRecordArmed = false
 
     private class ServerKickException(message: String) : IllegalStateException(message)
 
@@ -169,7 +172,9 @@ class VpnServiceImpl : VpnService() {
         private const val WAKE_LOCK_LEASE_MS = 10 * 60 * 1000L
         private const val WAKE_LOCK_RENEW_MS = 5 * 60 * 1000L
         const val ACTION_CONNECT = "com.qeli.CONNECT"
+        const val ACTION_RECONFIGURE = "com.qeli.RECONFIGURE"
         const val ACTION_DISCONNECT = "com.qeli.DISCONNECT"
+        internal const val ACTION_RECOVER_DESIRED = "com.qeli.RECOVER_DESIRED"
         // Non-exported and accepted only by a debuggable build. CI grants Android's
         // ACTIVATE_VPN app-op, then executes the production Builder path on a real emulator.
         internal const val ACTION_DEBUG_TUN_SELF_TEST = "com.qeli.DEBUG_TUN_SELF_TEST"
@@ -184,6 +189,9 @@ class VpnServiceImpl : VpnService() {
         const val EXTRA_LOG_TIME_MS = "log_time_ms"
         const val EXTRA_LOG_SESSION_ID = "log_session_id"
         const val EXTRA_LOG_LEVEL = "log_level"
+        const val EXTRA_LOG_EPOCH = "log_epoch"
+        const val EXTRA_LOG_SEQUENCE = "log_sequence"
+        const val EXTRA_LOG_CLEARED = "log_cleared"
         const val EXTRA_IP = "ip"
         const val EXTRA_GATEWAY = "gateway"
         const val STATUS_CONNECTING = "connecting"
@@ -210,13 +218,12 @@ class VpnServiceImpl : VpnService() {
         // The tunnel's own /24
         // (added via addAddress) is a more-specific connected route, so excluding 10/8
         // here does NOT strand the tunnel gateway.
-        private val LAN_BYPASS_IPV4_EXCLUDES = listOf(
-            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
-            "224.0.0.0/24", "239.255.255.250/32",
-        )
-        // IPv6 local scope: ULA, link-local and multicast. A local GUA prefix cannot be
-        // inferred safely; users can add that exact prefix through `exclude`.
-        private val LAN_BYPASS_IPV6_EXCLUDES = listOf("fc00::/7", "fe80::/10", "ff00::/8")
+        private fun lanBypassPrefixes(family: Int): List<String> {
+            val values = ConfigCore.policy("lan_prefixes", org.json.JSONObject().put("family", family)).getJSONArray("value")
+            return (0 until values.length()).map(values::getString)
+        }
+        private val LAN_BYPASS_IPV4_EXCLUDES by lazy { lanBypassPrefixes(4) }
+        private val LAN_BYPASS_IPV6_EXCLUDES by lazy { lanBypassPrefixes(6) }
         // Last known tunnel state, readable by a (re)created Activity so it can
         // restore its UI without a fresh broadcast. The foreground service keeps
         // running across Activity recreation (theme switch / rotation), so the
@@ -325,7 +332,31 @@ class VpnServiceImpl : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val redelivered = flags and START_FLAG_REDELIVERY != 0
+        // A late redelivery must never override an explicit Disconnect/revocation. Fresh
+        // always-on starts remain system-owned and may select the current saved profile.
+        if (redelivered && !connectionDesired()) {
+            rejectForegroundConnect("VPN redelivery ignored: connection is no longer desired")
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
+            ACTION_RECOVER_DESIRED -> {
+                if (!connectionDesired() || VpnService.prepare(this) != null) {
+                    rejectForegroundConnect("VPN recovery ignored: connection stopped or consent revoked")
+                    return START_NOT_STICKY
+                }
+                // Android may also redeliver the original action. Never reset diagnostics,
+                // Trusted Wi-Fi state, or a live native generation for the second callback.
+                if (!hasConnectionController() && !stopping && teardownJob?.isActive != true) {
+                    val config = recoveryConfig()
+                    if (config == null) {
+                        rejectForegroundConnect("VPN recovery unavailable: no usable connection snapshot")
+                        return START_NOT_STICKY
+                    }
+                    prepareDiagnosticSession("process-recovery", redelivered = true)
+                    broadcastLog("Android recovery record requested the desired VPN after process death")
+                    startTrustedAware(config)
+                }
+            }
             ACTION_DEBUG_TUN_SELF_TEST -> {
                 if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) {
                     Log.w("VpnSvc", "Ignoring TUN self-test action in a non-debuggable build")
@@ -346,8 +377,10 @@ class VpnServiceImpl : VpnService() {
                 }
                 return START_NOT_STICKY
             }
-            ACTION_CONNECT -> {
-                val config = if (Build.VERSION.SDK_INT >= 33) {
+            ACTION_CONNECT, ACTION_RECONFIGURE -> {
+                val config = if (redelivered) {
+                    recoveryConfig()
+                } else if (Build.VERSION.SDK_INT >= 33) {
                     intent.getSerializableExtra(EXTRA_CONFIG, VpnConfig::class.java)
                 } else {
                     @Suppress("DEPRECATION")
@@ -371,6 +404,8 @@ class VpnServiceImpl : VpnService() {
                         Log.e("VpnSvc", "Refusing to connect: ${rejected.message}")
                         rejectForegroundConnect("Invalid profile: ${rejected.message}")
                     }
+                    intent.action == ACTION_RECONFIGURE -> requestReconfiguration(config)
+                    hasConnectionController() -> broadcastLog("Connect ignored because a VPN controller is already active")
                     else -> {
                         prepareDiagnosticSession("app", redelivered)
                         if (redelivered) {
@@ -382,6 +417,7 @@ class VpnServiceImpl : VpnService() {
                 }
             }
             ACTION_DISCONNECT -> {
+                pendingReconfigureConfig = null
                 broadcastLog("User requested VPN disconnect")
                 userRequestedDisconnect = true
                 setConnectionDesired(false)
@@ -408,10 +444,7 @@ class VpnServiceImpl : VpnService() {
                 if (activeConfig != null || trustedWaitConfig != null) {
                     reevaluateTrustedWifi()
                 } else if (connectionDesired()) {
-                    val cfg = ProfileStore.activeProfileConfigText(this)
-                        ?.let { raw ->
-                            runCatching { VpnConfig.parse(raw).also { it.validate() } }.getOrNull()
-                        }
+                    val cfg = recoveryConfig()
                     if (cfg != null) startTrustedAware(cfg)
                     else stopVpn("No usable active profile")
                 }
@@ -426,12 +459,11 @@ class VpnServiceImpl : VpnService() {
             // alternative to autostart, which made this the advertised path.
             // (Audit 2026-07-27, M1)
             VpnService.SERVICE_INTERFACE -> {
-                // validate() too, not just parse(): always-on is the path with NO UI to show a
-                // rejection, so an out-of-range saved profile would otherwise be carried all the
-                // way into the tunnel. A failure lands in the same "no usable profile" branch
-                // below, which does report itself. (Audit 2026-07-30, #11.)
-                val cfg = ProfileStore.activeProfileConfigText(this)
-                    ?.let { runCatching { VpnConfig.parse(it).also { c -> c.validate() } }.getOrNull() }
+                if (hasConnectionController()) return START_REDELIVER_INTENT
+                // Strict parsing rejects invalid saved profiles before always-on activation;
+                // the failure is reported by the no-usable-profile branch below.
+                val cfg = if (redelivered) recoveryConfig() else ProfileStore.activeProfileConfigText(this)
+                    ?.let { runCatching { VpnConfig.parse(it) }.getOrNull() }
                 if (cfg == null || cfg.serverAddress.isBlank() || cfg.serverAddress == "SERVER_IP_OR_HOST") {
                     // Nothing to connect. Say so loudly: with lockdown on, the user sees a
                     // dead network and no explanation anywhere.
@@ -472,14 +504,16 @@ class VpnServiceImpl : VpnService() {
         // automation. REDELIVER (never STICKY/null) restores the exact connect action after
         // low-memory process death. Manual Disconnect synchronously clears the desired bit
         // first, so it remains NOT_STICKY and cannot resurrect a user-stopped tunnel.
-        return if (shouldRedeliverVpnService(stopping, connectionDesired())) {
+        return if (shouldRedeliverVpnService(stopping && pendingReconfigureConfig == null, connectionDesired())) {
             START_REDELIVER_INTENT
         } else {
             START_NOT_STICKY
         }
     }
 
+    @Synchronized
     override fun onRevoke() {
+        pendingReconfigureConfig = null
         // The user can revoke/disconnect Qeli from Android's system VPN screen instead of
         // using our UI. Treat that as the same explicit intent so trusted-network automation
         // cannot resurrect the tunnel. Do not call VpnService's default stopSelf(); stopVpn()
@@ -494,11 +528,17 @@ class VpnServiceImpl : VpnService() {
         stopVpn()
     }
 
+    @Synchronized
     override fun onDestroy() {
+        pendingReconfigureConfig = null
         // Normal destruction happens only after stopVpn has joined the native runner and called
         // stopSelf. If Android destroys us independently, do the strongest synchronous cleanup
         // available; process death is the final descriptor boundary after this callback.
-        if (!stopping && connectionDesired()) {
+        val unexpectedDestruction = !stopping && connectionDesired()
+        // onDestroy is also a terminal adapter boundary when the process survives.
+        // A queued event must not establish another TUN after this callback.
+        stopping = true
+        if (unexpectedDestruction) {
             broadcastLog(
                 "VPN service destroyed while the connection is still desired; awaiting redelivery",
                 level = "warn",
@@ -527,10 +567,6 @@ class VpnServiceImpl : VpnService() {
         }
         carrierDnsExecutor.shutdownNow()
         super.onDestroy()
-    }
-
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        super.onTaskRemoved(rootIntent)
     }
 
     @Synchronized
@@ -577,8 +613,7 @@ class VpnServiceImpl : VpnService() {
     }
 
     private fun createNotificationChannel() {
-        getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(NotificationChannel(CHANNEL_ID, s(R.string.notif_channel_name), NotificationManager.IMPORTANCE_LOW))
+        VpnForegroundNotification.createChannel(this)
     }
 
     /**
@@ -598,28 +633,7 @@ class VpnServiceImpl : VpnService() {
 
     private fun showNotification(text: String): Boolean {
         return try {
-            val tapIntent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            val pendingIntent = PendingIntent.getActivity(
-                this, 0, tapIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            // "Disconnect" action → stop the tunnel from the notification shade without opening the app.
-            val disconnectPending = PendingIntent.getService(
-                this, 1, Intent(this, VpnServiceImpl::class.java).setAction(ACTION_DISCONNECT),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val notification = Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("Qeli")
-                .setContentText(text)
-                .setSmallIcon(android.R.drawable.ic_lock_lock)
-                .setContentIntent(pendingIntent)
-                .setOngoing(true)
-                .setVisibility(Notification.VISIBILITY_SECRET)
-                .addAction(Notification.Action.Builder(
-                    android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-                    s(R.string.disconnect), disconnectPending).build())
-                .build()
+            val notification = VpnForegroundNotification.build(this, text)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 // A connected SSID is location-sensitive even though Qeli only compares it
                 // locally. Add the location type only during a user-visible Activity lifetime;
@@ -662,15 +676,26 @@ class VpnServiceImpl : VpnService() {
     /** Satisfy startForegroundService's promotion contract even when the final config gate
      * rejects the request before a tunnel generation exists. A live/waiting controller must
      * remain untouched; only a fresh, otherwise-idle service instance is stopped here. */
+    @Synchronized
     private fun rejectForegroundConnect(message: String) {
         Log.e("VpnSvc", message)
+        if (transportCore != null || vpnInterface != null || transportJob?.isActive == true ||
+            pausedByTrustedWifi || trustedPauseInFlight || stopping || teardownJob?.isActive == true) {
+            broadcastLog("Connect request rejected: $message", level = "warn")
+            return
+        }
+        broadcastLog("Connect request rejected: $message", level = "error")
         broadcastStatus(STATUS_ERROR, message)
-        if (transportCore == null && vpnInterface == null && transportJob?.isActive != true &&
-            !pausedByTrustedWifi && !trustedPauseInFlight) {
-            showNotification(message)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopping = true
-            stopSelf()
+        showNotification(message)
+        disarmRecoveryRecord()
+        stopping = true
+        teardownJob = teardownScope.launch {
+            val logsCleared = finishDiagnosticSession(terminalError = true)
+            withContext(Dispatchers.Main) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                broadcastStatus(STATUS_ERROR, message, logsCleared)
+                stopSelf()
+            }
         }
     }
 
@@ -691,11 +716,48 @@ class VpnServiceImpl : VpnService() {
             .getBoolean(MainActivity.PREF_CONNECTION_DESIRED, false)
 
     private fun setConnectionDesired(desired: Boolean) {
+        if (!desired) disarmRecoveryRecord()
         val stored = getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(MainActivity.PREF_CONNECTION_DESIRED, desired)
             .commit()
         if (!stored) Log.e("VpnSvc", "Failed to persist connection_desired=$desired")
+        if (!desired) runCatching { ProfileStore.clearConnectionConfig(this) }
+            .onFailure { Log.e("VpnSvc", "Failed to remove connection recovery configuration") }
+    }
+
+    private fun hasConnectionController(): Boolean = transportCore != null || vpnInterface != null ||
+        transportJob?.isActive == true || pausedByTrustedWifi || trustedPauseInFlight
+
+    private fun recoveryConfig(): VpnConfig? = runCatching {
+        ProfileStore.connectionConfigText(this)?.let { VpnConfig.parse(it) }
+    }.getOrNull()
+
+    private fun saveRecoveryConfig(config: VpnConfig): Boolean {
+        val saved = runCatching {
+            ProfileStore.saveConnectionConfig(this, config.toIni())
+        }.isSuccess
+        if (!saved) {
+            rejectForegroundConnect("Could not persist connection recovery configuration")
+            return false
+        }
+        recoveryConfigReady = true
+        return true
+    }
+
+    private fun armRecoveryRecord() {
+        if (recoveryRecordArmed || !recoveryConfigReady || !connectionDesired()) return
+        try {
+            startForegroundService(Intent(this, VpnRecoveryService::class.java))
+            recoveryRecordArmed = true
+        } catch (error: Exception) {
+            Log.w("VpnSvc", "VPN recovery record could not be started", error)
+        }
+    }
+
+    private fun disarmRecoveryRecord() {
+        recoveryRecordArmed = false
+        stopService(Intent(this, VpnRecoveryService::class.java))
     }
 
     private fun diagnosticSessionId(): String {
@@ -708,17 +770,21 @@ class VpnServiceImpl : VpnService() {
     }
 
     private fun prepareDiagnosticSession(origin: String, redelivered: Boolean) {
+        synchronized(diagnosticLogLock) { diagnosticLogClosed = false }
         val prefs = getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
         val existing = diagnosticSessionId()
+        diagnosticJournal.setRetainLastError(prefs.getBoolean(MainActivity.PREF_RETAIN_ERROR_REPORT, false))
         val hasLiveController = transportCore != null || vpnInterface != null ||
             transportJob?.isActive == true || pausedByTrustedWifi || trustedPauseInFlight
         val createNew = existing.isBlank() || (!redelivered && !hasLiveController)
-        if (!createNew) return
+        if (!createNew) {
+            diagnosticJournal.beginSession(existing)
+            return
+        }
         val sessionId = UUID.randomUUID().toString().substring(0, 8)
         diagnosticSessionIdCache = sessionId
-        if (!prefs.edit().putString(MainActivity.PREF_DIAGNOSTIC_SESSION_ID, sessionId).commit()) {
-            Log.e("VpnSvc", "Failed to persist diagnostic session id")
-        }
+        diagnosticJournal.beginSession(sessionId)
+        prefs.edit().putString(MainActivity.PREF_DIAGNOSTIC_SESSION_ID, sessionId).apply()
         diagnosticSessionEndingLogged = false
         broadcastLog("=== VPN session $sessionId started ($origin) ===")
     }
@@ -765,7 +831,17 @@ class VpnServiceImpl : VpnService() {
         return TrustedWifiPolicy.normalizeObservedSsid(observedWifiSsid(caps)).orEmpty()
     }
 
+    private fun shouldPauseForTrustedNetwork(caps: NetworkCapabilities?): Boolean {
+        val config = activeConfig ?: trustedWaitConfig ?: return false
+        return TrustedWifiPolicy.shouldPause(
+            networkKind = classifyNetwork(caps),
+            configKillSwitch = config.killSwitch,
+            systemLockdown = preEstablishmentLockdownState().second,
+        )
+    }
+
     private fun startTrustedAware(config: VpnConfig) {
+        if (!saveRecoveryConfig(config)) return
         trustedWaitConfig = config
         userRequestedDisconnect = false
         // A requested/system lockdown cannot coexist with an intentionally absent TUN.
@@ -818,6 +894,7 @@ class VpnServiceImpl : VpnService() {
             return
         }
         broadcastStatus(STATUS_WAITING_TRUSTED)
+        armRecoveryRecord()
     }
 
     @Synchronized
@@ -910,7 +987,7 @@ class VpnServiceImpl : VpnService() {
             if (!TrustedWifiPolicy.shouldResumeAfterDelay(kind, resumeEvenIfTrusted) ||
                 !pausedByTrustedWifi || !connectionDesired()) return@launch
             val config = trustedWaitConfig ?: ProfileStore.activeProfileConfigText(this@VpnServiceImpl)
-                ?.let { runCatching { VpnConfig.parse(it).also { value -> value.validate() } }.getOrNull() }
+                ?.let { runCatching { VpnConfig.parse(it) }.getOrNull() }
             if (config == null) {
                 withContext(Dispatchers.Main.immediate) { stopVpn("No usable active profile") }
                 return@launch
@@ -964,6 +1041,30 @@ class VpnServiceImpl : VpnService() {
         }
     }
 
+    @Synchronized
+    private fun requestReconfiguration(config: VpnConfig) {
+        if (stopping || teardownJob?.isActive == true) {
+            broadcastLog("Reconfiguration ignored while VPN is disconnecting")
+            return
+        }
+        val error = killSwitchError(currentKillSwitchReadiness(config))
+        if (error != null) {
+            rejectForegroundConnect(error)
+            return
+        }
+        if (!saveRecoveryConfig(config)) return
+        setConnectionDesired(true)
+        if (transportCore == null && vpnInterface == null && transportJob?.isActive != true) {
+            prepareDiagnosticSession("settings", redelivered = false)
+            startTrustedAware(config)
+            return
+        }
+        pendingReconfigureConfig = config
+        userRequestedDisconnect = true // stop retries while draining the previous generation
+        stopVpn()
+    }
+
+    @Synchronized
     private fun startVpn(config: VpnConfig) {
         if (stopping || teardownJob?.isActive == true) {
             broadcastLog("Connect ignored while the previous VPN is still disconnecting")
@@ -991,9 +1092,7 @@ class VpnServiceImpl : VpnService() {
             // recomputes the prepared-provider + secure-lockdown proof from live state.
             showNotification(killSwitchError)
             if (transportCore == null && vpnInterface == null) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopping = true // onDestroy must not replace the visible ERROR with DISCONNECTED
-                stopSelf()
+                rejectForegroundConnect(killSwitchError)
             }
             return
         }
@@ -1117,6 +1216,7 @@ class VpnServiceImpl : VpnService() {
             stopVpn("Notification permission denied")
             return
         }
+        armRecoveryRecord()
 
         // Publish the Job before it can enter JNI. Otherwise an immediate native failure
         // can call stopVpn before teardown has a runner to join.
@@ -1188,7 +1288,7 @@ class VpnServiceImpl : VpnService() {
             TransportCoreEventCodec.KIND_SOCKET_PROTECT -> {
                 val outcome = TransportCoreEventDispatcher.protectSocket(
                     event,
-                    attempt = { fd -> protectAndBindCarrierSocket(fd) },
+                    attempt = { fd -> protectAndBindCarrierSocket(core, fd) },
                     beforeRetry = {
                         try {
                             Thread.sleep(100)
@@ -1387,18 +1487,21 @@ class VpnServiceImpl : VpnService() {
 
     /** Execute the authenticated Rust plan with Android APIs, then transfer a duplicate of
      * the established TUN to the native packet pump before acknowledging Running. */
+    @Synchronized
     private fun applyNativeNetworkPlan(core: TransportCore, event: TransportCoreEvent) {
         val plan = TransportCoreEventCodec.decodeNetworkPlan(event)
-        val username = activeConfig?.username?.let(::logValue) ?: "?"
-        broadcastLog("Auth OK: user='$username', IP ${plan.tunnelAddress}")
-        plan.connectionLog.forEach(::broadcastLog)
         val config = activeConfig
-        if (config == null || transportCore !== core) {
+        // Shares the service monitor with stop/revoke/destroy and TUN detach. Coroutine
+        // cancellation alone cannot interrupt synchronous Builder.establish().
+        if (stopping || config == null || transportCore !== core) {
             runCatching {
                 core.networkPlanResult(plan.generation, false, "VPN service is stopping")
             }
             return
         }
+        val username = logValue(config.username)
+        broadcastLog("Auth OK: user='$username', IP ${plan.tunnelAddress}")
+        plan.connectionLog.forEach(::broadcastLog)
         var attachment: TunAttachment? = null
         var acknowledged = false
         val previousPushedRoutesInstalled = pushedRoutesInstalled
@@ -1469,11 +1572,7 @@ class VpnServiceImpl : VpnService() {
                     "pushed_routes=$pushedRoutesInstalled/${plan.pushedRoutes.size} " +
                     "plan_routes=${plan.routes.size}; Rust owns the TUN payload"
             )
-            announceConnected(
-                plan.tunnelAddress,
-                plan.tunnelGateway,
-                plan.addresses.joinToString { "${it.address}/${it.prefixLength}" },
-            )
+            waitForVpnPublication(core, plan, tun)
         } catch (error: Throwable) {
             if (!acknowledged) {
                 pushedRoutesInstalled = previousPushedRoutesInstalled
@@ -1493,7 +1592,134 @@ class VpnServiceImpl : VpnService() {
             } else {
                 broadcastLog("Preserving the reusable Android TUN for the next generation")
             }
+            if (acknowledged) {
+                activePlanGeneration = 0L
+                vpnPublicationJob?.cancel()
+                vpnPublicationJob = null
+                runCatching { core.stop() }
+            }
             broadcastLog("ERROR: Native NetworkPlan ${plan.generation} failed: ${error.message}")
+        }
+    }
+
+    /** ACK starts Rust's packet pump, but does not publish app routing in Android. A fresh
+     * passive VPN callback also reports an already published, reused TUN. The VPN owner can
+     * observe its own VPN even when per-app include mode excludes the owner's UID. */
+    @Synchronized
+    private fun waitForVpnPublication(
+        core: TransportCore,
+        plan: TransportCoreNetworkPlan,
+        tun: ParcelFileDescriptor,
+    ) {
+        vpnPublicationJob?.cancel()
+        val scope = coroutineScope ?: error("VPN session scope is unavailable")
+        check(scope.isActive) { "VPN session scope is stopping" }
+        val timeoutMs = activeConfig!!.connectionTimeoutSecs.coerceIn(1, 30) * 1000L
+        val publicationJob = scope.launch(start = CoroutineStart.LAZY) {
+            val ownerJob = currentCoroutineContext()[Job]
+            try {
+                val network = awaitAndroidVpnPublication(plan, timeoutMs)
+                    ?: throw TimeoutException("Android VPN publication timed out")
+                synchronized(this@VpnServiceImpl) {
+                    if (ownerJob?.isActive != true || stopping || transportCore !== core ||
+                        activePlanGeneration != plan.generation || vpnInterface !== tun ||
+                        liveStatus != STATUS_CONNECTING
+                    ) return@synchronized
+                    announceConnected(
+                        plan.tunnelAddress,
+                        plan.tunnelGateway,
+                        plan.addresses.joinToString { "${it.address}/${it.prefixLength}" },
+                    )
+                    broadcastLog(
+                        "Android VPN CONNECTED: generation=${plan.generation} " +
+                            "network=$network device_ms=${liveConnectedAt}"
+                    )
+                }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                synchronized(this@VpnServiceImpl) {
+                    if (stopping || transportCore !== core ||
+                        activePlanGeneration != plan.generation || vpnInterface !== tun
+                    ) return@synchronized
+                    // Keep the Java TUN and system lockdown policy while the normal retry
+                    // loop replaces this generation. Never report a publication timeout as
+                    // a second failed ACK after Rust already accepted the plan.
+                    activePlanGeneration = 0L
+                    nativeFatalError = error
+                    broadcastLog("ERROR: Android VPN publication failed: ${error.message}")
+                    runCatching { core.stop() }
+                }
+            } finally {
+                synchronized(this@VpnServiceImpl) {
+                    if (vpnPublicationJob === ownerJob) vpnPublicationJob = null
+                }
+            }
+        }
+        vpnPublicationJob = publicationJob
+        publicationJob.start()
+    }
+
+    private suspend fun awaitAndroidVpnPublication(
+        plan: TransportCoreNetworkPlan,
+        timeoutMs: Long,
+    ): Long? {
+        val cm = getSystemService(ConnectivityManager::class.java)
+            ?: error("ConnectivityManager is unavailable")
+        val expectedAddresses = plan.addresses.mapTo(HashSet()) {
+            "${InetAddress.getByName(it.address).hostAddress}/${it.prefixLength}"
+        }
+        val publication = AndroidVpnPublicationState(expectedAddresses, plan.mtu)
+        val changes = Channel<Unit>(Channel.CONFLATED)
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                publication.available(network.networkHandle)
+                changes.trySend(Unit)
+            }
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                publication.capabilities(network.networkHandle,
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
+                changes.trySend(Unit)
+            }
+            override fun onLinkPropertiesChanged(network: Network, links: LinkProperties) {
+                publication.links(network.networkHandle, links.interfaceName,
+                    if (Build.VERSION.SDK_INT >= 29) links.mtu else null,
+                    links.linkAddresses.mapTo(HashSet()) {
+                        "${it.address.hostAddress}/${it.prefixLength}"
+                    })
+                changes.trySend(Unit)
+            }
+            override fun onLost(network: Network) {
+                publication.lost(network.networkHandle)
+                changes.trySend(Unit)
+            }
+        }
+        // NetworkRequest's defaults include NOT_VPN; clear them and do not require INTERNET
+        // or VALIDATED, which are not guaranteed for split/private VPNs. Query no synchronous
+        // ConnectivityManager snapshots from callbacks: their state can already be newer.
+        val request = NetworkRequest.Builder().apply {
+            if (Build.VERSION.SDK_INT >= 30) {
+                clearCapabilities()
+            } else {
+                removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                removeCapability(NetworkCapabilities.NET_CAPABILITY_TRUSTED)
+                removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+            }
+            addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+        }.build()
+        cm.registerNetworkCallback(request, callback)
+        try {
+            return withTimeoutOrNull(timeoutMs) {
+                var ready: Long? = null
+                while (ready == null) {
+                    changes.receive()
+                    ready = publication.readyNetwork()
+                }
+                ready
+            }
+        } finally {
+            runCatching { cm.unregisterNetworkCallback(callback) }
+            changes.close()
         }
     }
 
@@ -1582,6 +1808,15 @@ class VpnServiceImpl : VpnService() {
         val carrierAddresses = resolvePhysicalCarrierAddresses(config, carrierGeneration)
         debugLog("Physical carrier candidates: ${carrierAddresses.joinToString(", ")}")
         nativeFatalError = null
+        val carrierDiagnosticsSampler = CarrierDiagnosticsSampler()
+        fun captureCarrierDiagnostics(finalSample: Boolean = false) {
+            synchronized(diagnosticLogLock) {
+                if (diagnosticLogClosed || transportCore !== core) return
+                val sample = carrierDiagnosticsSampler.sample(runCatching { core.carrierDiagnostics() }.getOrNull())
+                diagnosticJournal.updateCarrierDiagnostics(sample.snapshot, preserveLastOnUnavailable = finalSample)
+                sample.lines.forEach { broadcastLog(it) }
+            }
+        }
         kotlinx.coroutines.coroutineScope {
             val statsJob = launch {
                 var previous = core.stats()
@@ -1589,11 +1824,16 @@ class VpnServiceImpl : VpnService() {
                 var reportedKernelDrops = previous.udpKernelDrops
                 var reportedInternalDrops = previous.udpInternalDrops
                 var lastTelemetryAt = previousAt
+                var lastCarrierDiagnosticsAt = previousAt
                 var udpReadyLogged = false
                 while (currentCoroutineContext().isActive && transportCore === core) {
                     delay(1000)
                     val current = runCatching { core.stats() }.getOrElse { break }
                     val now = SystemClock.elapsedRealtime()
+                    if (now - lastCarrierDiagnosticsAt >= 20_000) {
+                        captureCarrierDiagnostics()
+                        lastCarrierDiagnosticsAt = now
+                    }
                     val elapsed = (now - previousAt).coerceAtLeast(1)
                     liveBytesUp = current.txBytes
                     liveBytesDown = current.rxBytes
@@ -1651,12 +1891,20 @@ class VpnServiceImpl : VpnService() {
             val result = try {
                 core.runTransport(fallbackDns, carrierAddresses)
             } finally {
+                if (transportCore === core) attemptEndedAt = SystemClock.elapsedRealtime()
                 statsJob.cancel()
+                // Native has frozen its last generation snapshot before returning. Capture it
+                // on this IO runner before a retry calls start() or teardown closes the core.
+                captureCarrierDiagnostics(finalSample = true)
                 if (transportCore === core) {
                     roamingUpdateJob?.cancel()
                     roamingUpdateJob = null
                     cancelCarrierReplacementWait()
-                    activePlanGeneration = 0L
+                    synchronized(this@VpnServiceImpl) {
+                        activePlanGeneration = 0L
+                        vpnPublicationJob?.cancel()
+                        vpnPublicationJob = null
+                    }
                 }
             }
             nativeFatalError?.let { fatal ->
@@ -1754,20 +2002,10 @@ class VpnServiceImpl : VpnService() {
     }
 
     private suspend fun connectWithRetry(config: VpnConfig) {
-        var attempt = 0
+        var attempt = 0L
         var carrierGeneration = 0
         val baseMs = config.reconnectBaseDelaySecs * 1000
         val maxMs = config.reconnectMaxDelaySecs * 1000
-        // Floor between the START of consecutive connect attempts. A server that
-        // accepts auth then immediately drops, or a flapping Wi-Fi<->LTE network,
-        // used to reconnect back-to-back: a session that reached CONNECTED resets
-        // attempt to 0, so the backoff above is skipped and native transport is
-        // re-entered with no delay. On a fast flap that became a tight loop that
-        // flooded the UI with log broadcasts until the main thread ANR'd. Measuring
-        // from the attempt START means a healthy long-lived session still reconnects
-        // promptly (it ran well past the floor), while a sub-second flap is throttled.
-        val minReconnectMs = 1500L
-        val stableMs = 30_000L         // a session must run this long to count as "stable"
         var lastAttemptStart = 0L
         var firstAttempt = true        // very first connect: no reconnect gating / delay / status change
         // Why the loop gave up, for the give-up broadcast below; null = still running / cancelled.
@@ -1779,49 +2017,39 @@ class VpnServiceImpl : VpnService() {
         // (Audit 2026-07-27, M3)
         while (currentCoroutineContext().isActive) {
             try {
-                val resumedFromOffline = awaitUsableCarrier()
-                if (resumedFromOffline) {
-                    // Offline time is not a failed server attempt. Do not carry its retry
-                    // budget or inter-attempt floor into the newly available carrier.
-                    attempt = 0
-                    lastAttemptStart = 0L
+                // Check the budget before parking for a carrier. Offline waiting must not
+                // keep a disabled/exhausted session alive or erase previous failed attempts.
+                val retryData = org.json.JSONObject()
+                        .put("attempt", attempt).put("enabled", config.reconnectEnabled)
+                        .put("max_retries", config.reconnectMaxRetries)
+                        .put("base", baseMs).put("cap", maxMs)
+                        .put("elapsed_ms", SystemClock.elapsedRealtime() - lastAttemptStart)
+                val decision = if (firstAttempt) null else
+                    ConfigCore.policy("retry_decision", retryData).getJSONObject("value")
+                val reason = decision?.takeUnless { it.isNull("reason") }?.getString("reason")
+                if (reason != null) {
+                    giveUpReason = if (reason == "disabled") "Reconnect is disabled — giving up"
+                        else "Max reconnect retries (${config.reconnectMaxRetries}) reached — giving up"
+                    broadcastLog(giveUpReason)
+                    break
                 }
+                if (!firstAttempt) broadcastStatus(STATUS_CONNECTING)
+                val resumedFromOffline = awaitUsableCarrier()
                 if (!firstAttempt) {
-                    // The reconnect policy applies to EVERY reconnect — INCLUDING after an
-                    // established drop. Previously the gate/status/backoff lived under
-                    // `attempt > 0`, and `attempt` reset to 0 after established, so on the
-                    // common flapping path reconnectEnabled=false / max-retries were silently
-                    // ignored and the Tile/UI stayed Connected while the TUN was torn down.
-                    if (!config.reconnectEnabled) {
-                        giveUpReason = "Reconnect is disabled — giving up"
-                        broadcastLog(giveUpReason); break
-                    }
-                    if (config.reconnectMaxRetries in 0 until attempt) {
-                        giveUpReason = "Max reconnect retries (${config.reconnectMaxRetries}) reached — giving up"
-                        broadcastLog(giveUpReason); break
-                    }
-                    // Leave Connected BEFORE re-entering — no green-Tile leak window while the
-                    // TUN/routes are down.
-                    broadcastStatus(STATUS_CONNECTING)
                     showNotification(s(R.string.notif_reconnecting, attempt.coerceAtLeast(1)))
-                    if (attempt > 0 && !resumedFromOffline) {
-                        val pow = Math.pow(2.0, (attempt - 1).coerceAtMost(7).toDouble()).toLong()
-                        val scheduledMs = (baseMs * pow.coerceAtMost(100)).coerceAtMost(maxMs).coerceAtLeast(1000)
-                        val delayMs = jitterReconnectDelay(scheduledMs)
-                        broadcastLog("Reconnect attempt $attempt in ${"%.1f".format(delayMs / 1000.0)}s")
-                        delay(delayMs)
-                    } else {
-                        broadcastLog("Reconnecting…") // a stable session dropped — reconnect promptly
-                    }
-                    // Inter-attempt floor: throttle a sub-second flap even when the backoff was
-                    // skipped (no-op when the previous attempt already ran past the floor).
-                    val sinceLast = SystemClock.elapsedRealtime() - lastAttemptStart
-                    if (lastAttemptStart != 0L && sinceLast < minReconnectMs) {
-                        delay(minReconnectMs - sinceLast)
-                    }
+                    // Carrier restoration bypasses the stale delay, but retains the retry budget.
+                    val readyDecision = if (resumedFromOffline) ConfigCore.policy("retry_decision",
+                        retryData.put("carrier_restored", true)
+                            .put("elapsed_ms", SystemClock.elapsedRealtime() - lastAttemptStart)
+                    ).getJSONObject("value") else decision!!
+                    val delayMs = readyDecision.getLong("delay_ms")
+                    broadcastLog("Reconnect attempt ${attempt.coerceAtLeast(1)} in ${"%.1f".format(delayMs / 1000.0)}s")
+                    delay(delayMs)
                 }
                 firstAttempt = false
                 lastAttemptStart = SystemClock.elapsedRealtime()
+                attemptConnectedAt = -1L
+                attemptEndedAt = -1L
                 // The native generation owns its carriers; stop/free cancellation is the only
                 // cross-thread teardown path.
                 runNativeTransport(config, carrierGeneration++)
@@ -1829,8 +2057,7 @@ class VpnServiceImpl : VpnService() {
                 if (userRequestedDisconnect) break
                 val forced = forcedReconnectInFlight
                 forcedReconnectInFlight = false
-                val ran = SystemClock.elapsedRealtime() - lastAttemptStart
-                attempt = nextAttempt(attempt, ran, stableMs, forced)
+                attempt = nextAttempt(attempt, forced)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Genuine cancellation (user disconnect / service stop) — never
                 // treat as a retryable error, or the loop spins on delay() which
@@ -1861,8 +2088,7 @@ class VpnServiceImpl : VpnService() {
                     var cause = e.cause
                     while (cause != null) { broadcastLog("  <- ${cause.message}"); cause = cause.cause }
                 }
-                val ran = SystemClock.elapsedRealtime() - lastAttemptStart
-                attempt = nextAttempt(attempt, ran, stableMs, forced)
+                attempt = nextAttempt(attempt, forced)
                 // Keep the Java TUN descriptor open across backoff so routing remains
                 // captured fail-closed; stop only the native transport generation.
                 runCatching { transportCore?.stop() }
@@ -1893,19 +2119,23 @@ class VpnServiceImpl : VpnService() {
         roamingUpdateJob?.cancel()
         roamingUpdateJob = null
         cancelCarrierReplacementWait()
-        activePlanGeneration = 0L
-        pathUpdateSequence.set(0)
-        val core = transportCore
-        val runner = transportJob
-        runCatching { core?.stop() }
-        supervisor?.cancel()
+        val (core, runner) = synchronized(this) {
+            activePlanGeneration = 0L
+            vpnPublicationJob?.cancel()
+            vpnPublicationJob = null
+            pathUpdateSequence.set(0)
+            val core = transportCore
+            val runner = transportJob
+            runCatching { core?.stop() }
+            supervisor?.cancel()
 
-        // Close the Java descriptor immediately to wake native reads. The native
-        // duplicate remains valid until LinuxTunPump exits, so do not advertise
-        // DISCONNECTED or allow a reconnect before runner.join() completes.
-        try { vpnInterface?.close() } catch (_: Exception) {}
-        vpnInterface = null
-        activeTunFingerprint = null
+            // Detach under the same monitor as plan establishment. Native owns a duplicate
+            // until the runner exits; do not announce DISCONNECTED before the join below.
+            try { vpnInterface?.close() } catch (_: Exception) {}
+            vpnInterface = null
+            activeTunFingerprint = null
+            core to runner
+        }
 
         if (runner != null) {
             val stoppedPromptly = withTimeoutOrNull(NATIVE_TEARDOWN_WARN_MS) {
@@ -1955,9 +2185,20 @@ class VpnServiceImpl : VpnService() {
      *  implemented, so the one switch that really matters was noticed only by rxDead, ≥30 s
      *  later. API 31+ therefore uses registerBestMatchingNetworkCallback, whose onAvailable
      *  means "the best match CHANGED"; older releases (minSdk is 28) fall back to tracking
-     *  the set of candidates and reacting only when the link we are actually on disappears.
+     *  the set of candidates, recovering on loss and preferring a validated Wi-Fi/Ethernet
+     *  carrier over cellular without reacting to equivalent secondary-radio registrations.
      *  registerDefaultNetworkCallback is deliberately NOT the fallback: a VPN app is subject
      *  to its own VPN, so once we establish, our default network IS the tun. */
+    @Synchronized
+    private fun dispatchNetworkCallback(owner: ConnectivityManager.NetworkCallback, action: () -> Unit) {
+        // Unregister/replacement cannot retract a callback that was already queued. Check its
+        // owner under the lifecycle monitor before touching carrier or trusted-Wi-Fi state.
+        // Intentional trusted pause keeps this observer alive while its runner is joined.
+        if (netCallback !== owner || (stopping && !trustedPauseInFlight)) return
+        action()
+    }
+
+    @Synchronized
     private fun registerNetworkCallback(): Boolean {
         unregisterNetworkCallback()
         val cm = getSystemService(ConnectivityManager::class.java) ?: run {
@@ -1971,27 +2212,32 @@ class VpnServiceImpl : VpnService() {
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
         val bestMatching = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-        fun handleAvailable(network: Network) {
+        val snapshots = AndroidCarrierSnapshots<Network, NetworkCapabilities, LinkProperties>()
+        fun preferObservedCarrier(network: Network): Boolean = preferCarrierNetwork(
+            cm, network, currentNetwork, snapshots[network], currentNetwork?.let { snapshots[it] },
+        )
+        fun handleAvailable(network: Network, snapshot: AndroidCarrierSnapshot<NetworkCapabilities, LinkProperties>? = snapshots[network]) {
+            carrierGate.signalChange()
             // Belt-and-suspenders: never react to our own VPN tun (the NOT_VPN
             // request should already exclude it).
-            val caps = cm.getNetworkCapabilities(network)
+            val caps = snapshot?.capabilities ?: cm.getNetworkCapabilities(network)
             if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
-            if (!usableCarrierNetwork(cm, network)) return
-            carrierAvailable.trySend(Unit)
+            if (!usableCarrierNetwork(cm, network, snapshot)) return
             val replacementAfterLoss = waitingForCarrierReplacement.getAndSet(false)
             if (replacementAfterLoss) {
                 carrierReplacementSequence.incrementAndGet()
                 carrierReplacementJob?.cancel()
                 carrierReplacementJob = null
             }
-            val enteringTrustedWifi =
-                classifyNetwork(caps) == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
-            networkSignatures[network] = physicalNetworkSignature(cm, network)
+            val enteringTrustedWifi = shouldPauseForTrustedNetwork(caps)
             val prev = currentNetwork
             if (bestMatching) {
                 // Best-matching callback: every onAvailable IS a change of the best
                 // (non-VPN, internet-capable) network — i.e. of the link we ride on.
                 currentNetwork = network
+                networkSignatures[network] = physicalNetworkSignature(cm, network, snapshot)
+                networkSignatures.retainOnly(network)
+                snapshots.retainOnly(network)
                 if (AndroidRoamingPolicy.availableNetworkAction(
                         hadCurrentNetwork = prev != null,
                         waitingForReplacement = replacementAfterLoss,
@@ -2007,12 +2253,11 @@ class VpnServiceImpl : VpnService() {
                 reevaluateTrustedWifi(caps)
                 return
             }
-            // Pre-31: we hear about EVERY candidate, so adopt one only while we have
-            // none (or the one we had is gone). A second network merely showing up is
-            // not a switch — that misreading is the bug this branch exists to avoid.
-            underlyingNets.add(network)
-            if (prev == null || !underlyingNets.contains(prev)) {
+            // Pre-31 observes every candidate. A newly validated Wi-Fi can supersede LTE
+            // without waiting for LTE to disappear; an equivalent secondary carrier cannot.
+            if (prev == network || preferObservedCarrier(network)) {
                 currentNetwork = network
+                networkSignatures[network] = physicalNetworkSignature(cm, network, snapshot)
                 if (AndroidRoamingPolicy.availableNetworkAction(
                         hadCurrentNetwork = prev != null,
                         waitingForReplacement = replacementAfterLoss,
@@ -2031,34 +2276,43 @@ class VpnServiceImpl : VpnService() {
 
         fun handleCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
             if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+            val snapshot = snapshots.capabilities(network, NetworkCapabilities(caps), currentNetwork)
+            // Same-Network suspended -> resumed is a readiness event even while CONNECTING.
+            carrierGate.signalChange()
             if ((waitingForCarrierReplacement.get() ||
-                    (bestMatching && network != currentNetwork)) &&
-                usableCarrierNetwork(cm, network)
+                    (network != currentNetwork &&
+                        (bestMatching || preferObservedCarrier(network)))) &&
+                usableCarrierNetwork(cm, network, snapshot)
             ) {
-                handleAvailable(network)
+                handleAvailable(network, snapshot)
                 return
             }
             if (!TrustedWifiPolicy.shouldEvaluateCallback(network == currentNetwork)) return
-            val trustedKind = classifyNetwork(caps)
             reevaluateTrustedWifi(caps)
-            if (trustedKind == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI) return
-            underlyingNetworkStateChanged(cm, network, "Network capabilities changed")
+            if (shouldPauseForTrustedNetwork(caps)) return
+            underlyingNetworkStateChanged(cm, network, "Network capabilities changed", snapshot)
         }
 
-        fun handleLinkPropertiesChanged(network: Network) {
+        fun handleLinkPropertiesChanged(network: Network, links: LinkProperties) {
+            // Treat the callback's LinkProperties as read-only; its copy constructor is not
+            // part of the public SDK. The service never mutates this object or its lists.
+            val snapshot = snapshots.links(network, links, currentNetwork)
+            carrierGate.signalChange()
             if ((waitingForCarrierReplacement.get() ||
-                    (bestMatching && network != currentNetwork)) &&
-                usableCarrierNetwork(cm, network)
+                    (network != currentNetwork &&
+                        (bestMatching || preferObservedCarrier(network)))) &&
+                usableCarrierNetwork(cm, network, snapshot)
             ) {
-                handleAvailable(network)
+                handleAvailable(network, snapshot)
                 return
             }
-            underlyingNetworkStateChanged(cm, network, "Network link properties changed")
+            underlyingNetworkStateChanged(cm, network, "Network link properties changed", snapshot)
         }
 
         fun handleLost(network: Network) {
+            carrierGate.signalChange()
             networkSignatures.remove(network)
-            if (!bestMatching) underlyingNets.remove(network)
+            snapshots.remove(network)
             // Only the link we are actually on matters; any other one going away is
             // none of our business.
             if (network != currentNetwork) return
@@ -2068,13 +2322,11 @@ class VpnServiceImpl : VpnService() {
             // its best-matching onAvailable callback is delivered. Adopt it synchronously so
             // the roaming core can make a candidate instead of forcing a full reconnect in
             // that callback gap.
-            val replacement = if (bestMatching) firstUsableCarrierNetwork(cm, excluding = network)
-                else synchronized(underlyingNets) { underlyingNets.firstOrNull() }
+            val replacement = firstUsableCarrierNetwork(cm, excluding = network)
             currentNetwork = replacement
             if (replacement != null) {
                 val replacementCaps = cm.getNetworkCapabilities(replacement)
-                val enteringTrustedWifi = replacementCaps?.let(::classifyNetwork) ==
-                    TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
+                val enteringTrustedWifi = shouldPauseForTrustedNetwork(replacementCaps)
                 if (!enteringTrustedWifi) {
                     switchedNetwork("Network lost", carrierWasLost = true)
                 }
@@ -2111,10 +2363,8 @@ class VpnServiceImpl : VpnService() {
                                 currentNetwork = lateReplacement
                                 networkSignatures[lateReplacement] =
                                     physicalNetworkSignature(cm, lateReplacement)
-                                if (!bestMatching) underlyingNets.add(lateReplacement)
                                 val caps = cm.getNetworkCapabilities(lateReplacement)
-                                val enteringTrustedWifi = caps?.let(::classifyNetwork) ==
-                                    TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
+                                val enteringTrustedWifi = shouldPauseForTrustedNetwork(caps)
                                 if (!enteringTrustedWifi) {
                                     switchedNetwork(
                                         "Replacement network discovered",
@@ -2157,29 +2407,32 @@ class VpnServiceImpl : VpnService() {
             object : ConnectivityManager.NetworkCallback(
                 ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
             ) {
-                override fun onAvailable(network: Network) = handleAvailable(network)
+                override fun onAvailable(network: Network) =
+                    dispatchNetworkCallback(this) { handleAvailable(network) }
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
-                    handleCapabilitiesChanged(network, caps)
+                    dispatchNetworkCallback(this) { handleCapabilitiesChanged(network, caps) }
                 override fun onLinkPropertiesChanged(
                     network: Network,
                     linkProperties: android.net.LinkProperties,
-                ) = handleLinkPropertiesChanged(network)
-                override fun onLost(network: Network) = handleLost(network)
+                ) = dispatchNetworkCallback(this) { handleLinkPropertiesChanged(network, linkProperties) }
+                override fun onLost(network: Network) =
+                    dispatchNetworkCallback(this) { handleLost(network) }
             }
         } else {
             object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) = handleAvailable(network)
+                override fun onAvailable(network: Network) =
+                    dispatchNetworkCallback(this) { handleAvailable(network) }
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
-                    handleCapabilitiesChanged(network, caps)
+                    dispatchNetworkCallback(this) { handleCapabilitiesChanged(network, caps) }
                 override fun onLinkPropertiesChanged(
                     network: Network,
                     linkProperties: android.net.LinkProperties,
-                ) = handleLinkPropertiesChanged(network)
-                override fun onLost(network: Network) = handleLost(network)
+                ) = dispatchNetworkCallback(this) { handleLinkPropertiesChanged(network, linkProperties) }
+                override fun onLost(network: Network) =
+                    dispatchNetworkCallback(this) { handleLost(network) }
             }
         }
         currentNetwork = null
-        underlyingNets.clear()
         // Pre-31 seed: we are called from startVpn BEFORE establish(), so at THIS moment the
         // app's active network really is the underlying default (afterwards it is our own
         // tun, which is why we can't just keep asking). Without the seed the fallback path
@@ -2191,8 +2444,7 @@ class VpnServiceImpl : VpnService() {
             val activeCaps = active?.let { cm.getNetworkCapabilities(it) }
             if (activeCaps != null && !activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
                 currentNetwork = active
-                if (usableCarrierNetwork(cm, active)) carrierAvailable.trySend(Unit)
-                underlyingNets.add(active)
+                if (usableCarrierNetwork(cm, active)) carrierGate.signalChange()
             }
         }
         netCallback = cb
@@ -2219,9 +2471,10 @@ class VpnServiceImpl : VpnService() {
         cm: ConnectivityManager,
         network: Network,
         why: String,
+        snapshot: AndroidCarrierSnapshot<NetworkCapabilities, LinkProperties>? = null,
     ) {
         if (network != currentNetwork) return
-        val next = physicalNetworkSignature(cm, network)
+        val next = physicalNetworkSignature(cm, network, snapshot)
         val previous = networkSignatures[network] ?: return
         if (previous == next) return
         // Going into Android's suspended state is not a usable reconnect target: wait for
@@ -2234,16 +2487,24 @@ class VpnServiceImpl : VpnService() {
         // screen-on path — which is how a phone that changed networks while asleep came back
         // to "same network, keeping the tunnel" and sat on a dead link. The baseline must stay
         // at the last state we actually reconnected onto.
-        val caps = cm.getNetworkCapabilities(network)
+        val caps = snapshot?.capabilities ?: cm.getNetworkCapabilities(network)
         if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) != true) return
         networkSignatures[network] = next
+        if (next.isMtuOnlyChange(previous)) {
+            reportCarrierMtuChange(previous, next)
+            return
+        }
         switchedNetwork(why)
     }
 
     /** A link we could actually reach the server over: not our own tun, and internet-capable. */
-    private fun usableCarrierNetwork(cm: ConnectivityManager, network: Network): Boolean {
-        val caps = try { cm.getNetworkCapabilities(network) } catch (_: Exception) { null }
-        val links = try { cm.getLinkProperties(network) } catch (_: Exception) { null }
+    private fun usableCarrierNetwork(
+        cm: ConnectivityManager,
+        network: Network,
+        snapshot: AndroidCarrierSnapshot<NetworkCapabilities, LinkProperties>? = null,
+    ): Boolean {
+        val caps = snapshot?.capabilities ?: try { cm.getNetworkCapabilities(network) } catch (_: Exception) { null }
+        val links = snapshot?.links ?: try { cm.getLinkProperties(network) } catch (_: Exception) { null }
         val hasUsableAddress = links?.linkAddresses?.any { link ->
             link.address is Inet4Address ||
                 (link.address is Inet6Address && !link.address.isLinkLocalAddress)
@@ -2254,6 +2515,36 @@ class VpnServiceImpl : VpnService() {
             && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
             && hasUsableAddress
     }
+
+    private fun carrierPreference(
+        cm: ConnectivityManager,
+        network: Network,
+        snapshot: AndroidCarrierSnapshot<NetworkCapabilities, LinkProperties>? = null,
+    ): AndroidCarrierPreference {
+        val caps = snapshot?.capabilities ?: runCatching { cm.getNetworkCapabilities(network) }.getOrNull()
+        return AndroidCarrierPreference(
+            usable = usableCarrierNetwork(cm, network, snapshot),
+            validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true,
+            kind = when {
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true -> AndroidCarrierKind.ETHERNET
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> AndroidCarrierKind.WIFI
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> AndroidCarrierKind.CELLULAR
+                else -> AndroidCarrierKind.OTHER
+            },
+        )
+    }
+
+    private fun preferCarrierNetwork(
+        cm: ConnectivityManager,
+        candidate: Network,
+        current: Network?,
+        candidateSnapshot: AndroidCarrierSnapshot<NetworkCapabilities, LinkProperties>? = null,
+        currentSnapshot: AndroidCarrierSnapshot<NetworkCapabilities, LinkProperties>? = null,
+    ): Boolean =
+        AndroidCarrierPreferencePolicy.shouldReplace(
+            current = current?.let { carrierPreference(cm, it, currentSnapshot) },
+            candidate = carrierPreference(cm, candidate, candidateSnapshot),
+        )
 
     /** Last-resort lookup when the tracked network is gone: prefer a validated link, but take
      *  an unvalidated one over failing the attempt outright — captive portals and networks
@@ -2268,10 +2559,7 @@ class VpnServiceImpl : VpnService() {
         } catch (_: Exception) {
             return null
         }
-        return candidates.firstOrNull { network ->
-            cm.getNetworkCapabilities(network)
-                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
-        } ?: candidates.firstOrNull()
+        return AndroidCarrierPreferencePolicy.bestOf(candidates) { carrierPreference(cm, it) }
     }
 
     /**
@@ -2280,16 +2568,23 @@ class VpnServiceImpl : VpnService() {
      * carrier from the TUN; it does not pin a Wi-Fi/LTE path on a multi-homed device.
      */
     private fun selectPhysicalCarrierNetwork(cm: ConnectivityManager): Network? {
-        currentNetwork?.takeIf { usableCarrierNetwork(cm, it) }?.let { return it }
-        val candidate = runCatching { cm.activeNetwork }.getOrNull()
+        val tracked = currentNetwork?.takeIf { usableCarrierNetwork(cm, it) }
+        // A missed pre-31 capability callback must not pin every future attempt to LTE.
+        val preferred = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) firstUsableCarrierNetwork(cm) else null
+        if (tracked != null && (preferred == null || !preferCarrierNetwork(cm, preferred, tracked))) return tracked
+        val active = runCatching { cm.activeNetwork }.getOrNull()
             ?.takeIf { usableCarrierNetwork(cm, it) }
+        val candidate = AndroidCarrierPreferencePolicy.bestOf(listOfNotNull(active, preferred)) {
+            carrierPreference(cm, it)
+        }
             ?: firstUsableCarrierNetwork(cm)
             ?: return null
         synchronized(this) {
-            currentNetwork?.takeIf { usableCarrierNetwork(cm, it) }?.let { return it }
+            currentNetwork?.takeIf { usableCarrierNetwork(cm, it) }?.let {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S || !preferCarrierNetwork(cm, candidate, it)) return it
+            }
             currentNetwork = candidate
             networkSignatures.putIfAbsent(candidate, physicalNetworkSignature(cm, candidate))
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) underlyingNets.add(candidate)
             return candidate
         }
     }
@@ -2302,28 +2597,25 @@ class VpnServiceImpl : VpnService() {
      * @return true when this call actually waited; the caller then skips its old backoff.
      */
     private suspend fun awaitUsableCarrier(): Boolean {
-        var waited = false
-        while (currentCoroutineContext().isActive) {
-            val cm = getSystemService(ConnectivityManager::class.java)
-                ?: throw IllegalStateException("ConnectivityManager is unavailable")
-            if (selectPhysicalCarrierNetwork(cm) != null) {
-                if (waited) {
-                    broadcastLog("Physical network available; reconnecting immediately")
-                }
-                return waited
-            }
-            if (!waited) {
-                waited = true
+        val waited = carrierGate.awaitUsable(
+            isUsable = {
+                val cm = getSystemService(ConnectivityManager::class.java)
+                    ?: throw IllegalStateException("ConnectivityManager is unavailable")
+                selectPhysicalCarrierNetwork(cm) != null
+            },
+            onWaiting = {
                 declareNoUnderlyingNetwork()
                 broadcastStatus(STATUS_CONNECTING)
                 showNotification("Waiting for Wi-Fi or mobile network")
                 broadcastLog(
                     "No usable physical network; reconnect parked until a carrier appears"
                 )
-            }
-            carrierAvailable.receive()
+            },
+        )
+        if (waited) {
+            broadcastLog("Physical network available; reconnecting immediately")
         }
-        throw kotlinx.coroutines.CancellationException("VPN service stopped")
+        return waited
     }
 
     /**
@@ -2350,7 +2642,12 @@ class VpnServiceImpl : VpnService() {
         }
     }
 
-    private fun protectAndBindCarrierSocket(fd: Int): Boolean {
+    @Synchronized
+    private fun protectAndBindCarrierSocket(core: TransportCore, fd: Int): Boolean {
+        // A polled protect request may outlive cancellation or replacement of its owner.
+        // Serialize each attempt with stop/revoke/plan application, before any carrier or
+        // socket mutation. Retry sleeps and the JNI acknowledgement remain outside the lock.
+        if (stopping || transportCore !== core || activeConfig == null) return false
         val cm = getSystemService(ConnectivityManager::class.java) ?: return false
         val network = selectPhysicalCarrierNetwork(cm) ?: return false
         if (!bindProtectedCandidateSocket(network, fd)) return false
@@ -2378,9 +2675,13 @@ class VpnServiceImpl : VpnService() {
             .onFailure { Log.w("VpnSvc", "Could not clear underlying networks: ${it.message}") }
     }
 
-    private fun physicalNetworkSignature(cm: ConnectivityManager, network: Network): String {
-        val caps = cm.getNetworkCapabilities(network)
-        val links = cm.getLinkProperties(network)
+    private fun physicalNetworkSignature(
+        cm: ConnectivityManager,
+        network: Network,
+        snapshot: AndroidCarrierSnapshot<NetworkCapabilities, LinkProperties>? = null,
+    ): AndroidPhysicalNetworkSignature {
+        val caps = snapshot?.capabilities ?: cm.getNetworkCapabilities(network)
+        val links = snapshot?.links ?: cm.getLinkProperties(network)
         val transports = listOf(
             NetworkCapabilities.TRANSPORT_WIFI,
             NetworkCapabilities.TRANSPORT_CELLULAR,
@@ -2389,7 +2690,7 @@ class VpnServiceImpl : VpnService() {
         val addresses = links?.linkAddresses?.map { it.toString() }?.sorted().orEmpty()
         val routes = links?.routes?.map { it.toString() }?.sorted().orEmpty()
         val dns = links?.dnsServers?.mapNotNull { it.hostAddress }?.sorted().orEmpty()
-        return buildString {
+        val path = buildString {
             append(links?.interfaceName.orEmpty())
             append("|t=").append(transports)
             append("|validated=").append(caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true)
@@ -2398,6 +2699,17 @@ class VpnServiceImpl : VpnService() {
             append("|r=").append(routes.joinToString(","))
             append("|d=").append(dns.joinToString(","))
         }
+        // LinkProperties.getMtu() is public only from API 29; API 28 still supports
+        // carrier observation, with an explicit unknown MTU instead of a hidden API call.
+        val observedMtu = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) links?.mtu ?: 0 else 0
+        return AndroidPhysicalNetworkSignature(path, observedMtu)
+    }
+
+    private fun reportCarrierMtuChange(previous: AndroidPhysicalNetworkSignature, next: AndroidPhysicalNetworkSignature) {
+        // The ABI has no narrow MTU-reprobe input. A new roaming candidate would unnecessarily
+        // replace a working socket/epoch. Runtime PMTU confirmation owns the UDP packet budget;
+        // TCP owns its path MTU in the kernel. Do not infer either budget from this link hint.
+        broadcastLog("Carrier link MTU changed ${previous.mtu} -> ${next.mtu}; keeping the current tunnel")
     }
 
     private fun registerScreenReceiver() {
@@ -2442,6 +2754,8 @@ class VpnServiceImpl : VpnService() {
      * generation while retaining the fail-closed TUN. The PARTIAL_WAKE_LOCK keeps the CPU
      * running, so Rust's suspend-clock detector alone cannot observe every Wi-Fi/NAT sleep. */
     private fun scheduleWakeReconnect(screenOffMs: Long) {
+        // Wake also helps a reconnect already waiting for the same physical Network.
+        carrierGate.signalChange()
         if (screenOffMs < 1_000L || liveStatus != STATUS_CONNECTED) return
         wakeReconnectJob?.cancel()
         wakeReconnectJob = coroutineScope?.launch {
@@ -2482,6 +2796,11 @@ class VpnServiceImpl : VpnService() {
                     )
                     return@launch
                 }
+                if (net != null && signature != null && before != null && signature.isMtuOnlyChange(before)) {
+                    networkSignatures[net] = signature
+                    reportCarrierMtuChange(before, signature)
+                    return@launch
+                }
                 // Adopt the signature we are about to reconnect onto, so the capability events
                 // that follow the reconnect do not read as yet another change.
                 if (net != null && signature != null) networkSignatures[net] = signature
@@ -2490,37 +2809,18 @@ class VpnServiceImpl : VpnService() {
         }
     }
 
-    /** The underlying link changed or died: reconnect at once, but only from an established
-     *  tunnel (a connect already in flight is retried by the loop anyway). */
-    /**
-     * Next value of the reconnect-backoff counter.
-     *
-     * The backoff exists to stop a broken path from being hammered, so only a FAILURE may
-     * advance it. A cycle we asked for ourselves — a wake or a network change — is not a
-     * failure, and counting it as one is what turned normal phone use into an outage: each
-     * screen-off cycled the tunnel, sessions between cycles rarely reach [stableMs], so the
-     * counter climbed 1→2→4→…→32 s and the tunnel spent more time waiting out a penalty than
-     * carrying traffic (reproduced on the lab emulator: attempt 6, 32 s, after six wakes).
-     * A deliberate cycle of a session that was actually established clears the counter — the
-     * path just demonstrably worked; one that never established leaves it untouched rather
-     * than rewarding a flapping link. `forceReconnect`'s own debounce and the inter-attempt
-     * floor keep this from hot-looping.
-     */
-    private fun nextAttempt(attempt: Int, ranMs: Long, stableMs: Long, forced: Boolean): Int {
-        val established = liveStatus == STATUS_CONNECTED
-        return when {
-            forced -> if (established) 0 else attempt
-            established && ranMs >= stableMs -> 0
-            else -> attempt + 1
-        }
-    }
-
-    private fun jitterReconnectDelay(scheduledMs: Long): Long {
-        if (scheduledMs <= 1L) return scheduledMs.coerceAtLeast(0L)
-        val minimum = scheduledMs - scheduledMs / 5L
-        // Config validation caps this far below Long.MAX_VALUE, so the exclusive upper bound
-        // cannot overflow. Jitter never exceeds the operator's capped schedule.
-        return kotlin.random.Random.nextLong(minimum, scheduledMs + 1L)
+    /** Capture this generation's established time before cleanup or UI changes. */
+    private fun nextAttempt(attempt: Long, forced: Boolean): Long {
+        val connectedAt = attemptConnectedAt
+        val endedAt = attemptEndedAt.takeIf { it >= 0 } ?: SystemClock.elapsedRealtime()
+        attemptConnectedAt = -1L
+        attemptEndedAt = -1L
+        val connectedMs = if (connectedAt < 0) 0L else
+            (endedAt - connectedAt).coerceAtLeast(0)
+        return ConfigCore.policy("next_attempt", org.json.JSONObject()
+            .put("attempt", attempt).put("forced", forced)
+            .put("established", connectedAt >= 0).put("connected_ms", connectedMs))
+            .getLong("value")
     }
 
     private fun switchedNetwork(
@@ -2646,11 +2946,11 @@ class VpnServiceImpl : VpnService() {
         carrierReplacementJob = null
     }
 
+    @Synchronized
     private fun unregisterNetworkCallback() {
         cancelCarrierReplacementWait()
         val cb = netCallback
         netCallback = null
-        underlyingNets.clear()
         networkSignatures.clear()
         if (cb != null) {
             try { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) } catch (_: Exception) {}
@@ -2670,6 +2970,7 @@ class VpnServiceImpl : VpnService() {
 
     /** Cancel the live native generation (not the TUN) so the retry loop reconnects. Does NOT set
      *  userRequestedDisconnect, so the reconnect proceeds. */
+    @Synchronized
     private fun forceReconnect() {
         cancelCarrierReplacementWait()
         // Debounce: a flapping default network (poor coverage, elevator, Wi-Fi<->LTE
@@ -2737,18 +3038,54 @@ class VpnServiceImpl : VpnService() {
             liveTrustedSsid = ""
 
             withContext(Dispatchers.Main.immediate) {
+                val reconfigure = synchronized(this@VpnServiceImpl) {
+                    pendingReconfigureConfig.also { pendingReconfigureConfig = null }
+                }
+                if (reconfigure != null && finalError == null && connectionDesired()) {
+                    // Native runner and TUN are fully drained. Keep the foreground controller;
+                    // never weaken the active-generation guard or race a stopped service instance.
+                    teardownJob = null
+                    stopping = false
+                    prepareDiagnosticSession("settings", redelivered = false)
+                    startTrustedAware(reconfigure)
+                    return@withContext
+                }
+                disarmRecoveryRecord()
                 stopForeground(STOP_FOREGROUND_REMOVE)
+                val logsCleared = finishDiagnosticSession(terminalError = finalError != null)
                 if (finalError == null) {
-                    broadcastStatus(STATUS_DISCONNECTED)
+                    broadcastStatus(STATUS_DISCONNECTED, logsCleared = logsCleared)
                 } else {
-                    broadcastStatus(STATUS_ERROR, finalError)
+                    broadcastStatus(STATUS_ERROR, finalError, logsCleared = logsCleared)
                 }
                 stopSelf()
             }
         }
     }
 
-    private fun broadcastStatus(status: String, error: String? = null) {
+    private suspend fun finishDiagnosticSession(terminalError: Boolean): Boolean {
+        val prefs = getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
+        diagnosticJournal.setRetainLastError(prefs.getBoolean(MainActivity.PREF_RETAIN_ERROR_REPORT, false))
+        val clearCurrent = prefs.getBoolean(MainActivity.PREF_CLEAR_LOG_ON_DISCONNECT,
+            MainActivity.DEFAULT_CLEAR_LOG_ON_DISCONNECT)
+        val completion = synchronized(diagnosticLogLock) {
+            diagnosticLogClosed = true
+            diagnosticJournal.finishSession(diagnosticSessionId(), terminalError, clearCurrent)
+        }
+        return try {
+            if (withTimeoutOrNull(2_000) { completion.await(); true } == true) clearCurrent else {
+                // Slow storage must not keep a fully stopped VPN stuck in DISCONNECTING.
+                // The process-owned writer still completes its ordered cleanup in the background.
+                Log.w("VpnSvc", "Diagnostic cleanup remains queued after VPN shutdown")
+                false
+            }
+        } catch (error: Exception) {
+            Log.w("VpnSvc", "Unable to finalize diagnostic journal", error)
+            false
+        }
+    }
+
+    private fun broadcastStatus(status: String, error: String? = null, logsCleared: Boolean = false) {
         if (status != STATUS_STATS) {
             liveStatus = status
             if (status != STATUS_CONNECTED) {
@@ -2759,22 +3096,18 @@ class VpnServiceImpl : VpnService() {
         sendBroadcast(Intent(BROADCAST_STATUS).apply {
             setPackage(packageName)
             putExtra(EXTRA_STATUS, status)
+            putExtra(EXTRA_LOG_EPOCH, diagnosticJournal.epoch)
+            if (logsCleared) {
+                putExtra(EXTRA_LOG_CLEARED, true)
+            }
             error?.let { putExtra(EXTRA_ERROR, it) }
         })
     }
 
-    private fun broadcastLog(msg: String, level: String = "info") {
-        val entry = runCatching {
-            DiagnosticLogStore.append(
-                directory = noBackupFilesDir,
-                message = msg,
-                sessionId = diagnosticSessionId(),
-                level = level,
-            )
-        }.getOrElse { error ->
-            Log.w("VpnSvc", "Unable to persist diagnostic log: ${error.message}")
-            DiagnosticLogEntry(System.currentTimeMillis(), diagnosticSessionId(), level, msg)
-        }
+    private fun broadcastLog(msg: String, level: String = "info") = synchronized(diagnosticLogLock) {
+        if (diagnosticLogClosed) return@synchronized
+        val record = diagnosticJournal.append(msg, diagnosticSessionId(), level)
+        val entry = record.entry
         when (entry.level) {
             "error" -> Log.e("VpnSvc", entry.message)
             "warn" -> Log.w("VpnSvc", entry.message)
@@ -2786,6 +3119,8 @@ class VpnServiceImpl : VpnService() {
             putExtra(EXTRA_LOG_TIME_MS, entry.timestampMs)
             putExtra(EXTRA_LOG_SESSION_ID, entry.sessionId)
             putExtra(EXTRA_LOG_LEVEL, entry.level)
+            putExtra(EXTRA_LOG_EPOCH, record.epoch)
+            putExtra(EXTRA_LOG_SEQUENCE, record.sequence)
         })
     }
 
@@ -3467,6 +3802,7 @@ class VpnServiceImpl : VpnService() {
         liveAddresses = tunnelAddresses
         liveBytesUp = 0L
         liveBytesDown = 0L
+        if (attemptConnectedAt < 0) attemptConnectedAt = SystemClock.elapsedRealtime()
         liveStatus = STATUS_CONNECTED
         sendBroadcast(Intent(BROADCAST_STATUS).apply {
             setPackage(packageName)

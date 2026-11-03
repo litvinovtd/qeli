@@ -1,0 +1,83 @@
+{
+  "status": "ACTUAL_COLD_HOST_COMPILE_REACHED_BOOTSTRAP_THEN_LLVM_CI404_REFUSAL_ARCHIVE_CLEANUP_QUALIFIED",
+  "qualification": {
+    "status": "ACTUAL_COLD_HOST_COMPILE_REACHED_BOOTSTRAP_THEN_LLVM_CI404_REFUSAL_ARCHIVE_CLEANUP_QUALIFIED",
+    "source_commit": "a94feb891c172269434827117db2f345f66867af",
+    "host": "10.66.116.10",
+    "scope": "Failure-stage and completed prerequisite qualification only; not Rust1.89 compiler/SDK cold graph acceptance",
+    "prepare_configure_PASS": true,
+    "bootstrap_executable_compilation_PASS": true,
+    "bootstrap_dev_build_seconds": 79,
+    "actual_Host_Compile_attempted": true,
+    "Host_Compile_PASS": false,
+    "Host_Install_executed": false,
+    "rustc1_89_stage1_stage2_dist_completed": false,
+    "prebuilt1_89_substituted": false,
+    "failure": {
+      "stage": "LLVM CI artifact download after bootstrap build",
+      "url": "https://ci-artifacts.rust-lang.org/rustc-builds/29483883eed69d5fb4db01964cdf2af4d86e9cb2/rust-dev-1.89.0-x86_64-unknown-linux-gnu.tar.xz",
+      "HTTP404_responses": 4,
+      "deletion_or_original_publication_cause_proven": false,
+      "resource_budget_triggered": false,
+      "final_unit_Result": "exit-code",
+      "make_exit": 2
+    },
+    "elapsed_seconds": 246.32234978675842,
+    "host_compile_seconds": 110.21356779290363,
+    "limits": {
+      "memory_mib": 1152,
+      "swap_mib": 512,
+      "cpu_percent": 100,
+      "runtime_seconds": 1500,
+      "owned_bytes": 7516192768,
+      "minimum_initial_free_bytes": 8589934592,
+      "minimum_remaining_free_bytes": 1073741824
+    },
+    "memory_peak_bytes": 1210777600,
+    "swap_peak_bytes": 359653376,
+    "owned_bytes_removed": 6226200078,
+    "evidence_archive_bytes": 55195,
+    "feed_recipe_unchanged": true,
+    "harness_override": "build.jobs=1 only, actual before/after TOML semantic equality verified",
+    "host_state_accounts_staged_binary_preserved": true,
+    "own_root_archive_unit_removed": true,
+    "source_archive": {
+      "bytes": 267487572,
+      "sha256": "0b9d55610d8270e06c44f459d1e2b7918a5e673809c592abed9b9c600e33d95a"
+    },
+    "original_local_launcher_refusal": {
+      "tool_chunk": "5042cf",
+      "cause": "packet path relocation required parent.parent",
+      "remote_operations": 0,
+      "corrected_before_launch": true
+    },
+    "raw_sha256": {
+      "preparation.json": "bdd1b01c832174ed22dbd7be9a43d7b013b30888fe6b09cc52a106ec0bb933bc",
+      "generator-replay.json": "77a0a1ef218e169bcedbb6173862df3745d329394d702c34bec9a200c348e627",
+      "plan.json": "5bc1762867fb5c177cf29cebd72073d2e4b234bf6073c18e6fb5294d3e38e011",
+      "worker.py": "4541672aece00ffd1ad39e73607cf3049c630967432d3d8a7edaf4c6280b3869",
+      "controller.py": "2d0dc95a47462b266fd80e13535f05b36c136546d15c441524618b3ff6b0660c",
+      "launch.json": "a5ab2cb45bcb315dc872e57429be4c967cf09159a90de00e1a3cebe80935532a",
+      "result.json": "93a8d69a9a724b3c760c7e9e142d9941c45891454c2ec7d47168754fbd7c347d",
+      "host-compile.log": "5bfcdce54936239676502c6f48c2e602404344449643820e7c7c448deedd68ee",
+      "runtime.tar.gz": "ed75f3cbde59325c96d5a2a168a60553716ecbf45bab6651f09f3329bde873dd",
+      "archive.json": "7ea8f3e10efa221f718791d5ad0620dc0affd40a47ea2d23cc6e670f9c39c29b",
+      "cleanup.json": "0dddc154c1dcb75d8a1e5c6abc0d96f5e79e7d774fb3be0f81104ee2f2c6591b",
+      "finished-unit.json": "2430b6c8a094f3aa2cea6355ebd9935adea70bc2b0efa39a8d5cf6925c0c5f45",
+      "completion.json": "f3e6e96c7428b6ca236f2b0a496f5424eea6c2a588f7d996169dad3afc4009a7"
+    },
+    "remedy_candidates": [
+      "Disable LLVM CI download in the local pinned feed and compile bundled LLVM from source; full compiler resource/time and resulting SDK build still need qualification.",
+      "Use a separately qualified pinned official prebuilt Rust toolchain for the SDK package, retaining the already executed prebuilt-only scope; not a cold compiler PASS.",
+      "An available archived CI LLVM artifact would need matching provenance/checksum; no arbitrary newer LLVM binary or URL substitution admitted."
+    ],
+    "Q31_closed": false,
+    "formal_done": 33,
+    "total": 37,
+    "no_push_deploy_release": true
+  },
+  "qualification_sha256": "7d69490e8bea38bfdc9555d853a313411aa649dddce14b9382230d492e4b72b0",
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-cold-bootstrap-20261014",
+  "scope": "Six Markdown report/plan/installation changes only. Actual cold Host/Compile completed bootstrap then refused on4HTTP404 LLVM CI download; full compiler/cold graph remains FAIL/unqualified. No Qeli native/source/recipe change. Original20Linux/21physical execution identities retained;50Linux dependencies and native digest unchanged.",
+  "no_push_deploy_release": true
+}

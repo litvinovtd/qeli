@@ -1,0 +1,567 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q34_F451_F454_DEPENDENCY_POLICY_TLS_NATIVE_SCOPED",
+  "source_digest": "a22bde85fbee816f074c83dfa2d9a63e71625340f2ae7c0311b242d71aeb2e2e",
+  "qualification_source_commit": "50db68ba8336087c07fc06aedee722cbcf9bedd1",
+  "product_source_commit": "1751a44f686dc2212284b72180bf74a2b9ec06de",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings": [
+    "F451/Q34-F005",
+    "F452/Q34-F006",
+    "F453/Q34-F007",
+    "F454/Q34-F008"
+  ],
+  "verification": {
+    "review": {
+      "status": "PASS_SCOPED",
+      "findings": [
+        "F451/Q34-F005: archived PEM wrapper replaced by existing rustls-pki-types PEM API",
+        "F452/Q34-F006: Rust license gate and qeli metadata absent",
+        "F453/Q34-F007: audit warnings did not block and tool version floated",
+        "F454/Q34-F008: legacy log test fixture failed whole-tree rustfmt"
+      ],
+      "source_commit": "1751a44f686dc2212284b72180bf74a2b9ec06de",
+      "rustsec_database": {
+        "date": "2026-10-08T11:59:15Z",
+        "sha": "5701a6d2a6158d5d4a933df5141a0415c285075d"
+      },
+      "baseline": {
+        "lockfile_packages": 237,
+        "vulnerabilities": 0,
+        "unmaintained": 1,
+        "yanked": 1,
+        "licenses": "190 expected rejections because no allow policy",
+        "original_bans_sources": "PASS"
+      },
+      "current": {
+        "lockfile_packages": 236,
+        "vulnerabilities": 0,
+        "warnings": {},
+        "licenses": "0 errors/0 warnings,211 notes;20 existing multiple-version bans warnings preserved"
+      },
+      "lock_delta": {
+        "removed": [
+          "der0.8.0",
+          "rustls-pemfile2.2.0"
+        ],
+        "added": [
+          "der0.8.1"
+        ],
+        "other_dependency_records": "IDENTICAL"
+      },
+      "upstream_der_yank": "upstream changelog: minimal-versions CI correction; not classified as a vulnerability",
+      "newer_der_patch": "upstream lists 0.8.2 with nested trailing-data fix; this scoped change qualifies 0.8.1 only, not all dependencies at their latest versions",
+      "feature_checks": "47 no-feature,1 client-only,24 server-only warnings preserved; absence in those feature sets is not proof of dead shipped code",
+      "runtime": {
+        "TLS": 14,
+        "unit_tests": 2445,
+        "ignored": 60,
+        "CLI": 5
+      },
+      "remaining": "Q34 full dependency/platform/package/release review and current exact-SHA Actions; Q31 capacity/source-cut/Q29/Q30 accepted/excluded scopes preserved"
+    },
+    "dependency": {
+      "rows": [
+        {
+          "name": "baseline-warning-gate",
+          "rc": 1,
+          "command": "cd /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/baseline/qeli; /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/tools/cargo-audit-x86_64-unknown-linux-musl-v0.22.2/cargo-audit audit --db /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/advisory-db --no-fetch --deny warnings"
+        },
+        {
+          "name": "precise-der-update",
+          "rc": 0,
+          "command": "CARGO_NET_OFFLINE=false cargo +1.97.0 update -p der --precise 0.8.1"
+        },
+        {
+          "name": "fetch-current",
+          "rc": 0,
+          "command": "CARGO_NET_OFFLINE=false cargo +1.97.0 fetch --locked"
+        },
+        {
+          "name": "current-audit",
+          "rc": 0,
+          "command": "/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/tools/cargo-audit-x86_64-unknown-linux-musl-v0.22.2/cargo-audit audit --db /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/advisory-db --no-fetch --deny warnings --json"
+        },
+        {
+          "name": "current-policy",
+          "rc": 0,
+          "command": "/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/tools/cargo-deny-0.18.4-x86_64-unknown-linux-musl/cargo-deny --offline --all-features --locked check licenses bans sources --show-stats"
+        }
+      ],
+      "registry_delta_sha256": "d87ab6d6fd17e706a41c195e0f7dd9bd5022abd9e6a78a386d544248220eec7d"
+    },
+    "negative_policy": {
+      "status": "PASS",
+      "cases": [
+        {
+          "name": "third-party AGPL cannot use qeli exception",
+          "expected_rc": 4,
+          "actual_rc": 4
+        },
+        {
+          "name": "unexpected core license blocked",
+          "expected_rc": 4,
+          "actual_rc": 4
+        }
+      ],
+      "fixture_scope": "private copied manifest only; product manifest/lock unchanged"
+    },
+    "build": {
+      "status": "PASS",
+      "source_commit": "1751a44f686dc2212284b72180bf74a2b9ec06de",
+      "rows": [
+        {
+          "name": "fmt",
+          "command": "cargo +1.97.0 fmt --all -- --check",
+          "rc": 0,
+          "seconds": 2.788,
+          "expected_rc": 0
+        },
+        {
+          "name": "build",
+          "command": "cargo +1.97.0 build --offline --locked --bin qeli",
+          "rc": 0,
+          "seconds": 123.569,
+          "expected_rc": 0
+        },
+        {
+          "name": "tls-tests",
+          "command": "unshare --mount --net --pid --fork --mount-proc bash -c 'set -eu; mount --make-rprivate /; mount --bind /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/unit-etc /etc/qeli; mount --bind /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/unit-tmp /tmp; ip link set lo up; export PATH=/root/.cargo/bin:$PATH CARGO_HOME=/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/cargo CARGO_NET_OFFLINE=true CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_TARGET_DIR=/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/target TMPDIR=/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/tmp; cd /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/source/qeli; cargo +1.97.0 test --offline --locked --lib web::tls::tests -- --test-threads=1'",
+          "rc": 0,
+          "seconds": 136.191,
+          "expected_rc": 0
+        },
+        {
+          "name": "default-unit-tests",
+          "command": "unshare --mount --net --pid --fork --mount-proc bash -c 'set -eu; ulimit -n 4096; mount --make-rprivate /; mount --bind /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/unit-etc /etc/qeli; mount --bind /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/unit-tmp /tmp; ip link set lo up; export PATH=/root/.cargo/bin:$PATH CARGO_HOME=/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/cargo CARGO_NET_OFFLINE=true CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_TARGET_DIR=/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/target TMPDIR=/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/tmp; cd /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/source/qeli; cargo +1.97.0 test --offline --locked --lib -- --test-threads=1'",
+          "rc": 0,
+          "seconds": 67.375,
+          "expected_rc": 0
+        },
+        {
+          "name": "bin-tests",
+          "command": "unshare --mount --net --pid --fork --mount-proc bash -c 'set -eu; ulimit -n 4096; mount --make-rprivate /; mount --bind /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/unit-etc /etc/qeli; mount --bind /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/unit-tmp /tmp; ip link set lo up; export PATH=/root/.cargo/bin:$PATH CARGO_HOME=/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/cargo CARGO_NET_OFFLINE=true CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_TARGET_DIR=/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/target TMPDIR=/var/tmp/qeli-q34-dependencies-20261008.wHCfJC/tmp; cd /var/tmp/qeli-q34-dependencies-20261008.wHCfJC/source/qeli; cargo +1.97.0 test --offline --locked --bin qeli'",
+          "rc": 0,
+          "seconds": 4.094,
+          "expected_rc": 0
+        },
+        {
+          "name": "no-features",
+          "command": "cargo +1.97.0 check --offline --locked --lib --no-default-features",
+          "rc": 0,
+          "seconds": 31.396,
+          "expected_rc": 0
+        },
+        {
+          "name": "client-only",
+          "command": "cargo +1.97.0 check --offline --locked --lib --no-default-features --features client",
+          "rc": 0,
+          "seconds": 8.185,
+          "expected_rc": 0
+        },
+        {
+          "name": "server-only",
+          "command": "cargo +1.97.0 check --offline --locked --lib --no-default-features --features server",
+          "rc": 0,
+          "seconds": 36.633,
+          "expected_rc": 0
+        },
+        {
+          "name": "transport-ffi",
+          "command": "cargo +1.97.0 check --offline --locked --lib --no-default-features --features transport-core-ffi",
+          "rc": 0,
+          "seconds": 16.175,
+          "expected_rc": 0
+        },
+        {
+          "name": "release-no-jemalloc-rejected",
+          "command": "cargo +1.97.0 check --offline --locked --release --bin qeli",
+          "rc": 101,
+          "seconds": 87.331,
+          "expected_rc": 101
+        },
+        {
+          "name": "release-jemalloc",
+          "command": "cargo +1.97.0 check --offline --locked --release --features jemalloc --bin qeli",
+          "rc": 0,
+          "seconds": 113.407,
+          "expected_rc": 0
+        },
+        {
+          "name": "clippy",
+          "command": "cargo +1.97.0 clippy --offline --locked --bin qeli -- -D warnings",
+          "rc": 0,
+          "seconds": 23.685,
+          "expected_rc": 0
+        }
+      ]
+    },
+    "binary": {
+      "sha256": "ef8c71496f2f13afec52dc62d5ccf3db312e5d727dd15fd7d054ae41ef3b4e3a",
+      "size": 78756672,
+      "source_commit": "1751a44f686dc2212284b72180bf74a2b9ec06de"
+    },
+    "https": {
+      "status": "PASS",
+      "artifact_sha256": "ef8c71496f2f13afec52dc62d5ccf3db312e5d727dd15fd7d054ae41ef3b4e3a",
+      "checks": [
+        {
+          "name": "auto HTTPS trusted request",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "auto key mode600",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "auto pair reused after restart",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "reused HTTPS trusted request",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "PKCS1 explicit HTTPS trusted request",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "PKCS1 HTTPS API authenticates",
+          "status": "PASS",
+          "detail": {
+            "ok": true
+          }
+        },
+        {
+          "name": "PKCS1 operator files unchanged",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "PKCS8 explicit HTTPS trusted request",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "PKCS8 HTTPS API authenticates",
+          "status": "PASS",
+          "detail": {
+            "ok": true
+          }
+        },
+        {
+          "name": "PKCS8 operator files unchanged",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "SEC1 explicit HTTPS trusted request",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "SEC1 HTTPS API authenticates",
+          "status": "PASS",
+          "detail": {
+            "ok": true
+          }
+        },
+        {
+          "name": "SEC1 operator files unchanged",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "private network restored",
+          "status": "PASS",
+          "detail": null
+        }
+      ],
+      "observations": [],
+      "check_count": 14
+    },
+    "windows_abi": {
+      "status": "PASS",
+      "library_sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc",
+      "checks": [
+        {
+          "check": "ABI 1.16 and declared capabilities",
+          "passed": true
+        },
+        {
+          "check": "null configuration rejected before allocation",
+          "passed": true
+        },
+        {
+          "check": "invalid UTF8 returns no handle",
+          "passed": true
+        },
+        {
+          "check": "Created state",
+          "passed": true
+        },
+        {
+          "check": "device identity requires sixteen nonzero bytes",
+          "passed": true
+        },
+        {
+          "check": "start transitions once",
+          "passed": true
+        },
+        {
+          "check": "publish copies plan and enters AwaitingNetwork",
+          "passed": true
+        },
+        {
+          "check": "buffer size probe preserves plan and future event tail",
+          "passed": true
+        },
+        {
+          "check": "stale generation cannot accept network",
+          "passed": true
+        },
+        {
+          "check": "positive ACK enters Running",
+          "passed": true
+        },
+        {
+          "check": "old stats prefix and caller tail preserved",
+          "passed": true
+        },
+        {
+          "check": "malformed batch has no partial acceptance",
+          "passed": true
+        },
+        {
+          "check": "fixed packet pool applies backpressure",
+          "passed": true
+        },
+        {
+          "check": "empty downlink reports zero bytes",
+          "passed": true
+        },
+        {
+          "check": "stop terminates generation",
+          "passed": true
+        },
+        {
+          "check": "stopped bridge is unavailable",
+          "passed": true
+        },
+        {
+          "check": "free and stale handle refuse reuse",
+          "passed": true
+        },
+        {
+          "check": "100 registry reuse cycles preserve stale-handle isolation",
+          "passed": true
+        },
+        {
+          "check": "eight concurrent frees destroy one generation exactly once",
+          "passed": true
+        },
+        {
+          "check": "second native runner cannot enter an active generation",
+          "passed": true
+        },
+        {
+          "check": "free invalidates public handle while runner is leased",
+          "passed": true
+        },
+        {
+          "check": "free cancels and joins pending native handshake",
+          "passed": true
+        }
+      ],
+      "scope": "Windows packaged C ABI and real localhost handshake cancellation; no Wintun or OS network mutation."
+    },
+    "wintun_files": {
+      "status": "PASS",
+      "rc": 0,
+      "scope": "file version/hash/license/Authenticode of two existing Wintun files only; no driver load/OS network tests; execution policy and trusted system module path limited to child process"
+    },
+    "local": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "sha_files": 14,
+      "rows": [
+        {
+          "name": "native-sha-update",
+          "rc": 0
+        },
+        {
+          "name": "native-provenance-update",
+          "rc": 0
+        },
+        {
+          "name": "native-sha",
+          "rc": 0
+        },
+        {
+          "name": "native-provenance",
+          "rc": 0
+        }
+      ]
+    },
+    "units": {
+      "status": "PASS",
+      "rows": [
+        {
+          "name": "local-native-units",
+          "rc": 0
+        },
+        {
+          "name": "local-release-units",
+          "rc": 0
+        }
+      ]
+    },
+    "ci_admission": {
+      "status": "EXPECTED_REFUSAL",
+      "source_commit": "1751a44f686dc2212284b72180bf74a2b9ec06de",
+      "messages": [
+        "  83c07f5c  status=completed  conclusion=failure",
+        "    FAILED: macos-build = failure",
+        "    FAILED: native-libs = failure",
+        "    FAILED: ios-build = failure"
+      ],
+      "failures": [
+        "CI ran on 83c07f5c, not on the commit being released (1751a44f) - push and let CI finish first",
+        "CI conclusion=failure"
+      ]
+    },
+    "host": {
+      "status": "PASS",
+      "preserved": "original .11 MainPID777/worker845, active service, installed ELF75bc...",
+      "sha256": "9ecf2e2ac12c32a218ca180f11dafbb4224d896998637a9cde18c6f1bfc54d7c"
+    },
+    "cleanup": {
+      "status": "PASS",
+      "own_root_removed": "/var/tmp/qeli-q34-dependencies-20261008.wHCfJC",
+      "backup_removed_after_local_sha": "/var/tmp/qeli-q34-dependencies-20261008.wHCfJC-backup.tar.gz",
+      "service": "MainPID=777\nActiveState=active\n",
+      "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "native": {
+      "desktop": {
+        "result": {
+          "status": "PASS",
+          "rc": 0
+        },
+        "reproducibility": {
+          "artifacts": {
+            "native-libs/macos-universal/libqeli.dylib": {
+              "consumed": {
+                "qeli-mac/QeliMac/native/libqeli.dylib": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+              },
+              "final_sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86",
+              "pass_a_sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86",
+              "pass_b_sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86",
+              "reproducible": true
+            },
+            "native-libs/windows-x64/qeli.dll": {
+              "consumed": {
+                "qeli-win/QeliWin/native/qeli.dll": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+              },
+              "final_sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc",
+              "pass_a_sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc",
+              "pass_b_sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc",
+              "reproducible": true
+            }
+          },
+          "recipe": "qeli-native-repro-v1",
+          "schema": 1,
+          "source_commit": "1751a44f686dc2212284b72180bf74a2b9ec06de",
+          "source_date_epoch": 1791468037,
+          "source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+          "source_dirty": false,
+          "toolchain": {
+            "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+            "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+            "cargo_zigbuild_version": "0.23.0",
+            "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+            "rcodesign": "apple-codesign 0.29.0",
+            "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+            "rust_toolchain": "1.97.0",
+            "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+            "zig": "0.13.0"
+          }
+        },
+        "cleanup": {
+          "status": "PASS",
+          "own_root_removed": "/var/tmp/qeli-q34-dependencies-native-20261008.gfcv68",
+          "backup_removed_after_local_sha": "/var/tmp/qeli-q34-dependencies-native-20261008.gfcv68-backup.tar.gz",
+          "service": "MainPID=0\nActiveState=inactive\n",
+          "qeli": "745 /opt/qeli-src/target/debug/qeli server -c /etc/qeli/server.conf\n901 /opt/qeli-src/target/debug/qeli _worker -c /etc/qeli/server.conf\n"
+        }
+      },
+      "android": {
+        "result": {
+          "status": "PASS",
+          "rc": 0
+        },
+        "reproducibility": {
+          "artifacts": {
+            "native-libs/android/arm64-v8a/libqeli.so": {
+              "consumed": {
+                "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+              },
+              "final_sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0",
+              "pass_a_sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0",
+              "pass_b_sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0",
+              "reproducible": true
+            },
+            "native-libs/android/x86_64/libqeli.so": {
+              "consumed": {
+                "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+              },
+              "final_sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634",
+              "pass_a_sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634",
+              "pass_b_sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634",
+              "reproducible": true
+            }
+          },
+          "recipe": "qeli-native-repro-v1",
+          "schema": 1,
+          "source_commit": "1751a44f686dc2212284b72180bf74a2b9ec06de",
+          "source_date_epoch": 1791468037,
+          "source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+          "source_dirty": false,
+          "toolchain": {
+            "android_ndk": "26.3.11579264",
+            "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+            "cargo_ndk": "cargo-ndk v4.1.2:",
+            "cargo_ndk_version": "4.1.2",
+            "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+            "rust_toolchain": "1.97.0",
+            "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+          }
+        },
+        "cleanup": {
+          "status": "PASS",
+          "own_root_removed": "/var/tmp/qeli-q34-dependencies-native-20261008.smrmRa",
+          "backup_removed_after_local_sha": "/var/tmp/qeli-q34-dependencies-native-20261008.smrmRa-backup.tar.gz",
+          "service": "MainPID=777\nActiveState=active\n",
+          "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+        }
+      }
+    }
+  },
+  "raw_packet": {
+    "name": "q34-dependencies-20261008",
+    "files": 148,
+    "bytes": 217225967,
+    "manifest_sha256": "9337f372ece61476968f431f7de55f60e2fa8dfc405043cb661ade0f57f926be",
+    "runtime_status": "PASS_Q34_DEPENDENCY_POLICY_TLS_AND_NATIVE_AB_SCOPED",
+    "path": "audit-debt-20260924/q34-dependencies-20261008",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F451-F454/Q34-F005-F008 Rust dependency/CI policy/TLS scoped qualification: archived rustls-pemfile replaced by existing PemObject API; narrow der0.8.0-to0.8.1 update,other lock records preserved;existing core AGPL metadata,permissive license allowlist/core-scoped exception,all-features/locked gate;strict cargo-audit warnings and tool/compiler pins;legacy log fixture rustfmt corrected. Fresh RustSec DB5701a6d2/1294advisories baseline0vuln2warnings current0vuln0warnings;actual old strictgate1,baseline-license190errors/currentlicenses0errors0warnings,third-partyAGPL/unexpectedGPL rejected. Current1751a44f Linux debug CLIef8c7149 actual fmt/build/TLS10/lib2445+60ignored/bin5/featurechecks/release-check-no-jemalloc-expected101/withjemallocPASS/strictClippy;real privateNET-MNT-PID HTTPS14 inclauto-reuse/PKCS1-PKCS8-SEC1/auth/files preserved. Release check is not releasepayload build/runtime. Fresh native A-B4targets6commands,privateownCargo/offlinejobs1/panicunwind,within-home reproducibility,exports14SHA/copies/provenancePASS,currentWindowsABI22,noWintun/routes;twoexisting Wintun signatures/hash/version/licensePASS;70native48releaseunits/67literalactionpins/docs688-9PASS. Initial fmt/EMFILE1024/refusals/sourceupload interruption retained;process-onlyFD4096 full rerun2450testsPASS,not system/service change. Recoverable archives downloadedSHAverified/proc-mountguardcleanup/original .11service777-845ELF75bc/.10process745-901 preserved/SEALEDcredentialscan. ExactcurrentCIadmission expectedrefusesold83c07f5c failedrun37598403060,not newActionsPASS. No newAndroidfullruntime-soak/Mac-iOSruntime/VPN-benchmark/otherreleasepayload qualification;Mac-iOS-router-WindowsnetworkVM USER_EXCLUDED,D06ACCEPTED,Q29SIGKILLFAIL-ENONET/Q30Applecallbacks/Q31capacity-sourcecut-currentActions preserved;old14debtDONE,fullQ34IN_PROGRESS30-37DONE81.1percent7remain.41cases71prior supplements preserved modulo source_digest;append72 only scoped packet,20requiredautomated21advisory unchanged. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

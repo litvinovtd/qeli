@@ -5,9 +5,13 @@ import NetworkExtension
 
 let qeliAppGroup = "group.ru.qeli.app"
 let qeliStateFile = "per-app-state.json"
-let qeliRoutingStateVersion = 4
+let qeliRoutingStateVersion = 5
 
 struct RoutingState: Codable, Equatable {
+    var ownerToken: String? = nil
+    var ownerPid: Int32? = nil
+    var guardianPid: Int32? = nil
+    var ownerReleased: Bool? = nil
     var version: Int
     var tunnelUp: Bool
     /// Renewed by the host-side guardian. Network Extension preferences outlive the app,
@@ -36,14 +40,17 @@ struct RoutingState: Codable, Equatable {
     var alwaysBypassApps: [String]
 
     func leaseIsValid(nowUnixMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> Bool {
-        guard let expiry = leaseExpiresAtUnixMs else { return false }
+        guard ownerReleased != true, let expiry = leaseExpiresAtUnixMs else { return false }
         return expiry > nowUnixMs
     }
 
     /// Heartbeats only change the lease. They must not retire every live relay twice a
     /// second; actual routing-policy or tunnel-generation changes still do.
     func policyEquivalent(to other: RoutingState) -> Bool {
-        version == other.version
+        ownerToken == other.ownerToken
+            && ownerPid == other.ownerPid
+            && ownerReleased == other.ownerReleased
+            && version == other.version
             && tunnelUp == other.tunnelUp
             && interfaceName == other.interfaceName
             && mode == other.mode
@@ -114,54 +121,125 @@ enum RoutingStateStore {
         return base.appendingPathComponent(qeliStateFile)
     }
 
+    static let maximumBytes = 1024 * 1024
+
+    static func validToken(_ token: String?) -> Bool {
+        guard let token, token.count == 32 else { return false }
+        return token.utf8.allSatisfy { ($0 >= 48 && $0 <= 57) || ($0 >= 97 && $0 <= 102) }
+    }
     static func validate(_ state: RoutingState) throws {
         guard state.version == qeliRoutingStateVersion else {
             throw StateError.unsupportedVersion(state.version)
         }
+        guard validToken(state.ownerToken), let pid = state.ownerPid, pid > 1, state.ownerReleased != nil,
+              state.guardianPid == nil || state.guardianPid! > 1,
+              state.ownerReleased != true || (!state.tunnelUp && state.leaseExpiresAtUnixMs == 0) else {
+            throw StateError.ownerMismatch
+        }
     }
-
+    static func decode(_ source: URL) throws -> RoutingState {
+        let file = try FileHandle(forReadingFrom: source)
+        defer { try? file.close() }
+        let data = try file.read(upToCount: maximumBytes + 1) ?? Data()
+        guard !data.isEmpty && data.count <= maximumBytes else { throw StateError.invalidSize }
+        return try JSONDecoder().decode(RoutingState.self, from: data)
+    }
     static func load() throws -> RoutingState {
-        let state = try JSONDecoder().decode(
-            RoutingState.self, from: Data(contentsOf: try url()))
+        let state = try decode(url())
         try validate(state)
         return state
     }
-
-    /// Replace the complete policy under the same cross-process lock used by lease
-    /// heartbeats and tunnel-down transitions. Atomic file replacement protects readers
-    /// from partial JSON, but by itself it does not protect a read/modify/write operation:
-    /// a guardian could load the old policy, an update could install a new one, and the
-    /// guardian could then atomically replace it with its stale copy. `flock` serializes
-    /// every writer while providers continue to read the atomically replaced snapshot.
-    static func replace(_ state: RoutingState) throws {
-        try withExclusiveLock { try saveUnlocked(state) }
+    static func existing() throws -> RoutingState? {
+        do { return try decode(url()) }
+        catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
+            return nil
+        }
     }
-
-    static func mutate(_ body: (inout RoutingState) -> Void) throws {
+    static func processExists(_ pid: Int32) -> Bool {
+        if kill(pid, 0) == 0 { return true }
+        return errno == EPERM
+    }
+    static func sameOwner(_ state: RoutingState, token: String, pid: Int32) -> Bool {
+        state.ownerToken == token && state.ownerPid == pid
+    }
+    static func requireOwner(_ state: RoutingState, token: String, pid: Int32) throws {
+        try validate(state)
+        guard sameOwner(state, token: token, pid: pid) else { throw StateError.ownerMismatch }
+    }
+    // Manager operations and claims share a separate lock. Heartbeats only take the
+    // short state lock, so user approval cannot starve their five-second lease.
+    static func withOperation<T>(_ body: () throws -> T) throws -> T {
+        try withLock("operations", budgetSeconds: 190, body)
+    }
+    static func claim(_ proposed: RoutingState, guardian: Int32) throws {
+        try validate(proposed)
+        guard proposed.ownerReleased == false, guardian > 1 else { throw StateError.ownerMismatch }
+        try withExclusiveLock {
+            if let old = try existing() {
+                // Legacy state lacks an identity proof. Stop old bundles/guardians and
+                // explicitly clear their stale journal before upgrading the whole bundle.
+                try validate(old)
+                if sameOwner(old, token: proposed.ownerToken!, pid: proposed.ownerPid!) {
+                    guard old.ownerReleased != true else { throw StateError.ownerMismatch }
+                    if let previous = old.guardianPid, previous != guardian, processExists(previous) {
+                        throw StateError.ownerMismatch
+                    }
+                } else if old.ownerReleased != true, let pid = old.ownerPid, processExists(pid) {
+                    throw StateError.ownerMismatch
+                }
+            }
+            var state = proposed
+            state.guardianPid = guardian
+            state.leaseExpiresAtUnixMs = Int64(Date().timeIntervalSince1970 * 1000) + 5_000
+            try saveUnlocked(state)
+        }
+    }
+    static func replaceOwned(_ proposed: RoutingState, token: String, pid: Int32) throws {
+        try requireOwner(proposed, token: token, pid: pid)
+        try withExclusiveLock {
+            let old = try load()
+            try requireOwner(old, token: token, pid: pid)
+            guard old.ownerReleased != true else { throw StateError.ownerMismatch }
+            var state = proposed
+            state.guardianPid = old.guardianPid
+            // Preserve the guardian's lease; a slow activation cannot reintroduce the
+            // stale timestamp originally serialized in the handoff.
+            state.leaseExpiresAtUnixMs = old.leaseExpiresAtUnixMs
+            try saveUnlocked(state)
+        }
+    }
+    static func mutateOwned(token: String, pid: Int32, guardian: Int32? = nil,
+                            _ body: (inout RoutingState) -> Void) throws {
         try withExclusiveLock {
             var state = try load()
+            try requireOwner(state, token: token, pid: pid)
+            guard state.ownerReleased != true else { throw StateError.ownerMismatch }
+            if let guardian, state.guardianPid != guardian { throw StateError.ownerMismatch }
             body(&state)
             try saveUnlocked(state)
         }
     }
-
     private static func saveUnlocked(_ state: RoutingState) throws {
         try validate(state)
         let data = try JSONEncoder().encode(state)
+        guard data.count <= maximumBytes else { throw StateError.invalidSize }
         try data.write(to: url(), options: .atomic)
     }
-
     private static func withExclusiveLock<T>(_ body: () throws -> T) throws -> T {
+        try withLock("state", budgetSeconds: 5, body)
+    }
+    private static func withLock<T>(_ kind: String, budgetSeconds: UInt64, _ body: () throws -> T) throws -> T {
         let lockURL = try url().deletingLastPathComponent()
-            .appendingPathComponent("\(qeliStateFile).lock")
-        let descriptor = Darwin.open(
-            lockURL.path,
-            O_CREAT | O_RDWR,
-            S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP
-        )
+            .appendingPathComponent("\(qeliStateFile).\(kind).lock")
+        let descriptor = Darwin.open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
         guard descriptor >= 0 else { throw posixError() }
         defer { Darwin.close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else { throw posixError() }
+        let deadline = DispatchTime.now().uptimeNanoseconds + budgetSeconds * 1_000_000_000
+        while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+            guard errno == EWOULDBLOCK || errno == EINTR else { throw posixError() }
+            guard DispatchTime.now().uptimeNanoseconds < deadline else { throw StateError.lockTimeout }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
         defer { _ = flock(descriptor, LOCK_UN) }
         return try body()
     }
@@ -171,11 +249,14 @@ enum RoutingStateStore {
     }
 
     enum StateError: LocalizedError {
-        case appGroupUnavailable
+        case appGroupUnavailable, ownerMismatch, invalidSize, lockTimeout
         case unsupportedVersion(Int)
 
         var errorDescription: String? {
             switch self {
+            case .ownerMismatch: return "Qeli per-app owner generation mismatch"
+            case .invalidSize: return "Qeli per-app state exceeds its budget"
+            case .lockTimeout: return "Qeli per-app operation lock timed out"
             case .appGroupUnavailable:
                 return "Qeli application group is unavailable"
             case .unsupportedVersion(let version):
@@ -226,7 +307,9 @@ private struct CIDR {
     let prefix: Int
 
     init?(_ text: String) {
-        let fields = text.split(separator: "/", maxSplits: 1).map(String.init)
+        let fields = text.split(separator: "/", maxSplits: 1,
+                                omittingEmptySubsequences: false).map(String.init)
+        guard !fields[0].isEmpty else { return nil }
         guard let ip = IPAddress(fields[0]) else { return nil }
         let maximum = ip.isIPv6 ? 128 : 32
         let parsed = fields.count == 2 ? Int(fields[1]) : maximum

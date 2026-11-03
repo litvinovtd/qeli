@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "status": "SOURCE_REVIEW_CRITERION_COMPLETE_SCOPED_F303_F306_Q30_IN_PROGRESS",
+  "executed_at": "2026-10-06T12:39:42.026533+00:00",
+  "base_commit": "3493099695526feece1d0c017aa57cf23a2b93de",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q30-ios-source-memory-20261006",
+  "raw_seal_sha256": "592e3b4212c672f9f1a299ce2ff66da99f0db8c7e703772ab253fd516ce63b6c",
+  "checks": [
+    {
+      "id": "ipa-verifier",
+      "status": "PASS",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_verify_ios_ipa.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "ipa-verifier.log"
+    },
+    {
+      "id": "docs",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "status": "PASS",
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    }
+  ],
+  "source_review": {
+    "status": "SOURCE_REVIEW_CRITERION_COMPLETE_Q30_IN_PROGRESS",
+    "new_xctest": {
+      "CancellableProbeCompletionTests.swift": 4,
+      "SharedTunnelLogBoundsTests.swift": 4,
+      "UpdateCheckerTests.swift": 3
+    },
+    "xctest": "NOT_RUN",
+    "swift_build": "NOT_RUN",
+    "local_toolchain": {
+      "swift": null,
+      "xcodebuild": null,
+      "xcrun": null
+    },
+    "apple_runtime": "USER_EXCLUDED",
+    "xml_inputs": [
+      "qeli-ios/Config/App-Info.plist",
+      "qeli-ios/Config/PacketTunnel-Info.plist",
+      "qeli-ios/Config/PrivacyInfo.xcprivacy",
+      "qeli-ios/Config/QeliIOS.entitlements",
+      "qeli-ios/Config/QeliPacketTunnel.entitlements",
+      "qeli-ios/Config/QeliWidgets.entitlements",
+      "qeli-ios/Config/Widget-Info.plist",
+      "qeli-ios/MDM/Apple-IKEv2-AlwaysOn.mobileconfig",
+      "qeli-ios/MDM/Qeli-Managed-App-Configuration.plist",
+      "qeli-ios/MDM/Qeli-PerApp-VPN.mobileconfig"
+    ],
+    "unchanged_git_inputs": 788,
+    "changed_paths": [
+      "docs/eng/index.md",
+      "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/eng/reports/AUDIT-Q30-IOS-SOURCE-MEMORY.md",
+      "docs/ru/index.md",
+      "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/ru/reports/AUDIT-Q30-IOS-SOURCE-MEMORY.md",
+      "qeli-ios/PARITY.md",
+      "qeli-ios/QeliCore/Storage/SharedTunnelStore.swift",
+      "qeli-ios/QeliCore/Support/CancellableProbeCompletion.swift",
+      "qeli-ios/QeliIOS/AppModel.swift",
+      "qeli-ios/QeliIOS/Support/UpdateChecker.swift",
+      "qeli-ios/QeliIOSTests/CancellableProbeCompletionTests.swift",
+      "qeli-ios/QeliIOSTests/SharedTunnelLogBoundsTests.swift",
+      "qeli-ios/QeliIOSTests/UpdateCheckerTests.swift",
+      "qeli-ios/QeliPacketTunnel/IOSRoamingController.swift",
+      "qeli-ios/QeliPacketTunnel/QeliNativeTunnelEngine.swift"
+    ],
+    "source_inventory": {
+      "total": 92,
+      "roles": {
+        "QeliCore": 33,
+        "test-only-wire": 10,
+        "QeliIOS": 13,
+        "test": 29,
+        "QeliPacketTunnel": 3,
+        "QeliWidgets": 4
+      },
+      "single_reference_framework_entries": 12,
+      "basis": "conservative declaration/reference candidates + manual role classification;not complete liveness proof"
+    },
+    "probe_lifetime": "start vs terminal serialization;clear handlers/cancel resource/release cleanup captures before resume;no OS/native callback join proof",
+    "ping": "current ID/config admission/result;archive commit prunes obsolete queue/results;active slots remain <=4 until bounded call returns",
+    "log_bounds": {
+      "message_utf8": 4096,
+      "encoded_archive": 1048576,
+      "lines": 500,
+      "legacy": "size checked before JSON decode;next append bounded repair;initial UserDefaults Data allocation not avoided",
+      "concurrency": "process-local only,no interprocess append atomicity claim"
+    },
+    "update_collector_bytes": 1048576,
+    "update_internals": "Foundation/network buffers and actual streaming cancellation NOT_RUN",
+    "other_source_caps": {
+      "native_event_uplink_downlink_each": 262144,
+      "packets_per_batch": 64,
+      "packet_bytes": 65535,
+      "handoff_packets": 256,
+      "handoff_bytes": 524288,
+      "blocking_dns_resolvers": 1,
+      "profile_config_bytes": 262144,
+      "profile_archive_bytes": 8388608,
+      "backup_file_bytes": 12582912,
+      "profiles": 256,
+      "route_expansion": 256,
+      "route_sample": 6
+    },
+    "actual_rss_memory_leaks": "NOT_RUN;independent caps not aggregate memory budget;whole archive decrypt/encoding may overlap allocations",
+    "os_callback_never_returns": "OPEN_PLATFORM_QUALIFICATION;callback-owned leases not auto unlocked",
+    "historical_runtime": "unchanged Git blobs only;original evidence status/date/artifact retained",
+    "remaining": "Q30 other four checklist criteria and Apple runtime qualification remain open;Q29 observations unchanged"
+  },
+  "findings": {
+    "F303": "Cancellable probe start/terminal serialization and direct cancellation completion;clear NW handlers/cleanup captures;remove duplicate IOSPathProbeCompletion and ProbeGate.",
+    "F304": "Current ID/config probe admission/publication and archive mutation pruning;four active workers retain slots until their bounded calls return.",
+    "F305": "UTF-8-safe 4KiB log message;actual encoded1MiB archive/500-line suffix;oversized legacy rejected before JSON decode and repaired on append.",
+    "F306": "Streamed release-body collector1MiB,early excess-byte rejection and Task cancellation;Foundation/network internal memory not qualified."
+  },
+  "qualification": "Source review criterion complete only;11 new XCTest/Swift/Xcode/actual Apple Network and streaming/UI/RSS/leaks/OS and native joins NOT_RUN;Apple runtime user-excluded",
+  "historical_runtime": "788 unchanged implementation Git inputs;original runtime status/artifact/date/acceptance_basis retained;no Linux/Android rerun",
+  "plan": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "Q29": "IN_PROGRESS;SIGKILL FAIL/auto-null ENONET retained",
+    "Q30": "IN_PROGRESS;Review/dead-code source criterion COMPLETE;other4 criteria open"
+  },
+  "D06": "UNCHANGED_ACCEPTED_LIMITATION",
+  "platform_skips": "UNCHANGED_USER_EXCLUDED",
+  "push": "NOT_RUN",
+  "source_digest": "4dd77a75f444f172ecb6ccd0d29e0a599fe7d2a88f857bd03c044240dab40d18"
+}

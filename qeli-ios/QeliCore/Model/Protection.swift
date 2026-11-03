@@ -51,12 +51,9 @@ extension VPNConfig {
     /// Release metadata resolves through DNS and may use either address family. Only an
     /// unqualified full capture can promise that an app-owned request enters this tunnel.
     func hasPrivateUpdatePath(globalAllowLAN: Bool = false) -> Bool {
-        isFullTunnel
-            && !allowIPv4Leak
-            && !allowIPv6Leak
-            && !allowLAN
-            && !globalAllowLAN
-            && excludeRoutes.isEmpty
+        (try? ConfigCore.policy("private_update",["full":isFullTunnel,"captured":true,
+            "leak4":allowIPv4Leak,"leak6":allowIPv6Leak,"lan":allowLAN,"global_lan":globalAllowLAN,
+            "excluded":!excludeRoutes.isEmpty])["value"] as? Bool) ?? false
     }
 }
 

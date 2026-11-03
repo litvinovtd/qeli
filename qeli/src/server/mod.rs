@@ -1,8 +1,11 @@
 pub mod acl;
 pub mod client_manager;
 pub mod control;
+mod control_socket;
 pub mod dhcp;
 pub mod dns;
+mod network_lease;
+pub(crate) use crate::profile_tasks::{ProfileServices, ProfileTasks};
 pub mod handler;
 pub mod metrics;
 pub mod nat;
@@ -12,6 +15,8 @@ pub mod pool;
 pub mod preflight;
 pub mod reality;
 mod roaming_metrics;
+mod tun_dispatch;
+mod tun_metrics;
 pub mod udp_handler;
 pub mod update;
 pub mod usage;
@@ -21,6 +26,7 @@ use crate::config::server::{ProfileConfig, ServerConfig};
 use crate::config::users::UsersDb;
 use crate::crypto::StaticKeypair;
 use crate::server::handler::SessionShared;
+use crate::server_supervisor::wait_for_shutdown as wait_for_profile_shutdown;
 use crate::transport::tcp::{set_tcp_buffers, set_tcp_keepalive};
 use crate::transport::TransportProtocol;
 use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
@@ -39,6 +45,9 @@ use tokio::net::TcpListener;
 use tokio::sync::{mpsc, Mutex, RwLock};
 
 const TAP_GATEWAY_MAC: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
+/// Covers setup through successful bind of every profile listener. Once ready,
+/// the serving generation is deliberately allowed to live indefinitely.
+const PROFILE_SETUP_BUDGET: Duration = Duration::from_secs(120);
 
 /// Re-export: the implementation moved to `crate::util` so the CLIENT can use it too.
 ///
@@ -137,28 +146,27 @@ impl TunIngress {
         exit_access: ExitAccess,
         packet: ServerTunPacket,
     ) -> Result<(), mpsc::error::SendError<ServerTunPacket>> {
-        let use_direct_path = if profile.config.routing.client_to_client {
-            match crate::protocol::ip::parse_ip_packet(&packet) {
-                Ok(meta) => {
-                    let sessions = profile.sessions.read().await;
-                    let destination = sessions
-                        .get_by_address(meta.destination)
-                        .map(|session| (session, false))
-                        .or_else(|| {
-                            sessions
-                                .route_match(meta.destination)
-                                .map(|route| (&route.session, route.prefix == 0))
-                        });
-                    destination.is_some_and(|(destination, is_default)| {
-                        destination.session_id != source_session_id
-                            && !destination.is_revoked()
-                            && (!is_default || exit_access.allows(meta.destination))
-                    })
-                }
-                Err(_) => false,
+        let Ok(meta) = crate::protocol::ip::parse_ip_packet(&packet) else {
+            return Ok(());
+        };
+        let use_direct_path = {
+            let sessions = profile.sessions.read().await;
+            // SrcGuard describes configured permissions, not live route ownership. A
+            // conflicting iroute can be skipped during admission, and a broader prefix
+            // or exit default must not impersonate an exact lease or narrower iroute.
+            // Recheck here after pacing/queueing, on every TCP/UDP ingress path.
+            if profile.tun_addresses.contains(&meta.source)
+                || !sessions.source_owned_by(source_session_id, meta.source)
+            {
+                return Ok(());
             }
-        } else {
-            false
+            profile.config.routing.client_to_client
+                && sessions.direct_client_destination(
+                    source_session_id,
+                    exit_access,
+                    meta.destination,
+                    &profile.tun_addresses,
+                )
         };
         if use_direct_path {
             self.forwarder.send(packet).await
@@ -478,21 +486,78 @@ impl SessionMap {
             .map(|route| &route.session)
     }
 
+    /// Local TUN services must keep precedence over delegated/exit iroutes. In
+    /// particular /0 is an internal next hop, not ownership of the server gateway.
+    fn direct_client_destination(
+        &self,
+        source_session_id: u64,
+        exit_access: ExitAccess,
+        destination: std::net::IpAddr,
+        server_addresses: &[std::net::IpAddr],
+    ) -> bool {
+        if server_addresses.contains(&destination) {
+            return false;
+        }
+        self.get_by_address(destination)
+            .map(|session| (session, false))
+            .or_else(|| {
+                self.route_match(destination)
+                    .map(|route| (&route.session, route.prefix == 0))
+            })
+            .is_some_and(|(owner, is_default)| {
+                owner.session_id != source_session_id
+                    && !owner.is_revoked()
+                    && (!is_default || exit_access.allows(destination))
+            })
+    }
+
+    /// Authoritative source ownership after the configured SrcGuard has passed.
+    /// Exact leases take precedence over longest-prefix iroutes, including /0. A default
+    /// permits an exit node's external reply sources, but never another client's address.
+    /// A refused/unregistered iroute does not grant source ownership, and a removed,
+    /// superseded or closing session cannot inject a paced/queued tail through an old Arc.
+    fn source_owned_by(&self, session_id: u64, source: std::net::IpAddr) -> bool {
+        use std::sync::atomic::Ordering;
+
+        self.get_by_address(source)
+            .or_else(|| self.route_lookup(source))
+            .is_some_and(|owner| {
+                owner.session_id == session_id
+                    && !owner.is_revoked()
+                    && !owner.closing.load(Ordering::Acquire)
+                    && self
+                        .by_ip
+                        .get(&owner.client_ip)
+                        .is_some_and(|current| current.session_id == session_id)
+            })
+    }
+
     /// Whether an active session owns an IPv6 address for upstream NDP proxying.
     ///
     /// Exact tunnel leases win absolutely: a stale/revoked exact owner must not fall through
     /// to a broader client route owned by somebody else. Delegated prefixes reuse the existing
     /// `client_subnet`/iroute registry, skip `/0` exit routes, and use the same longest-prefix
     /// ownership rule as the data plane.
+    #[cfg(test)]
     pub(crate) fn owns_ipv6_neighbor_target(&self, target: std::net::Ipv6Addr) -> bool {
+        self.ipv6_neighbor_owner(target).is_some()
+    }
+
+    pub(crate) fn ipv6_neighbor_owner(&self, target: std::net::Ipv6Addr) -> Option<u64> {
         use std::sync::atomic::Ordering;
 
         let active = |session: &SessionShared| {
-            !session.revoked.load(Ordering::Acquire) && !session.closing.load(Ordering::Acquire)
+            session.ndp_ready.load(Ordering::Acquire)
+                && !session.revoked.load(Ordering::Acquire)
+                && !session.closing.load(Ordering::Acquire)
+                && self
+                    .by_ip
+                    .get(&session.client_ip)
+                    .is_some_and(|current| current.session_id == session.session_id)
         };
         let address = std::net::IpAddr::V6(target);
         if let Some(session) = self.by_address.get(&address) {
-            return active(session);
+            return active(session).then_some(session.session_id);
         }
         self.client_routes
             .iter()
@@ -502,7 +567,8 @@ impl SessionMap {
                     && route.contains(address)
             })
             .max_by_key(|route| route.prefix)
-            .is_some_and(|route| active(&route.session))
+            .filter(|route| active(&route.session))
+            .map(|route| route.session.session_id)
     }
 
     /// Remove and return the CIDRs of a client's kernel-programmed inbound iroutes (#13)
@@ -542,6 +608,7 @@ mod client_route_tests {
             std::net::IpAddr::V6(address) => (None, Some(address)),
         };
         Arc::new(SessionShared {
+            ndp_ready: std::sync::atomic::AtomicBool::new(true),
             session_id: id,
             username: format!("test-{id}"),
             device_key: format!("device-{id}"),
@@ -631,6 +698,135 @@ mod client_route_tests {
     }
 
     #[test]
+    fn source_ownership_uses_exact_leases_then_longest_prefix_in_both_families() {
+        for (lease, broad, narrow, inside, outside) in [
+            (
+                "10.76.0.2",
+                "198.18.16.0/24",
+                "198.18.16.128/25",
+                "198.18.16.130",
+                "198.18.16.9",
+            ),
+            (
+                "fd76::2",
+                "fd76:16::/64",
+                "fd76:16::8000/113",
+                "fd76:16::8009",
+                "fd76:16::9",
+            ),
+        ] {
+            let broad_owner = session(1, lease.parse().unwrap());
+            let exact_address = inside.parse().unwrap();
+            let narrow_owner = session(2, exact_address);
+            let mut map = empty_map();
+            map.insert(broad_owner.clone());
+            map.insert(narrow_owner.clone());
+            map.client_routes.push(
+                ClientRoute::parse(broad, broad_owner.client_ip, broad_owner.clone()).unwrap(),
+            );
+            map.client_routes.push(
+                ClientRoute::parse(narrow, narrow_owner.client_ip, narrow_owner.clone()).unwrap(),
+            );
+            assert!(map.source_owned_by(1, outside.parse().unwrap()));
+            assert!(!map.source_owned_by(2, outside.parse().unwrap()));
+            assert!(!map.source_owned_by(1, exact_address));
+            assert!(map.source_owned_by(2, exact_address));
+            // Even an exact lease inside a delegated prefix wins over that iroute.
+            map.client_routes
+                .retain(|route| route.session.session_id != 2);
+            assert!(!map.source_owned_by(1, exact_address));
+            map.remove(exact_address);
+            assert!(map.source_owned_by(1, exact_address));
+        }
+    }
+
+    #[test]
+    fn source_ownership_never_grants_a_refused_route_or_stale_session() {
+        use std::sync::atomic::Ordering;
+        let first = session(1, "10.76.0.2".parse().unwrap());
+        let second = session(2, "10.76.0.3".parse().unwrap());
+        let source = "198.18.16.9".parse().unwrap();
+        let mut map = empty_map();
+        map.insert(first.clone());
+        map.insert(second.clone());
+        map.client_routes
+            .push(ClientRoute::parse("198.18.16.0/24", first.client_ip, first.clone()).unwrap());
+        assert!(map.source_owned_by(1, source));
+        assert!(!map.source_owned_by(2, source));
+        first.closing.store(true, Ordering::Release);
+        assert!(!map.source_owned_by(1, source));
+        first.closing.store(false, Ordering::Release);
+        first.revoked.store(true, Ordering::Release);
+        assert!(!map.source_owned_by(1, source));
+        first.revoked.store(false, Ordering::Release);
+        map.remove(first.client_ip);
+        assert!(
+            !map.source_owned_by(1, source),
+            "an orphan route Arc is not authoritative"
+        );
+        map.take_client_routes(first.client_ip);
+        assert!(
+            !map.source_owned_by(2, source),
+            "a skipped route must be claimed by a fresh admission"
+        );
+        let replacement = session(3, second.client_ip);
+        map.insert(replacement);
+        assert!(!map.source_owned_by(2, second.client_ip));
+        assert!(map.source_owned_by(3, second.client_ip));
+    }
+
+    #[test]
+    fn exit_default_never_captures_local_tun_endpoints() {
+        for (lease, gateway, default, external) in [
+            ("10.76.0.6", "10.76.0.1", "0.0.0.0/0", "198.18.99.9"),
+            ("fd76::6", "fd76::1", "::/0", "fd76:99::9"),
+        ] {
+            let exit = session(1, lease.parse().unwrap());
+            let local = [gateway.parse().unwrap()];
+            let mut map = empty_map();
+            map.insert(exit.clone());
+            map.client_routes
+                .push(ClientRoute::parse(default, exit.client_ip, exit.clone()).unwrap());
+            let granted = super::ExitAccess {
+                ipv4: true,
+                ipv6: true,
+            };
+            assert!(!map.direct_client_destination(2, granted, local[0], &local));
+            assert!(map.direct_client_destination(2, granted, external.parse().unwrap(), &local));
+            assert!(!map.direct_client_destination(
+                2,
+                super::ExitAccess::default(),
+                external.parse().unwrap(),
+                &local
+            ));
+            assert!(
+                !map.direct_client_destination(1, granted, external.parse().unwrap(), &local),
+                "an exit's own egress must not bounce to itself"
+            );
+        }
+    }
+
+    #[test]
+    fn source_exit_default_allows_replies_but_not_another_owner() {
+        for (lease, other, default, external) in [
+            ("10.76.0.6", "10.76.0.2", "0.0.0.0/0", "198.18.99.9"),
+            ("fd76::6", "fd76::2", "::/0", "fd76:99::9"),
+        ] {
+            let exit = session(1, lease.parse().unwrap());
+            let client = session(2, other.parse().unwrap());
+            let mut map = empty_map();
+            map.insert(exit.clone());
+            map.insert(client.clone());
+            map.client_routes
+                .push(ClientRoute::parse(default, exit.client_ip, exit.clone()).unwrap());
+            assert!(map.source_owned_by(1, external.parse().unwrap()));
+            assert!(!map.source_owned_by(2, external.parse().unwrap()));
+            assert!(!map.source_owned_by(1, client.client_ip));
+            assert!(map.source_owned_by(2, client.client_ip));
+        }
+    }
+
+    #[test]
     fn ndp_ownership_tracks_exact_leases_delegated_prefixes_and_session_state() {
         use std::sync::atomic::Ordering;
 
@@ -638,6 +834,7 @@ mod client_route_tests {
         let delegated = session(2, "2001:db8:10::3".parse().unwrap());
         let mut sessions = empty_map();
         sessions.insert(exact.clone());
+        sessions.insert(delegated.clone());
         sessions.client_routes.push(
             ClientRoute::parse("2001:db8:200::/56", delegated.client_ip, delegated.clone())
                 .unwrap(),
@@ -646,6 +843,11 @@ mod client_route_tests {
             .client_routes
             .push(ClientRoute::parse("::/0", delegated.client_ip, delegated.clone()).unwrap());
 
+        let target = "2001:db8:10::2".parse().unwrap();
+        exact.ndp_ready.store(false, Ordering::Release);
+        assert_eq!(sessions.ipv6_neighbor_owner(target), None);
+        exact.ndp_ready.store(true, Ordering::Release);
+        assert_eq!(sessions.ipv6_neighbor_owner(target), Some(1));
         assert!(sessions.owns_ipv6_neighbor_target("2001:db8:10::2".parse().unwrap()));
         assert!(sessions.owns_ipv6_neighbor_target("2001:db8:200:ab::9".parse().unwrap()));
         assert!(!sessions.owns_ipv6_neighbor_target("2001:db8:ffff::9".parse().unwrap()));
@@ -654,6 +856,12 @@ mod client_route_tests {
         assert!(!sessions.owns_ipv6_neighbor_target("2001:db8:10::2".parse().unwrap()));
         delegated.closing.store(true, Ordering::Release);
         assert!(!sessions.owns_ipv6_neighbor_target("2001:db8:200:ab::9".parse().unwrap()));
+        delegated.closing.store(false, Ordering::Release);
+        sessions.remove(delegated.client_ip);
+        assert_eq!(
+            sessions.ipv6_neighbor_owner("2001:db8:200:ab::9".parse().unwrap()),
+            None
+        );
     }
 }
 
@@ -661,6 +869,9 @@ mod client_route_tests {
 pub struct ProfileRuntime {
     pub name: String,
     pub config: ProfileConfig,
+    /// Parsed once per generation: never route the server's TUN endpoints into a
+    /// client's exit default, or let a client claim these reserved source addresses.
+    tun_addresses: Vec<std::net::IpAddr>,
     /// Generation-scoped owner used by nested session tasks as well as top-level services.
     pub(crate) tasks: ProfileTasks,
     pub pool: Arc<Mutex<pool::IpPool>>,
@@ -676,6 +887,7 @@ pub struct ProfileRuntime {
     pub(crate) admission: Arc<Mutex<()>>,
     pub rate_limiter: Arc<Mutex<RateLimiter>>,
     /// Aggregate local UDP diagnostics across this profile's SO_REUSEPORT workers.
+    tun_metrics: Arc<tun_metrics::TunMetrics>,
     pub(crate) udp_buffer_counters: Arc<crate::transport_core::udp_buffer::UdpBufferCounters>,
     /// Worker-lifetime TCP outcomes; UDP outcomes live in the shared registry itself.
     pub(crate) tcp_roaming_metrics: roaming_metrics::TcpRoamingMetrics,
@@ -724,9 +936,9 @@ pub struct ProfileRuntime {
 /// Verification is CPU- and memory-bound, so permitting more than the core count buys no
 /// throughput; queueing the remainder costs a legitimate client nothing noticeable and
 /// denies the attacker the memory blow-up. Note this bounds RESOURCE use, not the number
-/// of guesses: a burst can still get up to `permits` verifications in flight before the
-/// first failures land in the tracker, so brute-force protection overshoots by at most
-/// that much.
+/// of guesses. Web auth rechecks lockout at job admission and records the result
+/// inside the blocking job before returning its permit (including cancelled waiters).
+/// Only already admitted web jobs may finish after a source becomes locked.
 pub fn argon2_gate() -> &'static tokio::sync::Semaphore {
     static GATE: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
     GATE.get_or_init(|| {
@@ -735,6 +947,43 @@ pub fn argon2_gate() -> &'static tokio::sync::Semaphore {
             .unwrap_or(2);
         tokio::sync::Semaphore::new(cores.clamp(2, 8))
     })
+}
+
+/// The permit belongs to the blocking job, not the cancellable async waiter.
+pub(crate) async fn run_argon2<T: Send + 'static>(
+    permit: tokio::sync::SemaphorePermit<'static>,
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, tokio::task::JoinError> {
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        job()
+    })
+    .await
+}
+
+#[cfg(test)]
+mod argon2_budget_tests {
+    #[tokio::test]
+    async fn cancelled_waiter_does_not_release_running_job_permit() {
+        let gate: &'static tokio::sync::Semaphore =
+            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let permit = gate.acquire().await.unwrap();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (finish, wait) = std::sync::mpsc::channel();
+        let task = tokio::spawn(super::run_argon2(permit, move || {
+            started.send(()).unwrap();
+            wait.recv().unwrap();
+        }));
+        ready.await.unwrap();
+        task.abort();
+        let _ = task.await;
+        assert!(gate.try_acquire().is_err());
+        finish.send(()).unwrap();
+        let _permit = tokio::time::timeout(std::time::Duration::from_secs(2), gate.acquire())
+            .await
+            .unwrap()
+            .unwrap();
+    }
 }
 
 pub struct FailedAuthTracker {
@@ -982,15 +1231,7 @@ impl FailedAuthTracker {
     }
 }
 
-/// Command the web panel (in the supervisor) sends to the supervisor loop to
-/// act on the data-plane worker child process.
-#[derive(Debug, Clone, Copy)]
-pub enum WorkerCmd {
-    /// Restart the worker (SIGTERM + respawn) — applies profile/config changes.
-    Restart,
-    /// SIGHUP the worker to hot-reload users / brute-force thresholds.
-    ReloadUsers,
-}
+pub use crate::server_supervisor::WorkerCmd;
 
 /// Shared server state (auth, users, identity key, profile registry).
 ///
@@ -1000,6 +1241,11 @@ pub enum WorkerCmd {
 /// socket; `worker_tx = Some` to drive the worker child).
 pub struct ServerState {
     pub config: ServerConfig,
+    /// Last validated auth configuration accepted by SIGHUP. Control mutations hold
+    /// a read lease until their users-file transaction and live snapshot are complete.
+    pub live_auth_config: Arc<RwLock<crate::config::server::AuthConfig>>,
+    /// Authorization derived from the descriptor supplying the immutable startup config.
+    config_command_trust: crate::config_source::CommandTrust,
     pub users_db: Arc<RwLock<UsersDb>>,
     /// Valid representative Argon2 hashes for unknown-user verification. Rebuilt only when
     /// the users database changes, so hostile unknown logins cannot scan and parse every PHC
@@ -1010,11 +1256,16 @@ pub struct ServerState {
     /// each individual write crash-safe, but without a process-level lock two panel tabs
     /// could both read the same revision and the later rename would silently erase the
     /// earlier edit. Handlers also compare a content revision while holding this lock.
-    pub config_write_lock: Mutex<()>,
+    pub config_write_lock: Arc<Mutex<()>>,
     pub profiles: Arc<RwLock<HashMap<String, Arc<ProfileRuntime>>>>,
     /// Actual per-generation values exported to lifecycle hooks. In particular WAN names are
     /// the interfaces selected by auto-detection, not the placeholder text from the config.
     profile_hook_env: Arc<Mutex<HashMap<String, ProfileHookEnv>>>,
+    /// Conservatively retained for the supervisor lifetime: a restored INI does not
+    /// revoke commands already captured by a worker generation.
+    restore_hook_commands: std::sync::Mutex<HashSet<String>>,
+    /// Cancelled generations keep resources and JoinSets here until worker shutdown joins them.
+    deferred_profiles: crate::profile_teardown::Deferred<ProfileResources>,
     pub failed_auth: Arc<Mutex<FailedAuthTracker>>,
     /// Supervisor → worker control channel. `Some` only in the supervisor.
     pub worker_tx: Option<tokio::sync::mpsc::Sender<WorkerCmd>>,
@@ -1048,6 +1299,8 @@ struct ProfileHookEnv {
     wan_ipv4: String,
     wan_ipv6: String,
     bind_port: String,
+    /// Command from the same ready generation as these interface/pool values.
+    post_down: String,
 }
 
 impl ProfileHookEnv {
@@ -1077,23 +1330,8 @@ impl ProfileHookEnv {
             wan_ipv4,
             wan_ipv6,
             bind_port: pcfg.bind.port.to_string(),
+            post_down: pcfg.routing.post_down.clone(),
         }
-    }
-
-    fn fallback(pcfg: &ProfileConfig) -> Self {
-        use crate::config::server::{IpMode, Ipv6RoutingMode};
-        let wan_ipv4 = if pcfg.tun.ip_mode != IpMode::Ipv6 && pcfg.routing.nat.enabled {
-            nat::resolve_wan_ipv4(&pcfg.routing.nat.interface).unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let wan_ipv6 =
-            if pcfg.tun.ip_mode != IpMode::Ipv4 && pcfg.routing.ipv6.mode != Ipv6RoutingMode::Off {
-                nat::resolve_wan_ipv6(&pcfg.routing.ipv6.interface).unwrap_or_default()
-            } else {
-                String::new()
-            };
-        Self::new(pcfg, wan_ipv4, wan_ipv6)
     }
 
     fn variables(&self) -> Vec<(&'static str, String)> {
@@ -1111,22 +1349,112 @@ impl ProfileHookEnv {
     }
 }
 
+/// Isolated API test state: no sockets, worker, metrics sampler or production sidecars.
+#[cfg(test)]
+pub(crate) fn test_api_state(
+    config: ServerConfig,
+    config_path: &std::path::Path,
+) -> Arc<ServerState> {
+    Arc::new(ServerState {
+        live_auth_config: Arc::new(RwLock::new(config.auth.clone())),
+        live_web: Arc::new(RwLock::new(config.web.clone())),
+        udp_buffer_budget: server_udp_buffer_budget(&config).unwrap(),
+        config,
+        config_command_trust: crate::config_source::CommandTrust::denied(
+            "test config has no authorized source",
+        ),
+        users_db: Arc::new(RwLock::new(UsersDb::default())),
+        dummy_password_hashes: Arc::new(RwLock::new(Vec::new())),
+        config_path: Mutex::new(Some(config_path.to_string_lossy().into_owned())),
+        config_write_lock: Arc::new(Mutex::new(())),
+        profiles: Arc::new(RwLock::new(HashMap::new())),
+        profile_hook_env: Arc::new(Mutex::new(HashMap::new())),
+        restore_hook_commands: std::sync::Mutex::new(HashSet::new()),
+        deferred_profiles: Default::default(),
+        failed_auth: Arc::new(Mutex::new(FailedAuthTracker::new(true, 5, 300, 900))),
+        worker_tx: None,
+        client_manager: Arc::new(client_manager::ClientManager::new()),
+        metrics: Arc::new(metrics::MetricsState::new()),
+        usage: Arc::new(usage::UsageStore::load_read_only(
+            &config_path.with_extension("usage.json").to_string_lossy(),
+        )),
+    })
+}
+
 impl ServerState {
+    fn remember_restore_hooks(&self, config: &ServerConfig) {
+        let mut commands = self
+            .restore_hook_commands
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        for profile in &config.profiles {
+            for command in [&profile.routing.post_up, &profile.routing.post_down] {
+                if !command.is_empty() {
+                    commands.insert(command.clone());
+                }
+            }
+        }
+    }
+
+    pub(crate) fn retained_restore_hooks(&self) -> Vec<String> {
+        self.remember_restore_hooks(&self.config);
+        self.restore_hook_commands
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned()
+            .collect()
+    }
+
     /// Refresh the supervisor's live `[web]` settings from the on-disk config, so
     /// a panel change to the admin password / IP allowlist / CSRF origins /
     /// public host takes effect immediately, without a full process restart.
     /// Called after the panel writes the config file. Bind/port/TLS/enabled are
     /// bound at startup and are NOT swapped here (they still require a restart).
-    pub async fn reload_web_settings(&self) {
+    pub async fn reload_web_settings(&self) -> bool {
         let path = match self.config_path.lock().await.clone() {
             Some(p) => p,
-            None => return,
+            None => {
+                log::error!("panel: cannot reload live web settings without a config path");
+                return false;
+            }
         };
-        let new_web = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| crate::config::parse_server_config(&s).ok())
-            .map(|c| c.web);
-        if let Some(web) = new_web {
+        let new_web = match read_config_text(&path) {
+            Ok(raw) => match crate::config::parse_server_config(&raw) {
+                Ok(config) => Some(config.web),
+                Err(error) => {
+                    log::error!("panel: cannot parse live web settings: {error}");
+                    None
+                }
+            },
+            Err(error) => {
+                log::error!("panel: cannot read live web settings: {error}");
+                None
+            }
+        };
+        if let Some(mut web) = new_web {
+            // The listener/router, TLS transport, session-key source and base path
+            // were fixed when the supervisor started. Keep those values in the live
+            // view as well: CSRF and login read this view on every request.
+            let startup = &self.config.web;
+            web.enabled = startup.enabled;
+            web.bind.clone_from(&startup.bind);
+            web.port = startup.port;
+            web.tls = startup.tls;
+            web.tls_cert.clone_from(&startup.tls_cert);
+            web.tls_key.clone_from(&startup.tls_key);
+            web.base_path.clone_from(&startup.base_path);
+            web.persist_session_key = startup.persist_session_key;
+            if let Err(error) = web.validate_active().and_then(|_| {
+                if web.enabled {
+                    web.brute_force.validate("[web]")
+                } else {
+                    Ok(())
+                }
+            }) {
+                log::error!("panel: REFUSING live web-settings reload: {error}");
+                return false;
+            }
             // Fail-closed, mirroring the start-time guard (web/mod.rs): a live reload must
             // never leave a non-loopback panel password-less. put_config restores an empty
             // admin hash from disk, but put_config_raw writes verbatim — so a raw save could
@@ -1144,9 +1472,10 @@ impl ServerState {
             // would apply it live, leaving the panel unauthenticated until a restart — at
             // which point the startup gate would refuse to serve it at all. So the two
             // paths disagreed about the same config, in the unsafe direction.
-            // (Audit 2026-07-27, D2.)
+            // Apply this gate only when the startup panel is enabled: disabled panels
+            // have no listener or login to protect. (Audit 2026-07-27, D2.)
             let bind = self.config.web.bind.as_str();
-            if web.password_hash.is_empty() && !web.insecure_no_auth {
+            if web.enabled && web.password_hash.is_empty() && !web.insecure_no_auth {
                 log::error!(
                     "panel: REFUSING live web-settings reload — it would leave the panel \
                      (bind {bind}) with NO admin password. Set one with \
@@ -1154,24 +1483,95 @@ impl ServerState {
                      unauthenticated panel is genuinely intended. Keeping the previous \
                      settings."
                 );
-                return;
+                return false;
             }
             // Going password-less deliberately must be as loud live as it is at startup —
             // previously the only trace was a cheerful "settings reloaded".
-            if web.password_hash.is_empty() {
+            if web.enabled && web.password_hash.is_empty() {
                 log::warn!(
                     "panel on bind {bind} is now running WITHOUT AUTHENTICATION \
                      (web.insecure_no_auth): every local process — and any SSRF on this \
                      host — has full admin access to users, password hashes and the config."
                 );
             }
-            *self.live_web.write().await = web;
+            let bf = &web.brute_force;
+            let desired = (
+                bf.enabled,
+                bf.max_attempts,
+                Duration::from_secs(bf.window_secs.min(MAX_BRUTE_FORCE_SECS)),
+                Duration::from_secs(bf.lockout_secs.min(MAX_BRUTE_FORCE_SECS)),
+            );
+            // Acquire both guards before mutating either. A cancelled HTTP request
+            // must not replace the lockout tracker while the web settings still
+            // wait for a reader to release the write lock.
+            let mut live_web = self.live_web.write().await;
+            let mut tracker = self.failed_auth.lock().await;
+            if tracker.thresholds() != desired {
+                *tracker = FailedAuthTracker::new(
+                    bf.enabled,
+                    bf.max_attempts,
+                    bf.window_secs,
+                    bf.lockout_secs,
+                );
+                log::info!("panel: admin-login brute-force policy changed; tracker reset");
+            }
+            *live_web = web;
             log::info!(
                 "panel: live web settings reloaded (admin password / allowlist / CSRF origins)"
             );
+            true
+        } else {
+            false
         }
     }
 }
+
+/// Read the same bounded, descriptor-stable INI snapshot as the worker.
+/// CLI commands use this instead of unbounded `read_to_string`.
+pub fn read_config_text(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+    crate::config_source::load(path).map(|snapshot| snapshot.into_parts().0)
+}
+
+/// The bytes and file-command trust must come from the same opened inode when
+/// a CLI operation may create or replace an explicitly configured identity key.
+pub struct ConfigSourceSnapshot {
+    text: String,
+    trust: crate::config_source::CommandTrust,
+}
+
+impl ConfigSourceSnapshot {
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn validate_identity_key_trust(&self, profile: &ProfileConfig) -> anyhow::Result<()> {
+        ensure_identity_key_trust(profile, &self.trust)
+    }
+
+    pub fn validate_users_file_trust(&self, config: &ServerConfig) -> anyhow::Result<()> {
+        ensure_users_file_trust(config, &self.trust)
+    }
+
+    pub fn validate_tls_paths_trust(&self, config: &ServerConfig) -> anyhow::Result<()> {
+        ensure_tls_paths_trust(config, &self.trust)
+    }
+
+    pub fn require_trusted_file_output(&self, label: &str) -> anyhow::Result<()> {
+        if let Err(reason) = self.trust.check() {
+            anyhow::bail!("{label} requires a trusted config file: {reason}");
+        }
+        Ok(())
+    }
+}
+
+pub fn read_config_source(
+    path: impl AsRef<std::path::Path>,
+) -> std::io::Result<ConfigSourceSnapshot> {
+    let (text, trust) = crate::config_source::load(path)?.into_parts();
+    Ok(ConfigSourceSnapshot { text, trust })
+}
+
+pub const MAX_SERVER_INI_BYTES: u64 = crate::config_source::MAX_SERVER_INI_BYTES;
 
 /// Directory holding per-profile server identity keys.
 pub const IDENTITY_DIR: &str = "/etc/qeli/identity";
@@ -1203,10 +1603,65 @@ fn prepare_identity_parent(path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn ensure_identity_key_trust(
+    profile: &ProfileConfig,
+    trust: &crate::config_source::CommandTrust,
+) -> anyhow::Result<()> {
+    if profile.identity_key.is_some() {
+        if let Err(reason) = trust.check() {
+            anyhow::bail!(
+                "profile '{}': explicit identity_key requires a trusted server config: {reason}",
+                profile.name
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A custom users database path can be written by the CLI, panel and control socket.
+/// Keep that path under the same snapshot trust policy as explicit identity keys.
+fn ensure_users_file_trust(
+    config: &ServerConfig,
+    trust: &crate::config_source::CommandTrust,
+) -> anyhow::Result<()> {
+    if config.auth.users_file != crate::config::server::DEFAULT_USERS_FILE {
+        if let Err(reason) = trust.check() {
+            anyhow::bail!("auth.users_file requires a trusted server config: {reason}");
+        }
+    }
+    Ok(())
+}
+
+/// Operator-specified TLS material may control the panel identity. Bind these
+/// paths to the same trusted INI snapshot used for other file-backed settings.
+fn ensure_tls_paths_trust(
+    config: &ServerConfig,
+    trust: &crate::config_source::CommandTrust,
+) -> anyhow::Result<()> {
+    let web = &config.web;
+    if web.enabled && web.tls && (!web.tls_cert.is_empty() || !web.tls_key.is_empty()) {
+        if let Err(reason) = trust.check() {
+            anyhow::bail!("web.tls_cert/tls_key require a trusted server config: {reason}");
+        }
+    }
+    Ok(())
+}
+
+fn validate_identity_profile_name(pcfg: &ProfileConfig) -> anyhow::Result<()> {
+    if !crate::util::is_valid_profile_name(&pcfg.name) {
+        anyhow::bail!(
+            "profile name {:?} cannot be used for an identity key",
+            pcfg.name
+        );
+    }
+    Ok(())
+}
+
 /// Load a profile's identity key, or generate+persist a fresh one on first use.
 /// Each profile (interface) has its own identity so clients pin a key specific
 /// to the interface they connect to.
 pub fn load_or_generate_profile_key(pcfg: &ProfileConfig) -> anyhow::Result<StaticKeypair> {
+    validate_identity_profile_name(pcfg)?;
     let path = profile_identity_path(pcfg);
     let path_ref = std::path::Path::new(&path);
 
@@ -1219,30 +1674,19 @@ pub fn load_or_generate_profile_key(pcfg: &ProfileConfig) -> anyhow::Result<Stat
     prepare_identity_parent(path_ref)?;
     let _lock = crate::util::FileLock::acquire(path_ref)?;
 
-    match std::fs::read(path_ref) {
-        Ok(bytes) => {
-            if bytes.len() != 32 {
-                return Err(anyhow::anyhow!(
-                    "invalid identity key length in {}: {}",
-                    path,
-                    bytes.len()
-                ));
-            }
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&bytes);
+    match crate::crypto::key_file::read(path_ref)? {
+        Some(key) => {
             log::info!("Profile '{}': loaded identity key from {}", pcfg.name, path);
-            Ok(StaticKeypair::from_private_bytes(key))
+            Ok(StaticKeypair::from_private_bytes(*key))
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            generate_profile_key_unlocked(pcfg, path_ref)
-        }
-        Err(error) => Err(error.into()),
+        None => generate_profile_key_unlocked(pcfg, path_ref),
     }
 }
 
 /// Generate a fresh identity key for a profile and persist it (0600), creating
 /// the identity directory (0700) if needed. Overwrites any existing key.
 pub fn generate_profile_key(pcfg: &ProfileConfig) -> anyhow::Result<StaticKeypair> {
+    validate_identity_profile_name(pcfg)?;
     let path = profile_identity_path(pcfg);
     let path_ref = std::path::Path::new(&path);
     prepare_identity_parent(path_ref)?;
@@ -1404,6 +1848,8 @@ fn split_listen_spec(spec: &str) -> Option<(String, u16)> {
 
 /// Longest interface name the kernel will accept, from `IFNAMSIZ` (16) minus the NUL.
 const MAX_IFNAME_LEN: usize = 15;
+/// Linux TUN/TAP multi-queue ceiling (MAX_TAP_QUEUES).
+const MAX_TUN_QUEUES: usize = 256;
 
 fn validate_configured_interface(profile: &str, key: &str, value: &str) -> anyhow::Result<()> {
     let name = value.trim();
@@ -1430,10 +1876,18 @@ fn validate_configured_interface(profile: &str, key: &str, value: &str) -> anyho
 }
 
 pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
-    if !config.web.public_host.trim().is_empty() {
-        crate::config::share::supported_public_endpoint(&config.web.public_host, 443)
-            .map_err(anyhow::Error::msg)?;
+    // Match worker startup in check-config, panel saves and restart preflight.
+    if config.profiles.is_empty() {
+        anyhow::bail!("no profiles defined in server config");
     }
+    if !config.profiles.iter().any(|profile| profile.enabled) {
+        anyhow::bail!("all profiles are disabled (enabled = false) — enable at least one");
+    }
+    config.web.validate_active().map_err(anyhow::Error::msg)?;
+    config
+        .web
+        .validate_auth_admission()
+        .map_err(anyhow::Error::msg)?;
     // Both brute-force policies, before anything profile-specific. This function is the
     // one gate every write path shares — `check-config`, worker startup, `PUT /api/config`
     // and `PUT /api/config/raw` all call it — so validating here is what stops a policy
@@ -1443,23 +1897,12 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         .brute_force
         .validate("[auth]")
         .map_err(|e| anyhow::anyhow!(e))?;
-    config
-        .web
-        .brute_force
-        .validate("[web]")
-        .map_err(|e| anyhow::anyhow!(e))?;
-    // The panel binds `web.port`, and 0 gives an ephemeral port while the log still prints the
-    // configured zero — the operator is told an address that was never listened on.
-    //
-    // This check used to sit INSIDE the per-profile loop, and inside that loop's
-    // `if p.dns.enabled` branch, so it ran once per DNS-enabled profile and not at all when no
-    // profile served DNS — `[web]` has nothing to do with either. Belongs here with the other
-    // whole-config checks. (Audit 2026-08-01, §9.)
-    if config.web.enabled && config.web.port == 0 {
-        anyhow::bail!(
-            "web.port = 0 would bind an ephemeral port while the log reports 0 — set the \
-             port you actually reach the panel on"
-        );
+    if config.web.enabled {
+        config
+            .web
+            .brute_force
+            .validate("[web]")
+            .map_err(|e| anyhow::anyhow!(e))?;
     }
     let mut seen = std::collections::HashSet::new();
     // Every endpoint this configuration will bind, in declaration order. A Vec rather than a
@@ -1499,12 +1942,18 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         if !p.enabled {
             continue;
         }
+        if p.tun.queues > MAX_TUN_QUEUES {
+            anyhow::bail!(
+                "profile '{}': tun.queues = {} exceeds the kernel limit {}; use 0 for auto or an explicit 1..={}",
+                p.name, p.tun.queues, MAX_TUN_QUEUES, MAX_TUN_QUEUES
+            );
+        }
         if p.name.is_empty() {
             anyhow::bail!("profile has an empty name");
         }
-        if !crate::util::is_valid_ident(&p.name) {
+        if !crate::util::is_valid_profile_name(&p.name) {
             anyhow::bail!(
-                "profile name {:?} is invalid (must be 1..=128 bytes, without edge whitespace or control characters)",
+                "profile name {:?} is invalid (must be 1..=128 bytes, without commas, path separators, edge whitespace or control characters)",
                 p.name
             );
         }
@@ -1607,7 +2056,7 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         }
         if p.tun.ip_mode == crate::config::server::IpMode::Ipv6 && p.routing.nat.enabled {
             anyhow::bail!(
-                "profile '{}': routing.nat.enabled controls IPv4 NAT44 and cannot be enabled when tun.ip_mode = ipv6; use routing.ipv6.mode = route or nat66",
+                "profile '{}': routing.nat.enabled controls IPv4 NAT44 and cannot be enabled when tun.ip_mode = ipv6; use routing.ipv6.mode = manual, route or nat66",
                 p.name
             );
         }
@@ -1861,7 +2310,12 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 label,
             });
         }
-        if !matches!(p.obfuscation.fronting.as_str(), "websocket" | "none") {
+        // Fronting wraps only the `obfs` nonce exchange. Other wire modes neither expose
+        // nor consume this field, so retain a dormant value losslessly and validate it
+        // when the operator switches the profile to obfs.
+        if p.obfuscation.mode == "obfs"
+            && !matches!(p.obfuscation.fronting.as_str(), "websocket" | "none")
+        {
             anyhow::bail!(
                 "profile '{}': unknown obf.fronting '{}' — expected 'websocket' or 'none'",
                 p.name,
@@ -1875,7 +2329,7 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 p.tun.device_type
             );
         }
-        if !matches!(p.dns.upstream_protocol.as_str(), "udp" | "tcp") {
+        if p.dns.enabled && !matches!(p.dns.upstream_protocol.as_str(), "udp" | "tcp") {
             anyhow::bail!(
                 "profile '{}': unknown dns.upstream_protocol '{}' — expected 'udp' or 'tcp' \
                  (DoT/'tls' is not implemented; it would silently send plaintext UDP)",
@@ -2131,6 +2585,16 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 p.name
             );
         }
+        if p.obfuscation.multipath.enabled
+            && !(1..=crate::config::server::MULTIPATH_MAX_STREAMS)
+                .contains(&p.obfuscation.multipath.max_streams)
+        {
+            anyhow::bail!(
+                "profile '{}': obf.multipath.max_streams must be in 1..={} when multipath is enabled",
+                p.name,
+                crate::config::server::MULTIPATH_MAX_STREAMS
+            );
+        }
         // Multipath/bonding on a UDP profile is a silent no-op: the UDP handler
         // forces max_streams=1 (UDP has no head-of-line blocking to bond around),
         // so a client that enabled it still gets one stream. Warn rather than fail
@@ -2269,6 +2733,13 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 "profile '{}': obf.tls.reality_proxy.target_port = 0 cannot reach a \
                  probe/decoy backend — set its real TCP port",
                 p.name
+            );
+        }
+        if rp.enabled && rp.peek_timeout_ms < crate::config::server::REALITY_MIN_PEEK_TIMEOUT_MS {
+            anyhow::bail!(
+                "profile '{}': reality_proxy.peek_timeout_ms must be at least {} ms when REALITY is enabled",
+                p.name,
+                crate::config::server::REALITY_MIN_PEEK_TIMEOUT_MS
             );
         }
         // A NON-EMPTY but unusable list is just as dangerous, and used to be silent: the
@@ -2687,6 +3158,7 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                     );
                 }
                 if p.tun.ip_mode != crate::config::server::IpMode::Ipv4
+                    && p.routing.ipv6.mode != crate::config::server::Ipv6RoutingMode::Manual
                     && nat::ip6tables_path().is_none()
                 {
                     anyhow::bail!(
@@ -2713,40 +3185,42 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 );
             }
         }
-        if let Some(raw) = p.dns.listen_ipv6.as_deref() {
-            let value = raw.trim();
-            let address = value.parse::<std::net::Ipv6Addr>().map_err(|error| {
-                anyhow::anyhow!(
-                    "profile '{}': dns.listen_ipv6 = '{}' is not a bare IPv6 address: {}",
-                    p.name,
-                    value,
-                    error
-                )
-            })?;
-            crate::config::server::validate_tunnel_ipv6_address("dns.listen_ipv6", address)
-                .map_err(|error| anyhow::anyhow!("profile '{}': {}", p.name, error))?;
-            if let Some(subnet) = ipv6_subnet {
-                if !subnet.contains_assignable(address) {
-                    anyhow::bail!(
-                        "profile '{}': dns.listen_ipv6 {} is outside pool.ipv6.cidr {}",
+        if p.dns.enabled && p.tun.ip_mode != crate::config::server::IpMode::Ipv4 {
+            if let Some(raw) = p.dns.listen_ipv6.as_deref() {
+                let value = raw.trim();
+                let address = value.parse::<std::net::Ipv6Addr>().map_err(|error| {
+                    anyhow::anyhow!(
+                        "profile '{}': dns.listen_ipv6 = '{}' is not a bare IPv6 address: {}",
                         p.name,
-                        address,
-                        p.pool.ipv6.cidr
-                    );
+                        value,
+                        error
+                    )
+                })?;
+                crate::config::server::validate_tunnel_ipv6_address("dns.listen_ipv6", address)
+                    .map_err(|error| anyhow::anyhow!("profile '{}': {}", p.name, error))?;
+                if let Some(subnet) = ipv6_subnet {
+                    if !subnet.contains_assignable(address) {
+                        anyhow::bail!(
+                            "profile '{}': dns.listen_ipv6 {} is outside pool.ipv6.cidr {}",
+                            p.name,
+                            address,
+                            p.pool.ipv6.cidr
+                        );
+                    }
                 }
-            }
-            if p.dns.enabled && tunnel_ipv6_address != Some(address) {
-                anyhow::bail!(
+                if tunnel_ipv6_address != Some(address) {
+                    anyhow::bail!(
                     "profile '{}': dns.listen_ipv6 {} must equal tun.ipv6_address — it is the only IPv6 address configured on the server TUN",
                     p.name,
                     address
                 );
+                }
+            } else {
+                anyhow::bail!(
+                    "profile '{}': dns.enabled in dual/IPv6 mode requires dns.listen_ipv6",
+                    p.name
+                );
             }
-        } else if p.dns.enabled && p.tun.ip_mode != crate::config::server::IpMode::Ipv4 {
-            anyhow::bail!(
-                "profile '{}': dns.enabled in dual/IPv6 mode requires dns.listen_ipv6",
-                p.name
-            );
         }
         // The FIRST push_servers entry is what clients are told to use as their resolver, so
         // a typo there silently deprives every client of DNS (the client strict-validates the
@@ -2794,6 +3268,18 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // the profile's pool, its mask, gateway and DNS servers. Same class of exposure,
         // same treatment. (Audit 2026-08-04.)
         if p.dhcp.enabled {
+            // Option 6 has a one-byte payload length; the proxy advertises one address,
+            // while direct push DNS must fit entirely in a single supported option.
+            if !p.dns.enabled
+                && p.dns
+                    .push_servers
+                    .iter()
+                    .filter(|value| value.trim().parse::<std::net::Ipv4Addr>().is_ok())
+                    .count()
+                    > 63
+            {
+                anyhow::bail!("profile '{}': DHCP supports at most 63 IPv4 dns.push_servers when dns.enabled = false", p.name);
+            }
             let _ = dhcp_bind_addr(p)?;
         }
     }
@@ -3092,7 +3578,7 @@ fn server_udp_buffer_budget(
     let automatic_queues = std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1)
-        .clamp(1, 256);
+        .clamp(1, MAX_TUN_QUEUES);
     let mut sockets = 0usize;
     let mut automatic_sockets = 0usize;
     let mut reserved_kernel_bytes = 0u64;
@@ -3104,7 +3590,7 @@ fn server_udp_buffer_budget(
         let queues = if profile.tun.queues == 0 {
             automatic_queues
         } else {
-            profile.tun.queues.clamp(1, 256)
+            profile.tun.queues.clamp(1, MAX_TUN_QUEUES)
         };
         let listener_count = 1usize.saturating_add(profile.bind.listen.len());
         let count = queues.saturating_mul(listener_count);
@@ -3322,19 +3808,44 @@ fn reject_bad_config_values(bad: &[String]) -> anyhow::Result<()> {
 }
 
 pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
-    let config_content = std::fs::read_to_string(cfg_path)?;
+    run_worker_inner(cfg_path, None).await
+}
+
+/// CLI process boundary: this entry point installs the process shutdown monitor.
+/// Library callers retain their existing signal/cleanup and quarantine contracts.
+pub async fn run_worker_process(cfg_path: &str) -> anyhow::Result<()> {
+    let mut budget = crate::server_shutdown_budget::Budget::for_worker()?;
+    run_worker_inner(cfg_path, Some(&mut budget)).await
+}
+
+async fn run_worker_inner(
+    cfg_path: &str,
+    process_budget: Option<&mut crate::server_shutdown_budget::Budget>,
+) -> anyhow::Result<()> {
+    // Install handlers before creating control/profile tasks or changing host networking.
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sighup = signal(SignalKind::hangup())
+        .map_err(|e| anyhow::anyhow!("failed to install SIGHUP handler: {}", e))?;
+    let mut sigterm = signal(SignalKind::terminate())
+        .map_err(|e| anyhow::anyhow!("failed to install SIGTERM handler: {}", e))?;
+    let mut sigint = signal(SignalKind::interrupt())
+        .map_err(|e| anyhow::anyhow!("failed to install SIGINT handler: {}", e))?;
+    let (config_content, config_command_trust) = crate::config_source::load(cfg_path)?.into_parts();
     let (config, bad_values): (ServerConfig, Vec<String>) =
         crate::config::parse_server_config_reporting(&config_content)?;
     reject_bad_config_values(&bad_values)?;
-
-    if config.profiles.is_empty() {
-        anyhow::bail!("no profiles defined in server config");
-    }
-    if !config.profiles.iter().any(|p| p.enabled) {
-        anyhow::bail!("all profiles are disabled (enabled = false) — enable at least one");
+    ensure_users_file_trust(&config, &config_command_trust)?;
+    ensure_tls_paths_trust(&config, &config_command_trust)?;
+    for profile in &config.profiles {
+        ensure_identity_key_trust(profile, &config_command_trust)?;
     }
 
     validate_profiles(&config)?;
+    // Filesystem control sockets do not coordinate different mount namespaces or
+    // QELI_CONTROL_SOCKET paths. Hold this kernel network-namespace reservation
+    // before accounting state, crash recovery, hooks or firewall mutations, until
+    // every worker resource has completed shutdown.
+    let mut network_lease = network_lease::acquire()?;
     // Defence in depth for every worker entry path, including a hand-started `_worker` and a
     // config changed on disk behind the panel.  The API performs the same check before it
     // stops the current worker, but the worker must not trust that it was its only caller.
@@ -3352,10 +3863,11 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
     let users_db = load_users_db_for_runtime(&config).map_err(|error| {
         anyhow::anyhow!(
-            "users configuration using '{}' could not be loaded or validated: {error}. Refusing \
+            "users configuration using '{}' could not be loaded or validated: {}. Refusing \
              to start with an empty user database — every client would be rejected. Fix the \
              file, or move it aside to start fresh.",
-            config.auth.users_file
+            config.auth.users_file,
+            crate::config::users::users_error_message(&error)
         )
     })?;
     if users_file_missing && config.auth.users.is_empty() && config.auth.groups.is_empty() {
@@ -3398,15 +3910,23 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         bf_cfg.lockout_secs,
     )));
 
+    // Acquire exclusive worker ownership BEFORE loading a writable accounting snapshot.
+    // A rejected second worker must never flush its stale snapshot from UsageStore::Drop.
+    // Declaration order also keeps this lease alive until state has been dropped on error.
+    let mut control_socket = control::bind_control_server()?;
     let live_web = Arc::new(RwLock::new(config.web.clone()));
     let state = Arc::new(ServerState {
+        live_auth_config: Arc::new(RwLock::new(config.auth.clone())),
         config,
+        config_command_trust,
         users_db,
         dummy_password_hashes,
         config_path: Mutex::new(Some(cfg_path.to_string())),
-        config_write_lock: Mutex::new(()),
+        config_write_lock: Arc::new(Mutex::new(())),
         profiles: Arc::new(RwLock::new(HashMap::new())),
         profile_hook_env: Arc::new(Mutex::new(HashMap::new())),
+        restore_hook_commands: std::sync::Mutex::new(HashSet::new()),
+        deferred_profiles: Default::default(),
         failed_auth,
         worker_tx: None,
         client_manager: Arc::new(client_manager::ClientManager::new()),
@@ -3418,48 +3938,51 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
 
     // Control socket (shared across profiles) — the supervisor's panel reaches
     // live client data (list/kick/bandwidth) through this.
-    let control_listener = control::bind_control_server()?;
+    // Fail before spawning services; the socket lease rolls back on startup errors.
+    // From this point, cancellation may leave network mutations and async
+    // descendants behind. An unfinished worker must retain admission until exit.
+    network_lease.arm();
+    crate::profile_teardown::blocking("qeli-start-cleanup", nat::cleanup_all).await??;
+    let control_listener = control_socket
+        .listener
+        .take()
+        .expect("new control listener");
+    let notifications = notify::start()?;
+    let (control_shutdown_tx, control_shutdown_rx) = tokio::sync::watch::channel(false);
     let (control_fatal_tx, mut control_fatal_rx) = mpsc::unbounded_channel::<String>();
     let ctrl_state = state.clone();
     let control_task = tokio::spawn(async move {
-        let reason = match control::run_control_server(ctrl_state, control_listener).await {
-            Ok(()) => "control server stopped unexpectedly".to_string(),
-            Err(error) => format!("control server failed: {error}"),
-        };
+        let reason =
+            match control::run_control_server(ctrl_state, control_listener, control_shutdown_rx)
+                .await
+            {
+                Ok(()) => "control server stopped unexpectedly".to_string(),
+                Err(error) => format!("control server failed: {error}"),
+            };
         let _ = control_fatal_tx.send(reason);
     });
 
     // (The web panel runs in the supervisor process, not here.)
 
-    // Tier-2 usage sweep: accrue per-user traffic + enforce data caps / expiry.
-    {
-        let usage_state = state.clone();
-        tokio::spawn(async move {
-            usage_sweep(usage_state).await;
-        });
-    }
-
-    // UDP loss report. The per-reason counters were already maintained by the datagram
-    // handler but nothing ever read the snapshot, so the server side of a loss was
-    // invisible: only the client published a breakdown, and half of a UDP path is not
-    // enough to tell an exhausted pool from a queue that cannot drain.
-    {
-        let drops_state = state.clone();
-        tokio::spawn(async move {
-            udp_drop_report(drops_state).await;
-        });
-    }
-
-    // Clear any leaked NAT rules from a previous run whose profile has since been
-    // REMOVED from the config (its per-profile cleanup never runs again). Active
-    // profiles re-install their own rules in run_profile right below.
-    nat::cleanup_all()?;
-
-    // Profiles whose `post_down` has already run for their current lifecycle. A
-    // profile supervisor clears its entry immediately before every restart, so an
-    // aborted active generation is still paired by the worker's shutdown sweep.
-    let post_down_done: Arc<Mutex<std::collections::HashSet<String>>> =
-        Arc::new(Mutex::new(std::collections::HashSet::new()));
+    let mut worker_services = crate::profile_tasks::WorkerServices::new();
+    worker_services.spawn(
+        "usage sweep",
+        true,
+        usage_sweep(state.clone(), worker_services.subscribe()),
+    );
+    worker_services.spawn(
+        "UDP loss report",
+        true,
+        udp_drop_report(state.clone(), worker_services.subscribe()),
+    );
+    let mut trace_shutdown = worker_services.subscribe();
+    worker_services.spawn("packet trace", false, async move {
+        tokio::select! {
+            biased;
+            _ = wait_for_profile_shutdown(&mut trace_shutdown) => {},
+            _ = crate::trace::watch() => {},
+        }
+    });
 
     // Start one independent supervisor per profile. The JoinSet only watches for a
     // supervisor panic/return; ordinary profile failures are restarted in place.
@@ -3475,29 +3998,31 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         }
         let state = state.clone();
         let pcfg = pcfg.clone();
-        let post_down_done = post_down_done.clone();
         let mut profile_shutdown = profile_shutdown_rx.clone();
         profile_set.spawn(async move {
             let pname = pcfg.name.clone();
             let mut retry_secs = 1u64;
             loop {
                 if *profile_shutdown.borrow() {
-                    break;
+                    return Ok::<(), anyhow::Error>(());
                 }
-                post_down_done.lock().await.remove(&pname);
                 let started = tokio::time::Instant::now();
                 let result =
                     run_profile(state.clone(), pcfg.clone(), profile_shutdown.clone()).await;
                 let stopping = *profile_shutdown.borrow();
                 if !stopping {
-                    match result {
+                    match result.result() {
                         Ok(()) => log::warn!("Profile '{}' stopped unexpectedly", pname),
                         Err(e) => log::error!("Profile '{}' error: {}", pname, e),
                     }
                 }
-                run_post_down(&state, &pname, &post_down_done).await;
-                if stopping {
-                    break;
+                run_post_down(&state, &pname).await;
+                // Never launch a replacement over an incompletely released generation.
+                // This also keeps its error visible if stop arrives during retry backoff.
+                if !result.can_restart() || *profile_shutdown.borrow() {
+                    return result
+                        .into_result()
+                        .map_err(|error| anyhow::anyhow!("profile '{pname}': {error}"));
                 }
 
                 // Reset the backoff after a stable generation; persistent setup
@@ -3512,7 +4037,7 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
                 );
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(retry_secs)) => {}
-                    _ = wait_for_profile_shutdown(&mut profile_shutdown) => break,
+                    _ = wait_for_profile_shutdown(&mut profile_shutdown) => return Ok(()),
                 }
                 retry_secs = retry_secs.saturating_mul(2).min(30);
             }
@@ -3522,22 +4047,22 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     // Wait for all profiles. SIGINT (ctrl-c) and SIGTERM (how the supervisor and
     // systemd stop us) both shut down gracefully so we can tear down host NAT;
     // SIGUSR1 dumps the packet trace, when one is armed (no-op otherwise).
-    tokio::spawn(crate::trace::watch());
-
-    // SIGHUP hot-reloads users.
-    use tokio::signal::unix::{signal, SignalKind};
-    let mut sighup = signal(SignalKind::hangup())
-        .map_err(|e| anyhow::anyhow!("failed to install SIGHUP handler: {}", e))?;
-    let mut sigterm = signal(SignalKind::terminate())
-        .map_err(|e| anyhow::anyhow!("failed to install SIGTERM handler: {}", e))?;
 
     let mut via_signal = false;
     let mut fatal_reason: Option<String> = None;
+    // Arm before stop diagnostics: even the first logger call may block.
+    let arm_shutdown = || {
+        if let Some(budget) = process_budget.as_deref() {
+            budget.arm();
+        }
+    };
     loop {
         tokio::select! {
             joined = profile_set.join_next() => {
+                arm_shutdown();
                 let reason = match joined {
-                    Some(Ok(())) => "a profile supervisor ended unexpectedly".to_string(),
+                    Some(Ok(Ok(()))) => "a profile supervisor ended unexpectedly".to_string(),
+                    Some(Ok(Err(error))) => format!("a profile supervisor failed: {error}"),
                     Some(Err(e)) => format!("a profile supervisor failed: {e}"),
                     None => "no profile supervisors remain".to_string(),
                 };
@@ -3545,19 +4070,28 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
                 fatal_reason = Some(reason);
                 break;
             },
+            reason = worker_services.next_failure() => {
+                arm_shutdown();
+                log::error!("{reason}");
+                fatal_reason = Some(reason);
+                break;
+            },
             control = control_fatal_rx.recv() => {
+                arm_shutdown();
                 let reason = control
                     .unwrap_or_else(|| "control server task disappeared".to_string());
                 log::error!("{reason}");
                 fatal_reason = Some(reason);
                 break;
             },
-            _ = tokio::signal::ctrl_c() => {
+            _ = sigint.recv() => {
+                arm_shutdown();
                 log::info!("Received SIGINT, stopping server...");
                 via_signal = true;
                 break;
             }
             _ = sigterm.recv() => {
+                arm_shutdown();
                 log::info!("Received SIGTERM, stopping server...");
                 via_signal = true;
                 break;
@@ -3569,80 +4103,129 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         }
     }
 
-    // Ask every generation to leave through its normal async cleanup path. Aborting the
-    // supervisors dropped `ProfileTeardown` synchronously and could remove TUN/NAT while
-    // generation-owned tasks were still detached and using those resources.
-    let _ = profile_shutdown_tx.send(true);
-    while profile_set.join_next().await.is_some() {}
-    control_task.abort();
-    let _ = control_task.await;
-
-    // Tear down the host NAT rules we installed (the next start also cleans stale
-    // rules, so a SIGKILL that skips this is recovered then) and run post_down.
-    for pcfg in &state.config.profiles {
-        // Unconditional, not `if nat.enabled`. `routing.forward_private` installs rules
-        // through `nat::enable_routing` under the SAME `qeli-nat:<profile>` tag — mangle
-        // FORWARD TCPMSS plus filter FORWARD ACCEPT for the tun — and nothing removed
-        // them on the way out, so `systemctl stop qeli` left ACCEPT rules behind on a host
-        // with `FORWARD DROP`. They were only ever cleared by the NEXT start
-        // (`cleanup_all`), which never comes if the profile is deleted from the config or
-        // the service is disabled. `cleanup` deletes by exact tag and is a no-op when
-        // there is nothing to delete, so running it always is strictly safer — it also
-        // covers a profile whose NAT was toggled off while running.
-        // (Audit 2026-07-27, B6.)
-        nat::cleanup(&pcfg.name);
-        // Skips any profile whose hook already ran when that profile ended on its own — the
-        // interlock lives in `run_post_down`, so a shutdown racing a dying profile cannot fire
-        // the hook twice.
-        run_post_down(&state, &pcfg.name, &post_down_done).await;
+    if let Some(budget) = process_budget.as_deref() {
+        budget.arm();
+        log::info!("worker shutdown: shared 45-second process budget armed; expiry exits 124 with cleanup unconfirmed");
     }
+    notifications.request_shutdown();
+    let cleanup = async {
+        // Finish accepted administrative operations before profiles lose their resources.
+        let _ = control_shutdown_tx.send(true);
+        worker_services.request_shutdown();
+        let mut task_failures = crate::server_shutdown::Failures::default();
+        task_failures.record("control task", control_task.await.map_err(Into::into));
+        task_failures.record("worker services", worker_services.shutdown().await);
 
-    log::info!("Server shutdown complete");
-    // On a signal-driven stop, exit the process directly. The data plane spawns
-    // blocking TUN reader threads; a graceful runtime drop joins them and would hang
-    // (they block in read()), making `systemctl stop` time out and the unit go
-    // "failed". The kernel reclaims the TUN devices / fds on exit, and NAT was already
-    // torn down above.
-    if via_signal {
-        // Persist the last usage deltas before the hard exit: process::exit skips
-        // UsageStore's Drop flush, so without this up to one sweep interval of traffic
-        // per user is lost from the counters.
-        if let Err(error) = state.usage.flush() {
-            log::error!("usage: shutdown flush failed: {error}");
+        // Ask every generation to leave through its normal async cleanup path. Aborting the
+        // supervisors dropped `ProfileTeardown` synchronously and could remove TUN/NAT while
+        // generation-owned tasks were still detached and using those resources.
+        let _ = profile_shutdown_tx.send(true);
+        crate::server_shutdown::drain_profiles(&mut profile_set, &mut task_failures).await;
+        task_failures.record(
+            "deferred profile cleanup",
+            finish_deferred_profiles(&state).await,
+        );
+
+        // Tear down the host NAT rules we installed (the next start also cleans stale
+        // rules, so a SIGKILL that skips this is recovered then) and run post_down.
+        for pcfg in &state.config.profiles {
+            // Unconditional, not `if nat.enabled`. `routing.forward_private` installs rules
+            // through `nat::enable_routing` under the SAME `qeli-nat:<profile>` tag — mangle
+            // FORWARD TCPMSS plus filter FORWARD ACCEPT for the tun — and nothing removed
+            // them on the way out, so `systemctl stop qeli` left ACCEPT rules behind on a host
+            // with `FORWARD DROP`. They were only ever cleared by the NEXT start
+            // (`cleanup_all`), which never comes if the profile is deleted from the config or
+            // the service is disabled. `cleanup` deletes by exact tag and is a no-op when
+            // there is nothing to delete, so running it always is strictly safer — it also
+            // covers a profile whose NAT was toggled off while running.
+            // (Audit 2026-07-27, B6.)
+            let profile_name = pcfg.name.clone();
+            let cleanup = crate::profile_teardown::blocking("qeli-final-cleanup", move || {
+                nat::cleanup(&profile_name)
+            })
+            .await
+            .and_then(|result| result);
+            if let Err(error) = cleanup {
+                log::error!("Profile '{}': final sweep incomplete: {error}", pcfg.name);
+            }
+            // Skips any profile whose hook already ran when that profile ended on its own — the
+            // snapshot claim lives in `run_post_down`, so a shutdown racing a dying profile cannot fire
+            // the hook twice.
+            run_post_down(&state, &pcfg.name).await;
         }
-        std::process::exit(0);
+
+        // Every path (including service failure) collects counters after profile writers have
+        // stopped, and persists while the exclusive worker lease is still held.
+        // Earlier Drop/sweep failures may have been transient. Decide from this final
+        // exact ownership pass, while still attempting the accounting flush on failure.
+        let owned_cleanup =
+            crate::profile_teardown::blocking("qeli-owned-cleanup", nat::finish_owned_cleanup)
+                .await
+                .and_then(|result| result);
+        let flush_state = state.clone();
+        let usage_flush = crate::profile_teardown::blocking("qeli-usage-flush", move || {
+            flush_state.usage.flush()
+        })
+        .await
+        .and_then(|result| result);
+        crate::server_shutdown::result(
+            fatal_reason,
+            task_failures.result(),
+            owned_cleanup,
+            usage_flush,
+        )
+    };
+    // Notifications drain from the same stop point, rather than adding another
+    // ten seconds after every network/accounting phase has completed.
+    let (result, ()) = tokio::join!(cleanup, notifications.shutdown());
+    let exit_process = via_signal || process_budget.is_some();
+    if exit_process {
+        // Keep the monitor armed through pathname cleanup and final diagnostics.
+        drop(control_socket);
     }
-    if let Some(reason) = fatal_reason {
-        anyhow::bail!(reason);
+    match &result {
+        Ok(()) => log::info!("Server shutdown complete"),
+        Err(error) => log::error!("{error}"),
     }
-    Ok(())
+    if let Some(budget) = process_budget {
+        if !budget.finish() {
+            // No logging or Rust Drop here: either may be the very blocked operation
+            // the process budget must terminate. Exact ownership journals stay on disk.
+            crate::server_shutdown_budget::exit_process();
+        }
+    }
+    if result.is_ok() {
+        network_lease.mark_complete();
+    }
+    if exit_process {
+        // CLI workers never hand blocking TUN threads back to Tokio runtime Drop.
+        std::process::exit(i32::from(result.is_err()));
+    }
+    result
 }
 
-/// Supervisor (`qeli server`): serves the web panel — the always-up control
-/// plane — and runs the data-plane as a child process (`qeli _worker`). Applying
-/// a config change restarts only the worker (clean OS teardown of TUN/sockets),
-/// so the panel never goes down. Live client data is read over the control
-/// socket; user edits write the users file and SIGHUP the worker to hot-reload.
-/// Tier-2 usage sweep (worker). Every few seconds: fold each live session's byte
-/// counters into the per-user lifetime total, persist the `usage.json` sidecar,
-/// and disconnect any user over their data cap or past expiry. Runs off the data
-/// path (O(sessions) per tick, reusing counters the data plane already maintains)
-/// so it adds zero per-packet cost — tunnel throughput is unaffected.
 /// Periodic per-profile UDP loss breakdown. Off the data path entirely: one snapshot of
 /// counters the handler already maintains, once per interval, per profile. Silent while
 /// nothing is lost, so a healthy server does not gain a log line.
-async fn udp_drop_report(state: Arc<ServerState>) {
+async fn udp_drop_report(
+    state: Arc<ServerState>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) {
     use crate::transport_core::udp_buffer::UdpBufferSnapshot;
 
     let mut tick = tokio::time::interval(Duration::from_secs(10));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut previous: HashMap<String, UdpBufferSnapshot> = HashMap::new();
-    loop {
-        tick.tick().await;
+    while crate::profile_tasks::worker_tick(&mut tick, &mut shutdown).await {
         let profiles = state.profiles.read().await;
         for (name, profile) in profiles.iter() {
             let now = profile.udp_buffer_counters.snapshot();
             let was = previous.insert(name.clone(), now).unwrap_or_default();
+            if now.path.fragmented_records != was.path.fragmented_records {
+                log::debug!("UDP DATA_FRAG on profile '{}': split record attempts +{}, fragments created +{} (not IP fragments or delivery receipts)",
+                    name, now.path.fragmented_records.saturating_sub(was.path.fragmented_records),
+                    now.path.fragments_created.saturating_sub(was.path.fragments_created));
+            }
             let internal = now.internal_drops.saturating_sub(was.internal_drops);
             let kernel = now.kernel_drops.saturating_sub(was.kernel_drops);
             if internal == 0 && kernel == 0 {
@@ -3665,15 +4248,23 @@ async fn udp_drop_report(state: Arc<ServerState>) {
     }
 }
 
-async fn usage_sweep(state: Arc<ServerState>) {
+/// Collect live and retired session counters, persist usage, and enforce quotas/expiry.
+/// A stop finishes the current cycle before profiles can tear down its resources.
+async fn usage_sweep(state: Arc<ServerState>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
     let mut tick = tokio::time::interval(Duration::from_secs(10));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // One bit per warning threshold, scoped to a concrete session id. Reconnects receive a
     // fresh notice while a long-lived session is not spammed every ten seconds.
     let mut management_notices: HashMap<u64, u8> = HashMap::new();
-    loop {
-        tick.tick().await;
+    while crate::profile_tasks::worker_tick(&mut tick, &mut shutdown).await {
+        state.usage.collect();
+        // Recheck immutable packet permissions and reduced device caps as well as
+        // absence/disablement: admission may have finished after the reload scan.
+        control::apply_user_policy_to_sessions(&state).await;
 
+        // Admission can finish after a reload's immediate revoke scan. The sweep
+        // closes that race by checking current authorization as well as usage/expiry.
+        let mut authorized_profiles = HashMap::new();
         // Per-user caps snapshot from the (hot-reloadable) users DB.
         let (limit_gb, expire): (HashMap<String, u64>, HashMap<String, Option<i64>>) = {
             let db = state.users_db.read().await;
@@ -3682,6 +4273,9 @@ async fn usage_sweep(state: Arc<ServerState>) {
             for u in &db.users {
                 l.insert(u.username.clone(), u.data_limit_gb);
                 e.insert(u.username.clone(), u.expire_at);
+                if u.enabled {
+                    authorized_profiles.insert(u.username.clone(), u.profiles.clone());
+                }
             }
             (l, e)
         };
@@ -3700,13 +4294,13 @@ async fn usage_sweep(state: Arc<ServerState>) {
             for (pname, profile) in profiles.iter() {
                 let sessions = profile.sessions.read().await;
                 for (ip, s) in sessions.by_ip.iter() {
-                    // Fold download (server→client) and upload (client→server)
-                    // separately; the cap is enforced on download only.
-                    let down = s.bytes_sent.load(std::sync::atomic::Ordering::Relaxed);
-                    let up = s.bytes_recv.load(std::sync::atomic::Ordering::Relaxed);
-                    state.usage.fold(s.session_id, &s.username, down, up);
+                    // All tracked sessions were folded before checking download-only caps.
                     live.insert(s.session_id);
 
+                    let access_revoked =
+                        !authorized_profiles.get(&s.username).is_some_and(|allowed| {
+                            allowed.is_empty() || allowed.iter().any(|name| name == pname)
+                        });
                     let gb = limit_gb.get(&s.username).copied().unwrap_or(0);
                     let over = gb > 0
                         && state.usage.used_down(&s.username) >= gb.saturating_mul(1_000_000_000);
@@ -3776,7 +4370,7 @@ async fn usage_sweep(state: Arc<ServerState>) {
                             }
                         }
                     }
-                    if over || expired {
+                    if over || expired || access_revoked {
                         // Notify (Tier-3) — throttled to once/hour per user so a
                         // client that keeps reconnecting over quota can't spam.
                         let key = format!("quota:{}", s.username);
@@ -3786,14 +4380,13 @@ async fn usage_sweep(state: Arc<ServerState>) {
                             pname,
                             if over {
                                 "over data quota"
-                            } else {
+                            } else if expired {
                                 "subscription expired"
+                            } else {
+                                "access revoked"
                             }
                         );
-                        tokio::spawn(async move {
-                            notify::fire_throttled(&key, 3600, notify::Event::QuotaBreach, &detail)
-                                .await;
-                        });
+                        notify::fire_throttled(&key, 3600, notify::Event::QuotaBreach, &detail);
                         to_kick.push((pname.clone(), *ip, s.session_id, over, expired));
                     }
                 }
@@ -3812,7 +4405,6 @@ async fn usage_sweep(state: Arc<ServerState>) {
             }
         }
 
-        state.usage.prune(&live);
         if let Err(error) = state.usage.flush() {
             log::error!("usage: periodic flush failed: {error}");
         }
@@ -3919,14 +4511,25 @@ async fn usage_sweep(state: Arc<ServerState>) {
 }
 
 pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
+    // Install all signal handlers before the panel, outbound clients or worker exist.
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigterm = signal(SignalKind::terminate())
+        .map_err(|e| anyhow::anyhow!("failed to install SIGTERM handler: {}", e))?;
+    let mut sigint = signal(SignalKind::interrupt())
+        .map_err(|e| anyhow::anyhow!("failed to install SIGINT handler: {}", e))?;
+    let mut sighup = signal(SignalKind::hangup())
+        .map_err(|e| anyhow::anyhow!("failed to install SIGHUP handler: {}", e))?;
     // Validate the config parses and has at least one profile before starting.
-    let config_content = std::fs::read_to_string(cfg_path)?;
+    let (config_content, config_command_trust) = crate::config_source::load(cfg_path)?.into_parts();
     let (config, bad_values): (ServerConfig, Vec<String>) =
         crate::config::parse_server_config_reporting(&config_content)?;
     reject_bad_config_values(&bad_values)?;
-    if config.profiles.is_empty() {
-        anyhow::bail!("no profiles defined in server config");
+    ensure_users_file_trust(&config, &config_command_trust)?;
+    ensure_tls_paths_trust(&config, &config_command_trust)?;
+    for profile in &config.profiles {
+        ensure_identity_key_trust(profile, &config_command_trust)?;
     }
+    validate_profiles(&config)?;
 
     // Pre-flight: refuse to start a config that would cut this box off the network
     // (e.g. a tunnel whose address IS the host's default gateway). Deliberately here,
@@ -3965,13 +4568,17 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
     let live_web = Arc::new(RwLock::new(config.web.clone()));
     let udp_buffer_budget = server_udp_buffer_budget(&config)?;
     let state = Arc::new(ServerState {
+        live_auth_config: Arc::new(RwLock::new(config.auth.clone())),
         config,
+        config_command_trust,
         users_db,
         dummy_password_hashes,
         config_path: Mutex::new(Some(cfg_path.to_string())),
-        config_write_lock: Mutex::new(()),
+        config_write_lock: Arc::new(Mutex::new(())),
         profiles: Arc::new(RwLock::new(HashMap::new())),
         profile_hook_env: Arc::new(Mutex::new(HashMap::new())),
+        restore_hook_commands: std::sync::Mutex::new(HashSet::new()),
+        deferred_profiles: Default::default(),
         failed_auth,
         worker_tx: Some(worker_tx),
         client_manager: Arc::new(client_manager::ClientManager::new()),
@@ -3984,6 +4591,26 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
         udp_buffer_budget,
     });
 
+    let exe = std::env::current_exe()
+        .map_err(|e| anyhow::anyhow!("cannot resolve current_exe for worker: {}", e))?;
+    let notifications = notify::start()?;
+    let mut services = crate::server_supervisor::SupervisorServices::new();
+
+    let reload_state = state.clone();
+    let mut reload_shutdown = services.subscribe();
+    services.spawn("supervisor SIGHUP reload", async move {
+        loop {
+            tokio::select! {
+                biased;
+                _ = crate::server_supervisor::wait_for_shutdown(&mut reload_shutdown) => return Ok(()),
+                received = sighup.recv() => {
+                    anyhow::ensure!(received.is_some(), "supervisor SIGHUP stream closed");
+                    reload_on_sighup(&reload_state).await;
+                }
+            }
+        }
+    });
+
     // Web panel — the always-up control plane.
     //
     // The outcome is AWAITED (briefly) rather than assumed. This used to be spawn-and-forget,
@@ -3992,8 +4619,9 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
     let panel_state = if state.config.web.enabled {
         let web_state = state.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            web::start(web_state, Some(tx)).await;
+        let shutdown = services.subscribe();
+        services.spawn("web panel", async move {
+            web::start(web_state, Some(tx), shutdown).await
         });
         // Bounded: a panel that has not reported either way within a few seconds is not
         // something to hold the whole worker on. Timing out reports the honest "unknown"
@@ -4020,8 +4648,10 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
             .iter()
             .map(|p| p.tun.name.clone())
             .collect();
-        tokio::spawn(async move {
-            metrics::run_sampler(m, tun_names).await;
+        let shutdown = services.subscribe();
+        services.spawn("metrics sampler", async move {
+            metrics::run_sampler(m, tun_names, shutdown).await;
+            Ok(())
         });
     }
 
@@ -4046,28 +4676,37 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
     ));
 
     // Notify (Tier-3): announce that the control plane is up (no-op if disabled).
-    tokio::spawn(async {
-        notify::fire(
-            notify::Event::ServerStart,
-            &format!("qeli {} control plane is up", env!("CARGO_PKG_VERSION")),
-        )
-        .await;
-    });
+    notify::fire(
+        notify::Event::ServerStart,
+        &format!("qeli {} control plane is up", env!("CARGO_PKG_VERSION")),
+    );
 
     // Auto-connect any client profiles flagged `autostart = true` (set in the panel's
     // Client tab or directly in the file). A client tunnel dials a REMOTE server, so it
     // is independent of the local worker — bring them up as soon as the supervisor is.
     {
         let cm = state.client_manager.clone();
-        tokio::spawn(async move {
-            cm.start_autostart().await;
+        let mut shutdown = services.subscribe();
+        services.spawn("client autostart", async move {
+            tokio::select! {
+                biased;
+                _ = crate::server_supervisor::wait_for_shutdown(&mut shutdown) => {},
+                _ = cm.start_autostart() => {},
+            }
+            Ok(())
         });
     }
 
     // Supervise the data-plane worker child process.
-    let exe = std::env::current_exe()
-        .map_err(|e| anyhow::anyhow!("cannot resolve current_exe for worker: {}", e))?;
     let spawn_worker = || {
+        // Remember before spawning, including configurations introduced by a local
+        // administrator between worker generations. Never release these references on
+        // worker exit: a concurrently stopping generation can still execute post_down.
+        if let Ok(text) = read_config_text(cfg_path) {
+            if let Ok(config) = crate::config::parse_server_config(&text) {
+                state.remember_restore_hooks(&config);
+            }
+        }
         tokio::process::Command::new(&exe)
             .arg("_worker")
             .arg("-c")
@@ -4076,122 +4715,148 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
             .spawn()
     };
 
-    // systemd stops/restarts us with SIGTERM (not SIGINT), so handle both — else
-    // the worker child would be orphaned and clash with the next supervisor's worker.
-    use tokio::signal::unix::{signal, SignalKind};
-    let mut sigterm = signal(SignalKind::terminate())
-        .map_err(|e| anyhow::anyhow!("failed to install SIGTERM handler: {}", e))?;
-
-    let mut stopping = false;
-    // Exponential backoff (capped) for a crash-looping worker, so a worker that
-    // dies instantly on every start can't thrash iptables/TUN once per second.
-    // Reset once an instance has run long enough to look healthy (see exit arm).
-    let mut backoff_secs = 1u64;
-    'supervise: loop {
-        let mut child = match spawn_worker() {
-            Ok(c) => c,
-            Err(e) => {
-                log::error!("supervisor: failed to spawn worker: {e} — retry in 2s");
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                continue 'supervise;
-            }
-        };
-        let pid = child.id().map(|p| p as i32).unwrap_or(0);
-        state
-            .metrics
-            .worker_pid
-            .store(pid, std::sync::atomic::Ordering::Relaxed);
-        log::info!("supervisor: data-plane worker started (pid {pid})");
-        let started = std::time::Instant::now();
-
-        // Watch for the worker's exit without borrowing `child` in the select.
-        let (exit_tx, mut exit_rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            let _ = exit_tx.send(child.wait().await);
-        });
-
-        loop {
-            tokio::select! {
-                _ = &mut exit_rx => {
-                    if stopping {
-                        break 'supervise;
-                    }
-                    // A worker that ran long enough is healthy — reset the backoff so
-                    // an ordinary restart doesn't inherit an escalated delay. A worker
-                    // that died fast keeps escalating (capped) to avoid a respawn storm.
-                    let ran = started.elapsed();
-                    if ran >= Duration::from_secs(30) {
-                        backoff_secs = 1;
-                    }
-                    log::warn!(
-                        "supervisor: worker exited after {}s — respawning in {}s",
-                        ran.as_secs(),
-                        backoff_secs
-                    );
-                    // Sleep the backoff, but stay responsive to a stop signal. A worker
-                    // that crash-loops — e.g. its bind port is already in use — would
-                    // otherwise spend all its time in this non-interruptible sleep, so
-                    // Ctrl+C / SIGTERM were never handled and the operator had to
-                    // `kill -9` the supervisor (issue #69). The worker has already
-                    // exited here, so a signal just tears the supervisor down cleanly.
-                    tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(backoff_secs)) => {}
-                        _ = tokio::signal::ctrl_c() => {
-                            log::info!("supervisor: SIGINT during worker backoff — stopping");
-                            break 'supervise;
-                        }
-                        _ = sigterm.recv() => {
-                            log::info!("supervisor: SIGTERM during worker backoff — stopping");
-                            break 'supervise;
-                        }
-                    }
-                    backoff_secs = (backoff_secs * 2).min(30);
-                    continue 'supervise;
-                }
-                cmd = worker_rx.recv() => match cmd {
-                    Some(WorkerCmd::Restart) => {
-                        log::info!("supervisor: restarting worker (apply config)");
-                        signal_pid(pid, libc::SIGTERM);
-                        // The exit watcher will fire and respawn a fresh worker.
-                    }
-                    Some(WorkerCmd::ReloadUsers) => {
-                        log::info!("supervisor: SIGHUP worker (reload users)");
-                        signal_pid(pid, libc::SIGHUP); // same worker keeps running
-                    }
-                    None => {
-                        stopping = true;
-                        signal_pid(pid, libc::SIGTERM);
-                    }
+    // Stop outbound clients concurrently with the worker. Admission closes in the
+    // signal future before supervision requests SIGTERM, not after its sixty-second wait.
+    // Primary completion also starts side cleanup if supervision returns without a signal.
+    let stopping_notifications = &notifications;
+    let stopping_state = &state;
+    let services_stop = services.stop_sender();
+    let (worker_result, (client_result, (), service_result)) = crate::server_shutdown::coordinate(
+        |stopping| async move {
+            crate::server_supervisor::supervise(
+                spawn_worker,
+                signal_worker,
+                |pid| {
+                    stopping_state.metrics.worker_pid.store(
+                        pid.unwrap_or(0) as i32,
+                        std::sync::atomic::Ordering::Relaxed,
+                    )
                 },
-                _ = tokio::signal::ctrl_c() => {
-                    log::info!("supervisor: SIGINT — stopping worker");
-                    stopping = true;
-                    signal_pid(pid, libc::SIGTERM);
-                }
-                _ = sigterm.recv() => {
-                    log::info!("supervisor: SIGTERM — stopping worker");
-                    stopping = true;
-                    signal_pid(pid, libc::SIGTERM);
-                }
-            }
+                &mut worker_rx,
+                async {
+                    tokio::select! {
+                        _ = sigint.recv() => {},
+                        _ = sigterm.recv() => {},
+                    }
+                    stopping_state.client_manager.request_shutdown();
+                    stopping_notifications.request_shutdown();
+                    services_stop.send_replace(true);
+                    let _ = stopping.send(true);
+                },
+                crate::server_supervisor::SupervisorPolicy::default(),
+            )
+            .await
+        },
+        || async {
+            tokio::join!(
+                state.client_manager.shutdown_all(),
+                notifications.shutdown(),
+                services.shutdown()
+            )
+        },
+    )
+    .await;
+    let mut shutdown_failures = crate::server_shutdown::Failures::default();
+    shutdown_failures.record("worker", worker_result.map_err(Into::into));
+    shutdown_failures.record("outbound clients", client_result);
+    shutdown_failures.record("control-plane services", service_result);
+    let result = shutdown_failures.result();
+
+    match &result {
+        Ok(()) => log::info!("Supervisor shutdown complete"),
+        Err(error) => log::error!("Supervisor shutdown failed: {error}"),
+    }
+    result
+}
+
+/// Signal only a still-owned, unreaped child. `try_wait` makes an already exited
+/// worker a no-op; no detached task can recycle this PID while it is being used here.
+fn signal_worker(
+    child: &mut tokio::process::Child,
+    signal: crate::server_supervisor::WorkerSignal,
+) -> std::io::Result<()> {
+    if child.try_wait()?.is_some() {
+        return Ok(());
+    }
+    let Some(pid) = child.id() else {
+        return Ok(());
+    };
+    let signal = match signal {
+        crate::server_supervisor::WorkerSignal::Stop => libc::SIGTERM,
+        crate::server_supervisor::WorkerSignal::ReloadUsers => libc::SIGHUP,
+    };
+    if unsafe { libc::kill(pid as i32, signal) } == -1 {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ESRCH) {
+            return Err(error);
         }
     }
-
-    // Tear down any panel-managed outbound client tunnels (SIGTERM each so it
-    // restores DNS/routes before exit).
-    state.client_manager.shutdown_all().await;
-
-    log::info!("Supervisor shutdown complete");
     Ok(())
 }
 
-/// Best-effort `kill(pid, sig)` — used by the supervisor to drive the worker.
-fn signal_pid(pid: i32, sig: i32) {
-    if pid > 0 {
-        unsafe {
-            libc::kill(pid, sig);
-        }
+/// Startup-only fields must be named when SIGHUP applies the live users/policy subset.
+fn sighup_startup_only_fields(
+    startup: &ServerConfig,
+    candidate: &ServerConfig,
+) -> Vec<&'static str> {
+    let mut changed = Vec::new();
+    if startup.auth.require_client_key_proof != candidate.auth.require_client_key_proof {
+        changed.push("auth.require_client_key_proof");
     }
+    if startup.auth.bind_static_to_session != candidate.auth.bind_static_to_session {
+        changed.push("auth.bind_static_to_session");
+    }
+    if startup.logging.level != candidate.logging.level {
+        changed.push("logging.level");
+    }
+    if startup.logging.file != candidate.logging.file {
+        changed.push("logging.file");
+    }
+    if startup.logging.time_format != candidate.logging.time_format {
+        changed.push("logging.time_format");
+    }
+    if startup.logging.format != candidate.logging.format {
+        changed.push("logging.format");
+    }
+    changed
+}
+
+fn enabled_profile_names(config: &ServerConfig) -> HashSet<String> {
+    config
+        .profiles
+        .iter()
+        .filter(|profile| profile.enabled)
+        .map(|profile| profile.name.clone())
+        .collect()
+}
+
+/// Compare parsed profiles structurally. The in-memory serde value is used only
+/// for equality; the persisted config remains INI. Map insertion order is ignored,
+/// while every runtime field (including repeated routes/listeners) is compared.
+fn changed_live_profile_settings(
+    startup: &ServerConfig,
+    candidate: &ServerConfig,
+    live: &HashSet<String>,
+) -> Vec<String> {
+    candidate
+        .profiles
+        .iter()
+        .filter(|profile| profile.enabled && live.contains(&profile.name))
+        .filter(|profile| {
+            let Some(old) = startup
+                .profiles
+                .iter()
+                .find(|old| old.enabled && old.name == profile.name)
+            else {
+                return true;
+            };
+            match (serde_json::to_value(old), serde_json::to_value(profile)) {
+                (Ok(before), Ok(after)) => before != after,
+                _ => true,
+            }
+        })
+        .map(|profile| profile.name.clone())
+        .collect()
 }
 
 /// Handle SIGHUP: re-read the config file from disk and hot-reload everything
@@ -4210,18 +4875,17 @@ async fn reload_on_sighup(state: &Arc<ServerState>) {
         }
     };
 
-    // Findings are FATAL here, unlike at startup — and the difference is not inconsistency,
-    // it is what refusing costs. Aborting a start over a long-standing typo takes a working
-    // server down on upgrade, so the boot path warns. A reload that refuses simply keeps the
-    // configuration already running: nothing stops, nobody is disconnected, and the operator
-    // gets a log line naming the key. There is no reason to apply a config we can see is
-    // ambiguous when declining is free. (Audit 2026-08-01, §3.)
-    let new_config: ServerConfig = match std::fs::read_to_string(&cfg_path)
+    // Like startup, reload rejects every parser finding. A rejected reload keeps
+    // the currently running configuration and reports the problem to the operator.
+    let (new_config, new_trust) = match crate::config_source::load(&cfg_path)
+        .map(|snapshot| snapshot.into_parts())
         .map_err(|e| anyhow::anyhow!("{}", e))
-        .and_then(|s| crate::config::parse_server_config_reporting(&s))
-    {
-        Ok((c, findings)) if findings.is_empty() => c,
-        Ok((_, findings)) => {
+        .and_then(|(text, trust)| {
+            crate::config::parse_server_config_reporting(&text)
+                .map(|(config, findings)| (config, findings, trust))
+        }) {
+        Ok((config, findings, trust)) if findings.is_empty() => (config, trust),
+        Ok((_, findings, _)) => {
             log::error!(
                 "SIGHUP: refusing to apply '{}' — {} problem(s) whose defaults would be \
                  substituted silently; keeping the running config:\n  {}",
@@ -4241,25 +4905,75 @@ async fn reload_on_sighup(state: &Arc<ServerState>) {
         }
     };
 
+    // Validate the complete candidate before changing either live auth component.
+    // Startup/check-config reject bad profile values and malformed users; SIGHUP
+    // must not apply a new brute-force policy when either half is invalid.
+    if let Err(error) = validate_profiles(&new_config) {
+        log::error!("SIGHUP: invalid server configuration: {error} — keeping current auth state");
+        return;
+    }
+    if new_config.auth.users_file != state.config.auth.users_file {
+        log::error!(
+            "SIGHUP: auth.users_file changed from '{}' to '{}' — restart required; keeping current auth state",
+            state.config.auth.users_file,
+            new_config.auth.users_file
+        );
+        return;
+    }
+    if let Err(error) = ensure_users_file_trust(&new_config, &new_trust) {
+        log::error!("SIGHUP: {error} — keeping current auth state");
+        return;
+    }
+    let db = match load_users_db_for_runtime(&new_config) {
+        Ok(db) => db,
+        Err(error) => {
+            log::error!(
+                "SIGHUP: failed to reload users from '{}': {} — keeping current auth state",
+                new_config.auth.users_file,
+                crate::config::users::users_error_message(&error)
+            );
+            return;
+        }
+    };
+
     // 1. Reload the users database (add/disable users, change routes/limits/
     //    allowed-profiles). Union of the users file (what the panel/add-client
     //    write) and inline [user:*], file wins — so a panel edit always applies
     //    even when the config also carries inline users.
-    match load_users_db_for_runtime(&new_config) {
-        Ok(db) => {
-            let count = db.users.len();
-            let dummy_password_hashes = handler::dummy_password_hash_candidates(&db);
-            *state.users_db.write().await = db;
-            *state.dummy_password_hashes.write().await = dummy_password_hashes;
-            log::info!("SIGHUP: reloaded users database ({} users)", count);
+    let count = db.users.len();
+    let dummy_password_hashes = handler::dummy_password_hash_candidates(&db);
+    {
+        // Same lock order as the control writers: auth lease, then users database.
+        // A writer sees either the old accepted auth generation or the new one,
+        // never the startup inline users merged into a newly reloaded database.
+        let mut auth = state.live_auth_config.write().await;
+        let mut users = state.users_db.write().await;
+        *auth = new_config.auth.clone();
+        *users = db;
+        *state.dummy_password_hashes.write().await = dummy_password_hashes;
+    }
+    log::info!("SIGHUP: reloaded users database ({} users)", count);
+    // The supervisor's failed_auth tracker protects panel login, not VPN auth.
+    // Keep it intact and let the worker apply its own policy/session changes.
+    if let Some(tx) = &state.worker_tx {
+        match tx.try_send(WorkerCmd::ReloadUsers) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                // Every queued command reloads or restarts the worker; it will read
+                // the latest file, so no detached or unbounded sender is needed.
+                log::info!("SIGHUP: worker commands already queued; latest users will be read");
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                log::warn!("SIGHUP: worker command receiver unavailable");
+            }
         }
-        Err(e) => {
-            log::error!(
-                "SIGHUP: failed to reload users from '{}': {} — keeping current users",
-                new_config.auth.users_file,
-                e
-            );
-        }
+        return;
+    }
+    let revoked = control::apply_user_policy_to_sessions(state).await;
+    if revoked > 0 {
+        log::info!(
+            "SIGHUP: revoked {revoked} session(s) whose access policy or device cap changed"
+        );
     }
 
     // 2. Rebuild the brute-force tracker ONLY when the thresholds actually change.
@@ -4295,19 +5009,37 @@ async fn reload_on_sighup(state: &Arc<ServerState>) {
         }
     }
 
-    // 3. Profile-level changes are not hot-reloadable (each owns a TUN device,
-    //    socket and runtime task). Warn if the profile set changed on disk.
-    let live: std::collections::HashSet<String> =
-        state.profiles.read().await.keys().cloned().collect();
-    let on_disk: std::collections::HashSet<String> =
-        new_config.profiles.iter().map(|p| p.name.clone()).collect();
+    // 3. The worker keeps the handshake and logger settings it started with.
+    //    A successful users reload must not imply that these changes applied.
+    let startup_only = sighup_startup_only_fields(&state.config, &new_config);
+    if !startup_only.is_empty() {
+        log::warn!(
+            "SIGHUP: startup-only setting(s) changed on disk: {} — restart qeli to apply them",
+            startup_only.join(", ")
+        );
+    }
+
+    // 4. Only ENABLED profiles own live sockets/TUNs. A dormant profile in the
+    //    INI is not a set change. Compare full parsed settings too: bind/tun or
+    //    routing edits to an existing name otherwise went unreported.
+    let live: HashSet<String> = state.profiles.read().await.keys().cloned().collect();
+    let on_disk = enabled_profile_names(&new_config);
     if live != on_disk {
         log::warn!(
-            "SIGHUP: profile set changed on disk (live: {:?}, config: {:?}) — \
-            restart qeli to apply profile/bind/tun changes",
+            "SIGHUP: enabled profile set changed on disk (live: {:?}, config: {:?}) — \
+             restart qeli to apply profile changes",
             live,
             on_disk
         );
+    } else {
+        let changed = changed_live_profile_settings(&state.config, &new_config, &live);
+        if !changed.is_empty() {
+            log::warn!(
+                "SIGHUP: live profile settings changed on disk for {:?} — \
+                 restart qeli to apply bind/tun/routing and other profile changes",
+                changed
+            );
+        }
     }
 }
 
@@ -4524,106 +5256,6 @@ struct QueueThreads {
     tids: Arc<std::sync::Mutex<Vec<libc::pthread_t>>>,
 }
 
-/// Every asynchronous task owned by one profile generation.
-///
-/// Dropping a Tokio `JoinHandle` detaches its task. Profiles restart in-process, so all
-/// nested service/session tasks must instead be closed as one generation: shutdown rejects
-/// new children, aborts the existing ones and joins them before system resources are removed.
-#[derive(Clone)]
-pub(crate) struct ProfileTasks {
-    profile: Arc<str>,
-    inner: Arc<std::sync::Mutex<ProfileTasksInner>>,
-}
-
-struct ProfileTasksInner {
-    stopping: bool,
-    handles: Vec<tokio::task::JoinHandle<()>>,
-}
-
-impl ProfileTasks {
-    fn new(profile: &str) -> Self {
-        Self {
-            profile: Arc::from(profile),
-            inner: Arc::new(std::sync::Mutex::new(ProfileTasksInner {
-                stopping: false,
-                handles: Vec::new(),
-            })),
-        }
-    }
-
-    pub(crate) fn spawn<F>(&self, future: F) -> bool
-    where
-        F: std::future::Future<Output = ()> + Send + 'static,
-    {
-        let mut inner = self
-            .inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if inner.stopping {
-            return false;
-        }
-        // Completed tasks no longer own resources. Reap their handles so a busy DNS profile
-        // does not retain one allocation for every query until the next restart.
-        let mut index = 0;
-        while index < inner.handles.len() {
-            if inner.handles[index].is_finished() {
-                inner.handles.swap_remove(index);
-            } else {
-                index += 1;
-            }
-        }
-        inner.handles.push(tokio::spawn(future));
-        true
-    }
-
-    fn abort_all(&self) {
-        let mut inner = self
-            .inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        inner.stopping = true;
-        for handle in &inner.handles {
-            handle.abort();
-        }
-    }
-
-    async fn shutdown(&self) {
-        let handles = {
-            let mut inner = self
-                .inner
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            inner.stopping = true;
-            for handle in &inner.handles {
-                handle.abort();
-            }
-            std::mem::take(&mut inner.handles)
-        };
-        for handle in handles {
-            if let Err(error) = handle.await {
-                if !error.is_cancelled() {
-                    log::error!(
-                        "Profile '{}': child task failed during teardown: {}",
-                        self.profile,
-                        error
-                    );
-                }
-            }
-        }
-    }
-}
-
-async fn wait_for_profile_shutdown(shutdown: &mut tokio::sync::watch::Receiver<bool>) {
-    if *shutdown.borrow() {
-        return;
-    }
-    while shutdown.changed().await.is_ok() {
-        if *shutdown.borrow() {
-            return;
-        }
-    }
-}
-
 /// Undoes everything `run_profile` created on the host, however it leaves.
 ///
 /// A profile start is a sequence of side effects on the SYSTEM — a TUN device, iptables rules,
@@ -4636,13 +5268,12 @@ async fn wait_for_profile_shutdown(shutdown: &mut tokio::sync::watch::Receiver<b
 ///
 /// Tearing down on the success path too is deliberate: `run_profile` only returns once the
 /// profile has genuinely stopped serving, and a stopped profile should not keep a configured
-/// interface. Every step is idempotent (`ip link delete` and `iptables -D` on something that
-/// is already gone are no-ops), so overlapping with the shutdown-time `cleanup_all` is safe.
-/// (Audit 2026-08-01, §5.)
+/// interface. Original queue descriptors remain owned here through host cleanup and worker
+/// shutdown; closing them releases the non-persistent device without reopening its name.
 struct ProfileTeardown {
     profile: String,
-    /// The device as the KERNEL named it, set once the TUN exists.
-    ifname: Option<String>,
+    /// Setup retains every original; after duplication one descriptor anchors teardown.
+    queues: Vec<TunInterface>,
     state: Arc<ServerState>,
     /// Set once the per-queue reader/writer threads are running, so they can be stopped before
     /// the device is removed — it only disappears when the last descriptor closes.
@@ -4656,6 +5287,70 @@ struct ProfileTeardown {
     /// Registry identity installed by this generation. Cleanup must not remove a replacement
     /// generation that registered under the same profile name.
     registered_profile: Option<Arc<ProfileRuntime>>,
+    failures: crate::profile_teardown::Report,
+}
+
+struct ProfileResources {
+    teardown: ProfileTeardown,
+    services: ProfileServices,
+}
+
+/// The only owner allowed to hand a profile's host resources to synchronous Drop.
+/// On cancellation/panic, keep both the resources and the joinable service sets.
+struct ProfileScope {
+    resources: Option<ProfileResources>,
+}
+
+impl ProfileScope {
+    async fn cleanup(&mut self) -> anyhow::Result<()> {
+        let resources = self
+            .resources
+            .as_mut()
+            .expect("profile scope owns resources");
+        let failures = resources.teardown.failures.clone();
+        let result = resources.services.shutdown(&resources.teardown.tasks).await;
+        failures.record("profile tasks/services", result);
+        resources.teardown.unregister().await;
+        // No async descendants remain. Cancellation from this point joins the host worker
+        // before releasing its resources; before this point Drop requeues the whole scope.
+        let resources = self.resources.take().expect("profile scope owns resources");
+        let result = crate::profile_teardown::blocking("qeli-profile-teardown", move || {
+            drop(resources);
+        })
+        .await;
+        failures.record("profile teardown worker", result);
+        failures.result()
+    }
+}
+
+impl Drop for ProfileScope {
+    fn drop(&mut self) {
+        if let Some(mut resources) = self.resources.take() {
+            resources
+                .services
+                .request_shutdown(&resources.teardown.tasks);
+            let state = resources.teardown.state.clone();
+            state.deferred_profiles.failures.record(
+                &resources.teardown.profile,
+                Err(anyhow::anyhow!("profile scope ended before terminal cleanup; resources deferred until async descendants are joined")),
+            );
+            state.deferred_profiles.retain(resources);
+        }
+    }
+}
+
+async fn finish_deferred_profiles(state: &Arc<ServerState>) -> anyhow::Result<()> {
+    while let Some(resources) = state.deferred_profiles.take() {
+        let mut scope = ProfileScope {
+            resources: Some(resources),
+        };
+        let result = scope.cleanup().await;
+        state
+            .deferred_profiles
+            .failures
+            .record("deferred generation", result);
+    }
+    state.deferred_profiles.failures.result()
 }
 
 impl ProfileTeardown {
@@ -4686,19 +5381,11 @@ impl Drop for ProfileTeardown {
 
         // iptables first: the rules reference the interface by name, so removing them before
         // the device keeps the window where a rule points at a vanished device closed.
-        nat::cleanup(&self.profile);
+        self.failures
+            .record("NAT/routing", nat::cleanup(&self.profile));
 
-        // Stop the queue readers BEFORE removing the device.
-        //
-        // Two independent defects sat on top of each other here, and the first masked the
-        // second. `TunInterface::delete` could not delete a MULTI-QUEUE device at all (missing
-        // `multi_queue` on `ip tuntap del` → `ioctl(TUNSETIFF): Invalid argument`), which is
-        // every device this server creates. With that fixed the command succeeds — and the
-        // interface still survived, because each queue hands a `libc::dup` of its fd to a
-        // reader parked in `read()` forever, and a device created without `IFF_PERSIST` only
-        // disappears once the LAST descriptor closes. So the order below is not cosmetic: stop
-        // the readers, let them close their own fds, and only then ask for the device.
-        // (Audit 2026-08-01, §5.)
+        // Stop workers before the original queue descriptors (fields of this guard) close.
+        // A timed-out worker still owns its fd; report that failure, never delete by name.
         if let Some(threads) = self.readers.take() {
             // Order matters: the flag goes up FIRST, so a thread that has not reached its
             // blocking call yet sees it on its own and never parks. The signal is only for the
@@ -4711,68 +5398,25 @@ impl Drop for ProfileTeardown {
                 let _ = sender.try_send(ServerTunPacket::Fragment(Vec::new()));
             }
 
-            // Signalling is RETRIED rather than done once, and waiting is BOUNDED.
-            //
-            // A thread publishes its id from inside itself, so between `spawn` returning and
-            // that push there is a window in which the id is not known yet. The first version
-            // took a single `try_lock` and then joined unconditionally: a queue that failed
-            // early — say a DNS bind error immediately after the threads were spawned — could
-            // have a reader that never received a signal, never left `read()`, and a `join()`
-            // that blocked FOREVER. In a Drop running on a tokio worker that wedges the
-            // runtime thread: strictly worse than the leaked device this code is here to fix.
-            //
-            // Re-signalling every round closes the window (a late registrant is signalled on
-            // the next pass), and the deadline means the worst case is a logged leak rather
-            // than a hang.
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-            loop {
-                #[cfg(target_os = "linux")]
-                {
-                    // A poisoned lock still holds a usable list — a panicking thread must not
-                    // cost us the ids of the healthy ones.
-                    let tids = threads
-                        .tids
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    for tid in tids.iter() {
-                        reader_wakeup::interrupt(*tid);
+            let result = crate::profile_teardown::stop_threads(
+                threads.handles,
+                std::time::Duration::from_secs(3),
+                || {
+                    #[cfg(target_os = "linux")]
+                    {
+                        let tids = threads
+                            .tids
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        for tid in tids.iter() {
+                            reader_wakeup::interrupt(*tid);
+                        }
                     }
-                }
-                if threads.handles.iter().all(|h| h.is_finished()) {
-                    break;
-                }
-                if std::time::Instant::now() >= deadline {
-                    log::warn!(
-                        "Profile '{}': {} TUN queue thread(s) did not stop within 3s — leaving \
-                         them detached; the device will outlive the profile",
-                        self.profile,
-                        threads.handles.iter().filter(|h| !h.is_finished()).count()
-                    );
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(25));
-            }
-            // Join ONLY what has actually finished. Joining a still-running thread is the hang
-            // this whole block exists to avoid; the finished ones are joined so their fds are
-            // demonstrably closed before `ip tuntap del` runs, rather than merely scheduled to.
-            for h in threads.handles {
-                if h.is_finished() {
-                    let _ = h.join();
-                }
-            }
+                },
+            );
+            self.failures.record("TUN queues", result);
         }
 
-        if let Some(ifname) = &self.ifname {
-            if let Err(e) = TunInterface::delete(ifname) {
-                log::warn!(
-                    "Profile '{}': could not remove TUN '{}' during teardown: {} — the device \
-                     outlives the profile",
-                    self.profile,
-                    ifname,
-                    e
-                );
-            }
-        }
         // The normal path removes this entry synchronously before Drop. On panic/cancellation
         // fall back to an async removal, but only if the map still contains THIS generation.
         // An unconditional remove-by-name can erase a replacement generation after restart.
@@ -4791,53 +5435,36 @@ impl Drop for ProfileTeardown {
                 });
             }
         }
-        log::info!("Profile '{}': torn down (TUN, NAT, registry)", self.profile);
+        match self.failures.result() {
+            Ok(()) => log::info!(
+                "Profile '{}': teardown attempted (TUN, NAT, registry)",
+                self.profile
+            ),
+            Err(error) => log::error!("Profile '{}': teardown incomplete: {error}", self.profile),
+        }
     }
 }
 
 /// Run a profile's `post_down` hook exactly once, whoever gets there first.
 ///
-/// Two things can end a profile — the profile's own task returning, and the worker shutting
-/// down — and both must leave the hook run, but only once. The `done` set is the interlock;
-/// it is checked and inserted under one lock so a shutdown racing a dying profile cannot run
-/// the hook twice.
-///
-/// Honoured ONLY from a config the hook layer considers trusted, exactly like `post_up`: the
-/// panel and the API never write these fields, and running a command out of an untrusted file
-/// would be remote code execution.
-async fn run_post_down(
-    state: &Arc<ServerState>,
-    profile: &str,
-    done: &Arc<Mutex<std::collections::HashSet<String>>>,
-) {
-    let Some(pcfg) = state.config.profiles.iter().find(|p| p.name == profile) else {
+/// Claim the ready generation's snapshot once, atomically. Disabled profiles and
+/// failures before routing/NDP setup have nothing to tear down. A generation that
+/// reached post_up remains armed even if that hook failed or was interrupted.
+/// Both hooks use the startup snapshot's authorization, not a fresh pathname lookup.
+async fn run_post_down(state: &Arc<ServerState>, profile: &str) {
+    let Some(hook_env) = state.profile_hook_env.lock().await.remove(profile) else {
         return;
     };
-    // Take the generation snapshot even when no post_down command is configured, so a later
-    // restart can never inherit the previous generation's auto-detected WAN.
-    let hook_env = state.profile_hook_env.lock().await.remove(profile);
-    if pcfg.routing.post_down.is_empty() {
+    if hook_env.post_down.is_empty() {
         return;
     }
-    {
-        let mut d = done.lock().await;
-        if !d.insert(profile.to_string()) {
-            return; // already run for this profile
-        }
-    }
-    let trusted = {
-        let p = state.config_path.lock().await.clone();
-        p.as_deref()
-            .map(|p| crate::hooks::config_is_trusted(p).is_ok())
-            .unwrap_or(false)
-    };
-    if !trusted {
+    if let Err(why) = state.config_command_trust.check() {
+        log::error!("Profile '{profile}': ignoring post_down — {why}");
         return;
     }
-    let hook_env = hook_env.unwrap_or_else(|| ProfileHookEnv::fallback(pcfg));
     crate::hooks::run(
         &format!("post_down:{profile}"),
-        &pcfg.routing.post_down,
+        &hook_env.post_down,
         &hook_env.variables(),
     )
     .await;
@@ -4863,11 +5490,35 @@ async fn bind_tcp_listener(address: &str) -> std::io::Result<TcpListener> {
     TcpListener::from_std(socket.into())
 }
 
+/// Apply one deadline to setup, then let the established generation serve.
+/// Cancelling setup drops its future; ProfileTeardown and joined host workers
+/// complete rollback before the profile can be restarted.
+async fn await_profile_ready<F>(
+    name: &str,
+    deadline: tokio::time::Instant,
+    ready: tokio::sync::oneshot::Receiver<()>,
+    generation: F,
+) -> anyhow::Result<()>
+where
+    F: std::future::Future<Output = anyhow::Result<()>>,
+{
+    tokio::pin!(generation);
+    tokio::select! {
+        biased;
+        result = &mut generation => result,
+        result = tokio::time::timeout_at(deadline, ready) => match result {
+            Ok(Ok(())) => generation.await,
+            Ok(Err(_)) => anyhow::bail!("profile '{name}': listener readiness was lost during setup"),
+            Err(_) => anyhow::bail!("profile '{name}': setup exceeded its {} second budget before all listeners bound", PROFILE_SETUP_BUDGET.as_secs()),
+        }
+    }
+}
+
 async fn run_profile(
     state: Arc<ServerState>,
     pcfg: ProfileConfig,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
-) -> anyhow::Result<()> {
+) -> crate::profile_teardown::Outcome {
     let name = pcfg.name.clone();
     log::info!(
         "Starting profile '{}' ({}://{}:{})",
@@ -4881,45 +5532,206 @@ async fn run_profile(
     // Armed BEFORE the first side effect on the host. The wrapper deliberately owns this
     // guard while the generation body runs, so it can await every async child BEFORE Drop
     // removes the TUN/NAT resources those children use.
-    let mut teardown = ProfileTeardown {
+    let failures = crate::profile_teardown::Report::default();
+    let teardown = ProfileTeardown {
         profile: name.clone(),
-        ifname: None,
+        queues: Vec::new(),
         state: state.clone(),
         readers: None,
         tasks: tasks.clone(),
         dns_input_leases: Vec::new(),
         registered_profile: None,
+        failures: failures.clone(),
     };
 
-    let result =
-        run_profile_generation(state, pcfg, &mut teardown, tasks.clone(), &mut shutdown).await;
-    tasks.shutdown().await;
-    teardown.unregister().await;
-    drop(teardown);
-    result
+    let mut scope = ProfileScope {
+        resources: Some(ProfileResources {
+            teardown,
+            services: ProfileServices::default(),
+        }),
+    };
+    let ProfileResources { teardown, services } =
+        scope.resources.as_mut().expect("new profile scope");
+    let setup_deadline = tokio::time::Instant::now() + PROFILE_SETUP_BUDGET;
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let result = await_profile_ready(
+        &name,
+        setup_deadline,
+        ready_rx,
+        run_profile_generation(
+            state,
+            pcfg,
+            teardown,
+            tasks.clone(),
+            &mut shutdown,
+            services,
+            ready_tx,
+        ),
+    )
+    .await;
+    let cleanup = scope.cleanup().await;
+    crate::profile_teardown::Outcome::new(result, cleanup)
 }
 
-async fn run_profile_generation(
-    state: Arc<ServerState>,
-    pcfg: ProfileConfig,
-    teardown: &mut ProfileTeardown,
-    tasks: ProfileTasks,
-    shutdown: &mut tokio::sync::watch::Receiver<bool>,
-) -> anyhow::Result<()> {
-    let name = pcfg.name.clone();
-    let mut service_set = tokio::task::JoinSet::new();
+#[cfg(test)]
+mod deferred_profile_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
+    fn tunnel_exists() -> bool {
+        std::process::Command::new("ip")
+            .args(["link", "show", "qdf206"])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    }
+
+    fn dns_rules_exist() -> bool {
+        let output = std::process::Command::new("iptables-save")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("deferred206")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires root in private NET/mount/PID namespaces and private /var/lib"]
+    async fn forced_scope_drop_keeps_tun_dns_and_joins_after_cancelled_drain() {
+        assert_eq!(unsafe { libc::geteuid() }, 0);
+        let parent =
+            std::env::var("QELI_AUDIT_PARENT_NET").expect("namespace parent identity required");
+        let current = std::fs::read_link("/proc/self/ns/net")
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_ne!(current, parent, "host network test is forbidden");
+        let config =
+            crate::config::parse_server_config("[profile:deferred206]\ntun.name = qdf206\n")
+                .unwrap();
+        let state = test_api_state(config, std::path::Path::new("/tmp/qdf206.conf"));
+        let tun = TunInterface::create("qdf206", 1400).unwrap();
+        TunInterface::set_address("qdf206", "10.8.0.1", 24).unwrap();
+        let dns =
+            nat::enable_dns_input("deferred206", "qdf206", "10.8.0.0/24", "10.8.0.1", 53).unwrap();
+        let tasks = ProfileTasks::new("deferred206");
+        let dropped = Arc::new(AtomicBool::new(false));
+        let (started, began) = tokio::sync::oneshot::channel();
+        let (release, blocked) = std::sync::mpsc::channel();
+        struct ChildDrop {
+            started: Option<tokio::sync::oneshot::Sender<()>>,
+            release: std::sync::mpsc::Receiver<()>,
+            dropped: Arc<AtomicBool>,
+        }
+        impl Drop for ChildDrop {
+            fn drop(&mut self) {
+                assert!(
+                    tunnel_exists() && dns_rules_exist(),
+                    "resources disappeared before child Drop"
+                );
+                let _ = self.started.take().unwrap().send(());
+                self.release.recv_timeout(Duration::from_secs(5)).unwrap();
+                assert!(
+                    tunnel_exists() && dns_rules_exist(),
+                    "resources disappeared while child Drop waited"
+                );
+                self.dropped.store(true, Ordering::SeqCst);
+            }
+        }
+        let payload = ChildDrop {
+            started: Some(started),
+            release: blocked,
+            dropped: dropped.clone(),
+        };
+        assert!(tasks.spawn(async move {
+            let _payload = payload;
+            std::future::pending::<()>().await;
+        }));
+        let teardown = ProfileTeardown {
+            profile: "deferred206".into(),
+            queues: vec![tun],
+            state: state.clone(),
+            readers: None,
+            tasks,
+            dns_input_leases: vec![dns],
+            registered_profile: None,
+            failures: Default::default(),
+        };
+        let scope = ProfileScope {
+            resources: Some(ProfileResources {
+                teardown,
+                services: Default::default(),
+            }),
+        };
+        if std::env::var_os("QELI_AUDIT_BASELINE_DROP").is_some() {
+            // The unchanged production destructor reproduces the old local-variable order.
+            let mut scope = scope;
+            let ProfileResources { teardown, services } = scope.resources.take().unwrap();
+            drop(services);
+            drop(teardown);
+        } else {
+            drop(scope);
+        }
+        tokio::time::timeout(Duration::from_secs(2), began)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(tunnel_exists() && dns_rules_exist());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), finish_deferred_profiles(&state))
+                .await
+                .is_err()
+        );
+        assert!(!dropped.load(Ordering::SeqCst));
+        assert!(
+            tunnel_exists() && dns_rules_exist(),
+            "cancelled drain released unjoined resources"
+        );
+        release.send(()).unwrap();
+        let error = finish_deferred_profiles(&state)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("deferred until async descendants"));
+        assert!(dropped.load(Ordering::SeqCst));
+        assert!(!tunnel_exists() && !dns_rules_exist());
+        assert!(state.deferred_profiles.take().is_none());
+    }
+}
+
+/// TUN fds stay local until setup completes. An abandoned worker result closes its
+/// non-persistent device; once adopted, ProfileTeardown owns the original queues.
+struct ProfileTunSetup {
+    queues: Vec<TunInterface>,
+    ifname: String,
+    dev_type: DeviceType,
+    profile_subnet: Option<crate::config::server::PoolSubnet>,
+    queue_count: usize,
+}
+
+fn setup_profile_tun(pcfg: &ProfileConfig) -> anyhow::Result<ProfileTunSetup> {
+    let name = pcfg.name.clone();
     // Setup TUN interface(s). With tun.queues>1 we open several IFF_MULTI_QUEUE fds
     // attached to ONE device; the kernel RSS-spreads packets across them so the data
-    // plane reads/writes the interface — and runs the per-queue encrypt — on multiple
-    // cores instead of funnelling everything through one reader/writer/forwarder.
+    // plane reads/writes the interface and forwards plaintext on multiple cores.
+    // The selected stream's writer owns recordization and encryption.
     // Never delete a pre-existing device here: there is no ownership marker proving it is
     // ours, and qeli-created devices are non-persistent and disappear with their last fd.
     // It can therefore be another qeli process, another application, or an operator-owned
-    // persistent TUN. Worse, create_multiqueue may ATTACH to an existing multi-queue device
-    // instead of returning EEXIST and silently share its traffic. Refuse before TUNSETIFF.
-    let tun_sysfs = format!("/sys/class/net/{}", pcfg.tun.name);
-    if std::path::Path::new(&tun_sysfs).exists() {
+    // persistent TUN. Without exclusive creation, TUNSETIFF could attach to an existing
+    // multi-queue device and silently share its traffic. The early check
+    // provides a useful diagnostic; IFF_TUN_EXCL on the first queue closes the race.
+    if crate::tun::open::interface_index(&pcfg.tun.name)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "profile '{name}': cannot inspect interface '{}': {error}",
+                pcfg.tun.name
+            )
+        })?
+        .is_some()
+    {
         anyhow::bail!(
             "profile '{}': interface '{}' already exists — refusing to delete or attach to a \
              device whose ownership cannot be proved; stop its owner or choose another tun.name",
@@ -4943,7 +5755,7 @@ async fn run_profile_generation(
         // Ceiling = the kernel's tun multi-queue limit (MAX_TAP_QUEUES = 256); this
         // never reduces auto=nproc for real core counts. More queues than cores is
         // pointless (idle pollers), but explicit values are honoured up to the limit.
-        n.clamp(1, 256)
+        n.clamp(1, MAX_TUN_QUEUES)
     };
     let queues = TunInterface::create_multiqueue(&pcfg.tun.name, pcfg.tun.mtu, dev_type, nq)?;
     // The name the KERNEL gave the device, not the one we asked for. TUNSETIFF copies at most
@@ -4957,8 +5769,6 @@ async fn run_profile_generation(
         .first()
         .map(|q| q.name.clone())
         .unwrap_or_else(|| pcfg.tun.name.clone());
-    // The device exists from here on, so record it before the first fallible call below.
-    teardown.ifname = Some(ifname.clone());
     if dev_type == DeviceType::Tap {
         TunInterface::set_mac(&ifname, TAP_GATEWAY_MAC)?;
     }
@@ -4970,7 +5780,7 @@ async fn run_profile_generation(
     } else {
         None
     };
-    let ipv6_subnet = crate::config::server::validate_ipv6_profile(&pcfg)
+    let ipv6_subnet = crate::config::server::validate_ipv6_profile(pcfg)
         .map_err(|error| anyhow::anyhow!("profile '{}': {}", name, error))?;
     if pcfg.tun.ip_mode != crate::config::server::IpMode::Ipv6 {
         TunInterface::set_address(
@@ -5018,10 +5828,27 @@ async fn run_profile_generation(
         }
     );
 
+    Ok(ProfileTunSetup {
+        queues,
+        ifname,
+        dev_type,
+        profile_subnet,
+        queue_count: nq,
+    })
+}
+
+/// ProfileTeardown already owns the TUN before this worker starts. Cancelling its
+/// waiter joins the worker first, then the outer guard can remove every NAT rule.
+fn setup_profile_nat(
+    state: &Arc<ServerState>,
+    pcfg: &ProfileConfig,
+    ifname: &str,
+) -> anyhow::Result<(String, String)> {
+    let name = pcfg.name.clone();
     // Host NAT (iptables) for full-tunnel egress. Always clear any rules we left
     // behind first (covers an unclean exit, or routing.nat toggled off then a
     // restart), then (re)install if this profile requests masquerading.
-    nat::cleanup(&pcfg.name);
+    nat::cleanup(&pcfg.name)?;
     let peer_tuns: Vec<String> = state
         .config
         .profiles
@@ -5035,7 +5862,7 @@ async fn run_profile_generation(
             &pcfg.name,
             &pcfg.routing.nat.interface,
             &pcfg.pool.cidr,
-            &ifname,
+            ifname,
             &peer_tuns,
             pcfg.tun.mtu,
         ) {
@@ -5063,12 +5890,12 @@ async fn run_profile_generation(
     {
         // No NAT, but pure L3 routing requested: enable forwarding (ip_forward + FORWARD
         // ACCEPT) WITHOUT masquerading, so transit traffic between the tunnel and the
-        // server's networks keeps its real source IPs (site-to-site). NAT above already
-        // does this, hence the else. Server-originated traffic to a client_subnet needs
-        // only the route and works regardless (#13).
+        // server's networks keeps its real source IPs (site-to-site). The NAT branch
+        // instead installs WAN-specific permits; it does not promise server-LAN transit.
+        // Server-originated traffic to a client_subnet needs only the route (#13).
         // Fails the profile rather than logging: `forward_private` promises transit routing,
         // and a profile that cannot route it serves clients whose packets vanish.
-        nat::enable_routing(&pcfg.name, &ifname, &peer_tuns, pcfg.tun.mtu)
+        nat::enable_routing(&pcfg.name, ifname, &peer_tuns, pcfg.tun.mtu)
             .map_err(|e| anyhow::anyhow!("profile '{}': {e}", pcfg.name))?;
     }
     let mut wan_ipv6 = String::new();
@@ -5078,7 +5905,7 @@ async fn run_profile_generation(
             pcfg.routing.ipv6.mode,
             &pcfg.routing.ipv6.interface,
             &pcfg.pool.ipv6.cidr,
-            &ifname,
+            ifname,
             &peer_tuns,
             pcfg.tun.mtu,
         )? {
@@ -5097,41 +5924,82 @@ async fn run_profile_generation(
             wan_ipv6 = wan;
         }
     }
+    if pcfg.routing.ipv6.mode == crate::config::server::Ipv6RoutingMode::Manual {
+        log::info!("Profile '{}': manual IPv6; firewall, forwarding, accept_ra and external routing are administrator-managed", name);
+    }
+    Ok((wan_ipv4, wan_ipv6))
+}
+
+/// The DNS lease can run a blocking exact-rule cleanup in Drop. The worker
+/// keeps an unadopted result in its own namespace until cancellation is joined.
+async fn setup_profile_dns_firewall(
+    profile: &str,
+    tun: &str,
+    pool_cidr: &str,
+    listen: &str,
+    port: u16,
+    ipv6_mode: crate::config::server::Ipv6RoutingMode,
+) -> anyhow::Result<Option<nat::DnsInputLease>> {
+    let profile = profile.to_owned();
+    let tun = tun.to_owned();
+    let pool_cidr = pool_cidr.to_owned();
+    let listen = listen.to_owned();
+    crate::profile_teardown::blocking("qeli-profile-dns-setup", move || {
+        nat::setup_dns_firewall(&profile, &tun, &pool_cidr, &listen, port, ipv6_mode)
+    })
+    .await?
+}
+
+async fn run_profile_generation(
+    state: Arc<ServerState>,
+    pcfg: ProfileConfig,
+    teardown: &mut ProfileTeardown,
+    tasks: ProfileTasks,
+    shutdown: &mut tokio::sync::watch::Receiver<bool>,
+    services: &mut ProfileServices,
+    startup_ready: tokio::sync::oneshot::Sender<()>,
+) -> anyhow::Result<()> {
+    let name = pcfg.name.clone();
+    let ProfileServices {
+        services: service_set,
+        listeners: listener_set,
+        ..
+    } = services;
+
+    // Each synchronous host phase runs on its own joined worker. The first returns
+    // non-persistent TUN fds; the profile guard adopts them before NAT can mutate
+    // global state. A cancelled waiter joins its worker before this guard is dropped.
+    let tun_pcfg = pcfg.clone();
+    let ProfileTunSetup {
+        queues: created_queues,
+        ifname,
+        dev_type,
+        profile_subnet,
+        queue_count: nq,
+    } = crate::profile_teardown::blocking("qeli-profile-tun-setup", move || {
+        setup_profile_tun(&tun_pcfg)
+    })
+    .await??;
+    teardown.queues = created_queues;
+    let queues = &teardown.queues;
+
+    let nat_state = state.clone();
+    let nat_pcfg = pcfg.clone();
+    let nat_ifname = ifname.clone();
+    let (wan_ipv4, wan_ipv6) =
+        crate::profile_teardown::blocking("qeli-profile-nat-setup", move || {
+            setup_profile_nat(&nat_state, &nat_pcfg, &nat_ifname)
+        })
+        .await??;
     let ndp_proxy = if pcfg.routing.ipv6.ndp_proxy == crate::config::server::Ipv6NdpProxyMode::Off {
         None
     } else {
-        let configured = pcfg.routing.ipv6.ndp_proxy_interface.trim();
-        let interface = if configured.is_empty() {
-            wan_ipv6.trim()
-        } else {
-            configured
-        };
-        let result = if interface.is_empty() {
-            Err(anyhow::anyhow!(
-                "no IPv6 uplink was detected; set routing.ipv6.ndp_proxy_interface explicitly"
-            ))
-        } else {
-            ndp_proxy::NdpProxy::bind(interface)
-        };
-        match result {
-            Ok(proxy) => Some(proxy),
-            Err(error)
-                if pcfg.routing.ipv6.ndp_proxy
-                    == crate::config::server::Ipv6NdpProxyMode::Auto =>
-            {
-                log::warn!(
-                    "Profile '{}': IPv6 NDP proxy auto mode is unavailable: {} — continuing without it",
-                    name,
-                    error
-                );
-                None
-            }
-            Err(error) => anyhow::bail!(
-                "profile '{}': routing.ipv6.ndp_proxy = required but the responder could not start: {}",
-                name,
-                error
-            ),
-        }
+        let interface = nat::resolve_ndp_interface(
+            &pcfg.routing.ipv6.ndp_proxy_interface,
+            &wan_ipv6,
+            &pcfg.routing.ipv6.interface,
+        );
+        ndp_proxy::start(&name, pcfg.routing.ipv6.ndp_proxy, interface.as_deref()).await?
     };
 
     let hook_env = ProfileHookEnv::new(&pcfg, wan_ipv4, wan_ipv6);
@@ -5144,9 +6012,8 @@ async fn run_profile_generation(
     // post_up hook: after this profile's TUN + NAT are up. Honoured ONLY from a
     // trusted config file (the panel/API never writes it — RCE guard).
     if !pcfg.routing.post_up.is_empty() {
-        let cfg_path = { state.config_path.lock().await.clone() };
-        match cfg_path.as_deref().map(crate::hooks::config_is_trusted) {
-            Some(Ok(())) => {
+        match state.config_command_trust.check() {
+            Ok(()) => {
                 crate::hooks::run(
                     &format!("post_up:{name}"),
                     &pcfg.routing.post_up,
@@ -5154,8 +6021,7 @@ async fn run_profile_generation(
                 )
                 .await;
             }
-            Some(Err(why)) => log::error!("Profile '{name}': ignoring post_up — {why}"),
-            None => log::error!("Profile '{name}': ignoring post_up — no config path recorded"),
+            Err(why) => log::error!("Profile '{name}': ignoring post_up — {why}"),
         }
     }
 
@@ -5198,11 +6064,11 @@ async fn run_profile_generation(
     );
 
     // Per-queue reader/writer fds (dup'd so the blocking reader and writer threads each
-    // own a closable fd for their queue). Dropping `queues` after this keeps the device
-    // alive via these dups (closed when the threads exit).
+    // own a closable fd for their queue). Teardown keeps one original afterward, so even
+    // an early worker exit cannot release the name before host cleanup has completed.
     let mut reader_fds: Vec<OwnedFd> = Vec::with_capacity(queues.len());
     let mut writer_fds: Vec<OwnedFd> = Vec::with_capacity(queues.len());
-    for q in &queues {
+    for q in queues {
         // Leave the fds BLOCKING: the reader thread sleeps inside read() until a
         // packet arrives (no 1ms busy-poll → 0% idle CPU even with many queues); the
         // writer blocks on a full TUN queue (backpressure, not silent drop).
@@ -5227,7 +6093,9 @@ async fn run_profile_generation(
         reader_fds.push(rfd);
         writer_fds.push(wfd);
     }
-    drop(queues);
+    // One attached queue is enough to retain this non-persistent device. Other originals
+    // now have worker-owned duplicates; avoid retaining an extra fd for every queue.
+    teardown.queues.truncate(1);
 
     // Inbound (client -> TUN): one channel per queue. handle_client gets a sharded
     // sender (sticky per connection) so a connection's packets stay ordered.
@@ -5421,6 +6289,7 @@ async fn run_profile_generation(
     let profile = Arc::new(ProfileRuntime {
         name: name.clone(),
         config: pcfg.clone(),
+        tun_addresses: handler::configured_tun_addresses(&pcfg),
         tasks: tasks.clone(),
         pool: Arc::new(Mutex::new(pool)),
         sessions: Arc::new(RwLock::new(SessionMap {
@@ -5444,6 +6313,7 @@ async fn run_profile_generation(
         udp_buffer_counters: Arc::new(
             crate::transport_core::udp_buffer::UdpBufferCounters::default(),
         ),
+        tun_metrics: Arc::new(tun_metrics::TunMetrics::default()),
         tcp_roaming_metrics: roaming_metrics::TcpRoamingMetrics::default(),
         #[cfg(feature = "experimental-roaming")]
         udp_roaming_registry: crate::transport_core::udp_roaming::UdpRoamingRegistry::new(
@@ -5500,8 +6370,8 @@ async fn run_profile_generation(
         .flatten();
 
     // Per-queue data-plane pump. Each queue gets: a blocking reader (TUN -> forwarder),
-    // an async forwarder (lookup + ENCRYPT + send to client — encrypt now runs N-way in
-    // parallel, serialized only per-session by the codec lock), and a blocking writer that
+    // an async forwarder (route lookup + bounded plaintext handoff to the selected stream),
+    // and a blocking writer that
     // drains the bounded inbound channel directly into TUN. The kernel RSS-distributes
     // outbound TUN packets across the queues by flow.
     // Shared with `ProfileTeardown`: the flag the readers check when a signal interrupts their
@@ -5537,6 +6407,8 @@ async fn run_profile_generation(
             let is_tap_reader = is_tap;
             let stop = reader_stop.clone();
             let pool = tun_read_pool.clone();
+            let tun_metrics = profile.tun_metrics.clone();
+            tun_metrics.configure(tun_read_buffer_count, tun_buf_size);
             let mut pool_stop = reader_pool_stop.subscribe();
             let fatal = tun_fatal_tx.clone();
             let runtime = tokio::runtime::Handle::current();
@@ -5558,6 +6430,7 @@ async fn run_profile_generation(
                         }
                     }
                     log::info!("TUN reader q{} for profile '{}' started", qi, name_r);
+                    let mut last_read_done: Option<Instant> = None;
                     loop {
                         // BEFORE parking, not only after an interrupt. A teardown that happens
                         // while this thread is still starting up would otherwise find it about
@@ -5572,12 +6445,15 @@ async fn run_profile_generation(
                         // downstream congestion enters the runtime to wait, and teardown has
                         // an explicit wake arm so a pool-starved reader cannot pin its fd.
                         let Some(mut packet) = pool.try_acquire().or_else(|| {
-                            runtime.block_on(async {
+                            let started = Instant::now();
+                            let acquired = runtime.block_on(async {
                                 tokio::select! {
                                     packet = pool.acquire() => packet,
                                     _ = pool_stop.changed() => None,
                                 }
-                            })
+                            });
+                            tun_metrics.pool_wait.record(started.elapsed());
+                            acquired
                         }) else {
                             break;
                         };
@@ -5608,7 +6484,7 @@ async fn run_profile_generation(
                         // loop and never re-zeroed it.
                         //
                         // Measured, not guessed (scripts/ab_crossver_downlink.py,
-                        // scripts/ab_memset_fix.py; raw data in release/ab_*.json):
+                        // scripts/ab_memset_fix.py; raw data in docs/data/benchmarks/ab_*.json):
                         //   S14/C14 721 | S14/C15 734 (+1.7%) | S15/C14 631 (-12.5%)
                         //     -> the regression follows the SERVER, the client is innocent
                         //   fixed vs 0.7.15: plain +10.9%, fake-tls +12.5%, obfs +18.2%
@@ -5624,6 +6500,12 @@ async fn run_profile_generation(
                         read_buffer.clear();
                         let spare = read_buffer.spare_capacity_mut();
                         let read_len = tun_buf_size.min(spare.len());
+                        let read_started = Instant::now();
+                        if let Some(done) = last_read_done {
+                            tun_metrics
+                                .between_reads
+                                .record(read_started.saturating_duration_since(done));
+                        }
                         let n = unsafe {
                             libc::read(
                                 reader_fd.as_raw_fd(),
@@ -5631,13 +6513,20 @@ async fn run_profile_generation(
                                 read_len,
                             )
                         };
+                        let read_error = (n < 0).then(std::io::Error::last_os_error);
+                        let read_done = Instant::now();
+                        tun_metrics
+                            .kernel_read
+                            .record(read_done.duration_since(read_started));
+                        last_read_done = Some(read_done);
                         if n > 0 {
+                            tun_metrics.read_packet(n as usize);
                             // SAFETY: `read` initialised exactly `n` bytes of the spare tail,
                             // and `n <= read_len <= capacity`.
                             unsafe { read_buffer.set_len(n as usize) };
                         }
                         if n < 0 {
-                            let err = std::io::Error::last_os_error();
+                            let err = read_error.expect("negative read retains its errno");
                             // Blocking read: only EINTR is retryable (the fd is no longer
                             // O_NONBLOCK, so WouldBlock can't happen).
                             if err.kind() == std::io::ErrorKind::Interrupted {
@@ -5701,10 +6590,11 @@ async fn run_profile_generation(
                             packet_buffer.copy_within(ip_offset..ip_offset + ip_len, 0);
                             packet_buffer.truncate(ip_len);
                         }
-                        if out_tx
-                            .blocking_send(ServerTunPacket::Pooled(packet))
-                            .is_err()
-                        {
+                        tun_metrics.reader_depth(out_tx.max_capacity() - out_tx.capacity());
+                        let dispatch_started = Instant::now();
+                        let dispatch = tun_dispatch::send(&out_tx, ServerTunPacket::Pooled(packet));
+                        tun_metrics.dispatch_wait.record(dispatch_started.elapsed());
+                        if dispatch.is_err() {
                             if !stop.load(std::sync::atomic::Ordering::Relaxed) {
                                 let _ = fatal
                                     .try_send(format!("TUN reader q{qi} lost its async forwarder"));
@@ -6088,43 +6978,21 @@ async fn run_profile_generation(
         } else {
             pcfg.pool.cidr.as_str()
         };
-        // A resolver bound to the profile TUN address is local server traffic: packets hit
-        // filter/INPUT, not FORWARD. Install a narrowly scoped permit before advertising the
-        // resolver so hosts with INPUT DROP cannot create a connected-but-DNS-dead tunnel.
-        let primary_dns_input = nat::enable_dns_input(
+        // A manual IPv6 profile leaves DNS INPUT/REDIRECT rules to the administrator
+        // too. Managed IPv6 and IPv4 still require verified access before advertising DNS.
+        if let Some(lease) = setup_profile_dns_firewall(
             &name,
             &ifname,
             primary_dns_pool,
             &primary_dns_cfg.listen,
             primary_dns_cfg.port,
+            pcfg.routing.ipv6.mode,
         )
-        .map_err(|error| anyhow::anyhow!("profile '{}': {error}", name))?;
-        teardown.dns_input_leases.push(primary_dns_input);
-
-        // Bridge 53 -> dns.port inside the tunnel when the proxy listens somewhere else, so
-        // clients can keep using the only port their platform can express. No-op on 53.
-        //
-        // The result is CHECKED. Ignoring it defeated the point of returning it: without the
-        // rule, clients reach 53 and nothing is there, yet the profile came up and kept
-        // handing them that address as their resolver — the exact silent black hole the
-        // redirect exists to prevent. Validation already demands iptables for a non-default
-        // port, so a failure here means the rule was genuinely refused; fail the profile
-        // rather than serve DNS that cannot work. (Audit 2026-08-01, §2.)
-        if !nat::enable_dns_redirect(
-            &name,
-            &ifname,
-            &primary_dns_cfg.listen,
-            primary_dns_cfg.port,
-        ) {
-            anyhow::bail!(
-                "profile '{}': dns.port = {} but the 53 -> {} redirect could not be installed,                  so every client would be pushed a resolver it cannot reach. Fix iptables, or                  set dns.port = 53.",
-                name,
-                pcfg.dns.port,
-                pcfg.dns.port
-            );
+        .await?
+        {
+            teardown.dns_input_leases.push(lease);
         }
 
-        let dns_state = state.clone();
         let dns_cfg = primary_dns_cfg.clone();
         let name_dns = name.clone();
         let dns_listen = crate::util::join_host_port(&primary_dns_cfg.listen, primary_dns_cfg.port);
@@ -6160,7 +7028,7 @@ async fn run_profile_generation(
         // ONE cache, blocklist and upstream-preference shared by both transports AND both
         // listener families: duplicate state doubles upstream traffic and lets the same name
         // answer differently depending on whether the client reached the IPv4 or IPv6 listener.
-        let dns_cache: dns::DnsCache = Arc::new(RwLock::new(std::collections::HashMap::new()));
+        let dns_cache = dns::new_cache();
         let dns_pref = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let dns_blocklist = dns::compile_blocklist(&pcfg.dns.blocklist);
         {
@@ -6190,7 +7058,6 @@ async fn run_profile_generation(
         let blocklist_udp = dns_blocklist.clone();
         service_set.spawn(async move {
             dns::run_dns_proxy(
-                dns_state,
                 dns_cfg,
                 dns_socket,
                 cache_udp,
@@ -6206,20 +7073,17 @@ async fn run_profile_generation(
                 pcfg.dns.listen_ipv6.clone().ok_or_else(|| {
                     anyhow::anyhow!("profile '{}': missing dns.listen_ipv6", name)
                 })?;
-            let ipv6_dns_input = nat::enable_dns_input(
+            if let Some(lease) = setup_profile_dns_firewall(
                 &name,
                 &ifname,
                 &pcfg.pool.ipv6.cidr,
                 &listen_ipv6,
                 pcfg.dns.port,
-            )?;
-            teardown.dns_input_leases.push(ipv6_dns_input);
-            if !nat::enable_dns_redirect(&name, &ifname, &listen_ipv6, pcfg.dns.port) {
-                anyhow::bail!(
-                    "profile '{}': IPv6 DNS redirect on {} could not be installed",
-                    name,
-                    listen_ipv6
-                );
+                pcfg.routing.ipv6.mode,
+            )
+            .await?
+            {
+                teardown.dns_input_leases.push(lease);
             }
             let mut ipv6_dns_cfg = pcfg.dns.clone();
             ipv6_dns_cfg.listen = listen_ipv6.clone();
@@ -6238,12 +7102,10 @@ async fn run_profile_generation(
                         .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
                 });
             }
-            let dns_state = state.clone();
             let dns_tasks = tasks.clone();
             let label = format!("profile '{name}' IPv6 DNS proxy (UDP) on {listen_ipv6}");
             service_set.spawn(async move {
                 dns::run_dns_proxy(
-                    dns_state,
                     ipv6_dns_cfg,
                     udp,
                     dns_cache,
@@ -6382,7 +7244,6 @@ async fn run_profile_generation(
     let decoy_refused = Arc::new(std::sync::atomic::AtomicU64::new(0));
     // A JoinSet, not a Vec of handles: these are awaited CONCURRENTLY below. See the join
     // loop for why awaiting them in order hid bind failures.
-    let mut listener_set = tokio::task::JoinSet::new();
     let udp_worker_count = if matches!(primary_transport, TransportProtocol::Udp) {
         listeners
             .len()
@@ -6396,6 +7257,9 @@ async fn run_profile_generation(
             .into_iter()
             .map(Some)
             .collect::<Vec<_>>();
+    let listener_count = listeners.len();
+    let (listener_ready_tx, mut listener_ready_rx) =
+        mpsc::channel::<Result<(), String>>(listener_count.max(1));
     for (listener_index, (bind_addr, transport)) in listeners.into_iter().enumerate() {
         // SO_REUSEPORT worker ids are profile-wide, not merely unique inside one bind.listen.
         // The CID registry uses this identity to return a migrated datagram to its immutable
@@ -6437,10 +7301,21 @@ async fn run_profile_generation(
         let pcfg = pcfg.clone();
         let name = name.clone();
         let profile_tasks = tasks.clone();
+        let listener_ready_tx = listener_ready_tx.clone();
         listener_set.spawn(async move {
             match transport {
                 TransportProtocol::Tcp => {
-                    let listener = bind_tcp_listener(&bind_addr).await?;
+                    let listener = match bind_tcp_listener(&bind_addr).await {
+                        Ok(listener) => listener,
+                        Err(error) => {
+                            // Setup owns this error. Returning it again from the task
+                            // would make shutdown report a false cleanup failure and bar retry.
+                            let _ = listener_ready_tx.try_send(Err(error.to_string()));
+                            return Ok(());
+                        }
+                    };
+                    let _ = listener_ready_tx.try_send(Ok(()));
+                    drop(listener_ready_tx);
                     log::info!("Profile '{}' listening on {} (TCP)", name, bind_addr);
                     loop {
                         let (stream, addr) = match listener.accept().await {
@@ -6627,21 +7502,27 @@ async fn run_profile_generation(
                     // flow-hashes datagrams across them (a client sticks to one worker), so
                     // UDP decrypt spreads across cores. Each worker drains into one TUN queue.
                     let workers = nq;
-                    log::info!(
-                        "Profile '{}' listening on {} (UDP, {} worker(s))",
-                        name,
-                        bind_addr,
-                        workers
-                    );
-                    let mut worker_set = tokio::task::JoinSet::new();
-                    let mut roaming_workers = listener_roaming_workers.into_iter();
-                    for wid in 0..workers {
-                        let (socket, udp_buffer) = udp_handler::bind_reuseport(
+                    // Bind the entire SO_REUSEPORT group before advertising readiness.
+                    // A failure in a later worker must close every earlier socket.
+                    let mut bound_sockets = Vec::with_capacity(workers);
+                    for _ in 0..workers {
+                        match udp_handler::bind_reuseport(
                             &bind_addr,
                             &profile.config.performance.udp,
                             profile.udp_buffer_counters.clone(),
                             state.udp_buffer_budget,
-                        )?;
+                        ) {
+                            Ok(socket) => bound_sockets.push(socket),
+                            Err(error) => {
+                                // Setup owns the bind error; partial sockets close here.
+                                let _ = listener_ready_tx.try_send(Err(error.to_string()));
+                                return Ok(());
+                            }
+                        }
+                    }
+                    let mut worker_set = tokio::task::JoinSet::new();
+                    let mut roaming_workers = listener_roaming_workers.into_iter();
+                    for (wid, (socket, udp_buffer)) in bound_sockets.into_iter().enumerate() {
                         let udp_state = state.clone();
                         let udp_profile = profile.clone();
                         let tun_tx_udp = TunIngress {
@@ -6670,19 +7551,32 @@ async fn run_profile_generation(
                             .await
                         });
                     }
-                    let why = match worker_set.join_next().await {
-                        Some(Ok(Err(error))) => format!("UDP worker failed: {error}"),
-                        Some(Ok(Ok(()))) => "UDP worker stopped unexpectedly".to_string(),
-                        Some(Err(error)) => format!("UDP worker task panicked: {error}"),
-                        None => "no UDP workers were started".to_string(),
-                    };
-                    worker_set.abort_all();
-                    while worker_set.join_next().await.is_some() {}
-                    Err(anyhow::anyhow!(why))
+                    let _ = listener_ready_tx.try_send(Ok(()));
+                    drop(listener_ready_tx);
+                    log::info!(
+                        "Profile '{}' listening on {} (UDP, {} worker(s))",
+                        name,
+                        bind_addr,
+                        workers
+                    );
+                    crate::profile_tasks::supervise_udp_workers(
+                        &mut worker_set,
+                        &profile_tasks,
+                    )
+                    .await
                 }
             }
         });
     }
+    drop(listener_ready_tx);
+    for _ in 0..listener_count {
+        match listener_ready_rx.recv().await {
+            Some(Ok(())) => {}
+            Some(Err(error)) => anyhow::bail!("profile '{name}': listener bind failed: {error}"),
+            None => anyhow::bail!("profile '{name}': listener ended before reporting readiness"),
+        }
+    }
+    let _ = startup_ready.send(());
     // Await the listeners CONCURRENTLY.
     //
     // They used to be awaited IN ORDER, and an accept loop only returns when it breaks — so
@@ -6725,13 +7619,8 @@ async fn run_profile_generation(
             None => "no listeners were started at all".to_string(),
         }),
     };
-    // Stop the survivors explicitly rather than relying on the JoinSet's drop: their accept
-    // loops would otherwise keep taking connections for a profile that is being torn down,
-    // and a client could complete a handshake against a pool that is about to disappear.
-    listener_set.abort_all();
-    while listener_set.join_next().await.is_some() {}
-    service_set.abort_all();
-    while service_set.join_next().await.is_some() {}
+    // The outer wrapper stops and joins listeners, services and their children on every
+    // return path, including startup errors that never reach this select.
     let Some(why) = why else {
         return Ok(());
     };
@@ -6746,6 +7635,51 @@ async fn run_profile_generation(
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn setup_deadline_ends_before_healthy_serving() {
+        let (_never_ready, missing) = tokio::sync::oneshot::channel();
+        let error = await_profile_ready(
+            "slow",
+            tokio::time::Instant::now() + Duration::from_millis(20),
+            missing,
+            std::future::pending::<anyhow::Result<()>>(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("setup exceeded"));
+
+        let (ready, receiver) = tokio::sync::oneshot::channel();
+        let result = await_profile_ready(
+            "serving",
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            receiver,
+            async move {
+                ready.send(()).unwrap();
+                tokio::time::sleep(Duration::from_millis(1100)).await;
+                Ok(())
+            },
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "a ready profile must outlive the setup budget"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn setup_failure_precedes_deadline() {
+        let (_ready, receiver) = tokio::sync::oneshot::channel();
+        let error = await_profile_ready(
+            "bad-bind",
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            receiver,
+            async { anyhow::bail!("fixture listener bind refused") },
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("fixture listener bind refused"));
+    }
 
     #[cfg(unix)]
     #[test]
@@ -6790,44 +7724,166 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[tokio::test]
-    async fn profile_tasks_abort_join_and_close_admission() {
-        struct DropSignal(Option<tokio::sync::oneshot::Sender<()>>);
-        impl Drop for DropSignal {
-            fn drop(&mut self) {
-                if let Some(sender) = self.0.take() {
-                    let _ = sender.send(());
-                }
-            }
-        }
+    fn ip(s: &str) -> IpAddr {
+        s.parse().unwrap()
+    }
 
-        let tasks = ProfileTasks::new("test");
-        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
-        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        assert!(tasks.spawn(async move {
-            let _signal = DropSignal(Some(dropped_tx));
-            let _ = started_tx.send(());
-            std::future::pending::<()>().await;
-        }));
-        assert!(
-            started_rx.await.is_ok(),
-            "child task must start before shutdown"
-        );
-
-        tasks.shutdown().await;
-
-        assert!(
-            dropped_rx.await.is_ok(),
-            "aborted child future must be dropped"
-        );
-        assert!(
-            !tasks.spawn(async {}),
-            "a closed generation must reject late child tasks"
+    #[test]
+    fn restore_hooks_retain_startup_and_later_worker_generations() {
+        let mut config = ServerConfig::default();
+        let mut original = ProfileConfig {
+            name: "first".into(),
+            ..Default::default()
+        };
+        original.routing.post_down = "sh /etc/qeli/first.txt".into();
+        config.profiles.push(original);
+        let state = test_api_state(config, std::path::Path::new("/etc/qeli/server.ini"));
+        let mut later = ServerConfig::default();
+        let mut profile = ProfileConfig {
+            name: "second".into(),
+            ..Default::default()
+        };
+        profile.routing.post_up = "sh /etc/qeli/second.txt".into();
+        later.profiles.push(profile);
+        state.remember_restore_hooks(&later);
+        state.remember_restore_hooks(&ServerConfig::default());
+        state.remember_restore_hooks(&later);
+        let hooks: HashSet<_> = state.retained_restore_hooks().into_iter().collect();
+        assert_eq!(
+            hooks,
+            HashSet::from([
+                "sh /etc/qeli/first.txt".to_string(),
+                "sh /etc/qeli/second.txt".to_string()
+            ])
         );
     }
 
-    fn ip(s: &str) -> IpAddr {
-        s.parse().unwrap()
+    #[tokio::test]
+    async fn post_down_requires_ready_generation_and_claims_its_environment_once() {
+        use std::os::unix::fs::OpenOptionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-hooks-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let config_path = dir.join("server.conf");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&config_path)
+            .unwrap();
+        let marker = dir.join("events");
+        let mut config = ServerConfig::default();
+        let mut ready = ProfileConfig::baseline();
+        ready.name = "ready".into();
+        ready.routing.post_down = format!(
+            "printf '%s\\n' \"$QELI_WAN_IPV4\" >> '{}'",
+            marker.display()
+        );
+        let mut disabled = ready.clone();
+        disabled.name = "disabled".into();
+        disabled.enabled = false;
+        let mut early_failure = ready.clone();
+        early_failure.name = "early".into();
+        config.profiles = vec![ready.clone(), disabled, early_failure];
+        std::fs::write(&config_path, config.to_ini_string()).unwrap();
+        let (contents, trust) = crate::config_source::load(&config_path)
+            .unwrap()
+            .into_parts();
+        trust.check().unwrap();
+        let mut state = test_api_state(
+            crate::config::parse_server_config(&contents).unwrap(),
+            &config_path,
+        );
+        Arc::get_mut(&mut state).unwrap().config_command_trust = trust;
+        // Removal/replacement after startup cannot suppress the authorized cleanup or
+        // substitute another command for a generation that is already running.
+        std::fs::remove_file(&config_path).unwrap();
+        for profile in ["disabled", "early", "ready"] {
+            run_post_down(&state, profile).await;
+        }
+        assert!(
+            !marker.exists(),
+            "a generation that never became ready must not run a hook"
+        );
+        state.profile_hook_env.lock().await.insert(
+            "ready".into(),
+            ProfileHookEnv::new(&ready, "actual-wan1".into(), String::new()),
+        );
+        tokio::join!(
+            run_post_down(&state, "ready"),
+            run_post_down(&state, "ready")
+        );
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "actual-wan1\n");
+        state.profile_hook_env.lock().await.insert(
+            "ready".into(),
+            ProfileHookEnv::new(&ready, "actual-wan2".into(), String::new()),
+        );
+        run_post_down(&state, "ready").await;
+        run_post_down(&state, "ready").await;
+        assert_eq!(
+            std::fs::read_to_string(&marker).unwrap(),
+            "actual-wan1\nactual-wan2\n"
+        );
+        assert!(state.profile_hook_env.lock().await.is_empty());
+        drop(state);
+        std::fs::remove_file(&marker).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn post_down_cannot_gain_trust_after_config_permissions_are_fixed() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-untrusted-hooks-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let config_path = dir.join("server.conf");
+        let marker = dir.join("events");
+        let mut config = ServerConfig::default();
+        let mut profile = ProfileConfig::baseline();
+        profile.name = "untrusted".into();
+        profile.routing.post_down = format!("printf executed >> '{}'", marker.display());
+        config.profiles = vec![profile.clone()];
+        std::fs::write(&config_path, config.to_ini_string()).unwrap();
+        std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let (contents, trust) = crate::config_source::load(&config_path)
+            .unwrap()
+            .into_parts();
+        assert!(trust.check().is_err());
+        let mut state = test_api_state(
+            crate::config::parse_server_config(&contents).unwrap(),
+            &config_path,
+        );
+        Arc::get_mut(&mut state).unwrap().config_command_trust = trust;
+        std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        // A fresh read would now permit commands. This running generation must retain
+        // the denial attached to its original bytes, including after profile retry.
+        crate::config_source::load(&config_path)
+            .unwrap()
+            .into_parts()
+            .1
+            .check()
+            .unwrap();
+        for _ in 0..2 {
+            state.profile_hook_env.lock().await.insert(
+                profile.name.clone(),
+                ProfileHookEnv::new(&profile, "wan".into(), String::new()),
+            );
+            run_post_down(&state, &profile.name).await;
+            assert!(state.profile_hook_env.lock().await.is_empty());
+            assert!(
+                !marker.exists(),
+                "chmod must not authorize already-loaded bytes"
+            );
+        }
+        drop(state);
+        std::fs::remove_file(config_path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
     }
 
     #[test]
@@ -7239,7 +8295,8 @@ pool.cidr = 10.{net}.0.0/24
                  {extra}"
             )
         }
-        let web = |port: &str| format!("[web]\nenabled = true\nport = {port}\n");
+        let web =
+            |port: &str| format!("[web]\nenabled = true\ninsecure_no_auth = true\nport = {port}\n");
 
         // Control: a panel on its own port, and per-profile services on distinct addresses.
         validate_profiles(&cfg(&(web("8443")
@@ -7323,6 +8380,27 @@ pool.cidr = 10.{net}.0.0/24
                 "{label}: rejected for the wrong reason: {err}"
             );
         }
+    }
+
+    #[test]
+    fn dhcp_direct_dns_limit_is_checked_before_worker_start() {
+        let mut config = crate::config::parse_server_config(
+            "[web]\nenabled = false\n[profile:dhcp]\nbind.port = 26443\ntun.address = 10.9.0.1\npool.cidr = 10.9.0.0/24\ndhcp.enabled = true\ndns.enabled = false\n",
+        ).unwrap();
+        config.profiles[0].dns.push_servers =
+            (1..=63).map(|suffix| format!("10.9.0.{suffix}")).collect();
+        validate_profiles(&config).unwrap();
+        config.profiles[0].dns.push_servers.push("10.9.0.64".into());
+        assert!(validate_profiles(&config)
+            .unwrap_err()
+            .to_string()
+            .contains("at most 63"));
+        config.profiles[0].dns.enabled = true;
+        // The local DNS proxy advertises only the gateway, independent of push count.
+        validate_profiles(&config).unwrap();
+        config.profiles[0].dns.enabled = false;
+        config.profiles[0].dhcp.enabled = false;
+        validate_profiles(&config).unwrap();
     }
 
     #[test]
@@ -7459,6 +8537,21 @@ pool.cidr = 10.{net}.0.0/24
     }
 
     #[test]
+    fn explicit_tun_queues_above_kernel_limit_are_rejected() {
+        let mut config = crate::config::parse_server_config(
+            "[profile:p]\nbind.address = 127.0.0.1\nbind.port = 4443\ntun.name = vpn0\n",
+        )
+        .expect("fixture INI must parse");
+        config.profiles[0].tun.queues = 0;
+        validate_profiles(&config).expect("auto queue count must validate");
+        config.profiles[0].tun.queues = MAX_TUN_QUEUES;
+        validate_profiles(&config).expect("kernel queue ceiling must validate");
+        config.profiles[0].tun.queues = MAX_TUN_QUEUES + 1;
+        let error = validate_profiles(&config).unwrap_err().to_string();
+        assert!(error.contains("tun.queues"), "wrong error: {error}");
+    }
+
+    #[test]
     fn udp_socket_buffers_have_a_hard_per_worker_limit() {
         fn cfg(key: &str, value: u32) -> ServerConfig {
             crate::config::parse_server_config(&format!(
@@ -7496,6 +8589,7 @@ pool.cidr = 10.{net}.0.0/24
             crate::config::parse_server_config(&format!(
                 "[web]\n\
                  enabled = true\n\
+                 insecure_no_auth = true\n\
                  port = {port}\n\
                  [profile:p]\n\
                  bind.address = 0.0.0.0\n\
@@ -7940,6 +9034,112 @@ pool.cidr = 10.{net}.0.0/24
     }
 
     #[test]
+    fn disabled_dns_ignores_hidden_ipv6_and_upstream_settings() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        let profile = &mut cfg.profiles[0];
+        profile.tun.ip_mode = crate::config::server::IpMode::Dual;
+        profile.tun.ipv6_address = Some("fd71:e1::1".into());
+        profile.pool.ipv6.cidr = "fd71:e1::/64".into();
+        profile.dns.enabled = false;
+        profile.dns.listen_ipv6 = Some("not-an-ipv6-address".into());
+        profile.dns.upstream_protocol = "tls".into();
+        validate_profiles(&cfg).expect("disabled DNS must ignore hidden resolver settings");
+
+        cfg.profiles[0].dns.enabled = true;
+        cfg.profiles[0].dns.listen = "10.1.0.1".into();
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("upstream_protocol"), "wrong error: {error}");
+
+        cfg.profiles[0].dns.upstream_protocol = "udp".into();
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("dns.listen_ipv6"), "wrong error: {error}");
+    }
+
+    #[test]
+    fn ipv4_profile_ignores_dormant_ipv6_addressing_but_not_active_routing() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        let profile = &mut cfg.profiles[0];
+        profile.tun.ip_mode = crate::config::server::IpMode::Ipv4;
+        profile.tun.ipv6_address = Some("not-an-ipv6-address".into());
+        profile.pool.ipv6.cidr = "not-an-ipv6-cidr".into();
+        profile.pool.ipv6.exclude = vec!["also-invalid".into()];
+        profile
+            .pool
+            .ipv6
+            .static_reservations
+            .insert("user".into(), "still-invalid".into());
+        validate_profiles(&cfg).expect("IPv4-only must ignore dormant IPv6 addressing");
+
+        cfg.profiles[0].routing.ipv6.mode = crate::config::server::Ipv6RoutingMode::Route;
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(
+            error.contains("requires tun.ip_mode = dual or ipv6"),
+            "active incompatible routing must still fail: {error}"
+        );
+    }
+
+    #[test]
+    fn non_obfs_profile_ignores_dormant_fronting_until_reenabled() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        cfg.profiles[0].obfuscation.fronting = "old-private-fronting".into();
+        validate_profiles(&cfg).expect("non-obfs profile must ignore dormant fronting");
+
+        cfg.profiles[0].obfuscation.mode = "obfs".into();
+        cfg.profiles[0].obfuscation.obfs_key = "regression-test-key".into();
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("obf.fronting"), "wrong error: {error}");
+
+        cfg.profiles[0].obfuscation.fronting = "websocket".into();
+        validate_profiles(&cfg).expect("supported fronting must validate after obfs is enabled");
+    }
+
+    #[test]
+    fn disabled_web_panel_ignores_hidden_login_policy() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        cfg.web.enabled = false;
+        cfg.web.brute_force.max_attempts = 0;
+        validate_profiles(&cfg).expect("disabled web panel must ignore its hidden policy");
+
+        cfg.web.enabled = true;
+        cfg.web.insecure_no_auth = true;
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("[web]"), "wrong error: {error}");
+    }
+
+    #[test]
+    fn reality_peek_timeout_matches_the_runtime_floor() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        let reality = &mut cfg.profiles[0].obfuscation.tls.reality_proxy;
+        reality.enabled = true;
+        reality.short_ids = vec!["0123456789abcdef".into()];
+        reality.peek_timeout_ms = crate::config::server::REALITY_MIN_PEEK_TIMEOUT_MS - 1;
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("peek_timeout_ms"), "wrong error: {error}");
+
+        cfg.profiles[0]
+            .obfuscation
+            .tls
+            .reality_proxy
+            .peek_timeout_ms = crate::config::server::REALITY_MIN_PEEK_TIMEOUT_MS;
+        validate_profiles(&cfg).expect("runtime minimum must validate");
+    }
+
+    #[test]
+    fn multipath_stream_ceiling_is_active_only_when_enabled() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        cfg.profiles[0].obfuscation.multipath.enabled = false;
+        cfg.profiles[0].obfuscation.multipath.max_streams = 0;
+        validate_profiles(&cfg).expect("disabled multipath tuning is dormant");
+
+        cfg.profiles[0].obfuscation.multipath.enabled = true;
+        let error = validate_profiles(&cfg).unwrap_err().to_string();
+        assert!(error.contains("max_streams"), "wrong error: {error}");
+
+        cfg.profiles[0].obfuscation.multipath.max_streams =
+            crate::config::server::MULTIPATH_MAX_STREAMS + 1;
+        assert!(validate_profiles(&cfg).is_err());
+    }
+    #[test]
     fn rate_limiter_allows_up_to_limit_then_blocks() {
         let mut rl = RateLimiter::new(2, 60);
         let addr = ip("203.0.113.7");
@@ -8195,6 +9395,518 @@ pool.cidr = 10.{net}.0.0/24
         let db = load_users_db(&config).unwrap();
         assert_eq!(db.users.len(), 1);
         assert_eq!(db.users[0].username, "solo");
+    }
+
+    #[test]
+    fn identity_key_helpers_reject_unsafe_profile_name_before_filesystem_access() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-invalid-identity-name-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        let mut profile = ProfileConfig::baseline();
+        profile.name = "../escape".into();
+        profile.identity_key = Some(dir.join("key").to_string_lossy().into_owned());
+        assert!(load_or_generate_profile_key(&profile).is_err());
+        assert!(generate_profile_key(&profile).is_err());
+        assert!(
+            !dir.exists(),
+            "invalid profile must not create a key directory"
+        );
+    }
+
+    #[test]
+    fn explicit_identity_path_uses_original_config_file_trust() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-identity-trust-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        std::fs::write(
+            &path,
+            format!(
+                "[profile:edge]\nidentity_key = {}\n",
+                dir.join("edge.key").display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let untrusted = read_config_source(&path).unwrap();
+        let config = crate::config::parse_server_config(untrusted.text()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(untrusted
+            .validate_identity_key_trust(&config.profiles[0])
+            .is_err());
+        let trusted = read_config_source(&path).unwrap();
+        trusted
+            .validate_identity_key_trust(&config.profiles[0])
+            .unwrap();
+        let mut default_path_profile = config.profiles[0].clone();
+        default_path_profile.identity_key = None;
+        untrusted
+            .validate_identity_key_trust(&default_path_profile)
+            .unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn custom_users_file_uses_original_config_file_trust() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-users-path-trust-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        let custom_users = dir.join("users.conf");
+        std::fs::write(
+            &path,
+            format!(
+                "[auth]\nusers_file = {}\n[profile:edge]\n",
+                custom_users.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let untrusted = read_config_source(&path).unwrap();
+        let config = crate::config::parse_server_config(untrusted.text()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let error = untrusted.validate_users_file_trust(&config).unwrap_err();
+        assert!(error.to_string().contains("auth.users_file"), "{error}");
+        assert!(!custom_users.exists());
+        read_config_source(&path)
+            .unwrap()
+            .validate_users_file_trust(&config)
+            .unwrap();
+        let mut default_path = config;
+        default_path.auth.users_file = crate::config::server::DEFAULT_USERS_FILE.into();
+        untrusted.validate_users_file_trust(&default_path).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn explicit_tls_paths_use_original_config_snapshot_trust() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-tls-path-trust-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        std::fs::write(
+            &path,
+            "[profile:edge]\n[web]\nenabled = true\ntls = true\ntls_cert = /etc/letsencrypt/live/example/fullchain.pem\ntls_key = /etc/letsencrypt/live/example/privkey.pem\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let untrusted = read_config_source(&path).unwrap();
+        let mut config = crate::config::parse_server_config(untrusted.text()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let error = untrusted.validate_tls_paths_trust(&config).unwrap_err();
+        assert!(
+            error.to_string().contains("web.tls_cert/tls_key"),
+            "{error}"
+        );
+        read_config_source(&path)
+            .unwrap()
+            .validate_tls_paths_trust(&config)
+            .unwrap();
+        config.web.tls_cert.clear();
+        config.web.tls_key.clear();
+        untrusted.validate_tls_paths_trust(&config).unwrap();
+        config.web.tls_cert = "/etc/qeli/cert.pem".into();
+        config.web.tls_key = "/etc/qeli/key.pem".into();
+        config.web.tls = false;
+        untrusted.validate_tls_paths_trust(&config).unwrap();
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[test]
+    fn empty_profile_set_fails_shared_validation() {
+        let error = validate_profiles(&ServerConfig::default())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no profiles defined"), "{error}");
+    }
+
+    #[test]
+    fn enabled_panel_without_auth_fails_shared_validation() {
+        let mut config = cfg_with("fake-tls", "tcp");
+        config.web.enabled = true;
+        let error = validate_profiles(&config).unwrap_err().to_string();
+        assert!(error.contains("web.password_hash"), "{error}");
+
+        config.web.insecure_no_auth = true;
+        validate_profiles(&config).expect("explicit no-auth is permitted");
+    }
+
+    #[test]
+    fn all_disabled_profiles_fail_shared_validation() {
+        let mut config = ServerConfig::default();
+        let mut profile = ProfileConfig::baseline();
+        profile.enabled = false;
+        config.profiles.push(profile);
+        let error = validate_profiles(&config).unwrap_err().to_string();
+        assert!(error.contains("all profiles are disabled"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn web_reload_keeps_bound_settings_and_applies_only_valid_live_policy() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-web-reload-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        let mut startup = ServerConfig {
+            web: serde_json::from_str("{}").unwrap(),
+            ..Default::default()
+        };
+        startup.profiles.push(ProfileConfig::baseline());
+        startup.web.enabled = true;
+        startup.web.bind = "127.0.0.1".into();
+        startup.web.port = 8080;
+        startup.web.password_hash = crate::crypto::hash_password(b"test-admin").unwrap();
+        startup.web.base_path = "/old".into();
+        let state = test_api_state(startup.clone(), &path);
+        let ip = "192.0.2.11".parse().unwrap();
+        state.failed_auth.lock().await.record_failure("admin", ip);
+
+        let mut candidate = startup.clone();
+        candidate.web.bind = "0.0.0.0".into();
+        candidate.web.port = 9090;
+        candidate.web.tls = true;
+        candidate.web.enabled = false;
+        candidate.web.base_path = "/new".into();
+        candidate.web.public_host = "panel.example".into();
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        assert!(state.reload_web_settings().await);
+        {
+            let live = state.live_web.read().await;
+            assert!(live.enabled);
+            assert_eq!(live.bind, startup.web.bind);
+            assert_eq!(live.port, startup.web.port);
+            assert_eq!(live.tls, startup.web.tls);
+            assert_eq!(live.base_path, startup.web.base_path);
+            assert_eq!(live.public_host, "panel.example");
+        }
+        assert!(state.failed_auth.lock().await.by_ip.contains_key(&ip));
+
+        candidate.web.brute_force.max_attempts = 2;
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        assert!(state.reload_web_settings().await);
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 2);
+        assert!(state.failed_auth.lock().await.by_ip.is_empty());
+        assert_eq!(state.live_web.read().await.brute_force.max_attempts, 2);
+
+        candidate.web.password_hash = "not-an-argon2-hash".into();
+        candidate.web.public_host = "invalid-hash.example".into();
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        assert!(!state.reload_web_settings().await);
+        assert_eq!(
+            state.live_web.read().await.password_hash,
+            startup.web.password_hash
+        );
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 2);
+
+        candidate.web.password_hash.clear();
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        assert!(!state.reload_web_settings().await);
+        assert_eq!(
+            state.live_web.read().await.password_hash,
+            startup.web.password_hash
+        );
+
+        candidate.web.password_hash = startup.web.password_hash.clone();
+        candidate.web.session_ttl_secs = 0;
+        candidate.web.brute_force.max_attempts = 3;
+        candidate.web.public_host = "invalid.example".into();
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        assert!(!state.reload_web_settings().await);
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 2);
+        assert_eq!(state.live_web.read().await.public_host, "panel.example");
+
+        std::fs::write(&path, "[web").unwrap();
+        assert!(!state.reload_web_settings().await);
+        assert_eq!(state.live_web.read().await.public_host, "panel.example");
+        std::fs::remove_file(&path).unwrap();
+        assert!(!state.reload_web_settings().await);
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn web_reload_waits_for_both_locks_before_changing_lockout_policy() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-web-reload-locks-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        let mut startup = ServerConfig::default();
+        startup.profiles.push(ProfileConfig::baseline());
+        startup.web = serde_json::from_str("{}").unwrap();
+        startup.web.enabled = true;
+        startup.web.insecure_no_auth = true;
+        let state = test_api_state(startup.clone(), &path);
+
+        let mut candidate = startup;
+        candidate.web.brute_force.max_attempts = 2;
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+
+        let held_web = state.live_web.read().await;
+        let mut reload = Box::pin(state.reload_web_settings());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), reload.as_mut())
+                .await
+                .is_err()
+        );
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 5);
+        drop(held_web);
+        assert!(reload.await);
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 2);
+        assert_eq!(state.live_web.read().await.brute_force.max_attempts, 2);
+
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[test]
+    fn sighup_restart_hints_cover_auth_logging_and_live_profiles() {
+        let mut startup = ServerConfig::default();
+        let mut active = ProfileConfig::baseline();
+        active.name = "active".into();
+        let mut dormant = ProfileConfig::baseline();
+        dormant.name = "dormant".into();
+        dormant.enabled = false;
+        startup.profiles = vec![active, dormant];
+        let live = HashSet::from(["active".to_string()]);
+
+        let mut candidate = startup.clone();
+        assert_eq!(enabled_profile_names(&candidate), live);
+        assert!(changed_live_profile_settings(&startup, &candidate, &live).is_empty());
+        assert!(sighup_startup_only_fields(&startup, &candidate).is_empty());
+
+        // Editing a still-disabled profile does not change the live generation.
+        candidate.profiles[1].bind.port += 1;
+        assert!(changed_live_profile_settings(&startup, &candidate, &live).is_empty());
+
+        candidate = startup.clone();
+        candidate.profiles[0].bind.port += 1;
+        assert_eq!(
+            changed_live_profile_settings(&startup, &candidate, &live),
+            vec!["active"]
+        );
+
+        candidate = startup.clone();
+        candidate.profiles[0]
+            .pool
+            .static_reservations
+            .insert("alice".into(), "10.9.0.50".into());
+        candidate.profiles[0]
+            .pool
+            .static_reservations
+            .insert("bob".into(), "10.9.0.51".into());
+        let mut same_map = candidate.clone();
+        same_map.profiles[0].pool.static_reservations.clear();
+        same_map.profiles[0]
+            .pool
+            .static_reservations
+            .insert("bob".into(), "10.9.0.51".into());
+        same_map.profiles[0]
+            .pool
+            .static_reservations
+            .insert("alice".into(), "10.9.0.50".into());
+        assert!(changed_live_profile_settings(&candidate, &same_map, &live).is_empty());
+
+        candidate = startup.clone();
+        candidate.profiles[1].enabled = true;
+        assert_ne!(enabled_profile_names(&candidate), live);
+
+        candidate = startup.clone();
+        candidate.auth.brute_force.max_attempts += 1;
+        assert!(sighup_startup_only_fields(&startup, &candidate).is_empty());
+        candidate.auth.require_client_key_proof = !startup.auth.require_client_key_proof;
+        candidate.auth.bind_static_to_session = !startup.auth.bind_static_to_session;
+        candidate.logging.level = "debug".into();
+        candidate.logging.file = Some("/var/log/qeli/alternate.log".into());
+        candidate.logging.time_format = "none".into();
+        assert_eq!(
+            sighup_startup_only_fields(&startup, &candidate),
+            vec![
+                "auth.require_client_key_proof",
+                "auth.bind_static_to_session",
+                "logging.level",
+                "logging.file",
+                "logging.time_format",
+            ]
+        );
+        candidate = startup.clone();
+        candidate.logging.format = "json".into();
+        assert_eq!(
+            sighup_startup_only_fields(&startup, &candidate),
+            vec!["logging.format"]
+        );
+    }
+
+    #[tokio::test]
+    async fn supervisor_sighup_preserves_panel_lockouts_and_forwards_valid_users() {
+        use crate::config::users::UserEntry;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-supervisor-hup-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        let mut candidate = ServerConfig::default();
+        candidate.auth.users_file = dir.join("users.conf").to_string_lossy().into_owned();
+        candidate.profiles.push(ProfileConfig::baseline());
+        let mut state = test_api_state(candidate.clone(), &path);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        Arc::get_mut(&mut state).unwrap().worker_tx = Some(tx.clone());
+        let before = state.failed_auth.lock().await.thresholds();
+        let address = ip("198.51.100.7");
+        for _ in 0..before.1 {
+            state
+                .failed_auth
+                .lock()
+                .await
+                .record_failure("admin", address);
+        }
+        assert!(state.failed_auth.lock().await.user_tarpit("admin") > Duration::ZERO);
+        candidate.auth.brute_force.max_attempts = 2;
+        candidate.auth.users.push(UserEntry {
+            username: "alice".into(),
+            password_hash: "$argon2id$x".into(),
+            ..Default::default()
+        });
+        candidate.profiles[0].tun.mtu = 0;
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        reload_on_sighup(&state).await;
+        assert!(rx.try_recv().is_err());
+        assert!(state.users_db.read().await.users.is_empty());
+        candidate.profiles[0].tun.mtu = 1400;
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        reload_on_sighup(&state).await;
+        assert!(matches!(rx.try_recv(), Ok(WorkerCmd::ReloadUsers)));
+        assert_eq!(state.users_db.read().await.users[0].username, "alice");
+        assert_eq!(state.failed_auth.lock().await.thresholds(), before);
+        assert!(state.failed_auth.lock().await.user_tarpit("admin") > Duration::ZERO);
+        tx.try_send(WorkerCmd::Restart).unwrap();
+        reload_on_sighup(&state).await;
+        assert!(matches!(rx.try_recv(), Ok(WorkerCmd::Restart)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn sighup_rejects_invalid_profile_or_users_before_changing_auth_state() {
+        use crate::config::users::UserEntry;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-sighup-validation-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        let users = dir.join("users.conf");
+        let mut startup = ServerConfig::default();
+        startup.auth.users_file = users.to_string_lossy().into_owned();
+        let state = test_api_state(startup.clone(), &path);
+        let mut candidate = startup;
+        candidate.auth.brute_force.max_attempts = 2;
+        candidate.auth.users.push(UserEntry {
+            username: "alice".into(),
+            password_hash: "$argon2id$x".into(),
+            ..Default::default()
+        });
+        let mut profile = ProfileConfig::baseline();
+        profile.name = "edge".into();
+        profile.tun.mtu = 0;
+        candidate.profiles.push(profile);
+        assert!(validate_profiles(&candidate).is_err());
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        reload_on_sighup(&state).await;
+        assert!(state.users_db.read().await.users.is_empty());
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 5);
+
+        candidate.profiles[0].tun.mtu = 1400;
+        assert!(validate_profiles(&candidate).is_ok());
+        candidate.auth.users.clear();
+        std::fs::write(
+            &users,
+            "[user:alice]\npassword_hash = x\nmax_sessions = invalid\n",
+        )
+        .unwrap();
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        reload_on_sighup(&state).await;
+        assert!(state.users_db.read().await.users.is_empty());
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 5);
+
+        std::fs::remove_file(&users).unwrap();
+        candidate.auth.users.push(UserEntry {
+            username: "alice".into(),
+            password_hash: "$argon2id$x".into(),
+            ..Default::default()
+        });
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        reload_on_sighup(&state).await;
+        assert_eq!(state.users_db.read().await.users[0].username, "alice");
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 2);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn sighup_keeps_auth_state_when_users_path_changes_or_config_becomes_untrusted() {
+        use crate::config::users::UserEntry;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-sighup-users-path-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("server.conf");
+        let original = dir.join("original-users.conf");
+        let redirected = dir.join("redirected-users.conf");
+        let mut startup = ServerConfig::default();
+        startup.auth.users_file = original.to_string_lossy().into_owned();
+        let state = test_api_state(startup.clone(), &path);
+        let mut candidate = startup;
+        candidate.profiles.push(ProfileConfig::baseline());
+        candidate.auth.brute_force.max_attempts = 2;
+        candidate.auth.users.push(UserEntry {
+            username: "alice".into(),
+            password_hash: "$argon2id$x".into(),
+            ..Default::default()
+        });
+        candidate.auth.users_file = redirected.to_string_lossy().into_owned();
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        reload_on_sighup(&state).await;
+        assert!(state.users_db.read().await.users.is_empty());
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 5);
+        assert!(!redirected.exists());
+
+        candidate.auth.users_file = original.to_string_lossy().into_owned();
+        std::fs::write(&path, candidate.to_ini_string()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        reload_on_sighup(&state).await;
+        assert!(state.users_db.read().await.users.is_empty());
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 5);
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        reload_on_sighup(&state).await;
+        assert_eq!(state.users_db.read().await.users[0].username, "alice");
+        assert_eq!(state.failed_auth.lock().await.thresholds().1, 2);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

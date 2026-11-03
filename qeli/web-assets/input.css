@@ -1,6 +1,46 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss" source(none);
+@config "./tailwind.config.js";
+@source "../src/web/templates";
+@source not inline("space-y-1 space-y-1.5 space-y-2 space-y-2.5 space-y-3 space-y-4 space-y-5");
+@import "./legacy-spacing.css";
+@theme {
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-900: #78350f;
+  --color-blue-200: #bfdbfe;
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-900: #1e3a8a;
+  --color-emerald-200: #a7f3d0;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-green-400: #4ade80;
+  --color-red-300: #fca5a5;
+  --color-red-400: #f87171;
+  --color-red-700: #b91c1c;
+  --color-red-900: #7f1d1d;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-violet-300: #c4b5fd;
+  --color-violet-400: #a78bfa;
+  --default-ring-color: rgb(59 130 246 / 0.5);
+  --default-ring-width: 3px;
+  --radius-sm: 0.125rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg--line-height: 1.75rem;
+  --text-sm--line-height: 1.25rem;
+  --text-xs--line-height: 1rem;
+}
+@layer base {
+  *, ::before, ::after, ::backdrop, ::file-selector-button { border-color: #e5e7eb; }
+  option { padding: revert; }
+}
+
 
 /* ════════════════════════════════════════════════════════════════════════
    Self-hosted fonts (served from /assets/<name>.woff2 by the panel) — no Google
@@ -45,10 +85,10 @@
   --txt:#e8edf7; --txt-mut:#93a2c0; --txt-dim:#6b7a9b;
   --txt-placeholder:#53617f;
   --blue:#4a9eff; --blue-2:#6fb7ff; --teal:#16c8b6; --green:#00e676; --green-2:#4dffa0;
-  --violet:#a78bfa; --amber:#ffb020; --red:#ff5d6c;
+  --violet:#a78bfa; --amber:#ffb020; --host-memory:#f59e0b; --red:#ff5d6c;
   --grad-3:linear-gradient(110deg,#4a9eff,#16c8b6 52%,#00e676);
   --grad-ring:conic-gradient(from 135deg,#4a9eff,#16c8b6,#00e676,#16c8b6,#4a9eff);
-  --radius:16px; --radius-sm:11px;
+  --radius:16px; --qeli-radius-sm:11px;
   --glow-blue:0 0 40px -10px rgba(74,158,255,.55);
   --glow-green:0 0 40px -10px rgba(0,230,118,.5);
   --ease:cubic-bezier(.22,.61,.36,1);
@@ -277,7 +317,7 @@ select.inp.inp-fit{ width:var(--qeli-select-fit-width,auto); max-width:100%; fle
 .toggle-wrap{ cursor:pointer; flex-shrink:0; padding-top:2px; }
 .toggle-wrap:focus-visible{ outline:2px solid var(--blue); outline-offset:3px; border-radius:10px; }
 .toggle{ width:32px; height:18px; border-radius:9px; position:relative; transition:background-color 0.2s; }
-.toggle-dot{ position:absolute; top:2px; width:14px; height:14px; background:white; border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,0.3); transition:transform 0.2s; }
+.toggle-dot{ position:absolute; top:2px; width:14px; height:14px; background:white; border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,0.3); transition:transform 0.2s,translate 0.2s; }
 .toggle-lg{ width:40px; height:20px; border-radius:10px; }
 .toggle-lg .toggle-dot{ width:16px; height:16px; }
 .toggle-sm{ width:32px; height:16px; border-radius:8px; }
@@ -299,6 +339,15 @@ select.inp.inp-fit{ width:var(--qeli-select-fit-width,auto); max-width:100%; fle
 .badge-blue{ background:rgba(74,158,255,.14); color:var(--blue-2); }
 .badge-gray{ background:rgba(120,150,210,.1); color:var(--txt-dim); }
 .badge-red{ background:rgba(255,93,108,.13); color:var(--red); }
+.log-level-filter{
+  border:1px solid transparent; opacity:.72; cursor:pointer;
+  transition:opacity .15s,border-color .15s,box-shadow .15s,transform .15s;
+}
+.log-level-filter:hover:not(:disabled){ opacity:1; transform:translateY(-1px); }
+.log-level-filter[aria-pressed=true]{ opacity:1; border-color:currentColor; box-shadow:inset 0 0 0 1px currentColor; }
+.log-level-filter:focus-visible{ outline:2px solid var(--blue); outline-offset:2px; }
+.log-level-filter:disabled{ opacity:.32; cursor:default; }
+.log-level-filter-all{ background:rgba(120,150,210,.1); color:var(--txt-mut); }
 
 /* Persistent server identity in the shared topbar. Truncation keeps long FQDNs
    from displacing the right-hand status controls; the full value remains in the
@@ -355,6 +404,175 @@ tr:hover .tbl-td{ background:rgba(74,158,255,.04); }
 .modal-bg{ position:fixed; inset:0; background:rgba(4,7,14,.72); backdrop-filter:blur(4px); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px; }
 .modal{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); width:100%; max-width:480px; box-shadow:0 30px 80px -24px rgba(0,0,0,.7); }
 
+/* ── dashboard host load ── */
+.host-load-card{
+  container-type:inline-size;
+  padding:1rem;
+  overflow:hidden;
+}
+.host-load-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+  min-height:2rem;
+  margin-bottom:1rem;
+}
+.host-load-heading,.host-load-actions{
+  display:flex;
+  align-items:center;
+}
+.host-load-heading{ gap:.625rem; min-width:0; }
+.host-load-actions{ justify-content:flex-end; gap:.5rem; flex-wrap:wrap; }
+.host-load-title{ color:var(--txt); font-size:.875rem; font-weight:700; line-height:1.15; }
+.host-load-status{ margin-top:.2rem; color:var(--txt-dim); font-size:.67rem; line-height:1; }
+.host-load-pid{ margin-right:.25rem; color:var(--txt-dim); font-family:'JetBrains Mono',ui-monospace,monospace; font-size:.7rem; white-space:nowrap; }
+.host-load-state{
+  width:.55rem; height:.55rem; flex:0 0 auto; border-radius:999px;
+  background:var(--txt-dim); box-shadow:0 0 0 4px rgba(107,122,155,.1);
+}
+.host-load-state-warning{ background:var(--amber); box-shadow:0 0 0 4px rgba(255,176,32,.12),0 0 12px rgba(255,176,32,.25); }
+.host-load-state-unavailable{ background:var(--txt-dim); box-shadow:0 0 0 4px rgba(107,122,155,.1); }
+.host-load-state-loading{ background:var(--blue-2); animation:host-load-pulse 1.5s ease-in-out infinite; }
+@keyframes host-load-pulse{ 50%{ opacity:.45; box-shadow:0 0 0 7px rgba(74,158,255,0); } }
+@media (prefers-reduced-motion:reduce){ .host-load-state-loading{ animation:none; } }
+
+.host-load-body{
+  display:grid;
+  grid-template-columns:auto minmax(11rem,1fr) minmax(16rem,1.45fr);
+  align-items:stretch;
+  gap:1rem;
+}
+.host-load-rings{
+  display:grid;
+  grid-template-columns:repeat(2,5.5rem);
+  align-items:center;
+  gap:.35rem;
+}
+.host-load-ring{ width:5.5rem; height:5.5rem; }
+.host-load-ring svg{ display:block; width:100%; height:100%; }
+.host-load-ring-value{ font-size:14px; font-weight:700; fill:var(--txt); }
+.host-load-ring-label{ font-size:8px; fill:var(--txt-dim); }
+
+.host-resource-list{
+  display:grid;
+  align-content:center;
+  gap:.75rem;
+  min-width:0;
+  padding:0 1rem;
+  border-left:1px solid var(--line-soft);
+  border-right:1px solid var(--line-soft);
+}
+.host-load-average,.host-resource-meta{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:.75rem;
+}
+.host-load-label{
+  color:var(--txt-dim);
+  font-size:.625rem;
+  font-weight:600;
+  letter-spacing:.055em;
+  line-height:1.2;
+  text-transform:uppercase;
+}
+.host-load-hint{ margin-top:.18rem; color:var(--txt-dim); font-size:.6rem; }
+.host-load-average-value,.host-resource-value{
+  overflow:hidden;
+  color:var(--txt);
+  font-family:'JetBrains Mono',ui-monospace,monospace;
+  font-size:.72rem;
+  line-height:1.25;
+  text-align:right;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.host-resource-meter{
+  height:.3rem;
+  margin-top:.35rem;
+  overflow:hidden;
+  border-radius:999px;
+  background:var(--line);
+}
+.host-resource-fill{
+  display:block;
+  height:100%;
+  min-width:0;
+  border-radius:inherit;
+  transition:width .35s var(--ease),background-color .2s;
+}
+.host-resource-fill-memory{ background:var(--host-memory,#f59e0b); }
+.host-resource-fill-disk{ background:var(--blue-2); }
+.host-resource-warning .host-resource-value{ color:var(--amber); }
+.host-resource-warning .host-resource-fill-disk{ background:var(--amber); }
+.host-resource-danger .host-resource-value{ color:var(--red); }
+.host-resource-danger .host-resource-fill-disk{ background:var(--red); }
+
+.host-runtime-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:.55rem;
+  min-width:0;
+  margin:0;
+}
+.host-runtime-item{
+  min-width:0;
+  padding:.65rem .75rem;
+  border:1px solid var(--line-soft);
+  border-radius:var(--qeli-radius-sm);
+  background:var(--bg-2);
+}
+.host-runtime-item dt{
+  overflow:hidden;
+  color:var(--txt-dim);
+  font-size:.625rem;
+  font-weight:600;
+  letter-spacing:.055em;
+  line-height:1.2;
+  text-overflow:ellipsis;
+  text-transform:uppercase;
+  white-space:nowrap;
+}
+.host-runtime-item dd{
+  display:flex;
+  align-items:baseline;
+  gap:.45rem;
+  min-width:0;
+  margin:.38rem 0 0;
+  color:var(--txt-mut);
+  font-family:'JetBrains Mono',ui-monospace,monospace;
+  font-size:.68rem;
+  white-space:nowrap;
+}
+.host-runtime-item dd strong{ overflow:hidden; color:var(--txt); font-weight:600; text-overflow:ellipsis; }
+.host-runtime-unit{ color:var(--txt-dim); font-size:.6rem; }
+.host-network-down{ color:var(--blue-2)!important; }
+.host-network-up{ color:var(--green-2); }
+
+@container (max-width:760px){
+  .host-load-body{ grid-template-columns:auto minmax(0,1fr); }
+  .host-resource-list{ border-right:0; padding-right:0; }
+  .host-runtime-grid{ grid-column:1/-1; grid-template-columns:repeat(4,minmax(0,1fr)); }
+}
+@container (max-width:520px){
+  .host-load-header{ align-items:flex-start; }
+  .host-load-actions{ justify-content:flex-start; }
+  .host-load-body{ grid-template-columns:1fr; }
+  .host-load-rings{ justify-content:center; }
+  .host-resource-list{
+    padding:.875rem 0;
+    border:solid var(--line-soft);
+    border-width:1px 0;
+  }
+  .host-runtime-grid{ grid-column:auto; grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@container (max-width:360px){
+  .host-load-header{ flex-direction:column; }
+  .host-load-actions{ width:100%; }
+  .host-load-pid{ margin-right:auto; }
+  .host-runtime-grid{ grid-template-columns:1fr; }
+}
 /* ── stat cards ── */
 .stat-card{ background:linear-gradient(180deg,rgba(255,255,255,.015),transparent), var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px; }
 .stat-val{ font-size:2rem; font-weight:800; line-height:1.05; letter-spacing:-.02em; }
@@ -464,3 +682,11 @@ html[data-theme=light] ::-webkit-scrollbar-thumb:hover{background:#aebccf}
   .card:has(>table){overflow-x:auto;-webkit-overflow-scrolling:touch}
   .card>table{min-width:620px}
 }
+
+/* Keep the log search/line selector readable before wrapping the actions. */
+.logs-inputs{flex:1 1 16rem}
+.logs-search{min-width:6rem}
+@media (max-width:639px){.logs-inputs{flex-basis:100%}}
+
+/* Preserve the shipped date editor height after the v4 native-control reset. */
+.inp[type="date"]::-webkit-datetime-edit { padding-block: 1px; }

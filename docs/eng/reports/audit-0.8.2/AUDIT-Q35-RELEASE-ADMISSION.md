@@ -1,0 +1,11 @@
+# Q35 — full release-soak admission
+
+<!-- normative-sync: audit-q35-release-admission-v1 -->
+
+On 10 October 2026 a false PASS was found in `scripts/roaming_resource_release_gate.sh`. The parent gate trusted child exit status zero and configured iteration counts alone. It required neither child result/final checkpoint nor the plan's minimum duration. On an isolated Linux fixture, eight silent no-op children produced `ROAMING_RESOURCE_RELEASE_GATE_PASS` in **0.064 seconds**; the original stdout is retained.
+
+The gate now checks each of the eight phase results before emitting its own PASS marker. The TCP/UDP wire matrices must report the expected successful mode counts and zero failures; resume, grace, performance and multinode phases must report at least one passing check and zero failures. TCP resource soak must show its final requested checkpoint (at least 10,000 flips). The UDP matrix must confirm 10,000 QUIC and each of three 1,000-flip adapters, plus its own completion markers. A `time.monotonic_ns()` measurement spans all phases; the final release PASS requires at least **28,800 seconds (eight hours)**. The separate bounded-smoke wrapper is unchanged. Per-phase logs use temporary files while `tee` keeps output visible; the files are removed on success or refusal.
+
+Lab .11 passed Bash syntax checks and **seven Linux contract tests** covering phase order, child failure, binary SHA change, wrong expected SHA, silent successful child, missing TCP final checkpoint, and eight hours minus one nanosecond. The last three now refuse without a final PASS marker. A clock shim exists only in the test fixture to simulate the time boundary; this block does not claim an actual eight-hour VPN run. The owned fixture was removed after file, process and mount checks; the service retained PIDs 777/845 and its binary SHA.
+
+The next release criterion remains an actual full run of the qualified binary with retained logs, resource measurements and elapsed time. This fixes the admission defect but **Q35 remains `IN_PROGRESS`**; overall audit status stays **30/37 DONE (81.1%)**. Raw out-of-Git packet: `audit-debt-20260924/q35-release-soak-admission-20261010`. `LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE`.

@@ -18,6 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from release_source import source_identity
 
 ROOT = Path(__file__).resolve().parent.parent
 HEX_256 = re.compile(r"^[0-9a-f]{64}$")
@@ -82,32 +83,21 @@ class CertificationError(RuntimeError):
 
 def repository_source_digest(root: Path = ROOT) -> str:
     """Hash committed release inputs while excluding certification evidence itself."""
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=no"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if status.returncode != 0:
-        raise CertificationError(
-            f"git status failed: {status.stderr.strip() or f'exit {status.returncode}'}"
+    try:
+        commit = source_identity(root, allow_new_evidence=True)
+        proc = subprocess.run(
+            ["git", "ls-tree", "-r", "--full-tree", commit],
+            cwd=root, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=30,
         )
-    if status.stdout.strip():
-        raise CertificationError("tracked working tree is dirty; commit before certification")
-    proc = subprocess.run(
-        ["git", "ls-tree", "-r", "--full-tree", "HEAD"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if proc.returncode != 0:
-        raise CertificationError(
-            f"git ls-tree failed: {proc.stderr.strip() or f'exit {proc.returncode}'}"
-        )
+        if proc.returncode:
+            raise CertificationError(
+                f"git ls-tree failed: {proc.stderr.strip() or f'exit {proc.returncode}'}"
+            )
+        if source_identity(root, allow_new_evidence=True) != commit:
+            raise CertificationError("Release source changed during certification")
+    except (OSError, subprocess.SubprocessError, RuntimeError) as error:
+        raise CertificationError(str(error)) from error
     rows: list[str] = []
     for row in proc.stdout.splitlines():
         try:

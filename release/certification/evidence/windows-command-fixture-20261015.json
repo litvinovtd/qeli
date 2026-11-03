@@ -1,0 +1,49 @@
+{
+  "status": "WINDOWS_SELFTEST_PIPE_FIXTURE_COLD_POWERSHELL_DEPENDENCY_REMOVED",
+  "prior_commit": "8e82bbdfc6e01837eceeae22e5471eb3fbdb4945",
+  "original_CI": "https://github.com/litvinovtd/qeli/actions/runs/38764326970",
+  "original_failed_job": 116523465326,
+  "original_failure_log_sha256": "08d7e4dbc704d2f59ec1a96030a85797c11c69afae629a2320484a659138c8ce",
+  "observed_failure": "Positive dual-pipe PowerShell fixture exceeded existing10second budget; Windows build/publish passed; prior exact source CI19 passed before two documentation files.",
+  "correction": "Use System32 cmd.exe ASCII echo loops for positive dual-pipe backpressure fixture; keep10s deadline, nonzero exit7, strict4096char capture,400ms timeout-child/5s ceiling and launch-failure checks.",
+  "fixture_qualification": {
+    "status": "EXACT_WINDOWS_COMMAND_FIXTURE_3_EXECUTIONS_12_ASSERTIONS_PASS",
+    "source_projection": "Exact RunCommandChecks method, linked unmodified WindowsCommand.cs and SystemPaths.cs; no WPF or production service/network side effects",
+    "input_sha256": {
+      "qeli-win\\QeliWin\\Service\\ServiceControlSelfTest.cs": "53f2a31b5c05876a3b6938f9417b78765504db219fd51085f6f6f11ffbf575f0",
+      "qeli-win\\QeliWin\\WindowsCommand.cs": "967dd2d041fb43a58d5f9fa85cc509c4022a5269a5dd42c4b34b19d477460df4",
+      "qeli-win\\QeliWin\\SystemPaths.cs": "d087d5ee59f00d2ec817afa5988bcb566c3b952f25c47239384a6d446bcaab6c"
+    },
+    "executions": [
+      {
+        "execution": 1,
+        "assertions_passed": 4
+      },
+      {
+        "execution": 2,
+        "assertions_passed": 4
+      },
+      {
+        "execution": 3,
+        "assertions_passed": 4
+      }
+    ],
+    "full_GUI_or_network_VM_qualification": false,
+    "production_timeout_changed": false,
+    "positive_fixture_deadline_seconds": 10,
+    "original_CI_failure_preserved": "windows-failure.log",
+    "original_failure": "PowerShell dual-pipe positive fixture exceeded10seconds; production unchanged since passing priorCI"
+  },
+  "logs": {
+    "fixture-build.log": "9c2e1bc30c2a2fa8e30f24be951add942d358143691b9c2919ca7e05a7760db2",
+    "fixture-run-1.log": "7044ea87ef9b3ff6ca5de264d91bff2341c25e7d2472554831b0345d15c66977",
+    "fixture-run-2.log": "7044ea87ef9b3ff6ca5de264d91bff2341c25e7d2472554831b0345d15c66977",
+    "fixture-run-3.log": "7044ea87ef9b3ff6ca5de264d91bff2341c25e7d2472554831b0345d15c66977"
+  },
+  "product_command_runner_changed": false,
+  "production_timeouts_changed": false,
+  "GUI_or_network_VM_qualification": false,
+  "hosted_fix_qualification_pending": true,
+  "new_Linux_runtime_runs": 0,
+  "physical_rows_unchanged": true
+}

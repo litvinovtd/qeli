@@ -1,0 +1,311 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS_Q34_MAC_PACKAGER_ISOLATION_SCOPED",
+  "source_digest": "427e71659c9404cfce85a121fe3bf58baeb685380707d94fabeff722a2b0362c",
+  "qualification_source_commit": "bfcb3f65daf5728f408d69faf0f2d496707e6129",
+  "product_source_commit": "bfcb3f65daf5728f408d69faf0f2d496707e6129",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F499/Q34-F053",
+    "F500/Q34-F054"
+  ],
+  "verification": {
+    "baseline": {
+      "command": [
+        "C:/Python314/python.exe",
+        "-X",
+        "utf8",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_macos_packager.py",
+        "-v"
+      ],
+      "methods": 14,
+      "expected_failures": 12,
+      "returncode": 1,
+      "scope": "Actual old main with controlled SSH/hash/download; real local files and TAR fixtures; no real SSH/sign/build"
+    },
+    "windows": {
+      "status": "PASS",
+      "methods": 72,
+      "checks": [
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_macos_packager.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "output": "test_assembly_failure_closes_connection (test_macos_packager.PackagerTests.test_assembly_failure_closes_connection) ... ok\r\ntest_download_failure_closes_both_handles (test_macos_packager.PackagerTests.test_download_failure_closes_both_handles) ... ok\r\ntest_download_open_failure_closes_connection (test_macos_packager.PackagerTests.test_download_open_failure_closes_connection) ... ok\r\ntest_metadata_substitution_refuses_before_extraction (test_macos_packager.PackagerTests.test_metadata_substitution_refuses_before_extraction) ... ok\r\ntest_missing_local_input_refuses_before_connection (test_macos_packager.PackagerTests.test_missing_local_input_refuses_before_connection) ... ok\r\ntest_sftp_close_failure_still_closes_connection (test_macos_packager.PackagerTests.test_sftp_close_failure_still_closes_connection) ... ok\r\ntest_sftp_open_failure_closes_connection (test_macos_packager.PackagerTests.test_sftp_open_failure_closes_connection) ... ok\r\ntest_signer_version_failure_closes_connection (test_macos_packager.PackagerTests.test_signer_version_failure_closes_connection) ... ok\r\ntest_stale_native_in_tar_refuses_before_connection (test_macos_packager.PackagerTests.test_stale_native_in_tar_refuses_before_connection) ... ok\r\ntest_success_downloads_verified_output_and_closes_handles (test_macos_packager.PackagerTests.test_success_downloads_verified_output_and_closes_handles) ... ok\r\ntest_traversing_tar_refuses_before_connection (test_macos_packager.PackagerTests.test_traversing_tar_refuses_before_connection) ... ok\r\ntest_two_runs_upload_to_separate_private_workspaces (test_macos_packager.PackagerTests.test_two_runs_upload_to_separate_private_workspaces) ... ok\r\ntest_upload_failure_closes_both_handles (test_macos_packager.PackagerTests.test_upload_failure_closes_both_handles) ... ok\r\ntest_upload_sha_failure_closes_both_handles (test_macos_packager.PackagerTests.test_upload_sha_failure_closes_both_handles) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 14 tests in 0.122s\r\n\r\nOK\r\n",
+          "methods": 14
+        },
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_macos_universal.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "output": "[assemble] lipo=0 copy=3; all Mach-O arm64+x86_64\r\n[assemble] lipo=1 copy=2; all Mach-O arm64+x86_64\r\ntest_already_universal_apphost_is_copied (test_macos_universal.AssemblyTests.test_already_universal_apphost_is_copied) ... ok\r\ntest_fat_file_without_x64_slice_is_refused (test_macos_universal.AssemblyTests.test_fat_file_without_x64_slice_is_refused) ... ok\r\ntest_lipo_failure_is_not_replaced_with_arm64 (test_macos_universal.AssemblyTests.test_lipo_failure_is_not_replaced_with_arm64) ... ok\r\ntest_merges_paired_thin_binary_and_preserves_fat_core (test_macos_universal.AssemblyTests.test_merges_paired_thin_binary_and_preserves_fat_core) ... ok\r\ntest_missing_required_native_core_is_refused (test_macos_universal.AssemblyTests.test_missing_required_native_core_is_refused) ... ok\r\ntest_missing_x64_partner_refuses_before_output_replacement (test_macos_universal.AssemblyTests.test_missing_x64_partner_refuses_before_output_replacement) ... ok\r\ntest_native_core_must_already_be_universal (test_macos_universal.AssemblyTests.test_native_core_must_already_be_universal) ... ok\r\ntest_successful_lipo_with_thin_output_is_refused (test_macos_universal.AssemblyTests.test_successful_lipo_with_thin_output_is_refused) ... ok\r\ntest_x64_only_macho_is_not_silently_omitted (test_macos_universal.AssemblyTests.test_x64_only_macho_is_not_silently_omitted) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 9 tests in 0.071s\r\n\r\nOK\r\n",
+          "methods": 9
+        },
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_native_recipes.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "output": "=== pass a: Windows x86_64-pc-windows-gnu ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[win/a] rc=0 in 0s\r\n=== pass a: macOS universal2-apple-darwin ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[mac/a] rc=0 in 0s\r\n=== pass a: Android arm64-v8a + x86_64 ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[android/a] rc=0\r\ntest_active_release_scenarios_are_checkout_and_tool_path_neutral (test_native_recipes.NativeRecipeTests.test_active_release_scenarios_are_checkout_and_tool_path_neutral) ... ok\r\ntest_android_e2e_uses_current_abi_strict_ssh_and_exact_restore (test_native_recipes.NativeRecipeTests.test_android_e2e_uses_current_abi_strict_ssh_and_exact_restore) ... ok\r\ntest_apk_rebuild_uses_strict_shared_lab_connection (test_native_recipes.NativeRecipeTests.test_apk_rebuild_uses_strict_shared_lab_connection) ... ok\r\ntest_authoritative_session_teardown_joins_admission_transaction (test_native_recipes.NativeRecipeTests.test_authoritative_session_teardown_joins_admission_transaction) ... ok\r\ntest_client_subnet_admission_is_non_destructive_and_fail_closed (test_native_recipes.NativeRecipeTests.test_client_subnet_admission_is_non_destructive_and_fail_closed) ... ok\r\ntest_config_matrix_uses_strict_server_client_and_users_validation (test_native_recipes.NativeRecipeTests.test_config_matrix_uses_strict_server_client_and_users_validation) ... ok\r\ntest_desktop_ipv6_merge_keeps_persist_tun_plan_guard (test_native_recipes.NativeRecipeTests.test_desktop_ipv6_merge_keeps_persist_tun_plan_guard) ... ok\r\ntest_failed_tcp_and_udp_admission_release_restored_device_lease (test_native_recipes.NativeRecipeTests.test_failed_tcp_and_udp_admission_release_restored_device_lease) ... ok\r\ntest_fuzz_harnesses_use_the_renamed_library_crate (test_native_recipes.NativeRecipeTests.test_fuzz_harnesses_use_the_renamed_library_crate) ... ok\r\ntest_gui_connection_logs_include_sanitized_username (test_native_recipes.NativeRecipeTests.test_gui_connection_logs_include_sanitized_username) ... ok\r\ntest_independent_artifacts_still_have_distinct_storage (test_native_recipes.NativeRecipeTests.test_independent_artifacts_still_have_distinct_storage) ... ok\r\ntest_installer_e2e_fails_closed_on_any_red_case (test_native_recipes.NativeRecipeTests.test_installer_e2e_fails_closed_on_any_red_case) ... ok\r\ntest_installer_formats_ipv6_authorities_and_public_panel_bind (test_native_recipes.NativeRecipeTests.test_installer_formats_ipv6_authorities_and_public_panel_bind) ... ok\r\ntest_installer_selects_and_verifies_the_host_deb_architecture (test_native_recipes.NativeRecipeTests.test_installer_selects_and_verifies_the_host_deb_architecture) ... ok\r\ntest_installer_strictly_validates_the_final_mutated_config_before_restart (test_native_recipes.NativeRecipeTests.test_installer_strictly_validates_the_final_mutated_config_before_restart) ... ok\r\ntest_ios_retained_wire_primitives_are_test_only (test_native_recipes.NativeRecipeTests.test_ios_retained_wire_primitives_are_test_only) ... ok\r\ntest_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop (test_native_recipes.NativeRecipeTests.test_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop) ... ok\r\ntest_keenetic_recipes_resolve_the_current_checkout (test_native_recipes.NativeRecipeTests.test_keenetic_recipes_resolve_the_current_checkout) ... ok\r\ntest_lab_gate_syncs_integration_tests_and_their_release_fixture (test_native_recipes.NativeRecipeTests.test_lab_gate_syncs_integration_tests_and_their_release_fixture) ... ok\r\ntest_linux_matrix_uses_the_configured_management_route_end_to_end (test_native_recipes.NativeRecipeTests.test_linux_matrix_uses_the_configured_management_route_end_to_end) ... ok\r\ntest_macos_install_name_does_not_contain_build_pass_path (test_native_recipes.NativeRecipeTests.test_macos_install_name_does_not_contain_build_pass_path) ... ok\r\ntest_macos_packaging_batches_signing_and_accepts_adhoc_runtime_flag (test_native_recipes.NativeRecipeTests.test_macos_packaging_batches_signing_and_accepts_adhoc_runtime_flag) ... ok\r\ntest_macos_packaging_uses_checked_shared_lab_connection (test_native_recipes.NativeRecipeTests.test_macos_packaging_uses_checked_shared_lab_connection) ... ok\r\ntest_mobile_connection_properties_use_the_live_generation_snapshot (test_native_recipes.NativeRecipeTests.test_mobile_connection_properties_use_the_live_generation_snapshot) ... ok\r\ntest_mobile_update_requests_cannot_migrate_to_the_physical_network (test_native_recipes.NativeRecipeTests.test_mobile_update_requests_cannot_migrate_to_the_physical_network) ... ok\r\ntest_native_builds_use_private_sources_and_one_job (test_native_recipes.NativeRecipeTests.test_native_builds_use_private_sources_and_one_job) ... ok\r\ntest_native_client_recipes_do_not_enable_the_server_stack (test_native_recipes.NativeRecipeTests.test_native_client_recipes_do_not_enable_the_server_stack) ... ok\r\ntest_native_library_target_avoids_qeli_executable_pdb_collision (test_native_recipes.NativeRecipeTests.test_native_library_target_avoids_qeli_executable_pdb_collision) ... ok\r\ntest_native_recipes_require_the_abi_1_12_roaming_exports (test_native_recipes.NativeRecipeTests.test_native_recipes_require_the_abi_1_12_roaming_exports) ... ok\r\ntest_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys (test_native_recipes.NativeRecipeTests.test_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys) ... ok\r\ntest_rcodesign_textual_error_is_not_accepted_with_zero_exit (test_native_recipes.NativeRecipeTests.test_rcodesign_textual_error_is_not_accepted_with_zero_exit) ... ok\r\ntest_release_checksum_is_lf_only_and_installer_handles_crlf_defensively (test_native_recipes.NativeRecipeTests.test_release_checksum_is_lf_only_and_installer_handles_crlf_defensively) ... ok\r\ntest_release_server_requires_jemalloc_but_client_builds_stay_isolated (test_native_recipes.NativeRecipeTests.test_release_server_requires_jemalloc_but_client_builds_stay_isolated) ... ok\r\ntest_release_stripping_is_cross_target_safe (test_native_recipes.NativeRecipeTests.test_release_stripping_is_cross_target_safe) ... ok\r\ntest_retired_root_ssh_scenarios_exit_before_network_or_mutation (test_native_recipes.NativeRecipeTests.test_retired_root_ssh_scenarios_exit_before_network_or_mutation) ... ok\r\ntest_router_recipes_skip_unused_ffi_crate_types_and_fail_closed (test_native_recipes.NativeRecipeTests.test_router_recipes_skip_unused_ffi_crate_types_and_fail_closed) ... ok\r\ntest_tracked_python_scenarios_never_silently_trust_a_new_ssh_host (test_native_recipes.NativeRecipeTests.test_tracked_python_scenarios_never_silently_trust_a_new_ssh_host) ... ok\r\ntest_udp_idle_reaper_joins_admission_before_releasing_device_lease (test_native_recipes.NativeRecipeTests.test_udp_idle_reaper_joins_admission_before_releasing_device_lease) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 38 tests in 0.180s\r\n\r\nOK\r\n",
+          "methods": 38
+        },
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_check_workflows.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "output": "test_corrupt_archive_is_rejected_before_parsing (test_check_workflows.WorkflowGateTests.test_corrupt_archive_is_rejected_before_parsing) ... ok\r\ntest_failed_atomic_install_removes_temporary_file (test_check_workflows.WorkflowGateTests.test_failed_atomic_install_removes_temporary_file) ... ok\r\ntest_missing_or_empty_inventory_refuses_before_network (test_check_workflows.WorkflowGateTests.test_missing_or_empty_inventory_refuses_before_network) ... ok\r\ntest_network_failure_is_failure (test_check_workflows.WorkflowGateTests.test_network_failure_is_failure) ... ok\r\ntest_new_yaml_and_yml_are_included (test_check_workflows.WorkflowGateTests.test_new_yaml_and_yml_are_included) ... ok\r\ntest_nonzero_lint_and_timeout_are_failures (test_check_workflows.WorkflowGateTests.test_nonzero_lint_and_timeout_are_failures) ... ok\r\ntest_unknown_cached_binary_is_not_overwritten_or_executed (test_check_workflows.WorkflowGateTests.test_unknown_cached_binary_is_not_overwritten_or_executed) ... ok\r\ntest_unsupported_platform_is_rejected (test_check_workflows.WorkflowGateTests.test_unsupported_platform_is_rejected) ... ok\r\ntest_valid_archive_installs_and_reuses_without_network (test_check_workflows.WorkflowGateTests.test_valid_archive_installs_and_reuses_without_network) ... ok\r\ntest_workflow_directory_named_yaml_is_rejected (test_check_workflows.WorkflowGateTests.test_workflow_directory_named_yaml_is_rejected) ... ok\r\ntest_wrong_extracted_binary_is_rejected (test_check_workflows.WorkflowGateTests.test_wrong_extracted_binary_is_rejected) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 11 tests in 0.045s\r\n\r\nOK\r\n",
+          "methods": 11
+        }
+      ],
+      "scope": "Actual production main/assembly with real TAR/files; controlled SSH/sign/build/download; no actual Mac payload/runtime"
+    },
+    "linux": {
+      "status": "PASS_23_LINUX_METHODS_AND_3_ACTUAL_TRIALS",
+      "tests": 23,
+      "runtime_trials": 3,
+      "producer_commit": "ec3caddc394c46c10e1092359849f65a56727363",
+      "source_archive_sha256": "334b92480e1ae481578f3b837816fcb989a4c2501e4b991185fbaa82574ad315",
+      "qualified_files_sha256": {
+        "scripts/build_mac_universal.py": "6f76140a6f9265a32f9ff0e3a2a64b973cbc857e024a0f866940c4f14fe20d9c",
+        "scripts/test_macos_packager.py": "a82d73d03d89ab0030dd7191d6606684b8a0700d899f1cb759cb434d5a53cd9b",
+        "scripts/test_macos_universal.py": "db44dba03fa50d24137474f2d81c716a3290ef5e125ff271a56759cf2c0d3670",
+        "scripts/native_lab.py": "da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0",
+        "scripts/native_repro.py": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c",
+        "scripts/ssh_command.py": "ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b"
+      },
+      "original_service_unchanged": true,
+      "cleanup": {
+        "status": "PASS_SHA_RECOVERED_KNOWN_FILES_CLEANUP",
+        "roots": 4,
+        "files": 48
+      },
+      "commands": [
+        {
+          "command": "systemctl show qeli -p MainPID --value; pgrep -x qeli | sort -n; sha256sum /usr/bin/qeli",
+          "label": "original service",
+          "output": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli"
+        },
+        {
+          "command": "mktemp -d /var/tmp/qeli-mac-packager.XXXXXXXX",
+          "label": "allocate qualification root",
+          "output": "/var/tmp/qeli-mac-packager.AHcgFKWB"
+        },
+        {
+          "command": "sha256sum /var/tmp/qeli-mac-packager.AHcgFKWB/source.tar",
+          "label": "source hash",
+          "output": "334b92480e1ae481578f3b837816fcb989a4c2501e4b991185fbaa82574ad315  /var/tmp/qeli-mac-packager.AHcgFKWB/source.tar"
+        },
+        {
+          "command": "cd /var/tmp/qeli-mac-packager.AHcgFKWB && tar -xf source.tar",
+          "label": "extract units",
+          "output": ""
+        },
+        {
+          "command": "cd /var/tmp/qeli-mac-packager.AHcgFKWB/units && python3 -B -m unittest -v test_macos_packager.PackagerTests test_macos_universal.AssemblyTests",
+          "label": "23 Linux methods",
+          "output": "test_assembly_failure_closes_connection (test_macos_packager.PackagerTests.test_assembly_failure_closes_connection) ... ok\ntest_download_failure_closes_both_handles (test_macos_packager.PackagerTests.test_download_failure_closes_both_handles) ... ok\ntest_download_open_failure_closes_connection (test_macos_packager.PackagerTests.test_download_open_failure_closes_connection) ... ok\ntest_metadata_substitution_refuses_before_extraction (test_macos_packager.PackagerTests.test_metadata_substitution_refuses_before_extraction) ... ok\ntest_missing_local_input_refuses_before_connection (test_macos_packager.PackagerTests.test_missing_local_input_refuses_before_connection) ... ok\ntest_sftp_close_failure_still_closes_connection (test_macos_packager.PackagerTests.test_sftp_close_failure_still_closes_connection) ... ok\ntest_sftp_open_failure_closes_connection (test_macos_packager.PackagerTests.test_sftp_open_failure_closes_connection) ... ok\ntest_signer_version_failure_closes_connection (test_macos_packager.PackagerTests.test_signer_version_failure_closes_connection) ... ok\ntest_stale_native_in_tar_refuses_before_connection (test_macos_packager.PackagerTests.test_stale_native_in_tar_refuses_before_connection) ... ok\ntest_success_downloads_verified_output_and_closes_handles (test_macos_packager.PackagerTests.test_success_downloads_verified_output_and_closes_handles) ... ok\ntest_traversing_tar_refuses_before_connection (test_macos_packager.PackagerTests.test_traversing_tar_refuses_before_connection) ... ok\ntest_two_runs_upload_to_separate_private_workspaces (test_macos_packager.PackagerTests.test_two_runs_upload_to_separate_private_workspaces) ... ok\ntest_upload_failure_closes_both_handles (test_macos_packager.PackagerTests.test_upload_failure_closes_both_handles) ... ok\ntest_upload_sha_failure_closes_both_handles (test_macos_packager.PackagerTests.test_upload_sha_failure_closes_both_handles) ... ok\ntest_already_universal_apphost_is_copied (test_macos_universal.AssemblyTests.test_already_universal_apphost_is_copied) ... ok\ntest_fat_file_without_x64_slice_is_refused (test_macos_universal.AssemblyTests.test_fat_file_without_x64_slice_is_refused) ... ok\ntest_lipo_failure_is_not_replaced_with_arm64 (test_macos_universal.AssemblyTests.test_lipo_failure_is_not_replaced_with_arm64) ... ok\ntest_merges_paired_thin_binary_and_preserves_fat_core (test_macos_universal.AssemblyTests.test_merges_paired_thin_binary_and_preserves_fat_core) ... ok\ntest_missing_required_native_core_is_refused (test_macos_universal.AssemblyTests.test_missing_required_native_core_is_refused) ... ok\ntest_missing_x64_partner_refuses_before_output_replacement (test_macos_universal.AssemblyTests.test_missing_x64_partner_refuses_before_output_replacement) ... ok\ntest_native_core_must_already_be_universal (test_macos_universal.AssemblyTests.test_native_core_must_already_be_universal) ... ok\ntest_successful_lipo_with_thin_output_is_refused (test_macos_universal.AssemblyTests.test_successful_lipo_with_thin_output_is_refused) ... ok\ntest_x64_only_macho_is_not_silently_omitted (test_macos_universal.AssemblyTests.test_x64_only_macho_is_not_silently_omitted) ... ok\n\n----------------------------------------------------------------------\nRan 23 tests in 0.070s\n\nOK\n[assemble] lipo=0 copy=3; all Mach-O arm64+x86_64\n[assemble] lipo=1 copy=2; all Mach-O arm64+x86_64"
+        },
+        {
+          "command": "/usr/bin/llvm-lipo-19 -create /var/tmp/qeli-mac-packager.AHcgFKWB/arm.bin /var/tmp/qeli-mac-packager.AHcgFKWB/x64.bin -output /var/tmp/qeli-mac-packager.AHcgFKWB/core.dylib",
+          "label": "actual LLVM fixture",
+          "output": ""
+        },
+        {
+          "command": "python3 -B -c 'from pathlib import Path;import json,hashlib;root=Path(__import__('\"'\"'sys'\"'\"').argv[1]);items=list(root.rglob('\"'\"'*'\"'\"'));assert not any(f.is_symlink() for f in items);print(json.dumps(dict(files={f.relative_to(root).as_posix():hashlib.sha256(f.read_bytes()).hexdigest() for f in items if f.is_file()},dirs=[f.relative_to(root).as_posix() for f in items if f.is_dir()])))' /var/tmp/qeli-mac-packager.AHcgFKWB",
+          "label": "owned inventory",
+          "output": "{\"files\": {\"controlled-rcodesign\": \"604d4fed98e1f1c69c6cdd2a3d0208ca4d9fd153f8c59ec35440291e772a7323\", \"x64.bin\": \"bc3453b219cc2be24610500cecccb0138e803dd7524dbafcbddd4c89ebf53efc\", \"source.tar\": \"334b92480e1ae481578f3b837816fcb989a4c2501e4b991185fbaa82574ad315\", \"sign-events.log\": \"b700e3a9fa9a3c9f6eba5c6db5de5a2cdc24108c802366f15058555476627e9c\", \"core.dylib\": \"0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4\", \"arm.bin\": \"79e4214b770ec982f202b553b1f70eaa9f1888135d7d4a341d378153fe193e6d\", \"units/native_repro.py\": \"23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c\", \"units/test_macos_universal.py\": \"db44dba03fa50d24137474f2d81c716a3290ef5e125ff271a56759cf2c0d3670\", \"units/build_mac_universal.py\": \"6f76140a6f9265a32f9ff0e3a2a64b973cbc857e024a0f866940c4f14fe20d9c\", \"units/native_lab.py\": \"da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0\", \"units/test_macos_packager.py\": \"a82d73d03d89ab0030dd7191d6606684b8a0700d899f1cb759cb434d5a53cd9b\", \"units/ssh_command.py\": \"ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b\"}, \"dirs\": [\"units\"]}"
+        },
+        {
+          "command": "python3 -B -c 'from pathlib import Path;import json,hashlib;root=Path(__import__('\"'\"'sys'\"'\"').argv[1]);items=list(root.rglob('\"'\"'*'\"'\"'));assert not any(f.is_symlink() for f in items);print(json.dumps(dict(files={f.relative_to(root).as_posix():hashlib.sha256(f.read_bytes()).hexdigest() for f in items if f.is_file()},dirs=[f.relative_to(root).as_posix() for f in items if f.is_dir()])))' /var/tmp/qeli-mac-build.5C8I0zV7",
+          "label": "owned inventory",
+          "output": "{\"files\": {\"assemble.py\": \"3d647d656d44fbc22850ada3be2af650ba00ff891ad39f978009fb2d561a7e8e\", \"Qeli-macOS-universal.zip\": \"52981e36c88fd175627c8e0d80a4731656778a1e9efd78a4499a01b8473236b8\", \"mkzip.py\": \"9c8dca34a077f2b85a59b693f0df97bbbdd9665c1b98698cd73cf32bbe6a1e18\", \"osx-x64.tar.gz\": \"67a9530e9f512b4ca661f78cbfbe24c109de162a2b515182c80804a15a1d5d31\", \"Qeli.icns\": \"026204acb1a508ed1a43e4113934ba514ad70944ea8e2d202d83190cc203ed2e\", \"Info.plist.in\": \"dae0332860b9b5d57abebbd10d58f6710af4204e16f17333409f134423279238\", \"sign_app.py\": \"476352935c01dd794e683e1e0220e4ce09e22713c6c83c2a8e07aa5626763c98\", \"osx-arm64.tar.gz\": \"7d4d655032622f632a9d5f5bb18d825b479907da26995c0a23c0e94358bac4ca\", \"osx-arm64/QeliMac\": \"79e4214b770ec982f202b553b1f70eaa9f1888135d7d4a341d378153fe193e6d\", \"osx-arm64/libqeli.dylib\": \"0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4\", \"osx-x64/QeliMac\": \"bc3453b219cc2be24610500cecccb0138e803dd7524dbafcbddd4c89ebf53efc\", \"osx-x64/libqeli.dylib\": \"0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4\", \"Qeli.app/Contents/Info.plist\": \"f490869970c9a3a827e30f3baeefb20dfef9a2374981b9f610d1cef796143484\", \"Qeli.app/Contents/Resources/Qeli.icns\": \"026204acb1a508ed1a43e4113934ba514ad70944ea8e2d202d83190cc203ed2e\", \"Qeli.app/Contents/MacOS/QeliMac\": \"0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4\", \"Qeli.app/Contents/MacOS/libqeli.dylib\": \"0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4\"}, \"dirs\": [\"osx-arm64\", \"Qeli.app\", \"osx-x64\", \"Qeli.app/Contents\", \"Qeli.app/Contents/Resources\", \"Qeli.app/Contents/MacOS\"]}"
+        },
+        {
+          "command": "python3 -B -c 'from pathlib import Path;import json,hashlib;root=Path(__import__('\"'\"'sys'\"'\"').argv[1]);items=list(root.rglob('\"'\"'*'\"'\"'));assert not any(f.is_symlink() for f in items);print(json.dumps(dict(files={f.relative_to(root).as_posix():hashlib.sha256(f.read_bytes()).hexdigest() for f in items if f.is_file()},dirs=[f.relative_to(root).as_posix() for f in items if f.is_dir()])))' /var/tmp/qeli-mac-build.mdORpzYH",
+          "label": "owned inventory",
+          "output": "{\"files\": {\"assemble.py\": \"3d647d656d44fbc22850ada3be2af650ba00ff891ad39f978009fb2d561a7e8e\", \"Qeli-macOS-universal.zip\": \"086b7ffbb86d9ebc6040b7692df8630fc009cc6cd699ec39fe72c1f1a00d49f1\", \"mkzip.py\": \"d0cce9e677f238c25010a9ec33558de65ae1e781203b8db90d61e11a7dc513b4\", \"osx-x64.tar.gz\": \"67a9530e9f512b4ca661f78cbfbe24c109de162a2b515182c80804a15a1d5d31\", \"Qeli.icns\": \"4ab566710594ca17413a77a0d13f00eb320270e7807adacfae943b582f6be48d\", \"Info.plist.in\": \"dae0332860b9b5d57abebbd10d58f6710af4204e16f17333409f134423279238\", \"sign_app.py\": \"476352935c01dd794e683e1e0220e4ce09e22713c6c83c2a8e07aa5626763c98\", \"osx-arm64.tar.gz\": \"7d4d655032622f632a9d5f5bb18d825b479907da26995c0a23c0e94358bac4ca\", \"osx-arm64/QeliMac\": \"79e4214b770ec982f202b553b1f70eaa9f1888135d7d4a341d378153fe193e6d\", \"osx-arm64/libqeli.dylib\": \"0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4\", \"osx-x64/QeliMac\": \"bc3453b219cc2be24610500cecccb0138e803dd7524dbafcbddd4c89ebf53efc\", \"osx-x64/libqeli.dylib\": \"0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4\", \"Qeli.app/Contents/Info.plist\": \"f490869970c9a3a827e30f3baeefb20dfef9a2374981b9f610d1cef796143484\", \"Qeli.app/Contents/Resources/Qeli.icns\": \"4ab566710594ca17413a77a0d13f00eb320270e7807adacfae943b582f6be48d\", \"Qeli.app/Contents/MacOS/QeliMac\": \"0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4\", \"Qeli.app/Contents/MacOS/libqeli.dylib\": \"0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4\"}, \"dirs\": [\"osx-arm64\", \"Qeli.app\", \"osx-x64\", \"Qeli.app/Contents\", \"Qeli.app/Contents/Resources\", \"Qeli.app/Contents/MacOS\"]}"
+        },
+        {
+          "command": "python3 -B -c 'from pathlib import Path;import json,hashlib;root=Path(__import__('\"'\"'sys'\"'\"').argv[1]);items=list(root.rglob('\"'\"'*'\"'\"'));assert not any(f.is_symlink() for f in items);print(json.dumps(dict(files={f.relative_to(root).as_posix():hashlib.sha256(f.read_bytes()).hexdigest() for f in items if f.is_file()},dirs=[f.relative_to(root).as_posix() for f in items if f.is_dir()])))' /var/tmp/qeli-mac-build.5gFIItV3",
+          "label": "owned inventory",
+          "output": "{\"files\": {\"osx-x64.tar.gz\": \"67a9530e9f512b4ca661f78cbfbe24c109de162a2b515182c80804a15a1d5d31\", \"Qeli.icns\": \"08ad4f83b09551615fb9bca84c9a976f902db02a2e3ac5a0d90cf2f871a3901e\", \"Info.plist.in\": \"dae0332860b9b5d57abebbd10d58f6710af4204e16f17333409f134423279238\", \"osx-arm64.tar.gz\": \"7d4d655032622f632a9d5f5bb18d825b479907da26995c0a23c0e94358bac4ca\"}, \"dirs\": []}"
+        },
+        {
+          "command": "python3 -B - <<'CLEANUP'\nfrom pathlib import Path\nimport os,re,hashlib,json\ninventories=[{'root': '/var/tmp/qeli-mac-packager.AHcgFKWB', 'files': {'controlled-rcodesign': '604d4fed98e1f1c69c6cdd2a3d0208ca4d9fd153f8c59ec35440291e772a7323', 'x64.bin': 'bc3453b219cc2be24610500cecccb0138e803dd7524dbafcbddd4c89ebf53efc', 'source.tar': '334b92480e1ae481578f3b837816fcb989a4c2501e4b991185fbaa82574ad315', 'sign-events.log': 'b700e3a9fa9a3c9f6eba5c6db5de5a2cdc24108c802366f15058555476627e9c', 'core.dylib': '0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4', 'arm.bin': '79e4214b770ec982f202b553b1f70eaa9f1888135d7d4a341d378153fe193e6d', 'units/native_repro.py': '23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c', 'units/test_macos_universal.py': 'db44dba03fa50d24137474f2d81c716a3290ef5e125ff271a56759cf2c0d3670', 'units/build_mac_universal.py': '6f76140a6f9265a32f9ff0e3a2a64b973cbc857e024a0f866940c4f14fe20d9c', 'units/native_lab.py': 'da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0', 'units/test_macos_packager.py': 'a82d73d03d89ab0030dd7191d6606684b8a0700d899f1cb759cb434d5a53cd9b', 'units/ssh_command.py': 'ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b'}, 'dirs': ['units']}, {'root': '/var/tmp/qeli-mac-build.5C8I0zV7', 'files': {'assemble.py': '3d647d656d44fbc22850ada3be2af650ba00ff891ad39f978009fb2d561a7e8e', 'Qeli-macOS-universal.zip': '52981e36c88fd175627c8e0d80a4731656778a1e9efd78a4499a01b8473236b8', 'mkzip.py': '9c8dca34a077f2b85a59b693f0df97bbbdd9665c1b98698cd73cf32bbe6a1e18', 'osx-x64.tar.gz': '67a9530e9f512b4ca661f78cbfbe24c109de162a2b515182c80804a15a1d5d31', 'Qeli.icns': '026204acb1a508ed1a43e4113934ba514ad70944ea8e2d202d83190cc203ed2e', 'Info.plist.in': 'dae0332860b9b5d57abebbd10d58f6710af4204e16f17333409f134423279238', 'sign_app.py': '476352935c01dd794e683e1e0220e4ce09e22713c6c83c2a8e07aa5626763c98', 'osx-arm64.tar.gz': '7d4d655032622f632a9d5f5bb18d825b479907da26995c0a23c0e94358bac4ca', 'osx-arm64/QeliMac': '79e4214b770ec982f202b553b1f70eaa9f1888135d7d4a341d378153fe193e6d', 'osx-arm64/libqeli.dylib': '0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4', 'osx-x64/QeliMac': 'bc3453b219cc2be24610500cecccb0138e803dd7524dbafcbddd4c89ebf53efc', 'osx-x64/libqeli.dylib': '0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4', 'Qeli.app/Contents/Info.plist': 'f490869970c9a3a827e30f3baeefb20dfef9a2374981b9f610d1cef796143484', 'Qeli.app/Contents/Resources/Qeli.icns': '026204acb1a508ed1a43e4113934ba514ad70944ea8e2d202d83190cc203ed2e', 'Qeli.app/Contents/MacOS/QeliMac': '0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4', 'Qeli.app/Contents/MacOS/libqeli.dylib': '0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4'}, 'dirs': ['osx-arm64', 'Qeli.app', 'osx-x64', 'Qeli.app/Contents', 'Qeli.app/Contents/Resources', 'Qeli.app/Contents/MacOS']}, {'root': '/var/tmp/qeli-mac-build.mdORpzYH', 'files': {'assemble.py': '3d647d656d44fbc22850ada3be2af650ba00ff891ad39f978009fb2d561a7e8e', 'Qeli-macOS-universal.zip': '086b7ffbb86d9ebc6040b7692df8630fc009cc6cd699ec39fe72c1f1a00d49f1', 'mkzip.py': 'd0cce9e677f238c25010a9ec33558de65ae1e781203b8db90d61e11a7dc513b4', 'osx-x64.tar.gz': '67a9530e9f512b4ca661f78cbfbe24c109de162a2b515182c80804a15a1d5d31', 'Qeli.icns': '4ab566710594ca17413a77a0d13f00eb320270e7807adacfae943b582f6be48d', 'Info.plist.in': 'dae0332860b9b5d57abebbd10d58f6710af4204e16f17333409f134423279238', 'sign_app.py': '476352935c01dd794e683e1e0220e4ce09e22713c6c83c2a8e07aa5626763c98', 'osx-arm64.tar.gz': '7d4d655032622f632a9d5f5bb18d825b479907da26995c0a23c0e94358bac4ca', 'osx-arm64/QeliMac': '79e4214b770ec982f202b553b1f70eaa9f1888135d7d4a341d378153fe193e6d', 'osx-arm64/libqeli.dylib': '0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4', 'osx-x64/QeliMac': 'bc3453b219cc2be24610500cecccb0138e803dd7524dbafcbddd4c89ebf53efc', 'osx-x64/libqeli.dylib': '0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4', 'Qeli.app/Contents/Info.plist': 'f490869970c9a3a827e30f3baeefb20dfef9a2374981b9f610d1cef796143484', 'Qeli.app/Contents/Resources/Qeli.icns': '4ab566710594ca17413a77a0d13f00eb320270e7807adacfae943b582f6be48d', 'Qeli.app/Contents/MacOS/QeliMac': '0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4', 'Qeli.app/Contents/MacOS/libqeli.dylib': '0d2d6fad020c44c4b46ed6ce68e13986e51000fb16ad2f70eea4c9c397b855d4'}, 'dirs': ['osx-arm64', 'Qeli.app', 'osx-x64', 'Qeli.app/Contents', 'Qeli.app/Contents/Resources', 'Qeli.app/Contents/MacOS']}, {'root': '/var/tmp/qeli-mac-build.5gFIItV3', 'files': {'osx-x64.tar.gz': '67a9530e9f512b4ca661f78cbfbe24c109de162a2b515182c80804a15a1d5d31', 'Qeli.icns': '08ad4f83b09551615fb9bca84c9a976f902db02a2e3ac5a0d90cf2f871a3901e', 'Info.plist.in': 'dae0332860b9b5d57abebbd10d58f6710af4204e16f17333409f134423279238', 'osx-arm64.tar.gz': '7d4d655032622f632a9d5f5bb18d825b479907da26995c0a23c0e94358bac4ca'}, 'dirs': []}]\nfor inv in inventories:\n root=Path(inv['root'])\n assert root.resolve()==root and root.parent==Path('/var/tmp') and re.fullmatch(r'qeli-mac-(packager|build)\\.[A-Za-z0-9]{8}',root.name)\n items=list(root.rglob('*'));assert not any(f.is_symlink() for f in items)\n assert {f.relative_to(root).as_posix() for f in items if f.is_file()}==set(inv['files'])\n assert {f.relative_to(root).as_posix() for f in items if f.is_dir()}==set(inv['dirs'])\n for name,digest in inv['files'].items():assert hashlib.sha256((root/name).read_bytes()).hexdigest()==digest\n for proc in Path('/proc').iterdir():\n  if not proc.name.isdigit() or proc.name==str(os.getpid()):continue\n  targets=[proc/'cwd',proc/'exe',proc/'root']\n  try:targets+=list((proc/'fd').iterdir())\n  except (FileNotFoundError,PermissionError):pass\n  for link in targets:\n   try:value=os.readlink(link)\n   except (OSError,PermissionError):continue\n   assert value!=str(root) and not value.startswith(str(root)+'/'),(proc,link)\n assert str(root) not in Path('/proc/self/mountinfo').read_text()\nfor inv in inventories:\n root=Path(inv['root'])\n for name in inv['files']:(root/name).unlink()\n for name in sorted(inv['dirs'],key=lambda x:len(Path(x).parts),reverse=True):(root/name).rmdir()\n root.rmdir()\nprint(json.dumps(dict(status='PASS_SHA_RECOVERED_KNOWN_FILES_CLEANUP',roots=len(inventories),files=sum(len(x['files']) for x in inventories))))\n\nCLEANUP",
+          "label": "guarded owned cleanup",
+          "output": "{\"status\": \"PASS_SHA_RECOVERED_KNOWN_FILES_CLEANUP\", \"roots\": 4, \"files\": 48}"
+        },
+        {
+          "command": "systemctl show qeli -p MainPID --value; pgrep -x qeli | sort -n; sha256sum /usr/bin/qeli",
+          "label": "original service after",
+          "output": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli"
+        }
+      ],
+      "scope": "Actual packaging/network orchestrator with minimal LLVM Mach-O headers and controlled signing tool. No full .NET payload, cryptographic signing or Mac runtime. .10 unused."
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "native-libs/README.md",
+        "qeli-mac/README.md",
+        "scripts/build_mac_universal.py",
+        "scripts/test_macos_packager.py",
+        "scripts/test_native_recipes.py"
+      ],
+      "removed_paths": [],
+      "qualified_paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "5c24438fa69c050b5d1fbed9c30bbab1c9e2a1305eb10776868389526fcde987",
+          "normalization": "LF"
+        },
+        {
+          "path": "native-libs/README.md",
+          "sha256": "56b83a2f5792e57c7b314e82366e54a58781246d287030efbc4ae88c2c123118",
+          "normalization": "LF"
+        },
+        {
+          "path": "qeli-mac/README.md",
+          "sha256": "9b035a3ccdff89103d4d20bdb7aeace706ddb37d053874c655d0440f5eb53f59",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/build_mac_universal.py",
+          "sha256": "6f76140a6f9265a32f9ff0e3a2a64b973cbc857e024a0f866940c4f14fe20d9c",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_macos_packager.py",
+          "sha256": "a82d73d03d89ab0030dd7191d6606684b8a0700d899f1cb759cb434d5a53cd9b",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_native_recipes.py",
+          "sha256": "9b69f5ad391f93830c15ac4ae2edfabb1428b63ca2d873b54fdde3e9b2e21925",
+          "normalization": "LF"
+        }
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    },
+    "retained_harness_failure": {
+      "status": "RETAINED_NOT_PRODUCT_FAILURE",
+      "initial_enospc": "14 baseline errors in setUp before product checks. Log could not be saved on full disk; tool output remains in chat. Repeat baseline14/12expectedfailures retained.",
+      "shell_wildcard_assertion": "Initial final14methods failed1 harness assertion matching embedded Python rglob. Restrict to first shell line; original initial-shell-wildcard-assertion.log retained.72Windows PASS.",
+      "approval_review": "HTTP403 service error before execution, later approved execution passed.",
+      "disk_policy": "No SDK/native/app rebuild; small fixtures only; all original72 nupkg archives retained; exact SHA cleanup receipts retained."
+    }
+  },
+  "raw_packet": {
+    "name": "q34-mac-isolation-20261009",
+    "files": 42,
+    "bytes": 1477945,
+    "manifest_sha256": "c9e0e144657b4029f2e1b01ee959154a4a1e6249a6d17a2a761a2a4d3083085d",
+    "runtime_status": "PASS_Q34_MAC_PACKAGER_ISOLATION_SCOPED",
+    "path": "audit-debt-20260924/q34-mac-isolation-20261009",
+    "status": "SEALED"
+  },
+  "scope": "F499/Q34-F053 leaked SSH/SFTP handles and F500/Q34-F054 shared macOS workspace/input admission closed. Old exact source14methods12expectedfailures2positive, controlled SSH and real TAR/files. Finally closes every acquired handle including upload/download/version/assembly/SFTP-close errors. Per-run mktemp root replaces old shared workspace/cache; old directories untouched. Pre-SSH safe unique TAR paths, ordinary file/directory types, mandatory host/core and both payload canonical dylib SHA; TAR changed during admission refuses. All4inputs including metadata/icon remotely SHA checked before extraction. Explicit root for assembly/signing/ZIP, existing atomic SHA pull retained. Remote diagnostic roots retained by product; local same-checkout ZIP remains last-success-wins, separate checkout/output documented.72Windows14packager9assembly38native11workflowPASS,4actionlintPASS,23Linux methodsPASS and3actual main SSH/SFTP trials:2successful isolated roots +corrupt icon refusal before tar, unchanged prior localZIP, allhandlesclosed. Genuine tar/LLVM19/ZIP/SHA/download, controlled signing/synthetic MachOheaders, no full.NET/cryptographic signature/Mac runtime.6committedsource modules/TAR SHA verified;4ownlabroots48knownfiles backed up then exactset/SHA/process/fd/mount cleaned, service777/845CLI75bc unchanged,.10unused.724Markdown9checksPASS. FirstbaselineENOSPC setUp errors before product and incorrect embeddedrglob wildcard assertion retained as harness/environment failures; repeated substantivebaseline/finalPASS. HTTP403reviewservice errors occurred before execution; laterapproved run succeeds. OwnoldNuGet72archives216files391161706bytes retained;2718expandedcopies1067432869bytes and72HTTPexactduplicates391142266bytes removed afterSHA/exactset/path/processguards; sharedcaches/SEALED/originals retained, restorebeforeofflinepublish. NoSDK/native/apprebuild;newpacket~1.5MB. Native14SHA/e3fbdigest/qelitree/protected/OpenWrt cut unchanged, prior execution inherited.41cases99prior supplements preservedmodulosourcedigestbookkeeping;append100. Q34IN_PROGRESS30/37DONE81.1percent7remain; previousopen/accepted/USER_EXCLUDED retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE",
+  "inherited_prior_post_seal_note": {
+    "path": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-mac-universal-post-seal-note.json",
+    "sha256": "33b984d7eb151435a557fd2274689a7c694da7923e45f1bb5d9f38417f611580",
+    "scope": "Current immutable seal retained after docs pathspec/ENOSPC refusals; exact archive-backed own scratch recovery and resumed docs commit"
+  }
+}

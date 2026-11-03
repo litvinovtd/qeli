@@ -1,8 +1,8 @@
 name: docker-publish
 
 # Build the multi-arch qeli image (both roles, all deps) and publish it to GHCR
-# on every release tag, so `ghcr.io/<owner>/qeli:latest` always tracks the latest
-# release. Manual runs (workflow_dispatch) build from the selected branch/tag.
+# on release tags. Only the highest stable Git version may update `latest`.
+# Manual runs (workflow_dispatch) build from the selected branch/tag.
 #
 # Result: users never rebuild — `docker pull ghcr.io/litvinovtd/qeli:latest`.
 # The Dockerfile itself is version-agnostic (it builds whatever source is checked
@@ -15,21 +15,48 @@ on:
 
 permissions:
   contents: read
+  actions: read            # exact-commit CI admission before release publication
   packages: write           # push to GHCR with the automatic GITHUB_TOKEN
   id-token: write           # OIDC token for the signed build attestation (R-02)
   attestations: write       # record the attestation against this repo (R-02)
+
+# Serialize publication across refs; per-ref groups would still race on latest.
+# GitHub may replace a pending run; an executing publication is never cancelled.
+concurrency:
+  group: docker-publish
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Validate publication ref
+        id: ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/docker_publish_ref.py --require-published-stable
+
+      - name: Admit release tag, runtime certification and exact-commit CI
+        if: steps.ref.outputs.release_tag == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # A tag starts CI and publication together. Wait for that exact CI;
+        # failed/missing/mismatched CI still refuses before login or image push.
+        run: python3 scripts/release_tag.py --tag "$GITHUB_REF_NAME" --require-ci --wait-ci 1800 --require-certification
+
+      - name: Validate native legal resources before Docker publication
+        run: python3 scripts/native_licenses.py
 
       # QEMU lets the single amd64 runner build the arm images (emulated). A Rust
       # compile under emulation is slow — a release build of all three arches can
       # take a while; trim `platforms` below if you only need some.
-      - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
@@ -37,25 +64,43 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Derive tags from the git ref: the semver version (from a v* tag) + `latest`.
+      # Keep version/SHA tags; latest requires the highest stable Git version.
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
           tags: |
-            type=semver,pattern={{version}}
-            # `latest` only for a real release tag — never a pre-release (v1.2.3-rc1),
-            # so an RC can never clobber the tag users pull by default.
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}},enable=${{ steps.ref.outputs.release_tag }}
+            type=sha,format=long
+            # Old stable versions, branches and RCs cannot overwrite latest.
+            # Numeric comparison is independent of workflow queue ordering.
+            type=raw,value=latest,enable=${{ steps.ref.outputs.latest_release }}
+
+      # Publish immutable/version tags first; latest stays unchanged until checks pass.
+      - name: Exclude latest from the initial image push
+        id: version_tags
+        env:
+          METADATA_TAGS: ${{ steps.meta.outputs.tags }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tags=$(printf '%s\n' "$METADATA_TAGS" | grep -v ':latest$')
+          test -n "$tags"
+          {
+            echo 'tags<<QELI_IMAGE_TAGS'
+            printf '%s\n' "$tags"
+            echo 'QELI_IMAGE_TAGS'
+          } >> "$GITHUB_OUTPUT"
 
       - id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .                              # repo root (the build context)
           file: release/docker/Dockerfile
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.version_tags.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true                        # BuildKit inline SLSA provenance
           sbom: true                              # SPDX SBOM attached to the image (R-02)
@@ -63,6 +108,39 @@ jobs:
           # scratch under QEMU for every arch.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Run exact published image on all three architectures
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          METADATA_VERSION: ${{ steps.meta.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_version=$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("qeli/Cargo.toml").read_text())["package"]["version"])')
+          expected_source=$(git rev-parse HEAD)
+          docker buildx imagetools inspect "$IMAGE@$DIGEST" --raw > "$RUNNER_TEMP/image-index.json"
+          for platform in linux/amd64 linux/arm64 linux/arm/v7; do
+            # Classic Docker stores cannot pull multiple platforms under one index digest.
+            child=$(PLATFORM="$platform" python3 - <<'PY'
+          import json,os,pathlib
+          expected=dict(zip(('os','architecture','variant'),os.environ['PLATFORM'].split('/')))
+          index=json.loads(pathlib.Path(os.environ['RUNNER_TEMP'],'image-index.json').read_text())
+          matches=[m['digest'] for m in index['manifests'] if all(m.get('platform',{}).get(k)==v for k,v in expected.items())]
+          assert len(matches)==1, (expected,matches)
+          print(matches[0])
+          PY
+            )
+            platform_image="$IMAGE@$child"
+            echo "Checking $platform at $child"
+            version=$(docker run --rm --platform "$platform" --entrypoint /usr/local/bin/qeli "$platform_image" --version)
+            test "$version" = "qeli $expected_version"
+            test "$(docker image inspect "$platform_image" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "$METADATA_VERSION"
+            test "$(docker image inspect "$platform_image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$expected_source"
+            docker run --rm --platform "$platform" --entrypoint /usr/local/bin/qeli "$platform_image" licenses --file rust/Qeli-AGPL-3.0.txt > "$RUNNER_TEMP/container-license.txt"
+            cmp qeli/third-party-notices/rust/Qeli-AGPL-3.0.txt "$RUNNER_TEMP/container-license.txt"
+            docker run --rm --platform "$platform" --entrypoint /bin/sh "$platform_image" -ec 'test -x /usr/local/bin/entrypoint.sh; command -v ip; command -v iptables; test -s /usr/share/qeli/server.conf.example; test -s /usr/share/qeli/client.conf.example'
+          done
 
       # A SIGNED, INDEPENDENTLY VERIFIABLE attestation on top of BuildKit's inline
       # provenance. The inline one travels inside the image and is only as trustworthy as
@@ -78,3 +156,15 @@ jobs:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+      - name: Promote verified latest
+        if: steps.ref.outputs.latest_release == 'true'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$DIGEST"
+          actual=$(docker buildx imagetools inspect "$IMAGE:latest" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          test "$actual" = "$DIGEST"

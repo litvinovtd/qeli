@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS_ACTUAL_TCP100_QUIC100_PRIVATE_RUNNERS",
+  "source_digest": "995e690e5c7885dd93eb94cf6b8a5847eb540429ac6dde001b7ae2519e854357",
+  "qualification_source_commit": "4338b96d47bea421a1bdd586ecd752a5fc100fcc",
+  "product_source_commit": "4338b96d47bea421a1bdd586ecd752a5fc100fcc",
+  "verification_id": "Q35-V001",
+  "findings_closed": [],
+  "verification": {
+    "elapsed_seconds": 440.95168549299706,
+    "started": {
+      "started": 1791595975.7811363,
+      "monotonic": 738316.579802242
+    },
+    "finished": {
+      "finished": 1791596416.7328217,
+      "monotonic": 738757.531487735,
+      "return_code": 0
+    },
+    "assertions": 33,
+    "tcp_assertions": 16,
+    "quic_assertions": 17,
+    "iterations_per_transport": 100,
+    "sample_every": 10,
+    "resources": [
+      "  RESOURCE baseline transport=tcp client_pid=182 server_pid=84 client_rss_kib=50192 server_rss_kib=58520 client_fd=18 server_fd=21 client_sockets=6 server_sockets=7",
+      "  RESOURCE final transport=tcp client_rss_kib=52556 server_rss_kib=63184 client_rss_delta_kib=2364 server_rss_delta_kib=4664 client_rss_peak_delta_kib=2660 server_rss_peak_delta_kib=4664 client_fd=18 server_fd=21 client_sockets=6 server_sockets=7",
+      "  RESOURCE baseline transport=udp client_pid=194 server_pid=96 client_rss_kib=56324 server_rss_kib=66560 client_fd=18 server_fd=21 client_sockets=6 server_sockets=7",
+      "  RESOURCE final transport=udp client_rss_kib=56932 server_rss_kib=73932 client_rss_delta_kib=608 server_rss_delta_kib=7372 client_rss_peak_delta_kib=3232 server_rss_peak_delta_kib=8924 client_fd=19 server_fd=21 client_sockets=7 server_sockets=7"
+    ],
+    "progress": [
+      "  TCP soak progress 10/100 target=qrm-a server_worker_pid=84 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=50484 server_rss_kib=61864 orphans=0 orphan_bytes=0",
+      "  TCP soak progress 20/100 target=qrm-a server_worker_pid=84 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=50484 server_rss_kib=61880 orphans=0 orphan_bytes=0",
+      "  TCP soak progress 30/100 target=qrm-a server_worker_pid=84 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=50484 server_rss_kib=61888 orphans=0 orphan_bytes=0",
+      "  TCP soak progress 40/100 target=qrm-a server_worker_pid=84 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=50484 server_rss_kib=62100 orphans=0 orphan_bytes=0",
+      "  TCP soak progress 50/100 target=qrm-a server_worker_pid=84 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=50484 server_rss_kib=63152 orphans=0 orphan_bytes=0",
+      "  TCP soak progress 60/100 target=qrm-a server_worker_pid=84 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=52852 server_rss_kib=63152 orphans=0 orphan_bytes=0",
+      "  TCP soak progress 70/100 target=qrm-a server_worker_pid=84 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=52852 server_rss_kib=63152 orphans=0 orphan_bytes=0",
+      "  TCP soak progress 80/100 target=qrm-a server_worker_pid=84 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=52852 server_rss_kib=63152 orphans=0 orphan_bytes=0",
+      "  TCP soak progress 90/100 target=qrm-a server_worker_pid=84 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=52852 server_rss_kib=63176 orphans=0 orphan_bytes=0",
+      "  TCP soak progress 100/100 target=qrm-a server_worker_pid=84 client_fd=18 server_fd=21 client_sockets_max=6 server_sockets_max=7 client_rss_kib=52852 server_rss_kib=63184 orphans=0 orphan_bytes=0",
+      "  soak progress 10/100 target=qru-a server_worker_pid=96 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=56324 server_rss_kib=66724 candidates=0 cid_aliases=3",
+      "  soak progress 20/100 target=qru-a server_worker_pid=96 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=56324 server_rss_kib=70856 candidates=0 cid_aliases=3",
+      "  soak progress 30/100 target=qru-a server_worker_pid=96 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=56324 server_rss_kib=70864 candidates=0 cid_aliases=3",
+      "  soak progress 40/100 target=qru-a server_worker_pid=96 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=56324 server_rss_kib=74960 candidates=0 cid_aliases=3",
+      "  soak progress 50/100 target=qru-a server_worker_pid=96 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=56324 server_rss_kib=75428 candidates=0 cid_aliases=3",
+      "  soak progress 60/100 target=qru-a server_worker_pid=96 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=56324 server_rss_kib=75480 candidates=0 cid_aliases=3",
+      "  soak progress 70/100 target=qru-a server_worker_pid=96 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=59556 server_rss_kib=75484 candidates=0 cid_aliases=3",
+      "  soak progress 80/100 target=qru-a server_worker_pid=96 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=59556 server_rss_kib=75484 candidates=0 cid_aliases=3",
+      "  soak progress 90/100 target=qru-a server_worker_pid=96 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=59556 server_rss_kib=75484 candidates=0 cid_aliases=3",
+      "  soak progress 100/100 target=qru-a server_worker_pid=96 client_fd=19 server_fd=21 client_sockets_max=7 server_sockets_max=7 client_rss_kib=59556 server_rss_kib=75484 candidates=0 cid_aliases=3"
+    ],
+    "qualified_input_sha256": {
+      "scripts/roaming_android_sleep_wake_gate.py": "1146d19a20109516e3412026391b584489e32f3283901b3fc27dd045b00c631c",
+      "scripts/roaming_android_udp_grace_expiry_gate.py": "5ab15289688e7f45a4078f7c1a0783a0410b413e4139167de8490b7597d33a61",
+      "scripts/roaming_bonding_udp_probe.py": "422f61c4fe3eb6d162d6821dcfc11e768a3b0950ca225d941e40b0f8e9f514c0",
+      "scripts/roaming_control_stats.py": "cc7a454a07e6e92ae8b003a8a1fdc3088acb222328e8846549559236e3e55b57",
+      "scripts/roaming_exit_node_netns_e2e.sh": "55628b66c818cf93ef98502fa71ece8327299ab8ed3fd217b83ae18960691c07",
+      "scripts/roaming_exit_node_udp_all_modes_netns_e2e.sh": "ee7fcdcb061d6624407abe9c1e6aa3a155b213c8ab6dae2725f695686250000d",
+      "scripts/roaming_mixed_version_netns_e2e.sh": "88b9f2afd8d872b5fa33e4200e0a142756561ab670c6c82213393f018bbd2f97",
+      "scripts/roaming_netns_e2e.sh": "27e32b51a5eea36b0e91ece6d1e60a4f7a909326c6f7f42da150c99161728496",
+      "scripts/roaming_netns_isolation.sh": "307a7197418ac50da2565775b34b2c62af30d3e9ea71a7243381af0749358364",
+      "scripts/roaming_netns_supervisor.py": "480aef283101a434cc7de0885873e7184463fc1b25cab45b623464b746c13ed8",
+      "scripts/roaming_process_probe.sh": "38f937792c40e8112da4f51163d664708757bb1f3b6292cd7092fc695a38c261",
+      "scripts/roaming_resource_release_gate.sh": "9d976819505b02d4a8ed702bd8b3ac0f18e909e05170c1ef35a2410d56a78d5d",
+      "scripts/roaming_soak_parameters.sh": "e044320fe7ea072ad617e1aecf0f611263144702287310de20067201ae9ed14c",
+      "scripts/roaming_tcp_all_modes_netns_e2e.sh": "9ef742fd7d0788718ce4ef9288583f4e364adeb40bc2fb06ea79fd5799ec223c",
+      "scripts/roaming_tcp_bonding_netns_case.sh": "fbff6d27cb11b791d7549db4ae5ce336dd5eb86203bbd0068ce00b4de85b384c",
+      "scripts/roaming_tcp_multinode_netns_case.sh": "fde68810a2dc9c56861c34bdfe34117debca095c603d7ad015593138f1d3f638",
+      "scripts/roaming_tcp_netns_perf_case.sh": "2a80fe5ee9acf7f11797f91e5781da173eb209dbdf354bea2c83a2da37dc85d5",
+      "scripts/roaming_tcp_netns_soak_case.sh": "d1f5cd01419e6994f941503454321d5166c0ef2ba5f9d5a9786a9af66d405132",
+      "scripts/roaming_tcp_perf_netns_gate.sh": "e91a29d0d247159ec9d1634f20923a46cc6ffc7fbb14dd40d6020974db0443f9",
+      "scripts/roaming_tcp_resume_netns_case.sh": "c6b6d5404a6a8a4af876ddb4734118f7ba7d8610952124dcc977a917cf6ebc2c",
+      "scripts/roaming_tcp_starvation_netns_case.sh": "e44df32d5b2b573f0566def715ca0fbc1e27e71f08361717ed3c23e23233ea7b",
+      "scripts/roaming_udp_all_modes_netns_e2e.sh": "9a682b5440a8408c42468f95c8d3d68746606a17e1651e6c92ca6605057a0e9f",
+      "scripts/roaming_udp_netns_drain_case.sh": "8c8c200c707da4ce63a78b2d6f81944f09057cbbf0948240b19cea1dea6e3c6c",
+      "scripts/roaming_udp_netns_e2e.sh": "3bcb432ff22f0bebd8cd82e7caa4d52bd0d905521acc47d1a8f7b576bc909421",
+      "scripts/roaming_udp_netns_family_case.sh": "43b2103473ed6ebc1802c9a8a36cceb011d62c057e6c5ae1497029c09859e7a2",
+      "scripts/roaming_udp_netns_frag_loss_case.sh": "9f7152e353d529b0405c7aad6f4783ea712bd7be99f4e10a40549c5a275fa092",
+      "scripts/roaming_udp_netns_nat_rebind_case.sh": "02d944f79a14793dae022e95287f28fb8406398f9655be3a0104a5645115d95c",
+      "scripts/roaming_udp_netns_soak_case.sh": "8cc52e73832512bfa19341a74787512913f265ec1ee094d8a087b0daffd58016",
+      "scripts/roaming_udp_resource_soak_netns_gate.sh": "f405bb673345d2c7d74c0ade6fa5fbb1a88e540bb6c1f6cbffb79aba92c06242",
+      "scripts/linux_roaming_release_soak.sh": "b176ed09a53b68638c635452d86407458134b23c6f9181ebbc2178f58603e8ed",
+      "qeli": "98335046d0c16b2126b22334102011ecfaff8390e0a3b09be5e6c7df87104bc2",
+      "outer.sh": "8cceb35bda68a51a8638e180e22e8063e76c98bffbb24355841badc652db082d",
+      "inputs.tar": "89405cacf3923c8c8b4caccae701b0e6650d694250630cccd0e9a0034e977617"
+    },
+    "host_preserved": true,
+    "normalization": "Only builtin firewall packet/byte chain counters; raw snapshots/diff retained.",
+    "service_unchanged": true,
+    "service_receipt": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+    "cleanup": {
+      "status": "PASS_SHA_BACKED_EXACT_OWNED_CLEANUP",
+      "regular_files": 64,
+      "stale_sockets": 1,
+      "dirs": 6,
+      "root_absent": true
+    },
+    "source_binding": {
+      "status": "PASS_EXISTING_REAL_COMPILER_BUILD_REUSE",
+      "binary_sha256": "98335046d0c16b2126b22334102011ecfaff8390e0a3b09be5e6c7df87104bc2",
+      "source_commit": "3ed8d1fba97b154d357d7ba5f4b05704a52c3280",
+      "current_qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "compiler_inputs_byte_checked": 318,
+      "source_archive_sha256": "4e9718ca2bec0434796e1b97eb67eecbdde386f02af381ad281676bab3bd955c",
+      "sealed_original_manifest_sha256": "24bd8604eb638e667f9e14d871a7b4e2bc72340086f018050043898dde5d2799",
+      "scope": "Original full Docker release build reused; identical effective Docker compiler Cargo/src bytes; broader qeli tree differs only independent fuzz Cargo.lock/README, excluded by actual COPY recipe. No compiler/native rebuild; new launcher/VPN execution to follow."
+    }
+  },
+  "documentation_check": {
+    "status": "PASS",
+    "command": [
+      "python",
+      "-X",
+      "utf8",
+      "-B",
+      "scripts/check_docs.py"
+    ],
+    "return_code": 0,
+    "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+  },
+  "unchanged_inputs": {
+    "status": "PASS",
+    "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+    "native_artifacts": [
+      {
+        "path": "native-libs/android/arm64-v8a/libqeli.so",
+        "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+        "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+      },
+      {
+        "path": "native-libs/android/x86_64/libqeli.so",
+        "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+        "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+      },
+      {
+        "path": "native-libs/windows-x64/qeli.dll",
+        "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+      },
+      {
+        "path": "qeli-win/QeliWin/native/qeli.dll",
+        "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+      },
+      {
+        "path": "native-libs/macos-universal/libqeli.dylib",
+        "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+      },
+      {
+        "path": "qeli-mac/QeliMac/native/libqeli.dylib",
+        "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "qeli-win/QeliWin/wintun/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      }
+    ],
+    "protected_hashes": {
+      "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+      "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+    },
+    "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+    "openwrt_cut": "Existing qualified mirrorSHA9b4b unchanged; execution inherited",
+    "scope": "Native source digest14 artifacts/protected SHA/qeli tree/existing SDK cut SHA reverified. Existing core/native/42Linux/11Windows/actionlint4 qualification inherited on identical source; new actual TCP100/QUIC100 and9docs checks separately executed.",
+    "inherited_packet": "q35-isolation-20261010",
+    "new_builds": 0,
+    "free_disk_bytes": 14240780288
+  },
+  "raw_packet": {
+    "name": "q35-runtime-isolation-20261010",
+    "files": 68,
+    "bytes": 15738597,
+    "manifest_sha256": "02427686f08ea2ce22fcdfea86f3f52c5af979101d9d0a015ef93874a33722a2",
+    "runtime_status": "PASS_ACTUAL_TCP100_QUIC100_PRIVATE_RUNNERS",
+    "path": "audit-debt-20260924/q35-runtime-isolation-20261010",
+    "status": "SEALED"
+  },
+  "scope": "Q35-V001 actual current private runners execute TCPfake-tls100+QUIC100 same-session VPN with actual release Linux0.8.2 default server/client+jemalloc ELF98335046d0c16b2126b22334102011ecfaff8390e0a3b09be5e6c7df87104bc2.318effective Cargo/src compiler inputs byte-identical to currentGit; broader qeli differences only excluded independent fuzz lock/README. No new build/current Docker recipe execution claim. Independent outerNET/MNT/PID+480s budget; nested product isolation actual VPN complete440.951685s,exit0,16TCP+17QUIC assertions,20samples. Exactly100commits each end,original workers/TUN/single auth/connectivity/bypass;TCPorphans/grace/failure0,QUICcandidate0/CID3,restorefilter/leases. Sampled RSSpeakgrowth TCPclient2660/server4664,QUICclient3232/server8924KiB within32768. TCPfd18/21 stable;QUICclient18->19/server21;client sockets6->7stable afterfirstsample, no accumulation. SSHlaunch readtimeout occurred while job alive,no restart; independent polls/finished receipt;collector expectedlabel /single omission corrected beforecleanup,original preflights retained.64exactregular SHAcovered initial localTAR/generated backups,1stalesocket typedmetadata;proc/cwd/exe/fd/root/argv/mount guards beforeknownfileunlink/rmdir,absenceconfirmed. .11service777/845/CLI75bc,routes/links/firewall/sysctl/hosts/resolver/mounts preserved;onlybuiltin NAT49562:3886851->49574:3888375 packetbytecounters normalized,rawsnapshotsdiff retained. .10unused,no package/service changes.9docs/724Markdown checks PASS;nativee3fb14/protected/qelitree/SDKcutSHA reverified,oldcore/native/42Linux/11Windows/actionlint4 execution inherited.41cases105prior supplements preserved modulo source_digest,append106.73SEALEDmanifestanchors/newpayloadSHA checked,priorpayloads inherited. No10k/30min/8h/tasks/unsampledpeaks/otheradapters/throughput/hostedCI claim. No productimplementation change;Q34/Q35IN_PROGRESS,Q36TODO,30/37DONE81.1percent7remain;Q29SIGKILL/ENONET,Q30/Q31,F459,D06accepted/USER_EXCLUDED unchanged.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

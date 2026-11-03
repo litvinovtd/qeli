@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F338_F339_ROUTER_PIN_FLAG_POLICY_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T17:43:38.004934+00:00",
+  "base_commit": "4fe471311603ddd209de3e3b1e1490871edab3d1",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-router-toolchain-policy-20261006",
+  "raw_seal_sha256": "f07620694313d181a0bdd16ec10a6b9b18f98d74b48f10554fbdb413787a51cd",
+  "checks": [
+    {
+      "id": "router-build",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_router_build.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "router-build.log"
+    },
+    {
+      "id": "router-toolchain",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_router_toolchain.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "router-toolchain.log"
+    },
+    {
+      "id": "recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "recipes.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    },
+    {
+      "id": "diff-staged",
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff-staged.log"
+    },
+    {
+      "id": "helper-refactor-initial",
+      "exit_code": 1,
+      "log": "local-helper-refactor-initial.log",
+      "scope": "transient uncommitted removal of BIN caught and repaired before final qualification"
+    },
+    {
+      "id": "inventory-11-rust-stable",
+      "host": "10.66.116.11",
+      "exit_code": 0,
+      "log": "inventory-11-rust-stable.log",
+      "note": "read-only inventory"
+    },
+    {
+      "id": "inventory-11-default-rust",
+      "host": "10.66.116.11",
+      "exit_code": 0,
+      "log": "inventory-11-default-rust.log",
+      "note": "read-only inventory"
+    },
+    {
+      "id": "inventory-10-rust-stable",
+      "host": "10.66.116.10",
+      "exit_code": 0,
+      "log": "inventory-10-rust-stable.log",
+      "note": "read-only inventory"
+    },
+    {
+      "id": "inventory-10-default-rust",
+      "host": "10.66.116.10",
+      "exit_code": 0,
+      "log": "inventory-10-default-rust.log",
+      "note": "read-only inventory"
+    },
+    {
+      "id": "inventory-10-zig",
+      "host": "10.66.116.10",
+      "exit_code": 0,
+      "log": "inventory-10-zig.log",
+      "note": "read-only inventory"
+    },
+    {
+      "id": "inventory-10-zigbuild",
+      "host": "10.66.116.10",
+      "exit_code": 2,
+      "log": "inventory-10-zigbuild.log",
+      "note": "initial cargo subcommand --version unsupported, root executable CLI used in final policy"
+    },
+    {
+      "id": "inventory-10-zigbuild-executable",
+      "host": "10.66.116.10",
+      "exit_code": 0,
+      "log": "inventory-10-zigbuild-executable.log",
+      "note": "read-only inventory"
+    },
+    {
+      "id": "nightly-manifest",
+      "command": "sed -n '1,3p' /root/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/multirust-channel-manifest.toml",
+      "host": ".10",
+      "exit_code": 0,
+      "log": "inventory-10-nightly-manifest.log"
+    },
+    {
+      "id": "router-tests",
+      "host": ".11",
+      "command": "cd /var/tmp/qeli-q31-router-toolchain-policy-20261006 && python3 -m unittest discover -s scripts -p 'test_router*.py' -v",
+      "exit_code": 0,
+      "log": "router-tests.log"
+    },
+    {
+      "id": "actual-prefix-fixture",
+      "host": ".11",
+      "command": "cd /var/tmp/qeli-q31-router-toolchain-policy-20261006 && PATH=/root/.cargo/bin:$PATH PYTHONPATH=scripts python3 actual-prefix-fixture.py",
+      "exit_code": 0,
+      "log": "actual-prefix-fixture.log"
+    },
+    {
+      "id": "router-tests-before-compare-fix",
+      "exit_code": 0,
+      "log": "router-tests-final.log"
+    },
+    {
+      "id": "original-current-initial",
+      "exit_code": 1,
+      "log": "original-current.log",
+      "note": "test-only Paramiko import context unloaded policy module; preimport fixes shared mock identity"
+    },
+    {
+      "id": "router-tests-qualified",
+      "host": ".11",
+      "command": "cd /var/tmp/qeli-q31-router-toolchain-policy-20261006 && python3 -m unittest discover -s scripts -p 'test_router*.py' -v",
+      "exit_code": 0,
+      "log": "router-tests-qualified.log"
+    },
+    {
+      "id": "original-current-qualified",
+      "host": ".11",
+      "command": "cd /var/tmp/qeli-q31-router-toolchain-policy-20261006 && Q31_BASELINE=/var/tmp/qeli-q31-router-toolchain-policy-20261006/baseline PYTHONPATH=scripts python3 original-current.py",
+      "exit_code": 0,
+      "log": "original-current-qualified.log"
+    },
+    {
+      "id": "actual-prefix-fixture-qualified",
+      "host": ".11",
+      "command": "cd /var/tmp/qeli-q31-router-toolchain-policy-20261006 && PATH=/root/.cargo/bin:$PATH PYTHONPATH=scripts python3 actual-prefix-fixture.py",
+      "exit_code": 0,
+      "log": "actual-prefix-fixture-qualified.log"
+    }
+  ],
+  "findings": {
+    "F338": "Shared target/setup/build owner selects Rust1.97.0,nightly-2026-06-10 for MIPS,Zig0.13.0,cargo-zigbuild0.23.0;post-installer identities/std/rust-src verified;dead helper definitions and duplicate build_std removed.",
+    "F339": "Shared explicit pin/flag environment removes encoded/compiler overrides,sets recipe RUSTFLAGS,disables wrappers and retains MIPS linker soft-float; not full Cargo environment sanitization."
+  },
+  "qualification": {
+    "linux_router_tests": 52,
+    "breakdown": {
+      "helper": 12,
+      "toolchain": 10,
+      "artifact": 16,
+      "sync": 7,
+      "checkout": 7
+    },
+    "windows_helper_policy_tests": 22,
+    "recipes": 37,
+    "docs_bindings_diff": "PASS",
+    "old_current_model_records": 12,
+    "actual_host_prefix_records": [
+      {
+        "case": "baseline-ambient",
+        "command": "CARGO_TARGET_DIR=/var/tmp/qeli-router-keenetic-vUVnG2/target CARGO_INCREMENTAL=0 cargo build --locked --offline --jobs 1",
+        "build_exit": 0,
+        "result": "ambient;rustc 1.96.0 (ac68faa20 2026-05-25)",
+        "binary_sha256": "9fc23bc6d19b0987848cf6c1f8875122663b1ae1cee43ba1912704bc070263bd",
+        "encoded_flags": "--cfg<US>q31_ambient",
+        "ambient_RUSTFLAGS": "--q31-invalid-ambient-flags",
+        "scope": "actual tiny host Cargo/Rust build/run using shared prefix; not cargo-zigbuild, musl/cross, MIPS/nightly/Qeli compilation"
+      },
+      {
+        "case": "current-isolated",
+        "command": "env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' RUSTFLAGS='' CARGO_TARGET_DIR=/var/tmp/qeli-router-keenetic-LKbi0k/target CARGO_INCREMENTAL=0 cargo +1.97.0 build --locked --offline --jobs 1",
+        "build_exit": 0,
+        "result": "recipe;rustc 1.97.0 (2d8144b78 2026-07-07)",
+        "binary_sha256": "720b0bb3668faa036cdda02c7eab93efb9836f7d54686c99837ef10ddfd3e05a",
+        "encoded_flags": "--cfg<US>q31_ambient",
+        "ambient_RUSTFLAGS": "--q31-invalid-ambient-flags",
+        "scope": "actual tiny host Cargo/Rust build/run using shared prefix; not cargo-zigbuild, musl/cross, MIPS/nightly/Qeli compilation"
+      }
+    ],
+    "nightly_pin_basis": "read-only installed .10 manifest date2026-06-10; compiler commit dateJune9 is not archive date",
+    "supplied_exact_git_inputs": 14,
+    "unchanged_scoped_git_inputs": 1208,
+    "core_native_compile_inputs_artifacts_router_binaries_unchanged": true,
+    "fresh_qeli_ffi_release_cross_sdk_build": "NOT_RUN; compiled implementations unchanged, helper recipe policy changed",
+    "initial_failures": "unsupported cargo-subcommand version probe,transient uncommitted BIN removal,and test import module/mock identity error retained,repaired before final qualification"
+  },
+  "limitations": {
+    "runtime": "Router USER_EXCLUDED;helper SSH/compiler/setup are models,POSIX own dirs and tiny host Cargo/Rust actual;not Qeli/musl/cross/MIPS/nightly/firmware/SDK",
+    "build": "Pins not hermeticity/full ABI/ISA/A-B reproducibility; global Cargo config/PATH/profile vars/shared cache/tool installation/upload races remain",
+    "historical": "All41 original dates/artifacts/evidence/status/acceptance_basis unchanged;acceptance and older supplements retained;Q29 FAIL/ENONET,Q30 exclusions/drainOPEN,D06 retained",
+    "remaining": "Core/config generation,ABA,last-check replacement,firmware ordering,whole-bundle rollback OPEN",
+    "progress": "Q31 IN_PROGRESS28/37(75.7%),9remain,no whole checklist row closed",
+    "operations": ".10 inventory only;owned .11 host fixture execution;global tools/default/services/active binaries/network unchanged;no deploy/push"
+  }
+}

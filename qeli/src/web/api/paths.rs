@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 pub const ALLOWED_LOG_DIRS: &[&str] = &["/var/log/qeli"];
 pub const ALLOWED_CONFIG_DIRS: &[&str] = &["/etc/qeli"];
+pub const ALLOWED_TLS_DIRS: &[&str] = &["/etc/qeli", "/etc/letsencrypt"];
 
 /// Resolve `path` and ensure it points to a regular file inside one of `allowed`.
 /// Used for reading an existing log file or writing to an already-loaded config.
@@ -51,4 +52,19 @@ pub fn validate_path_field(path: &str, allowed: &[&str]) -> Result<(), String> {
         return Err(format!("must be inside one of {:?}: {}", allowed, path));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panel_tls_paths_include_lets_encrypt_without_widening_config_paths() {
+        let cert = "/etc/letsencrypt/live/vpn.example.com/fullchain.pem";
+        assert!(validate_path_field(cert, ALLOWED_TLS_DIRS).is_ok());
+        assert!(validate_path_field(cert, ALLOWED_CONFIG_DIRS).is_err());
+        assert!(validate_path_field("/etc/qeli/web-tls-key.pem", ALLOWED_TLS_DIRS).is_ok());
+        assert!(validate_path_field("/etc/letsencrypt/../shadow", ALLOWED_TLS_DIRS).is_err());
+        assert!(validate_path_field("/tmp/key.pem", ALLOWED_TLS_DIRS).is_err());
+    }
 }

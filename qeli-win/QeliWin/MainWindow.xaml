@@ -326,7 +326,14 @@
                     <Border Grid.Column="5" Background="{DynamicResource PanelBorder}" Margin="0,11"/>
                     <StackPanel Grid.Column="6" Margin="14,11">
                         <TextBlock x:Name="IpLabel" Style="{StaticResource TileLabel}"/>
-                        <TextBlock x:Name="IpVal" Text="—" Style="{StaticResource TileValue}" FontSize="15"/>
+                        <DockPanel>
+                            <Button x:Name="CopyIpv4" DockPanel.Dock="Right" Click="OnCopyIp" Content="⧉" ToolTip="{local:Loc CopyIpv4}" IsEnabled="False" Padding="3,0"/>
+                            <TextBlock x:Name="IpVal" Text="—" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                        </DockPanel>
+                        <DockPanel>
+                            <Button x:Name="CopyIpv6" DockPanel.Dock="Right" Click="OnCopyIp" Content="⧉" ToolTip="{local:Loc CopyIpv6}" IsEnabled="False" Padding="3,0"/>
+                            <TextBlock x:Name="Ip6Val" Text="—" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                        </DockPanel>
                         <TextBlock x:Name="IpSubVal" Text="" Style="{StaticResource TileSub}"/>
                     </StackPanel>
                 </Grid>
@@ -336,6 +343,17 @@
             <Border Grid.Row="2" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
                     BorderThickness="1" CornerRadius="12" Margin="0,14,0,0">
                 <DockPanel>
+                    <Grid DockPanel.Dock="Top" Height="64" Margin="14,8,14,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <Canvas x:Name="TrafficCanvas" Height="52" ClipToBounds="True">
+                            <Polyline x:Name="TrafficDown" Stroke="#269ACB" StrokeThickness="1.5"/>
+                            <Polyline x:Name="TrafficUp" Stroke="#E59A35" StrokeThickness="1.5"/>
+                        </Canvas>
+                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                            <TextBlock Text="{local:Loc TrafficLegend}" Foreground="{DynamicResource FgDim}" FontSize="10"/>
+                            <TextBlock x:Name="TrafficScale" Text="—" Foreground="{DynamicResource FgDim}" FontSize="10"/>
+                        </StackPanel>
+                    </Grid>
                     <!-- header: title (left), copy/clear + version + about (right) -->
                     <Grid DockPanel.Dock="Top" Height="36">
                         <Grid.ColumnDefinitions>

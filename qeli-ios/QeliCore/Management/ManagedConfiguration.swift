@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// Typed, side-effect-free view of legacy MDM managed app configuration.
@@ -48,13 +49,27 @@ struct ManagedConfigurationReader {
     }
 
     private static func boolean(_ value: Any?) -> Bool? {
-        if let value = value as? Bool { return value }
         guard let number = value as? NSNumber else { return nil }
-        return number.intValue == 0 ? false : number.intValue == 1 ? true : nil
+        if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue }
+        // Retain legacy numeric 0/1 compatibility without truncating fractions.
+        guard let value = integer(number), value == 0 || value == 1 else { return nil }
+        return value == 1
     }
 
     private static func integer(_ value: Any?) -> Int? {
-        if let value = value as? Int { return value }
-        return (value as? NSNumber)?.intValue
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue.isFinite else { return nil }
+        // Reject nonfinite input before Decimal conversion instead of relying on
+        // platform-specific parsing of NSNumber's string representation.
+        let decimal = NSDecimalNumber(
+            string: number.stringValue,
+            locale: Locale(identifier: "en_US_POSIX")
+        )
+        guard decimal != .notANumber,
+              decimal.compare(NSDecimalNumber(value: Int.min)) != .orderedAscending,
+              decimal.compare(NSDecimalNumber(value: Int.max)) != .orderedDescending else { return nil }
+        let integer = decimal.intValue
+        return decimal == NSDecimalNumber(value: integer) ? integer : nil
     }
 }

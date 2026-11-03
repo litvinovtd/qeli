@@ -2,6 +2,7 @@ using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
 using QeliMac.Model;
+using QeliMac.Service;
 using QeliMac.Vpn;
 using Qeli.Shared.Model;
 
@@ -22,6 +23,12 @@ public static class CliRunner
         return verb.ToLowerInvariant() switch
         {
             "selftest" => SelfTest(),
+            "control-selftest" => ControlSelfTest(),
+            "network-selftest" => NetworkSelfTest(),
+            "perapp-selftest" => PerAppSelfTest(),
+            "forwarding-selftest" => ForwardingSelfTest(),
+            "storage-selftest" => rest is ["--key-probe", var directory]
+                ? MacStorageSelfTest.RunKeyProbe(directory) : StorageSelfTest(),
             "pf-selftest-rules" => PfSelfTestRules(rest),
             "handshake" => Handshake(rest),
             "connect" => Connect(rest),
@@ -33,7 +40,7 @@ public static class CliRunner
 
     private static int Usage()
     {
-        Console.WriteLine("Usage: QeliMac [selftest | pf-selftest-rules <path> | handshake <link|ini|file> | connect <link|ini|file> [seconds] | genassets <dir> | genicns <out.icns>]");
+        Console.WriteLine("Usage: QeliMac [selftest | storage-selftest | control-selftest | network-selftest | perapp-selftest | forwarding-selftest | pf-selftest-rules <path> | handshake <link|ini|file> | connect <link|ini|file> [seconds] | genassets <dir> | genicns <out.icns>]");
         return 2;
     }
 
@@ -48,6 +55,65 @@ public static class CliRunner
         return 0;
     }
 
+    private static int ControlSelfTest()
+    {
+        int count = 0, failed = 0;
+        void Check(string name, bool ok)
+        {
+            count++; Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}"); if (!ok) failed++;
+        }
+        ServiceControlSelfTest.Run(Check);
+        Console.WriteLine($"MAC_CONTROL_CHECKS={count}; FAILED={failed}");
+        return failed == 0 ? 0 : 1;
+    }
+
+    private static int ForwardingSelfTest() {
+        int count = 0, failed = 0;
+        void Check(string name, bool ok) { count++; Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}"); if (!ok) failed++; }
+        MacForwardingSelfTest.Run(Check);
+        Console.WriteLine($"MAC_FORWARDING_CHECKS={count}; FAILED={failed}");
+        return failed == 0 ? 0 : 1;
+    }
+
+    private static int PerAppSelfTest()
+    {
+        int count = 0, failed = 0;
+        void Check(string name, bool ok) { count++; Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}"); if (!ok) failed++; }
+        MacPerAppSelfTest.Run(Check);
+        Console.WriteLine($"MAC_PERAPP_CHECKS={count}; FAILED={failed}");
+        return failed == 0 ? 0 : 1;
+    }
+
+    private static int NetworkSelfTest()
+    {
+        int count = 0, failed = 0;
+        void Check(string name, bool ok) { count++; Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}"); if (!ok) failed++; }
+        DnsJournal.RunSelfTests(Check);
+        NetworkConfigurator.RunRouteLifecycleSelfTest(Check);
+        NetworkConfigurator.RunRoamingRouteSelfTest(Check);
+        KillSwitch.RunSelfTests(Check);
+        MacRoamingSocket.RunSelfTest(Check);
+        VpnTunnel.RunRoamingCapabilitySelfTest(Check);
+        MacNetworkSelfTest.Run(Check);
+        Console.WriteLine($"MAC_NETWORK_CHECKS={count}; FAILED={failed}");
+        return failed == 0 ? 0 : 1;
+    }
+
+    private static int StorageSelfTest()
+    {
+        int count = 0, failed = 0;
+        void Check(string name, bool ok)
+        {
+            count++;
+            Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}");
+            if (!ok) failed++;
+        }
+        EncryptedEnvelope.RunSelfTests(Check);
+        MacStorageSelfTest.Run(Check);
+        Console.WriteLine($"MAC_STORAGE_CHECKS={count}; FAILED={failed}");
+        return failed == 0 ? 0 : 1;
+    }
+
     // ── platform self-test ──────────────────────────────────────────────────────
     private static int SelfTest()
     {
@@ -60,6 +126,11 @@ public static class CliRunner
 
         Console.WriteLine("qeli-mac platform self-test");
         EncryptedEnvelope.RunSelfTests(Check);
+        MacStorageSelfTest.Run(Check);
+        ServiceControlSelfTest.Run(Check);
+        MacNetworkSelfTest.Run(Check);
+        MacPerAppSelfTest.Run(Check);
+        MacForwardingSelfTest.Run(Check);
         DnsJournal.RunSelfTests(Check);
         NetworkConfigurator.RunRouteLifecycleSelfTest(Check);
         NetworkConfigurator.RunRoamingRouteSelfTest(Check);
@@ -83,10 +154,10 @@ public static class CliRunner
 
 
     // ── live handshake / connect ──────────────────────────────────────────────────
-    // Accepts a file path OR an inline config, in any format: flat-INI (current),
-    // an INI file/text or a qeli:// link. Retired formats are rejected by VpnConfig.Parse.
+    // Accepts a UTF-8 flat-INI file, inline INI or a qeli:// link.
+    // Retired config formats are rejected by the shared parser.
     private static VpnConfig LoadConfig(string arg) =>
-        VpnConfig.Parse(File.Exists(arg) ? File.ReadAllText(arg) : arg);
+        File.Exists(arg) ? VpnConfig.ParseFile(arg) : VpnConfig.Parse(arg);
 
     private static int Handshake(string[] rest)
     {

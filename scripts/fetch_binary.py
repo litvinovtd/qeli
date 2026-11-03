@@ -14,7 +14,7 @@ with (ROOT / "qeli" / "Cargo.toml").open("rb") as manifest:
     VERSION = tomllib.load(manifest)["package"]["version"]
 ARTIFACTS = {
     "/opt/qeli-src/target/x86_64-unknown-linux-gnu/release/qeli":
-        ROOT / "release" / "qeli-linux-amd64",
+        ROOT / "release" / "dist" / f"v{VERSION}" / "qeli-linux-amd64",
     f"/opt/qeli-src/debian/qeli_{VERSION}_amd64.deb":
         ROOT / "qeli" / "debian" / f"qeli_{VERSION}_amd64.deb",
 }

@@ -1,0 +1,4045 @@
+{
+  "schema": 1,
+  "date": "2026-10-21",
+  "base_head": "595309bd3ddd92d49de671c47e6a5248ab7d4719",
+  "qualification": "BOUNDED_LINUX_DIAGNOSTICS_NOT_DROP_FREE_RELEASE_QUALIFICATION",
+  "scope": {
+    "hosts": "two 2-vCPU/~2GiB Linux 6.12 VMs; build VM idle during traffic",
+    "tcp_clients": "1/8 separate Qeli processes/users/TUNs/network namespaces on one client VM, not eight physical devices",
+    "tcp": "IPv4 inner TCP, tcp-faketls/Recordizer required, 15s+3s warmup, added RTT 40/100 ms, ABBA two repeats",
+    "udp": "UDP-QUIC/Recordizer required; IPv4/IPv6 inner, MTU 1400, payload 1200, UDP receive handoff 128 per pump",
+    "observation": "TUN drops/CPU use half-second sampled endpoints including warmup; samples can miss boundary tails. iperf receiver loss excludes warmup. Counts are not interchangeable.",
+    "timing": "durations quantized to integer microseconds; queue peaks/counters are cumulative and concurrent",
+    "headroom": "one pass per manual qlen1000/2000 at900Mbit/s, pacing5/20ms; 20ms is an enlarged-burst stress control, not default traffic"
+  },
+  "binaries": {
+    "tcp": "242149fb3387c978070ea63784f1c2bad8d795a7374f5f49e6a38ff507be02e2",
+    "diagnostic": "e3e41939902ab66e13e6e41c93a7c3587c046d5859865bcfc039617e8c7aa54b",
+    "optimized": "947b7eccf86ec2811273c41188e46c8328e2a536569f046cc1910e84e2fc8c98"
+  },
+  "tcp": {
+    "windows": 32,
+    "summary": [
+      {
+        "clients": 1,
+        "added_rtt_ms": 40,
+        "direction": "upload",
+        "settings": {
+          "262144": {
+            "aggregate_mbps": [
+              34.28685253489642,
+              34.28737171555612
+            ],
+            "median_mbps": 34.28711212522627,
+            "retransmits": [
+              113,
+              111
+            ]
+          },
+          "0": {
+            "aggregate_mbps": [
+              413.19946626532516,
+              325.6843861695496
+            ],
+            "median_mbps": 369.4419262174374,
+            "retransmits": [
+              795,
+              529
+            ]
+          }
+        },
+        "ratio": 10.774950216516649
+      },
+      {
+        "clients": 1,
+        "added_rtt_ms": 40,
+        "direction": "download",
+        "settings": {
+          "262144": {
+            "aggregate_mbps": [
+              92.6944273814246,
+              93.1177142657515
+            ],
+            "median_mbps": 92.90607082358805,
+            "retransmits": [
+              1071,
+              187
+            ]
+          },
+          "0": {
+            "aggregate_mbps": [
+              364.0196346252917,
+              297.3064665580755
+            ],
+            "median_mbps": 330.6630505916836,
+            "retransmits": [
+              125,
+              217
+            ]
+          }
+        },
+        "ratio": 3.5591113439675364
+      },
+      {
+        "clients": 1,
+        "added_rtt_ms": 100,
+        "direction": "upload",
+        "settings": {
+          "262144": {
+            "aggregate_mbps": [
+              4.570735865105719,
+              12.21715036324188
+            ],
+            "median_mbps": 8.3939431141738,
+            "retransmits": [
+              0,
+              0
+            ]
+          },
+          "0": {
+            "aggregate_mbps": [
+              167.43196597713708,
+              167.38175972660946
+            ],
+            "median_mbps": 167.40686285187326,
+            "retransmits": [
+              0,
+              0
+            ]
+          }
+        },
+        "ratio": 19.94376904570562
+      },
+      {
+        "clients": 1,
+        "added_rtt_ms": 100,
+        "direction": "download",
+        "settings": {
+          "262144": {
+            "aggregate_mbps": [
+              37.609291930441465,
+              37.60932954013707
+            ],
+            "median_mbps": 37.60931073528927,
+            "retransmits": [
+              0,
+              683
+            ]
+          },
+          "0": {
+            "aggregate_mbps": [
+              215.23728414125068,
+              160.4316146188332
+            ],
+            "median_mbps": 187.83444938004195,
+            "retransmits": [
+              0,
+              0
+            ]
+          }
+        },
+        "ratio": 4.994360324816977
+      },
+      {
+        "clients": 8,
+        "added_rtt_ms": 40,
+        "direction": "upload",
+        "settings": {
+          "262144": {
+            "aggregate_mbps": [
+              306.50773307371645,
+              252.2917377288089
+            ],
+            "median_mbps": 279.39973540126266,
+            "retransmits": [
+              2412,
+              887
+            ]
+          },
+          "0": {
+            "aggregate_mbps": [
+              2387.171521683982,
+              2525.133291873816
+            ],
+            "median_mbps": 2456.1524067788987,
+            "retransmits": [
+              4151,
+              3036
+            ]
+          }
+        },
+        "ratio": 8.790818657188316
+      },
+      {
+        "clients": 8,
+        "added_rtt_ms": 40,
+        "direction": "download",
+        "settings": {
+          "262144": {
+            "aggregate_mbps": [
+              742.5506693059841,
+              739.5218262549658
+            ],
+            "median_mbps": 741.0362477804749,
+            "retransmits": [
+              4620,
+              4951
+            ]
+          },
+          "0": {
+            "aggregate_mbps": [
+              1490.3188400016459,
+              1592.8038946019112
+            ],
+            "median_mbps": 1541.5613673017785,
+            "retransmits": [
+              1275,
+              1311
+            ]
+          }
+        },
+        "ratio": 2.080277951205501
+      },
+      {
+        "clients": 8,
+        "added_rtt_ms": 100,
+        "direction": "upload",
+        "settings": {
+          "262144": {
+            "aggregate_mbps": [
+              55.09336085433873,
+              101.38190768451562
+            ],
+            "median_mbps": 78.23763426942718,
+            "retransmits": [
+              0,
+              0
+            ]
+          },
+          "0": {
+            "aggregate_mbps": [
+              1253.9593423181327,
+              1277.8945380689197
+            ],
+            "median_mbps": 1265.9269401935262,
+            "retransmits": [
+              1814,
+              1509
+            ]
+          }
+        },
+        "ratio": 16.180537052463137
+      },
+      {
+        "clients": 8,
+        "added_rtt_ms": 100,
+        "direction": "download",
+        "settings": {
+          "262144": {
+            "aggregate_mbps": [
+              299.3715646807499,
+              300.1629047382163
+            ],
+            "median_mbps": 299.7672347094831,
+            "retransmits": [
+              5263,
+              4547
+            ]
+          },
+          "0": {
+            "aggregate_mbps": [
+              1134.9220222190727,
+              1238.5499959972253
+            ],
+            "median_mbps": 1186.7360091081491,
+            "retransmits": [
+              1293,
+              1134
+            ]
+          }
+        },
+        "ratio": 3.9588583130450012
+      }
+    ],
+    "memory_gate": {
+      "status": "PASS",
+      "scope": "1/8 independent clients, 40/100 ms added RTT, two repeats, IPv4 inner TCP; existing TCP sysctls unchanged",
+      "minimum_memavailable_kib": {
+        "server": 1505932,
+        "client": 1253012
+      },
+      "maximum_tcp_mem_pages": {
+        "server": 19252,
+        "client": 20784
+      },
+      "swap_out_pages": {
+        "server": 0,
+        "client": 0
+      },
+      "oom_kills": 0,
+      "evidence_sha256": "9392d465eb324fce0271fc84ded9e365ea0bcf4b94a5e9dcf8d4c26df21c58dc"
+    },
+    "preserved_harness_failures": [
+      "iperf port reuse Address already in use; incomplete window excluded",
+      "strict exiting-process ownership mismatch; restored, bounded proc re-read retained all PID/start/exe/group checks"
+    ]
+  },
+  "udp": {
+    "diagnostic": [
+      {
+        "label": "s00-diagnostic-udp-quic-required-w00",
+        "rate_mbps": 600,
+        "family": 4,
+        "direction": "upload",
+        "pacing_timer_us": 1000,
+        "seconds": 10,
+        "omit": 3,
+        "mbps": 599.2656011830883,
+        "loss_percent": 0,
+        "iperf_sha256": "b864c287939347caecc3e8bc0cc74618787fa7849883a7a815afa7f7ef729059",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 80.33395895811752,
+            "vm_cpu_percent": 55.98534201954397,
+            "vm_steal_percent": 0.12214983713355049,
+            "rss_peak_kib": 56444,
+            "kernel_udp4_delta": {
+              "InDatagrams": 1616576,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "162e6f77555fceee01dacf2acc398b5a3dd82440e7573cf710e090e6816e7b5c"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 64.35295271216415,
+            "vm_cpu_percent": 43.99656946826758,
+            "vm_steal_percent": 0.12864493996569468,
+            "rss_peak_kib": 38908,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 1621294,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "bea1fe7902fa4dda3ac073b92cfb63eb28ca515a5f05cbb0fc79712b753b5c24"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 0,
+        "reader_queue_peak": 8,
+        "writer_queue_peak": 0
+      },
+      {
+        "label": "s00-diagnostic-udp-quic-required-w01",
+        "rate_mbps": 600,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 10,
+        "omit": 3,
+        "mbps": 599.9896200301021,
+        "loss_percent": 0,
+        "iperf_sha256": "af336af9404141480e095f0bf3357f4e537a001c91756fd97657a39c77db5e2e",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 93.92351324247531,
+            "vm_cpu_percent": 61.3219094247246,
+            "vm_steal_percent": 0.1631986944104447,
+            "rss_peak_kib": 82064,
+            "kernel_udp4_delta": {
+              "InDatagrams": 7,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 1608245,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "45dd9aa181cc4d1449feb7fffd04bc7fcbe30340a79c499436472964ea11b83c"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 81.16374672485473,
+            "vm_cpu_percent": 57.882165605095544,
+            "vm_steal_percent": 0.1592356687898089,
+            "rss_peak_kib": 41352,
+            "kernel_udp4_delta": {
+              "InDatagrams": 1616377,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 7,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "28b31e21af4e08723f426624b24550f8f8c9ca883c101d027500ae45699e1963"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 0,
+        "reader_queue_peak": 364,
+        "writer_queue_peak": 259
+      },
+      {
+        "label": "s00-diagnostic-udp-quic-required-w02",
+        "rate_mbps": 600,
+        "family": 6,
+        "direction": "upload",
+        "pacing_timer_us": 1000,
+        "seconds": 10,
+        "omit": 3,
+        "mbps": 599.6764062662111,
+        "loss_percent": 0,
+        "iperf_sha256": "61a5bf741693fa0f476c4c16e11d7676a64fbc67dd237c498df270851ef175e3",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 82.21365289751208,
+            "vm_cpu_percent": 57.724550898203596,
+            "vm_steal_percent": 0.07984031936127745,
+            "rss_peak_kib": 94360,
+            "kernel_udp4_delta": {
+              "InDatagrams": 826522,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 800644,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "8551b7126edc57024fd39434c202c109b9f9abf2b71c25fbe1bee01d13a28eb5"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 64.65881106589615,
+            "vm_cpu_percent": 45.911949685534594,
+            "vm_steal_percent": 0.16771488469601678,
+            "rss_peak_kib": 41384,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 829596,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 803653,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "d9e29649610e07f98be188f02a134817608358b471df18d5855660be63dacb6d"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 0,
+        "reader_queue_peak": 364,
+        "writer_queue_peak": 259
+      },
+      {
+        "label": "s00-diagnostic-udp-quic-required-w03",
+        "rate_mbps": 600,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 10,
+        "omit": 3,
+        "mbps": 599.9959200016319,
+        "loss_percent": 0,
+        "iperf_sha256": "eafc501062f8b81518cac870878958ae7fa22e7c006d19e5b88111be7bc84a3d",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 93.5838033553296,
+            "vm_cpu_percent": 60.61241610738255,
+            "vm_steal_percent": 0.16778523489932887,
+            "rss_peak_kib": 100216,
+            "kernel_udp4_delta": {
+              "InDatagrams": 6,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 826698,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 2,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 801109,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "9f3bf479a62c163e6afceabcbfe6ac235b98ea344ba5dd959c86ed7e1b66a7b4"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 81.96054957560058,
+            "vm_cpu_percent": 58.05934242181235,
+            "vm_steal_percent": 0.16038492381716118,
+            "rss_peak_kib": 41384,
+            "kernel_udp4_delta": {
+              "InDatagrams": 829567,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 6,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 2,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 803871,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "8d9e4c4503f40255069c4d77e6751fba6b210282703e390ab778c047aaa28c36"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 0,
+        "reader_queue_peak": 364,
+        "writer_queue_peak": 260
+      },
+      {
+        "label": "s01-diagnostic-udp-quic-required-w00",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.9956500047849,
+        "loss_percent": 0,
+        "iperf_sha256": "33bec1965bbfab51040d7d3bbe91aa8f02988fbcc62ceda0877d3b501784d9e2",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.44699126997858,
+            "vm_cpu_percent": 73.61935189411227,
+            "vm_steal_percent": 0.1597444089456869,
+            "rss_peak_kib": 118656,
+            "kernel_udp4_delta": {
+              "InDatagrams": 14,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4312123,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "dda0d24a6243eb033ed559afcbc77b7b28c42e6391678491620e1bcec5c86fe7"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.78657276557874,
+            "vm_cpu_percent": 66.04607865952991,
+            "vm_steal_percent": 0.2094484524086572,
+            "rss_peak_kib": 48040,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4320914,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 14,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "7755204cc1708dc4cb20574d168dba503c283afb90dc91b606b97299da82569c"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 3007,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1278
+      },
+      {
+        "label": "s01-diagnostic-udp-quic-required-w01",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.647111164533,
+        "loss_percent": 0.04217020341925179,
+        "iperf_sha256": "1e2f96e6d4d24e889aca5ace14e77eb58bec8003506bc9009191abbc46aed5ac",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 1008,
+            "cpu_one_core_percent": 112.34103270769275,
+            "vm_cpu_percent": 74.93212669683258,
+            "vm_steal_percent": 0.13574660633484162,
+            "rss_peak_kib": 118660,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2206203,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 2,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2138654,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "d3b0543458621a812cd3d4ea2e2d1f4ba11986837f6ada47b9bf12090f904cbf"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.6573830773486,
+            "vm_cpu_percent": 67.74121831925301,
+            "vm_steal_percent": 0.17785682525566918,
+            "rss_peak_kib": 49472,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2213172,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2144337,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "cea0c5b5d461126acd62fcb1af27585722c771f050299ab41b0d2a19105d6621"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 8941,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2027
+      },
+      {
+        "label": "s02-diagnostic-udp-quic-required-w00",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.9948700046169,
+        "loss_percent": 0,
+        "iperf_sha256": "221a134b5d6a209abc216c5f128ba99b9e554f3424a84e3e8089335f6e7ebac0",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.80854616029717,
+            "vm_cpu_percent": 73.76599634369288,
+            "vm_steal_percent": 0.11425959780621572,
+            "rss_peak_kib": 123328,
+            "kernel_udp4_delta": {
+              "InDatagrams": 13,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4312237,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "32845e1abd576bd37f2fbeb09fc9b45575a831a07e64b0ff0a72c650fcc16925"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 99.57446984121566,
+            "vm_cpu_percent": 66.21806569343066,
+            "vm_steal_percent": 0.18248175182481752,
+            "rss_peak_kib": 48684,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4323594,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 13,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "38511ca7592f92c744792341c2e5a8da62517d9504f34d62fb64925fb4725a0c"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 5111,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1963
+      },
+      {
+        "label": "s02-diagnostic-udp-quic-required-w01",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 900.1363055792987,
+        "loss_percent": 0,
+        "iperf_sha256": "d35f29619bc02c0475f24097dc35ccb665d0e3801a7826b5a3bfe01d47fd45b3",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.1649836285612,
+            "vm_cpu_percent": 74.02686091509219,
+            "vm_steal_percent": 0.1593444115638516,
+            "rss_peak_kib": 120840,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2208438,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2140013,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "5c7e06b42d077e6333b12db866cd8175b80d7bbb5b9694a8b18f0273107a1ec5"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 98.84338201041537,
+            "vm_cpu_percent": 67.28599867285999,
+            "vm_steal_percent": 0.15483300154833002,
+            "rss_peak_kib": 49740,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2213269,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2144277,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "f812f984838c8e1765f4e30df075ac7072c633f136e1de3c9798363ea2036ac9"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 5828,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1963
+      },
+      {
+        "label": "s03-diagnostic-udp-quic-required-w00",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.786340128196,
+        "loss_percent": 0.020262959895869716,
+        "iperf_sha256": "ea6aab62b60585bdccb0658a59f51abe8475fa1f23515f1d9647187a7be3985a",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 380,
+            "cpu_one_core_percent": 110.41709935616908,
+            "vm_cpu_percent": 73.3032694475761,
+            "vm_steal_percent": 0.18038331454340473,
+            "rss_peak_kib": 131728,
+            "kernel_udp4_delta": {
+              "InDatagrams": 14,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4313813,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "acaba9d09159e0c4ecc4eca42dedb7efef5966d34f3a09472304737831913204"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.10686552147884,
+            "vm_cpu_percent": 67.22185209860093,
+            "vm_steal_percent": 0.19986675549633579,
+            "rss_peak_kib": 48344,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4321887,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 14,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "4e19361072e587e7c67b60761cf27149373b377e153373d35853104baf6fb303"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 11768,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1349
+      },
+      {
+        "label": "s03-diagnostic-udp-quic-required-w01",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.9927849924243,
+        "loss_percent": 0.0004798922481938722,
+        "iperf_sha256": "62de6afb0872fc48cf1f92ed6a779c3821baa1f1b7dbc54640dfdd13a2e5464e",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 9,
+            "cpu_one_core_percent": 110.68817133321419,
+            "vm_cpu_percent": 73.93748594558129,
+            "vm_steal_percent": 0.13492241960872497,
+            "rss_peak_kib": 126868,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2206866,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2138775,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "661244f6bcc85b036983e8b443d38312ccb5aa7c2807e7a675354c4f6a7b53c9"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.16023250737886,
+            "vm_cpu_percent": 67.03027604630454,
+            "vm_steal_percent": 0.13357079252003562,
+            "rss_peak_kib": 49692,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2212672,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2143914,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "bd39259eca3abd78f4f2ae80d47f5daf65baa79fa51cb4e0554ce972e1635eb3"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 4651,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1595
+      },
+      {
+        "label": "s04-diagnostic-udp-quic-required-w00",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.9334749501063,
+        "loss_percent": 0.006771292917067657,
+        "iperf_sha256": "5c43fa769bdc3841f201c744d8e05146f8202f78fa79a7b1258f8c2ccb1aeab8",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 127,
+            "cpu_one_core_percent": 111.38064663624047,
+            "vm_cpu_percent": 73.48985639389105,
+            "vm_steal_percent": 0.1367677228174151,
+            "rss_peak_kib": 128348,
+            "kernel_udp4_delta": {
+              "InDatagrams": 14,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4310172,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "43120d9d231240effd228fb24eb460238a66f59d48bcc610df53965a91dd3653"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.03724717851703,
+            "vm_cpu_percent": 67.31068176771042,
+            "vm_steal_percent": 0.1554519209415945,
+            "rss_peak_kib": 47064,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4321438,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 14,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "485c25ea3522dff95c02b50d7264e719ea560db441c6eee6a00209b98bbe4e61"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 6747,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1582
+      },
+      {
+        "label": "s04-diagnostic-udp-quic-required-w01",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.944124863106,
+        "loss_percent": 0,
+        "iperf_sha256": "9be867c1d414711cbc06fa3b2e5b8db71ca3c54ad15dc9c4a61a47ef5776649c",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 110.85841149393092,
+            "vm_cpu_percent": 74.5067264573991,
+            "vm_steal_percent": 0.15695067264573992,
+            "rss_peak_kib": 128344,
+            "kernel_udp4_delta": {
+              "InDatagrams": 6,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2206446,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2138917,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "e86f5041056ab5740853f6b824be39cc415d9a343303f13af60bdb14fc37faad"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.669829983375,
+            "vm_cpu_percent": 67.76767900687209,
+            "vm_steal_percent": 0.15517623586787851,
+            "rss_peak_kib": 47712,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2213306,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 6,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2144866,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "a19d51dec9798f559762f54cc9ccc5121e537084d4df9c490bafe3a751fe6652"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 3132,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1582
+      }
+    ],
+    "dispatch_abba": [
+      {
+        "label": "s00-diagnostic-udp-quic-required-w00",
+        "version": "candidate",
+        "kind": "control",
+        "rate_mbps": 600,
+        "family": 4,
+        "direction": "upload",
+        "pacing_timer_us": 1000,
+        "seconds": 10,
+        "omit": 3,
+        "mbps": 599.426499966555,
+        "loss_percent": 0,
+        "iperf_sha256": "84d6060091feb1d6b7fba9098baafe5ad519825cbd10282b2c82847068acd074",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 82.36920413606325,
+            "vm_cpu_percent": 57.462383082553885,
+            "vm_steal_percent": 0.08133387555917039,
+            "rss_peak_kib": 58892,
+            "kernel_udp4_delta": {
+              "InDatagrams": 1614299,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "f0ebdea958f8cdd8a2e307c8181db5e44333909807cb01495351f8f57ac9fc10"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 64.35074364306227,
+            "vm_cpu_percent": 34.20523138832998,
+            "vm_steal_percent": 0.15090543259557343,
+            "rss_peak_kib": 40812,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 1620049,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "68ec9aa620ac4e83d93a9f37b05eaf6a64699aa2a2232e6764056961e4f55e39"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 0,
+        "reader_queue_peak": 8,
+        "writer_queue_peak": 0
+      },
+      {
+        "label": "s00-diagnostic-udp-quic-required-w01",
+        "version": "candidate",
+        "kind": "control",
+        "rate_mbps": 600,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 10,
+        "omit": 3,
+        "mbps": 599.9964600152219,
+        "loss_percent": 0,
+        "iperf_sha256": "a8b763a90cefbb876a1ae3fd2dfbaacab7bb744fe1824d558c2cff211c40d29d",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 92.67779032724317,
+            "vm_cpu_percent": 61.63547599674532,
+            "vm_steal_percent": 0.16273393002441008,
+            "rss_peak_kib": 67608,
+            "kernel_udp4_delta": {
+              "InDatagrams": 7,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 1614364,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "997d067710fdf4fa321925d940a17483ab57ce4a2b947e2c56d64faad83f81ff"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 80.32440614990708,
+            "vm_cpu_percent": 56.97115384615385,
+            "vm_steal_percent": 0.16025641025641027,
+            "rss_peak_kib": 49128,
+            "kernel_udp4_delta": {
+              "InDatagrams": 1620938,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 7,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "4fdf30c2ec3e583d4c380d7d11f22dd7eaddce15531e7e560901d5d46c15dabe"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 0,
+        "reader_queue_peak": 472,
+        "writer_queue_peak": 258
+      },
+      {
+        "label": "s00-diagnostic-udp-quic-required-w02",
+        "version": "candidate",
+        "kind": "control",
+        "rate_mbps": 600,
+        "family": 6,
+        "direction": "upload",
+        "pacing_timer_us": 1000,
+        "seconds": 10,
+        "omit": 3,
+        "mbps": 599.6023815550753,
+        "loss_percent": 0,
+        "iperf_sha256": "a4fbf717a204b7677bacce960abae704d68b7b065c589c0888ef9931fa67fb43",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 83.84052452437514,
+            "vm_cpu_percent": 58.285714285714285,
+            "vm_steal_percent": 0.08163265306122448,
+            "rss_peak_kib": 67616,
+            "kernel_udp4_delta": {
+              "InDatagrams": 825949,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 800478,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "480e1dd6d2472640d4afdcf73030ba81964d5d9813426044d6be95f3d7b84a8c"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 64.97200831955726,
+            "vm_cpu_percent": 36.806231742940604,
+            "vm_steal_percent": 0.1460564751703992,
+            "rss_peak_kib": 49156,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 829048,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 803496,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "b9b77bb944b7dc7d99f514caef6385152e0732b5fff81e3fc5ca5b32a888d1d4"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 0,
+        "reader_queue_peak": 472,
+        "writer_queue_peak": 258
+      },
+      {
+        "label": "s00-diagnostic-udp-quic-required-w03",
+        "version": "candidate",
+        "kind": "control",
+        "rate_mbps": 600,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 10,
+        "omit": 3,
+        "mbps": 600.00210000735,
+        "loss_percent": 0,
+        "iperf_sha256": "1956fb6d55894cbf9217153b9054daac99c75dd6c1d9b352262fce2f6f0e41ed",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 93.03470304838164,
+            "vm_cpu_percent": 60.613703236654054,
+            "vm_steal_percent": 0.16813787305590586,
+            "rss_peak_kib": 67672,
+            "kernel_udp4_delta": {
+              "InDatagrams": 6,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 827413,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 2,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 801432,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "c0b62bdd2278c8ef90bb2497ead8fa3d53d720847980ab41e7d094837fed25f7"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 81.48498829988284,
+            "vm_cpu_percent": 58.05940594059406,
+            "vm_steal_percent": 0.15841584158415842,
+            "rss_peak_kib": 49152,
+            "kernel_udp4_delta": {
+              "InDatagrams": 831030,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 6,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 2,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 804941,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "b6f3991ed3b73bfbfd2d9a126853cd59256e0740177878351291935e96c7d479"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 0,
+        "reader_queue_peak": 472,
+        "writer_queue_peak": 261
+      },
+      {
+        "label": "s01-diagnostic-udp-quic-required-w00",
+        "version": "baseline",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.996969992425,
+        "loss_percent": 0,
+        "iperf_sha256": "2f28acbe83b0ea600cd7710b1f6f91dd9336ed03e8c0fa4880d8948c0b4a3611",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.40294413379364,
+            "vm_cpu_percent": 73.64447494852436,
+            "vm_steal_percent": 0.18302447952413636,
+            "rss_peak_kib": 91460,
+            "kernel_udp4_delta": {
+              "InDatagrams": 13,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4312194,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "f4fd121705bdc4afdb36088ce48e5500f441db9cd10d073490adcef173f129f0"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 101.45407825092788,
+            "vm_cpu_percent": 67.70089285714286,
+            "vm_steal_percent": 0.26785714285714285,
+            "rss_peak_kib": 49724,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4324614,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 13,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "748c03397d87e8b7baab58e26c47b4826103a0f141109e56a2678fe0f531c11e"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 2177,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1349
+      },
+      {
+        "label": "s01-diagnostic-udp-quic-required-w01",
+        "version": "baseline",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 900.0015749977161,
+        "loss_percent": 0,
+        "iperf_sha256": "3e8aa3a55dfe9302377cc4b422d80fd253d2d205f47f7e1582b18decb0147b91",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 112.79752730215381,
+            "vm_cpu_percent": 75.63213246811367,
+            "vm_steal_percent": 0.13425822331617812,
+            "rss_peak_kib": 96288,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2207101,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 2,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2138742,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "06b62f58ca11998931be799fb28ec7b94aa14c335eb42d8ca2423f88a4414e37"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.55545584575526,
+            "vm_cpu_percent": 67.41698239358146,
+            "vm_steal_percent": 0.17829284599955428,
+            "rss_peak_kib": 50180,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2213255,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2144436,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "b3168f43c3a3c6a823a1563b7da8f135a290e0e14a69b36e313a6d523ea29255"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 11138,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2717
+      },
+      {
+        "label": "s01-diagnostic-udp-quic-required-w02",
+        "version": "baseline",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 900.04517995482,
+        "loss_percent": 0,
+        "iperf_sha256": "4cec8ceaa80b4c546f523ebff910ddb4e9b7a257cc29fb352660fd8b06f40e6c",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.51628012026005,
+            "vm_cpu_percent": 74.20652659812248,
+            "vm_steal_percent": 0.11175681716584712,
+            "rss_peak_kib": 96304,
+            "kernel_udp4_delta": {
+              "InDatagrams": 7,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4308870,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "6c218621aa203b48c77e47c2477bae3d87fc3b233516cf0f91d10217fd82616c"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.26019598200129,
+            "vm_cpu_percent": 67.79059449866904,
+            "vm_steal_percent": 0.15527950310559005,
+            "rss_peak_kib": 50200,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4319063,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 7,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "8986cf8506dccd649bdd398fbeb7aa33640c715bde9ff8f58a1ddcb66cdbdf20"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 6887,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2717
+      },
+      {
+        "label": "s01-diagnostic-udp-quic-required-w03",
+        "version": "baseline",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.9955000009,
+        "loss_percent": 0,
+        "iperf_sha256": "f5eb4be6a47aa1866a3f3425c4d5ce197c0a57bb15dde0287e29d7b63eb9b7cd",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.9558253796072,
+            "vm_cpu_percent": 74.63503649635037,
+            "vm_steal_percent": 0.11405109489051095,
+            "rss_peak_kib": 96316,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2208925,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2140214,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "d68d4740477dac084bcfd1401801f36df48573858c7e1f177caf4635adfdc0f8"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.15830471970331,
+            "vm_cpu_percent": 66.92152012592759,
+            "vm_steal_percent": 0.20238362941308746,
+            "rss_peak_kib": 50200,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2212744,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2143921,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "ea746baaa80ac1346ca886ffad75350c7a8052da3ac83a7cf4357c252a09fb07"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 8920,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2717
+      },
+      {
+        "label": "s02-diagnostic-udp-quic-required-w00",
+        "version": "candidate",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.947590089097,
+        "loss_percent": 0,
+        "iperf_sha256": "7f90a926c0072159a5d06b55b60f02baa53024cd4345e54eaa62e0c1221554c6",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 326,
+            "cpu_one_core_percent": 110.83748471898636,
+            "vm_cpu_percent": 73.00091911764706,
+            "vm_steal_percent": 0.18382352941176472,
+            "rss_peak_kib": 99168,
+            "kernel_udp4_delta": {
+              "InDatagrams": 15,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4312540,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "275495981630b195e7dd53c55e8c73346678a3a0bc774301c966fe041a049f33"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 99.98101496091533,
+            "vm_cpu_percent": 67.4839849790148,
+            "vm_steal_percent": 0.2208968411751712,
+            "rss_peak_kib": 48332,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4320666,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 15,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "df89e3cd0e4120378153ae2294d22d40a44658bbb1dc6621180eb10e18dff18b"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 5252,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1608
+      },
+      {
+        "label": "s02-diagnostic-udp-quic-required-w01",
+        "version": "candidate",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 900.048660009732,
+        "loss_percent": 0.00010663652407586123,
+        "iperf_sha256": "46a9ac0103d15e3db212eb8b7d683fb754c828f4c9cf247f362c50897ad6ffdf",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.38103877800772,
+            "vm_cpu_percent": 73.78328741965106,
+            "vm_steal_percent": 0.1147842056932966,
+            "rss_peak_kib": 103360,
+            "kernel_udp4_delta": {
+              "InDatagrams": 6,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2207834,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 2,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2139711,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "1fac2fbfec0a61a95d7fb3603136a93c9dd1c872f7c96f1db0d2479b810af280"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 101.01276058643462,
+            "vm_cpu_percent": 67.62158560959361,
+            "vm_steal_percent": 0.1554519209415945,
+            "rss_peak_kib": 49648,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2214987,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 6,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2145956,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "b7fdab82b4e29d65526e85aaee366bd9b75d0ad2e634d4b2ce5e2cc0686d30b5"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 4453,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2785
+      },
+      {
+        "label": "s02-diagnostic-udp-quic-required-w02",
+        "version": "candidate",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 900.004049998785,
+        "loss_percent": 0,
+        "iperf_sha256": "ba04f84b5da4ec3f239c78fb23991798f6f49eecab8c3c124911abfd8692a544",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.24746364591152,
+            "vm_cpu_percent": 74.34589800443459,
+            "vm_steal_percent": 0.11086474501108648,
+            "rss_peak_kib": 105332,
+            "kernel_udp4_delta": {
+              "InDatagrams": 7,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4315658,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "dc5d637b1c031f81809dd9579ea40e2d0e679232458ccaa70aa0625ca52a10fc"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 101.13710388266824,
+            "vm_cpu_percent": 66.6514598540146,
+            "vm_steal_percent": 0.18248175182481752,
+            "rss_peak_kib": 49648,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4325646,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 7,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "2df59929dcc950343a4fd9461fc0f52f00c784c39f249e6c3d6b1d0311a37072"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 3535,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2785
+      },
+      {
+        "label": "s02-diagnostic-udp-quic-required-w03",
+        "version": "candidate",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.8296750766464,
+        "loss_percent": 0.014822642813230967,
+        "iperf_sha256": "d3688986e7049fe60e2231bca5dd9e8229957ac4277bf5b04f824975416c7318",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 278,
+            "cpu_one_core_percent": 110.62125418611498,
+            "vm_cpu_percent": 74.37275985663082,
+            "vm_steal_percent": 0.13440860215053763,
+            "rss_peak_kib": 105364,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2207180,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 2,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2138820,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "7d49e379a17d64ebc2e3832ce0b05ae1328e6ddbfd7fd99419b62f2e6b5f93c3"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.80990419791512,
+            "vm_cpu_percent": 66.61352767023457,
+            "vm_steal_percent": 0.15941698929628786,
+            "rss_peak_kib": 49648,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2212905,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2143179,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "4af52d218c9612d00dae9335fb0ae9489161ca659c0b542b83c7af7f92287ec2"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 9193,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2785
+      },
+      {
+        "label": "s03-diagnostic-udp-quic-required-w00",
+        "version": "candidate",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.990970013545,
+        "loss_percent": 0,
+        "iperf_sha256": "8dcc5abaec8cfef651d48b59881eef669e836d0cc30d29b26d74700ba4013d6d",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.8168487364682,
+            "vm_cpu_percent": 73.10904872389791,
+            "vm_steal_percent": 0.13921113689095127,
+            "rss_peak_kib": 105836,
+            "kernel_udp4_delta": {
+              "InDatagrams": 14,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4315239,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "712a858a6c26c66bc003f59bdcc0db34f4f42ccc42a4357c44c4cfbc33a36d8c"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 101.98204660825381,
+            "vm_cpu_percent": 67.94642857142857,
+            "vm_steal_percent": 0.17857142857142858,
+            "rss_peak_kib": 48308,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4324881,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 14,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "6efa0a9201a9dfdd5adf1850c171ce9611f35644305fec5821f703022b0e1d3b"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 2038,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2006
+      },
+      {
+        "label": "s03-diagnostic-udp-quic-required-w01",
+        "version": "candidate",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.9642850267862,
+        "loss_percent": 0.003679485853176783,
+        "iperf_sha256": "0af47c988ff44ee9fbdf919ee18e811e9e13947461ad76ee173a771e8bf00e96",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 69,
+            "cpu_one_core_percent": 112.34249935103819,
+            "vm_cpu_percent": 75.41936926862,
+            "vm_steal_percent": 0.13419816595839856,
+            "rss_peak_kib": 104844,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2208290,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2140445,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "16450dd4ddb5bc2dcc3ab652ab1d0ace5234143051a04273ac62f8b2323916ad"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.66887381593985,
+            "vm_cpu_percent": 68.09639619721423,
+            "vm_steal_percent": 0.17687375635640062,
+            "rss_peak_kib": 49612,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2213753,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2145020,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "2855b4e2c319cdfb40c86b39c31e8244f7931137994d162a87769f67efc5e45a"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 5966,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2006
+      },
+      {
+        "label": "s03-diagnostic-udp-quic-required-w02",
+        "version": "candidate",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 900.6438150965723,
+        "loss_percent": 0,
+        "iperf_sha256": "1549337f4679b3269c48a2b96f234c583273e3cbf500e46ce90a28c2d676a2a7",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 181,
+            "cpu_one_core_percent": 112.38177240597527,
+            "vm_cpu_percent": 73.94803403081168,
+            "vm_steal_percent": 0.13796275005748448,
+            "rss_peak_kib": 106812,
+            "kernel_udp4_delta": {
+              "InDatagrams": 7,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4312148,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "8a6fe3e64de542ab82bc2bddf3f7be9243ebb39bebc0bebb45bd6ff80a52a8ea"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 99.79208634215462,
+            "vm_cpu_percent": 66.83684794672585,
+            "vm_steal_percent": 0.13318534961154274,
+            "rss_peak_kib": 49636,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4322300,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 7,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "26ccbfe77645e4d41726d2567f3b0aadd1971ded83c915694c633a08b4653e73"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 6112,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2006
+      },
+      {
+        "label": "s03-diagnostic-udp-quic-required-w03",
+        "version": "candidate",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.7671847555439,
+        "loss_percent": 0.025594908319571626,
+        "iperf_sha256": "fba68dd9dcd772ef667f4d8cc92f66112f621c26f9a56489e2cd0a19392da15e",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 480,
+            "cpu_one_core_percent": 112.38389510771918,
+            "vm_cpu_percent": 74.7102931152011,
+            "vm_steal_percent": 0.136332651670075,
+            "rss_peak_kib": 107556,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2208352,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2139880,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "9d813054f37cac45d208e7c3424f204c2b7672724558c2856d679befc4332c48"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 99.93853617513413,
+            "vm_cpu_percent": 66.92581075077743,
+            "vm_steal_percent": 0.15548645046645934,
+            "rss_peak_kib": 49636,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2214341,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2144901,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "2a75e63dafa8ca7aac22eded18dedbf1f337c2ca7aa1d8f3b57a0bbc9f4eed80"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 9133,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2357
+      },
+      {
+        "label": "s04-diagnostic-udp-quic-required-w00",
+        "version": "baseline",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.781974792876,
+        "loss_percent": 0.028894138168356866,
+        "iperf_sha256": "1976beb2795d0c4de11c502d84467ef564b65ace0cb365be67d912ed46082a7b",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 542,
+            "cpu_one_core_percent": 110.82947335714684,
+            "vm_cpu_percent": 73.41314660040659,
+            "vm_steal_percent": 0.1355319629545968,
+            "rss_peak_kib": 112184,
+            "kernel_udp4_delta": {
+              "InDatagrams": 13,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4309936,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 4,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "c0a8f51a7f3b1f773ee3ebf80793e8cc8e90cfbec5a8304db3eb18f65fa79b66"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.0214867434289,
+            "vm_cpu_percent": 66.93280106453759,
+            "vm_steal_percent": 0.1330671989354624,
+            "rss_peak_kib": 48272,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4321177,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 13,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "c7f0aedd83c41a0d71b040e933e47688495484a831b3ae43ab51720865bb4828"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 13393,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1375
+      },
+      {
+        "label": "s04-diagnostic-udp-quic-required-w01",
+        "version": "baseline",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 1000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.9634449835502,
+        "loss_percent": 0,
+        "iperf_sha256": "ed1a33d9ee288341fd0eca83bdea4b6d35cb85e9d5e99bcdf3c9ae4c2472e489",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 112.90137489566006,
+            "vm_cpu_percent": 74.27308676436381,
+            "vm_steal_percent": 0.1860897883228658,
+            "rss_peak_kib": 109304,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2207957,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2138949,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "4826a3265dbd1a3f1e6797cd2aabce2c0b62bd252598efd4b05d3cc473315c2c"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.5765264331227,
+            "vm_cpu_percent": 67.05962366810247,
+            "vm_steal_percent": 0.2040353661301292,
+            "rss_peak_kib": 49580,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2213914,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2144627,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "e11ac037342be4959b955d45a593f75b901f50530489696109ae71e86e527f5b"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 13028,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1878
+      },
+      {
+        "label": "s04-diagnostic-udp-quic-required-w02",
+        "version": "baseline",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 900.0533556589425,
+        "loss_percent": 0,
+        "iperf_sha256": "7270340323adaecf3d4912eb1a6f43c7cd5b39a2af51b7f670b1a28c72768bbf",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.6427035297095,
+            "vm_cpu_percent": 74.1585473870682,
+            "vm_steal_percent": 0.1328609388839681,
+            "rss_peak_kib": 109908,
+            "kernel_udp4_delta": {
+              "InDatagrams": 7,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 4309677,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "aca18fcb1e115c80d5114c84d037ae4a0229a22ad4ff4051e1b311019a3f31e2"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 99.80922251948347,
+            "vm_cpu_percent": 67.18610863757792,
+            "vm_steal_percent": 0.17809439002671415,
+            "rss_peak_kib": 49604,
+            "kernel_udp4_delta": {
+              "InDatagrams": 4323077,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 7,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "4eb4ff40bb27ec1f9156e5076ff69da5c427983c3fd55ddc607238a3d683aeba"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 4263,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1878
+      },
+      {
+        "label": "s04-diagnostic-udp-quic-required-w03",
+        "version": "baseline",
+        "kind": "performance",
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 20,
+        "omit": 3,
+        "mbps": 899.550420629411,
+        "loss_percent": 0.05022443712108408,
+        "iperf_sha256": "3e03247b5578624f05602df95cd0932a5de14432f6fcced166335abf2a2e02ce",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 15,
+            "cpu_one_core_percent": 113.36159963270335,
+            "vm_cpu_percent": 75.3393665158371,
+            "vm_steal_percent": 0.13574660633484162,
+            "rss_peak_kib": 122144,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2207368,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 2,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 2139577,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "09e65184a65c1157ae1e9534ec8b36e1693589b9b78dad7e4743287730822cbb"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.63230339946345,
+            "vm_cpu_percent": 67.22707913023986,
+            "vm_steal_percent": 0.15691548980049316,
+            "rss_peak_kib": 49608,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2211424,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 2,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 2143097,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "raw_sha256": "0184d11bd441ea61cf237d65c5fd15d61e0472a9cf36f01a824df0601979d0fa"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 10341,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1878
+      }
+    ],
+    "headroom": [
+      {
+        "label": "s00-diagnostic-udp-quic-required-w00",
+        "server_qlen": 1000,
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 12,
+        "omit": 3,
+        "mbps": 899.9995249943395,
+        "loss_percent": 0,
+        "iperf_sha256": "a462458f5841c884ceefd573eed79c8a55d738b2d7dc42ce1c10ee8075f89ac8",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 110.23987437837792,
+            "vm_cpu_percent": 72.63418079096046,
+            "vm_steal_percent": 0.14124293785310735,
+            "rss_peak_kib": 54788,
+            "kernel_udp4_delta": {
+              "InDatagrams": 14,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2799893,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1689092,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "000f9eb66481c14fc0a769f2d08c42db036e555cd34ca5159d6a801641c6e3cb"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 99.81765576334219,
+            "vm_cpu_percent": 66.86026648445507,
+            "vm_steal_percent": 0.1708233686368295,
+            "rss_peak_kib": 40508,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2812384,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 13,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1650156,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "9d245abd29d21a8c0b0bc93397597d1ea0f55817121dda43147cfd22a26dc8aa"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 1919,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 1491
+      },
+      {
+        "label": "s00-diagnostic-udp-quic-required-w01",
+        "server_qlen": 1000,
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 12,
+        "omit": 3,
+        "mbps": 897.9885006704997,
+        "loss_percent": 0.040239125220959876,
+        "iperf_sha256": "d07fff299486bc0ec80277723b88743996a72527f8901e5f197de63486d8c796",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 453,
+            "cpu_one_core_percent": 112.00640916738921,
+            "vm_cpu_percent": 74.76700034518467,
+            "vm_steal_percent": 0.10355540214014498,
+            "rss_peak_kib": 57088,
+            "kernel_udp4_delta": {
+              "InDatagrams": 6,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 1432457,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 2,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1388523,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1685104,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "06fc2a89b17550635708f69542ff7895d1eb9bc8c0a9ae15a5adbd082a673cbd"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.1302684066335,
+            "vm_cpu_percent": 66.46111682082905,
+            "vm_steal_percent": 0.17129153819801302,
+            "rss_peak_kib": 48484,
+            "kernel_udp4_delta": {
+              "InDatagrams": 1438075,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 6,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 2,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1393271,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1629884,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "6f4a671705a58d177f0505a50dd1fc3d6aba6a349063b654fe3975ed6d005d57"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 5286,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2906
+      },
+      {
+        "label": "s00-diagnostic-udp-quic-required-w02",
+        "server_qlen": 1000,
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 20000,
+        "seconds": 12,
+        "omit": 3,
+        "mbps": 899.7290249322563,
+        "loss_percent": 0.03367538879969008,
+        "iperf_sha256": "c643b34f9c0a71bddef594046674d0be91cf557e4f558f050f855bc7f067650c",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 379,
+            "cpu_one_core_percent": 110.93906858077244,
+            "vm_cpu_percent": 73.46233586731168,
+            "vm_steal_percent": 0.24187975120939875,
+            "rss_peak_kib": 57088,
+            "kernel_udp4_delta": {
+              "InDatagrams": 7,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2801061,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1672688,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "17a684ace91999156a0a367016d907f9a50663d356789a4f4b7cdfc2de53b979"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 98.5143373964562,
+            "vm_cpu_percent": 66.31071305545987,
+            "vm_steal_percent": 0.20668274199104375,
+            "rss_peak_kib": 49420,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2810049,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 7,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1641964,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "d33f183644ba44aa81d25b014f8b9685a4df84f2775aae2569d44f5c1b86cb43"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 2425,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2906
+      },
+      {
+        "label": "s00-diagnostic-udp-quic-required-w03",
+        "server_qlen": 1000,
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 20000,
+        "seconds": 12,
+        "omit": 3,
+        "mbps": 899.9921499986917,
+        "loss_percent": 0,
+        "iperf_sha256": "6a024fcdbd17bd09f0d17dcc1d957f3c99b2dbac3f235c2383389e81d09509ac",
+        "metrics": {
+          "server": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 112.74113332307674,
+            "vm_cpu_percent": 74.8072880168185,
+            "vm_steal_percent": 0.1401541695865452,
+            "rss_peak_kib": 58228,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 1433755,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1389051,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1682160,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "313219321984a7dc54c291e68495ffac55bdd84b12644b6e31c0ffd0f2bb7496"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 101.5821459640573,
+            "vm_cpu_percent": 67.63998625901752,
+            "vm_steal_percent": 0.1717622810030917,
+            "rss_peak_kib": 49432,
+            "kernel_udp4_delta": {
+              "InDatagrams": 1440018,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1394978,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1638480,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "f67706ca240ec053018827fa224a4f679ee66cb50ce0c90b6dbfa604eb9eea1e"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 2509,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2906
+      },
+      {
+        "label": "s01-diagnostic-udp-quic-required-w00",
+        "server_qlen": 2000,
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 12,
+        "omit": 3,
+        "mbps": 899.9732001786654,
+        "loss_percent": 0,
+        "iperf_sha256": "bf45f18250c3f83694fd6b3ba8e4660ee3593722cbd6fc768692ca512942ac87",
+        "metrics": {
+          "server": {
+            "tun_qlen": 2000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.03848558040406,
+            "vm_cpu_percent": 74.13851927669737,
+            "vm_steal_percent": 0.13647219379051517,
+            "rss_peak_kib": 101364,
+            "kernel_udp4_delta": {
+              "InDatagrams": 13,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2798917,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1623440,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "b122d875daaef6745f332cfa5721a2d17c983fc38d83a51c27b99aab89f0517e"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.38665576487539,
+            "vm_cpu_percent": 66.98728959120577,
+            "vm_steal_percent": 0.13740982480247338,
+            "rss_peak_kib": 48272,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2806331,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 13,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1633116,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "ff828a153db3a8085729aaea067523d0a23382c9ebd8a94a7685d345b7df55ee"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 3749,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2122
+      },
+      {
+        "label": "s01-diagnostic-udp-quic-required-w01",
+        "server_qlen": 2000,
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 5000,
+        "seconds": 12,
+        "omit": 3,
+        "mbps": 899.9823500323583,
+        "loss_percent": 0,
+        "iperf_sha256": "6b8aec6be06a79169fcc167936383ccd68269c6ea3b00ae7276e7811386b357c",
+        "metrics": {
+          "server": {
+            "tun_qlen": 2000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.11133821871466,
+            "vm_cpu_percent": 73.8061797752809,
+            "vm_steal_percent": 0.10533707865168539,
+            "rss_peak_kib": 108672,
+            "kernel_udp4_delta": {
+              "InDatagrams": 6,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 1434109,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1389369,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1621232,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "8b8e1242de871c69092806532ae438ea93b85a5a0abbf1faf7d9e8c236cb27bf"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 100.27304478013042,
+            "vm_cpu_percent": 67.6620291822192,
+            "vm_steal_percent": 0.16966406515100102,
+            "rss_peak_kib": 48536,
+            "kernel_udp4_delta": {
+              "InDatagrams": 1439207,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 6,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 0,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1393888,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1635164,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "7461420cc9229ee5f5f06210610419b681be22f4813fbc08d1264f812cdcf0b1"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 3119,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2122
+      },
+      {
+        "label": "s01-diagnostic-udp-quic-required-w02",
+        "server_qlen": 2000,
+        "rate_mbps": 900,
+        "family": 4,
+        "direction": "download",
+        "pacing_timer_us": 20000,
+        "seconds": 12,
+        "omit": 3,
+        "mbps": 899.9761998254653,
+        "loss_percent": 0,
+        "iperf_sha256": "453cbadbf4d550b61289f6ab8e03ce58de3c7ff259084d62152005d846f0e17e",
+        "metrics": {
+          "server": {
+            "tun_qlen": 2000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 110.20228496373221,
+            "vm_cpu_percent": 72.92469352014011,
+            "vm_steal_percent": 0.14010507880910683,
+            "rss_peak_kib": 118284,
+            "kernel_udp4_delta": {
+              "InDatagrams": 6,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 2798884,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1627836,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "cbd58f5f3012a033e7379bc38fa376c3b03f66fe9a43e44f7e4ede5a7e572cad"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 99.27628192790569,
+            "vm_cpu_percent": 66.57562307954933,
+            "vm_steal_percent": 0.1707067258449983,
+            "rss_peak_kib": 49600,
+            "kernel_udp4_delta": {
+              "InDatagrams": 2807689,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 6,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 3,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 0,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 0,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1642148,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "ac244c4d2b05853198bb0f7d7bdfd2b62d8ffeccb1f2c88f8180e51abf202451"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 5961,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2122
+      },
+      {
+        "label": "s01-diagnostic-udp-quic-required-w03",
+        "server_qlen": 2000,
+        "rate_mbps": 900,
+        "family": 6,
+        "direction": "download",
+        "pacing_timer_us": 20000,
+        "seconds": 12,
+        "omit": 3,
+        "mbps": 900.0133000665003,
+        "loss_percent": 0,
+        "iperf_sha256": "f9795a63c91d00e6407b8e6956cc142b1e85b7853b50b6e639c049b8b22a68d5",
+        "metrics": {
+          "server": {
+            "tun_qlen": 2000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 111.47955749743247,
+            "vm_cpu_percent": 74.4975744975745,
+            "vm_steal_percent": 0.1386001386001386,
+            "rss_peak_kib": 118300,
+            "kernel_udp4_delta": {
+              "InDatagrams": 5,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 1433699,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1389188,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1618104,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "d158e2616a0af0b0928682c911f6d7aa000281ad30c4028f70f01021ededf519"
+          },
+          "client": {
+            "tun_qlen": 1000,
+            "mtu": 1400,
+            "tun_tx_drops": 0,
+            "cpu_one_core_percent": 101.00637848452361,
+            "vm_cpu_percent": 66.80512287988924,
+            "vm_steal_percent": 0.17307026652821045,
+            "rss_peak_kib": 49636,
+            "kernel_udp4_delta": {
+              "InDatagrams": 1438174,
+              "NoPorts": 0,
+              "InErrors": 0,
+              "OutDatagrams": 5,
+              "RcvbufErrors": 0,
+              "SndbufErrors": 0,
+              "InCsumErrors": 0,
+              "IgnoredMulti": 1,
+              "MemErrors": 0
+            },
+            "kernel_udp6_delta": {
+              "Udp6InDatagrams": 1393065,
+              "Udp6NoPorts": 0,
+              "Udp6InErrors": 0,
+              "Udp6OutDatagrams": 1,
+              "Udp6RcvbufErrors": 0,
+              "Udp6SndbufErrors": 0,
+              "Udp6InCsumErrors": 0,
+              "Udp6IgnoredMulti": 0,
+              "Udp6MemErrors": 0
+            },
+            "memory": {
+              "minimum_available_kib": 1626028,
+              "swap_out_delta": 0,
+              "oom_kills_delta": 0
+            },
+            "raw_sha256": "7923d59c17c61be64f1ac12eb9eeb3fcd02f6d51bf77362ad47080c0ad31e741"
+          }
+        },
+        "pool_slots": 512,
+        "pool_budget_bytes": 33553920,
+        "pool_wait_samples": 1098,
+        "reader_queue_peak": 510,
+        "writer_queue_peak": 2122
+      }
+    ]
+  },
+  "restoration": {
+    "tcp": {
+      "tcp-multi": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true,
+          "namespaces": true,
+          "tcp_sysctls": true
+        },
+        "client": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true,
+          "namespaces": true,
+          "tcp_sysctls": true
+        }
+      },
+      "tcp-multi-b": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true,
+          "namespaces": true,
+          "tcp_sysctls": true
+        },
+        "client": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true,
+          "namespaces": true,
+          "tcp_sysctls": true
+        }
+      },
+      "tcp-multi-c": {
+        "server": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true,
+          "namespaces": true,
+          "tcp_sysctls": true
+        },
+        "client": {
+          "boot_id": true,
+          "protected_files": true,
+          "sysctls": true,
+          "hostname": true,
+          "kernel": true,
+          "cpus": true,
+          "processes": true,
+          "links": true,
+          "addresses": true,
+          "routes4": true,
+          "routes6": true,
+          "rules4": true,
+          "rules6": true,
+          "qdiscs": true,
+          "iptables": true,
+          "ip6tables": true,
+          "namespaces": true,
+          "tcp_sysctls": true
+        }
+      }
+    },
+    "diagnostic": {
+      "server": {
+        "boot_id": true,
+        "protected_files": true,
+        "sysctls": true,
+        "hostname": true,
+        "kernel": true,
+        "cpus": true,
+        "processes": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      },
+      "client": {
+        "boot_id": true,
+        "protected_files": true,
+        "sysctls": true,
+        "hostname": true,
+        "kernel": true,
+        "cpus": true,
+        "processes": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      }
+    },
+    "abba": {
+      "server": {
+        "boot_id": true,
+        "protected_files": true,
+        "sysctls": true,
+        "hostname": true,
+        "kernel": true,
+        "cpus": true,
+        "processes": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      },
+      "client": {
+        "boot_id": true,
+        "protected_files": true,
+        "sysctls": true,
+        "hostname": true,
+        "kernel": true,
+        "cpus": true,
+        "processes": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      }
+    },
+    "headroom": {
+      "server": {
+        "boot_id": true,
+        "protected_files": true,
+        "sysctls": true,
+        "hostname": true,
+        "kernel": true,
+        "cpus": true,
+        "processes": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      },
+      "client": {
+        "boot_id": true,
+        "protected_files": true,
+        "sysctls": true,
+        "hostname": true,
+        "kernel": true,
+        "cpus": true,
+        "processes": true,
+        "links": true,
+        "addresses": true,
+        "routes4": true,
+        "routes6": true,
+        "rules4": true,
+        "rules6": true,
+        "qdiscs": true,
+        "iptables": true,
+        "ip6tables": true
+      }
+    }
+  },
+  "checks": {
+    "rust_library_passed": 2507,
+    "rust_library_ignored": 61,
+    "panel_regressions_passed": 124,
+    "docs_checks_passed": 9,
+    "clippy": "PASS",
+    "client_only_check": "PASS before server-only handoff change",
+    "ffi_check": "PASS before server-only handoff change"
+  },
+  "result": {
+    "tcp_defaults": 0,
+    "explicit_tcp_overrides": "preserved",
+    "udp_receive_queue": 128,
+    "tun_default": "unchanged1000; existing manual setting preserved",
+    "tun_drop_free_900": "NOT_ESTABLISHED at qlen1000; rare drops remain",
+    "dispatch_fast_path": "validated bounded try_send with blocking fallback; no stable drop-elimination claim",
+    "ram_limits": "unchanged; UDP recycler129x65535 per pump, TUN read pool512x65535 in this fixture, kernel TCP sysctls unchanged"
+  },
+  "native_source_sha256": {
+    "qeli/src/client/mod.rs": "efd36cef054334db2ac0d5cf3c6626bf29051cb11ccb3415941155295156c542",
+    "qeli/src/config/client.rs": "22c80a02c99cbf6bd0686338045e47164a3ba574325db7de1df5d2e129b199e3",
+    "qeli/src/config/mod.rs": "8e413268876efc89ae291d9a6ffb0b41ec8c954f2766cd9a48b6c265ee846796",
+    "qeli/src/server/control.rs": "37f3a87790a34ff76b89b794f31bc1a00fd463491d20a4468afa436591dedfa3",
+    "qeli/src/server/mod.rs": "863732d847794174d6fd5c3721a0c47d3782c1e7e891119c503ff09da3be33d0",
+    "qeli/src/server/tun_metrics.rs": "4ee71880b9b1ce486aa89a5c14f31f5fc77486ecca6e50e946ff8c0f3cf72156",
+    "qeli/src/server/udp_handler.rs": "2fdbcd1129ccd139d24541c3de0f99b5f78b7d2dbab88f12f6d576c1a9f9fe30",
+    "qeli/src/transport_core/mod.rs": "6074df1ac8a03b501ac8e9ba96ff7765f49e1d8e0b66cd927835683c8e591d65",
+    "qeli/src/transport_core/receive_queue.rs": "91b8b6794e21ebf2fe6916fce9737c6ec226540c8e6bcc8417313699ba9dee83",
+    "qeli/src/transport_core/udp_buffer.rs": "51f2bb0c2e49ad11d6a04e397b3ae9014a1fc80f7b7a3697ce9d19c77092f019",
+    "qeli/src/web/api/transport.rs": "41dd2ebd57ee2c711a5af455dc10193c4dfdd05e5eb963d8a6824c3610cd5315",
+    "qeli/src/web/assets/i18n.js": "5c318156e74e3ee7657d3538abfd9086c1425ea1624044c8385da73e383977b9",
+    "qeli/src/web/templates/config.html": "5f18ff99872f9e3eb5931585c2270a8ee8063fff6248b0515ad0b4539f856e49",
+    "qeli/src/server/tun_dispatch.rs": "497389d5959929e628714bea8be9a3089d188dc919e22442f956c34244ecaf3c"
+  },
+  "evidence_sha256": {
+    "tcp-multi-verified.json": "9392d465eb324fce0271fc84ded9e365ea0bcf4b94a5e9dcf8d4c26df21c58dc",
+    "udp-diag/verified.json": "07a257f5cfd74ea8d96070cc3021fcc4dc7c6c6ff8615e23313c4482ce3ef90d",
+    "udp-diag/evidence.json.gz": "e665d6bafdfcde2f5912b0340547899753453db2a9af05ed5030c46997ea3df8",
+    "udp-compare/verified.json": "50c3e99a786a3bd8198fb38c5a298206841e27495e3ab1efe37f883336f493c2",
+    "udp-compare/evidence.json.gz": "9747c9febbec81bf69d8afca152b70455995eb38fc92c58f0a2ae4b204e46794",
+    "tun-headroom/verified.json": "9b7296ae362025a873b3b8df617b7ac822f54a51ad1c06e6647eb17f3ab1a590",
+    "tun-headroom/evidence.json.gz": "8cf80a6475096f4c3c54ee6fc8b6e60a58936959a5f7c9bb0844a62c7b0d3db1",
+    "build-result.json": "bb3052b371bb2e25c4324babb89ee4d1643b6844658187a07361b7b130835a7d",
+    "build-optimized-result.json": "1e63cb34550288d53ce903805e45a22071852f295198b6f409eb7c9ead7bc2d3",
+    "local-checks.json": "dbb62850975e1d50395dc79bf0db7aac9d7bc838fedd3362f339221cd8e298c6"
+  },
+  "headroom_memory": {
+    "server": {
+      "minimum_available_kib": 1618104,
+      "swap_out_pages": 0,
+      "oom_kills": 0
+    },
+    "client": {
+      "minimum_available_kib": 1626028,
+      "swap_out_pages": 0,
+      "oom_kills": 0
+    }
+  }
+}

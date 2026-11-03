@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "finding": "Q37-F008",
+  "source_baseline_commit": "e56dfafe3eef8ab27961129e4ad52659a951b9ac",
+  "status": "LOCAL_CI_RUNNER_PIN_LOCK_FEATURE_AND_FAILURE_POLICY_VERIFIED_FULL_BUILDS_REQUIRED",
+  "rust_toolchain": "1.97.0",
+  "full_rust_compilation": false,
+  "qualification_scope": "Real isolated shell execution with fake cargo/python/node/cc children; no actual Rust compilation or release/native qualification.",
+  "checks": [
+    {
+      "args": [
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_audit_test_suite.py",
+        "-v"
+      ],
+      "expected": 0,
+      "exit": 0,
+      "stdout": "",
+      "stderr": "test_incomplete_empty_skipped_expected_failure_or_error_never_pass (test_audit_test_suite.AuditSuiteTests.test_incomplete_empty_skipped_expected_failure_or_error_never_pass) ... ok\ntest_registry_has_only_existing_test_modules_with_no_duplicates (test_audit_test_suite.AuditSuiteTests.test_registry_has_only_existing_test_modules_with_no_duplicates) ... ok\ntest_unknown_group_refuses_before_loading_any_module (test_audit_test_suite.AuditSuiteTests.test_unknown_group_refuses_before_loading_any_module) ... ok\ntest_workflow_connects_every_group_and_its_admission_guard (test_audit_test_suite.AuditSuiteTests.test_workflow_connects_every_group_and_its_admission_guard) ... ok\n\n----------------------------------------------------------------------\nRan 4 tests in 0.020s\n\nOK\n"
+    },
+    {
+      "args": [
+        "scripts/check_workflows.py",
+        "--actionlint",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-fuzz-context-20261009\\actionlint.exe"
+      ],
+      "expected": 0,
+      "exit": 0,
+      "stdout": "actionlint 1.7.12: 4 workflows PASS (Actions semantics only)\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "native-libs/provenance.py",
+        "--check"
+      ],
+      "expected": 1,
+      "exit": 1,
+      "stdout": "",
+      "stderr": "STALE NATIVE CORES.\n  recorded : e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c\n  actual   : 3538e06ce413971f353d02b7725cf24a7a18c6c6c83758eddfbb11db794a3498\n\nA native source or build recipe has changed since the .so/.dll/.dylib build;\nthe GUI clients may ship cores that do not match this tree. Rebuild them:\n  python scripts/build_native_libs_p4.py   # windows + macos, on lab .10\n  python scripts/build_android_so_11.py    # android, on lab .11\nthen `bash native-libs/verify.sh --update` and\n`python native-libs/provenance.py --update`.\n"
+    }
+  ],
+  "stages": [
+    {
+      "stage": "environment-pin",
+      "worker": {
+        "status": "PASS",
+        "full_rust_compilation": false,
+        "commands": [
+          {
+            "name": "current-shell-syntax",
+            "args": [
+              "/bin/bash",
+              "-n",
+              "scripts/ci-check.sh"
+            ],
+            "expected": 0,
+            "exit": 0,
+            "status": "PASS",
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "name": "current-runner-fixtures",
+            "args": [
+              "/usr/bin/python3",
+              "-B",
+              "-m",
+              "unittest",
+              "discover",
+              "-s",
+              "scripts",
+              "-p",
+              "test_ci_check.py",
+              "-v"
+            ],
+            "expected": 0,
+            "exit": 0,
+            "status": "PASS",
+            "stdout": "",
+            "stderr": "test_cargo_failure_is_retained_while_independent_checks_continue (test_ci_check.LocalCIGateTests.test_cargo_failure_is_retained_while_independent_checks_continue) ... ok\ntest_malformed_pin_refuses_before_cargo (test_ci_check.LocalCIGateTests.test_malformed_pin_refuses_before_cargo) ... ok\ntest_missing_pin_refuses_before_cargo (test_ci_check.LocalCIGateTests.test_missing_pin_refuses_before_cargo) ... ok\ntest_non_cargo_failure_never_reports_green (test_ci_check.LocalCIGateTests.test_non_cargo_failure_never_reports_green) ... ok\ntest_success_uses_pinned_locked_feature_profiles_from_any_directory (test_ci_check.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory) ... ok\n\n----------------------------------------------------------------------\nRan 5 tests in 3.492s\n\nOK\n"
+          },
+          {
+            "name": "original-runner-negative",
+            "args": [
+              "/usr/bin/python3",
+              "-B",
+              "-m",
+              "unittest",
+              "test_ci_check.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory",
+              "-v"
+            ],
+            "expected": 1,
+            "exit": 1,
+            "status": "PASS",
+            "stdout": "",
+            "stderr": "test_success_uses_pinned_locked_feature_profiles_from_any_directory (test_ci_check.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory) ... FAIL\n\n======================================================================\nFAIL: test_success_uses_pinned_locked_feature_profiles_from_any_directory (test_ci_check.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/tmp/qeli-q37-ci-check-0e45ae1768774886b84281af6d8741dd/before/scripts/test_ci_check.py\", line 71, in test_success_uses_pinned_locked_feature_profiles_from_any_directory\n    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0 : == docs (all configured checks) ==\n== panel editor regression tests ==\n== version consistency (build files + docs banners) ==\n== build (release) ==\n== test ==\n== rustfmt ==\n== clippy (-D warnings) ==\nFAILURES (rc=1)\nUNPINNED_RUST_REFUSED\nUNLOCKED_CARGO_REFUSED\nUNPINNED_RUST_REFUSED\nUNLOCKED_CARGO_REFUSED\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.386s\n\nFAILED (failures=1)\n"
+          },
+          {
+            "name": "actual-common-pin",
+            "args": [
+              "/usr/bin/python3",
+              "-B",
+              "-c",
+              "from scripts.native_repro import DEFAULT_RUST_TOOLCHAIN; print(DEFAULT_RUST_TOOLCHAIN)"
+            ],
+            "expected": 0,
+            "exit": 0,
+            "status": "PASS",
+            "stdout": "1.97.0\n",
+            "stderr": ""
+          }
+        ]
+      },
+      "host_gate": "PASS",
+      "changed_fields": [],
+      "archive": {
+        "bytes": 50672,
+        "sha256": "d8d12db3ab69c708661cc4aa6d181ce3844386e1b81504127de6e562358db5c1",
+        "files": 9,
+        "all_entries_verified": true
+      },
+      "cleanup": "OWNED_REACHABILITY_ROOT_REMOVED"
+    },
+    {
+      "stage": "explicit-pin",
+      "worker": {
+        "status": "PASS",
+        "full_rust_compilation": false,
+        "commands": [
+          {
+            "name": "current-shell-syntax",
+            "args": [
+              "/bin/bash",
+              "-n",
+              "scripts/ci-check.sh"
+            ],
+            "expected": 0,
+            "exit": 0,
+            "status": "PASS",
+            "stdout": "",
+            "stderr": ""
+          },
+          {
+            "name": "current-runner-fixtures",
+            "args": [
+              "/usr/bin/python3",
+              "-B",
+              "-m",
+              "unittest",
+              "discover",
+              "-s",
+              "scripts",
+              "-p",
+              "test_ci_check.py",
+              "-v"
+            ],
+            "expected": 0,
+            "exit": 0,
+            "status": "PASS",
+            "stdout": "",
+            "stderr": "test_cargo_failure_is_retained_while_independent_checks_continue (test_ci_check.LocalCIGateTests.test_cargo_failure_is_retained_while_independent_checks_continue) ... ok\ntest_malformed_pin_refuses_before_cargo (test_ci_check.LocalCIGateTests.test_malformed_pin_refuses_before_cargo) ... ok\ntest_missing_pin_refuses_before_cargo (test_ci_check.LocalCIGateTests.test_missing_pin_refuses_before_cargo) ... ok\ntest_non_cargo_failure_never_reports_green (test_ci_check.LocalCIGateTests.test_non_cargo_failure_never_reports_green) ... ok\ntest_success_uses_pinned_locked_feature_profiles_from_any_directory (test_ci_check.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory) ... ok\n\n----------------------------------------------------------------------\nRan 5 tests in 3.521s\n\nOK\n"
+          },
+          {
+            "name": "original-runner-negative",
+            "args": [
+              "/usr/bin/python3",
+              "-B",
+              "-m",
+              "unittest",
+              "test_ci_check.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory",
+              "-v"
+            ],
+            "expected": 1,
+            "exit": 1,
+            "status": "PASS",
+            "stdout": "",
+            "stderr": "test_success_uses_pinned_locked_feature_profiles_from_any_directory (test_ci_check.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory) ... FAIL\n\n======================================================================\nFAIL: test_success_uses_pinned_locked_feature_profiles_from_any_directory (test_ci_check.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/tmp/qeli-q37-ci-check-a4efd03e961543f4838ec12623db0da4/before/scripts/test_ci_check.py\", line 72, in test_success_uses_pinned_locked_feature_profiles_from_any_directory\n    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0 : == docs (all configured checks) ==\n== panel editor regression tests ==\n== version consistency (build files + docs banners) ==\n== build (release) ==\n== test ==\n== rustfmt ==\n== clippy (-D warnings) ==\nFAILURES (rc=1)\nUNPINNED_RUST_REFUSED\nUNLOCKED_CARGO_REFUSED\nUNPINNED_RUST_REFUSED\nUNLOCKED_CARGO_REFUSED\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.389s\n\nFAILED (failures=1)\n"
+          },
+          {
+            "name": "actual-common-pin",
+            "args": [
+              "/usr/bin/python3",
+              "-B",
+              "-c",
+              "from scripts.native_repro import DEFAULT_RUST_TOOLCHAIN; print(DEFAULT_RUST_TOOLCHAIN)"
+            ],
+            "expected": 0,
+            "exit": 0,
+            "status": "PASS",
+            "stdout": "1.97.0\n",
+            "stderr": ""
+          }
+        ]
+      },
+      "host_gate": "FAIL",
+      "changed_fields": [
+        "iptables4"
+      ],
+      "archive": {
+        "bytes": 51111,
+        "sha256": "3bad6a38f36cecc587fef66fe3ea03fe63a87dd591d7a841bcf408dea5f17ac9",
+        "files": 9,
+        "all_entries_verified": true
+      },
+      "cleanup": "OWNED_REACHABILITY_ROOT_REMOVED"
+    }
+  ],
+  "native_input_digest": "3538e06ce413971f353d02b7725cf24a7a18c6c6c83758eddfbb11db794a3498",
+  "native_status": "STALE",
+  "inputs": {
+    ".github/workflows/ci.yml": "1077d48775f48e1169d2751e1cb0b6d1d1be56dd9233e32574e858528fc36bd4",
+    "scripts/ci-check.sh": "84904199c0795ab8dac77b11c9ab2ac45786c9f7d7ae5b852da0e73f0fa67e17",
+    "scripts/test_ci_check.py": "dacba037b0e977f3e73372d0023e657fc24415fc90bbcd54e484bd0d9a8d13b3"
+  },
+  "overall": {
+    "done": 30,
+    "total": 37,
+    "percent": 81.1,
+    "q37": "IN_PROGRESS",
+    "q35": "RUNNING_LAST_READ_ONLY_CHECKPOINT_TCP5300"
+  },
+  "publication": "LOCAL_DEV_COMMIT_NO_PUSH_DEPLOY_RELEASE"
+}

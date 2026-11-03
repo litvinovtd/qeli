@@ -1,0 +1,401 @@
+{
+  "status": "F459_CURRENT_GRAPH_NO_BRACES_FRESH_NPM_AUDIT_BASELINE_POSITIVE_CURRENT_ZERO_AND_PRIOR_CSS_APPLICABILITY_PASS",
+  "qualification": {
+    "status": "F459_CURRENT_GRAPH_NO_BRACES_FRESH_NPM_AUDIT_BASELINE_POSITIVE_CURRENT_ZERO_AND_PRIOR_CSS_APPLICABILITY_PASS",
+    "source_commit": "67b418ddd5cc8a00f495eb744e77fd18cc73302c",
+    "observed_unix": 1791932525.3996937,
+    "versions": {
+      "node": "v24.14.0",
+      "npm": "11.9.0"
+    },
+    "audit_results": {
+      "baseline": {
+        "command": [
+          "C:\\Program Files\\nodejs\\npm.cmd",
+          "audit",
+          "--package-lock-only",
+          "--ignore-scripts",
+          "--json",
+          "--audit-level=low",
+          "--registry=https://registry.npmjs.org",
+          "--cache=C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-f459-current-graph-r2-20261014\\npm-cache",
+          "--fetch-retries=0",
+          "--fetch-timeout=30000"
+        ],
+        "exit": 1,
+        "seconds": 1.9829249382019043,
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 5,
+          "critical": 0,
+          "total": 5
+        },
+        "stdout_sha256": "71772629b09b58252e4e00f85db766f498c85bf5da502f18c7a1c84567d18372",
+        "stderr_sha256": "99b113a5e4dfe492a77ca88793b7a346c063ec39bd231523011e7c59c3528547"
+      },
+      "current": {
+        "command": [
+          "C:\\Program Files\\nodejs\\npm.cmd",
+          "audit",
+          "--package-lock-only",
+          "--ignore-scripts",
+          "--json",
+          "--audit-level=low",
+          "--registry=https://registry.npmjs.org",
+          "--cache=C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-f459-current-graph-r2-20261014\\npm-cache",
+          "--fetch-retries=0",
+          "--fetch-timeout=30000"
+        ],
+        "exit": 0,
+        "seconds": 1.0339767932891846,
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0,
+          "total": 0
+        },
+        "stdout_sha256": "efe682784a6b1728f8e50a448a5c06029a4407b2391c50ab07fa81b9ec2e5def",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "preflight_sha256": "fd83aa73b4ee5472b6c7d25127cc1b968ef977521de4fc717f443ebc1ec21484",
+    "cleanup_sha256": "6636e8a71bddf15268ca2fb6052b2c84a7c2ccbc2e5fb1a95414c9e125ba1f50",
+    "F459_closed_in_current_source": true,
+    "upstream_patch_claimed": false,
+    "advisory": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+    "current_graph_lock_entries": 45,
+    "new_CSS_build": false,
+    "new_HTTP_runtime": false,
+    "whole_Q34_closed": false,
+    "no_push_deploy_release": true
+  },
+  "preflight": {
+    "status": "CURRENT_NO_BRACES_GRAPH_BOUND_TO_ADOPTED_CSS_AND_PREVIOUS_EXECUTION",
+    "source_commit": "67b418ddd5cc8a00f495eb744e77fd18cc73302c",
+    "adopted_source_commit": "da776fb892bd6c02b34194a8e772770744832a77",
+    "source_bindings": {
+      "qeli/src/web/assets/alpine.js": {
+        "working_sha256": "566167134bb2347110904e2ced6e816d2e8d837200c158f98b72372b3bb0b9a6",
+        "git_sha256": "566167134bb2347110904e2ced6e816d2e8d837200c158f98b72372b3bb0b9a6"
+      },
+      "qeli/src/web/assets/app.css": {
+        "working_sha256": "a3c34dec1b6d657bba86e0a0b73691bcf4bcedbd7836637f2cf4bbed939c75c6",
+        "git_sha256": "a3c34dec1b6d657bba86e0a0b73691bcf4bcedbd7836637f2cf4bbed939c75c6"
+      },
+      "qeli/src/web/assets/fonts/inter-400.woff2": {
+        "working_sha256": "2301bb030a2bcaa9c763cc4771bd717aac16709c29eaba00673fcbe7cdf99a59",
+        "git_sha256": "2301bb030a2bcaa9c763cc4771bd717aac16709c29eaba00673fcbe7cdf99a59"
+      },
+      "qeli/src/web/assets/fonts/inter-500.woff2": {
+        "working_sha256": "eebf14aba456b89b7e899584e076588a92e422a45b37fb5fa36ce17519a3e8c5",
+        "git_sha256": "eebf14aba456b89b7e899584e076588a92e422a45b37fb5fa36ce17519a3e8c5"
+      },
+      "qeli/src/web/assets/fonts/inter-600.woff2": {
+        "working_sha256": "3022fadde78fd30c384797bcef8bebc18c96083527a850f62a58d8957a8b208f",
+        "git_sha256": "3022fadde78fd30c384797bcef8bebc18c96083527a850f62a58d8957a8b208f"
+      },
+      "qeli/src/web/assets/fonts/inter-700.woff2": {
+        "working_sha256": "7b43cb86a0e63bbb55376b4ea60d8cc9527a1421c367aa09962725e0c5140f5f",
+        "git_sha256": "7b43cb86a0e63bbb55376b4ea60d8cc9527a1421c367aa09962725e0c5140f5f"
+      },
+      "qeli/src/web/assets/fonts/inter-800.woff2": {
+        "working_sha256": "03db2737c800eb405b5bb0223890a116eda19c56bd7fbe20b709308c767ef5f6",
+        "git_sha256": "03db2737c800eb405b5bb0223890a116eda19c56bd7fbe20b709308c767ef5f6"
+      },
+      "qeli/src/web/assets/fonts/jbmono-400.woff2": {
+        "working_sha256": "7c53386f55c866c1b4c9309c4bcf74eda10896aab3a1780b0af5cc4976e27a27",
+        "git_sha256": "7c53386f55c866c1b4c9309c4bcf74eda10896aab3a1780b0af5cc4976e27a27"
+      },
+      "qeli/src/web/assets/fonts/jbmono-600.woff2": {
+        "working_sha256": "1cd6778760d101a5c522f5d1de6fe17efa9e66950bcd5fce274ae3b4f494f923",
+        "git_sha256": "1cd6778760d101a5c522f5d1de6fe17efa9e66950bcd5fce274ae3b4f494f923"
+      },
+      "qeli/src/web/assets/i18n.js": {
+        "working_sha256": "56c692c4c73d72a6cb426002928090b0a000af855e8d8e3899c7845a232af2a8",
+        "git_sha256": "56c692c4c73d72a6cb426002928090b0a000af855e8d8e3899c7845a232af2a8"
+      },
+      "qeli/src/web/templates/blocked.html": {
+        "working_sha256": "d6655b6f645ef9abeaa94b73686b55e53085118c8c18b54e98bad5ab75c41e8e",
+        "git_sha256": "2ecc0c7996566b7054c790a92bfc8cdfeac5f94effdf01e770d0385836dd1197"
+      },
+      "qeli/src/web/templates/client.html": {
+        "working_sha256": "0a80a8f919d0403fa2fea487e8f7174e46ccd912f8efb0aa62f5e2d9f4fc0b65",
+        "git_sha256": "9f41d879d59aa06ecd055971b9ffe825298af0311760c1c2bf549b1a871f3215"
+      },
+      "qeli/src/web/templates/config.html": {
+        "working_sha256": "579b2a7fd2bf3b76c35d79e3b86d2d53689f55de6a25fa8299071f5e3f829ce7",
+        "git_sha256": "579b2a7fd2bf3b76c35d79e3b86d2d53689f55de6a25fa8299071f5e3f829ce7"
+      },
+      "qeli/src/web/templates/dashboard.html": {
+        "working_sha256": "1606a0b38105e4eb7b9a1ac9d4c906497331cd27064db39021ccc91bd0cca3cd",
+        "git_sha256": "294eff8f281bed81da5a1bbc7ddb8f1e80685fa244be669393cced5176f08c57"
+      },
+      "qeli/src/web/templates/layout.html": {
+        "working_sha256": "8a860764794f6d2b91bc67280877d5c16de8b34985800f934a5d8b8b62a60d7f",
+        "git_sha256": "8a860764794f6d2b91bc67280877d5c16de8b34985800f934a5d8b8b62a60d7f"
+      },
+      "qeli/src/web/templates/login.html": {
+        "working_sha256": "f1e849cd64f11b73d73906190797ed07602a58dbbb4be9101ff52211adf11739",
+        "git_sha256": "f1e849cd64f11b73d73906190797ed07602a58dbbb4be9101ff52211adf11739"
+      },
+      "qeli/src/web/templates/logs.html": {
+        "working_sha256": "ccd127cdf765c8c7150ed8b88aaf9298064bc871322cd90b985e1fc8f11aa411",
+        "git_sha256": "d543f74fb05438a8acca6561643828c64e273e95a352666f5661232a41e9d814"
+      },
+      "qeli/src/web/templates/notifications.html": {
+        "working_sha256": "6bed696bd152c553c3a1cac1730598d8e6fb975b085247082be23996622085d1",
+        "git_sha256": "6bed696bd152c553c3a1cac1730598d8e6fb975b085247082be23996622085d1"
+      },
+      "qeli/src/web/templates/quickstart.html": {
+        "working_sha256": "8a9d9c07483e7409d6472efc1f3f373d930c4a40442d02a8aec2d5ea89f2494d",
+        "git_sha256": "8a9d9c07483e7409d6472efc1f3f373d930c4a40442d02a8aec2d5ea89f2494d"
+      },
+      "qeli/src/web/templates/transport.html": {
+        "working_sha256": "f47436885d690e3d7a2cdb16542a69042fe32ea0fb5307bea3c9c11cc36d2bd0",
+        "git_sha256": "8c4900277774db4c64cb2aa1230f6892ba85521ca4e2534f95c0cf68dbfef1eb"
+      },
+      "qeli/src/web/templates/users.html": {
+        "working_sha256": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+        "git_sha256": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "qeli/web-assets/README.md": {
+        "working_sha256": "83696192840dafc5bce0459458ef89206ee229c106ce87696b5dfa1c3c6bd1be",
+        "git_sha256": "8285dbadf4cdc3fd6171a76f006c483cebda1d0c758f44c07aa1884ac5b0a3f8"
+      },
+      "qeli/web-assets/build.mjs": {
+        "working_sha256": "958d7d704a0215229e62a59339c0b094650a58b6a04761a4e710193706c7a970",
+        "git_sha256": "99e86895fb6870da093fbc738e4f79fcb7db08519ca8a5670c13fe34ee821fe8"
+      },
+      "qeli/web-assets/input.css": {
+        "working_sha256": "de19c8828d5c1e4e454840303fe6e2a0db2d545e1554f5b4587dd68417d123f7",
+        "git_sha256": "a2ebd1b8e54cb855aeb20ff3f53f4bf75b9c2011f004e71b200b73dc447e3b47"
+      },
+      "qeli/web-assets/legacy-spacing.css": {
+        "working_sha256": "68f254fbc30cc9ee45d7bc4a16fd043b3d69a25299b964349bb26aafc0976727",
+        "git_sha256": "68f254fbc30cc9ee45d7bc4a16fd043b3d69a25299b964349bb26aafc0976727"
+      },
+      "qeli/web-assets/package-lock.json": {
+        "working_sha256": "0b27212fe900b3d393fce70ae70b5166835e9b04e55c10c8c2c8c187344e4640",
+        "git_sha256": "b06ef88f1851b277bbd5353c7a31fa349310ec6c26f55f4119830a28d62a00fe"
+      },
+      "qeli/web-assets/package.json": {
+        "working_sha256": "7c58df52faa4e1f9a84081b5bc4ae6fd8e70b0881fe2b8b90d483bdd8040358b",
+        "git_sha256": "8b89b4f46dd86a2bb68b0c52db4f02f2640a5e3e7d3a0f829122ca901fc21d24"
+      },
+      "qeli/web-assets/tailwind.config.js": {
+        "working_sha256": "2f36cb0097756e14fe3f9457fa32dfcff062bd5e6e6e9178d15e98574bd429f5",
+        "git_sha256": "2f36cb0097756e14fe3f9457fa32dfcff062bd5e6e6e9178d15e98574bd429f5"
+      },
+      "qeli/web-assets/watch.mjs": {
+        "working_sha256": "475f52e315df807f2f863ddec7a1ed5231b5d0129659517b90ec9014e2190cfa",
+        "git_sha256": "475f52e315df807f2f863ddec7a1ed5231b5d0129659517b90ec9014e2190cfa"
+      }
+    },
+    "exact_unchanged_Linux_build_input_files": {
+      "qeli/src/web/assets/app.css": "a3c34dec1b6d657bba86e0a0b73691bcf4bcedbd7836637f2cf4bbed939c75c6",
+      "qeli/src/web/templates/blocked.html": "d6655b6f645ef9abeaa94b73686b55e53085118c8c18b54e98bad5ab75c41e8e",
+      "qeli/src/web/templates/client.html": "0a80a8f919d0403fa2fea487e8f7174e46ccd912f8efb0aa62f5e2d9f4fc0b65",
+      "qeli/src/web/templates/config.html": "579b2a7fd2bf3b76c35d79e3b86d2d53689f55de6a25fa8299071f5e3f829ce7",
+      "qeli/src/web/templates/dashboard.html": "1606a0b38105e4eb7b9a1ac9d4c906497331cd27064db39021ccc91bd0cca3cd",
+      "qeli/src/web/templates/layout.html": "8a860764794f6d2b91bc67280877d5c16de8b34985800f934a5d8b8b62a60d7f",
+      "qeli/src/web/templates/login.html": "f1e849cd64f11b73d73906190797ed07602a58dbbb4be9101ff52211adf11739",
+      "qeli/src/web/templates/logs.html": "ccd127cdf765c8c7150ed8b88aaf9298064bc871322cd90b985e1fc8f11aa411",
+      "qeli/src/web/templates/notifications.html": "6bed696bd152c553c3a1cac1730598d8e6fb975b085247082be23996622085d1",
+      "qeli/src/web/templates/quickstart.html": "8a9d9c07483e7409d6472efc1f3f373d930c4a40442d02a8aec2d5ea89f2494d",
+      "qeli/src/web/templates/transport.html": "f47436885d690e3d7a2cdb16542a69042fe32ea0fb5307bea3c9c11cc36d2bd0",
+      "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+      "qeli/web-assets/build.mjs": "958d7d704a0215229e62a59339c0b094650a58b6a04761a4e710193706c7a970",
+      "qeli/web-assets/input.css": "de19c8828d5c1e4e454840303fe6e2a0db2d545e1554f5b4587dd68417d123f7",
+      "qeli/web-assets/legacy-spacing.css": "68f254fbc30cc9ee45d7bc4a16fd043b3d69a25299b964349bb26aafc0976727",
+      "qeli/web-assets/package-lock.json": "0b27212fe900b3d393fce70ae70b5166835e9b04e55c10c8c2c8c187344e4640",
+      "qeli/web-assets/package.json": "7c58df52faa4e1f9a84081b5bc4ae6fd8e70b0881fe2b8b90d483bdd8040358b",
+      "qeli/web-assets/tailwind.config.js": "2f36cb0097756e14fe3f9457fa32dfcff062bd5e6e6e9178d15e98574bd429f5",
+      "qeli/web-assets/watch.mjs": "475f52e315df807f2f863ddec7a1ed5231b5d0129659517b90ec9014e2190cfa"
+    },
+    "css_sha256": "a3c34dec1b6d657bba86e0a0b73691bcf4bcedbd7836637f2cf4bbed939c75c6",
+    "frozen": {
+      "current": {
+        "source_commit": "67b418ddd5cc8a00f495eb744e77fd18cc73302c",
+        "package_sha256": "8b89b4f46dd86a2bb68b0c52db4f02f2640a5e3e7d3a0f829122ca901fc21d24",
+        "lock_sha256": "b06ef88f1851b277bbd5353c7a31fa349310ec6c26f55f4119830a28d62a00fe",
+        "lock_entries": 45,
+        "braces": [],
+        "package_names": [
+          "",
+          "node_modules/@jridgewell/gen-mapping",
+          "node_modules/@jridgewell/remapping",
+          "node_modules/@jridgewell/resolve-uri",
+          "node_modules/@jridgewell/sourcemap-codec",
+          "node_modules/@jridgewell/trace-mapping",
+          "node_modules/@tailwindcss/node",
+          "node_modules/@tailwindcss/oxide",
+          "node_modules/@tailwindcss/oxide-android-arm64",
+          "node_modules/@tailwindcss/oxide-darwin-arm64",
+          "node_modules/@tailwindcss/oxide-darwin-x64",
+          "node_modules/@tailwindcss/oxide-freebsd-x64",
+          "node_modules/@tailwindcss/oxide-linux-arm-gnueabihf",
+          "node_modules/@tailwindcss/oxide-linux-arm64-gnu",
+          "node_modules/@tailwindcss/oxide-linux-arm64-musl",
+          "node_modules/@tailwindcss/oxide-linux-x64-gnu",
+          "node_modules/@tailwindcss/oxide-linux-x64-musl",
+          "node_modules/@tailwindcss/oxide-wasm32-wasi",
+          "node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/@emnapi/core",
+          "node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/@emnapi/runtime",
+          "node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/@emnapi/wasi-threads",
+          "node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/@napi-rs/wasm-runtime",
+          "node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/@tybys/wasm-util",
+          "node_modules/@tailwindcss/oxide-wasm32-wasi/node_modules/tslib",
+          "node_modules/@tailwindcss/oxide-win32-arm64-msvc",
+          "node_modules/@tailwindcss/oxide-win32-x64-msvc",
+          "node_modules/detect-libc",
+          "node_modules/enhanced-resolve",
+          "node_modules/graceful-fs",
+          "node_modules/jiti",
+          "node_modules/lightningcss",
+          "node_modules/lightningcss-android-arm64",
+          "node_modules/lightningcss-darwin-arm64",
+          "node_modules/lightningcss-darwin-x64",
+          "node_modules/lightningcss-freebsd-x64",
+          "node_modules/lightningcss-linux-arm-gnueabihf",
+          "node_modules/lightningcss-linux-arm64-gnu",
+          "node_modules/lightningcss-linux-arm64-musl",
+          "node_modules/lightningcss-linux-x64-gnu",
+          "node_modules/lightningcss-linux-x64-musl",
+          "node_modules/lightningcss-win32-arm64-msvc",
+          "node_modules/lightningcss-win32-x64-msvc",
+          "node_modules/magic-string",
+          "node_modules/source-map-js",
+          "node_modules/tailwindcss",
+          "node_modules/tapable"
+        ]
+      },
+      "baseline": {
+        "source_commit": "3638b43c145ae2dc9ca609c0811d0b56175548b3",
+        "package_sha256": "dc7db40d28085045a6158cb8ceebe7a07294680402b38327d6a2b0f5d4b71ed5",
+        "lock_sha256": "c7273d7023a26787080a08d311500a962a5dfe7a6dba72e5d6307b894b0876b4",
+        "lock_entries": 74,
+        "braces": [
+          {
+            "path": "node_modules/braces",
+            "version": "3.0.3"
+          }
+        ],
+        "package_names": [
+          "",
+          "node_modules/@alloc/quick-lru",
+          "node_modules/@jridgewell/gen-mapping",
+          "node_modules/@jridgewell/resolve-uri",
+          "node_modules/@jridgewell/sourcemap-codec",
+          "node_modules/@jridgewell/trace-mapping",
+          "node_modules/@nodelib/fs.scandir",
+          "node_modules/@nodelib/fs.stat",
+          "node_modules/@nodelib/fs.walk",
+          "node_modules/any-promise",
+          "node_modules/anymatch",
+          "node_modules/arg",
+          "node_modules/binary-extensions",
+          "node_modules/braces",
+          "node_modules/camelcase-css",
+          "node_modules/chokidar",
+          "node_modules/chokidar/node_modules/glob-parent",
+          "node_modules/commander",
+          "node_modules/cssesc",
+          "node_modules/didyoumean",
+          "node_modules/dlv",
+          "node_modules/es-errors",
+          "node_modules/fast-glob",
+          "node_modules/fast-glob/node_modules/glob-parent",
+          "node_modules/fastq",
+          "node_modules/fill-range",
+          "node_modules/fsevents",
+          "node_modules/function-bind",
+          "node_modules/glob-parent",
+          "node_modules/hasown",
+          "node_modules/is-binary-path",
+          "node_modules/is-core-module",
+          "node_modules/is-extglob",
+          "node_modules/is-glob",
+          "node_modules/is-number",
+          "node_modules/jiti",
+          "node_modules/lilconfig",
+          "node_modules/lines-and-columns",
+          "node_modules/merge2",
+          "node_modules/micromatch",
+          "node_modules/mz",
+          "node_modules/nanoid",
+          "node_modules/normalize-path",
+          "node_modules/object-assign",
+          "node_modules/object-hash",
+          "node_modules/path-parse",
+          "node_modules/picocolors",
+          "node_modules/picomatch",
+          "node_modules/pify",
+          "node_modules/pirates",
+          "node_modules/postcss",
+          "node_modules/postcss-import",
+          "node_modules/postcss-js",
+          "node_modules/postcss-load-config",
+          "node_modules/postcss-nested",
+          "node_modules/postcss-selector-parser",
+          "node_modules/postcss-value-parser",
+          "node_modules/queue-microtask",
+          "node_modules/read-cache",
+          "node_modules/readdirp",
+          "node_modules/resolve",
+          "node_modules/reusify",
+          "node_modules/run-parallel",
+          "node_modules/source-map-js",
+          "node_modules/sucrase",
+          "node_modules/supports-preserve-symlinks-flag",
+          "node_modules/tailwindcss",
+          "node_modules/thenify",
+          "node_modules/thenify-all",
+          "node_modules/tinyglobby",
+          "node_modules/tinyglobby/node_modules/fdir",
+          "node_modules/tinyglobby/node_modules/picomatch",
+          "node_modules/to-regex-range",
+          "node_modules/ts-interface-checker",
+          "node_modules/util-deprecate"
+        ]
+      }
+    },
+    "inherited_checks": {
+      "Linux29": true,
+      "Windows29": true,
+      "paired_browser_states": 96,
+      "HTTP131": true
+    },
+    "evidence_sha256": {
+      "q34-linux-css-r3-20261012\\plan.json": "c4e7bc91ada203c47a51d50946550df5dd4bf0fd9ae7c448aa80909a17e00f3c",
+      "q34-linux-css-r3-20261012\\result.json": "f8468fce877d5afb75f008ea12402a01e1ab0336689e41fea79b7c0e0ea2bfee",
+      "q34-linux-css-r3-20261012\\linux-result.json": "0ecba3c5570606b140f4d3ff4788a78dafdc24d52fe12e8c20bd107b97a263d5",
+      "q34-linux-css-r3-20261012\\seal.json": "405d33a038684b72bcb7424e8a7b37993ee5b4ccbc81ea4d5487808be59232b4",
+      "q34-panel-remaining-20261012\\result.json": "052c4b2e1e98324acb64990195bcebf35fc4e2ef5745de190cd50ee69debefa3",
+      "q34-panel-remaining-20261012\\seal.json": "be327b6001e9c270ceae1c29f303aee9007149aa42ce94384daf105c7bf02a31",
+      "q34-http-launcher-r4-20261013\\qualification.json": "e477b1760bca080b3338f435ecd7d17c1ded101a5c14b7033d56f0d42fdfeee7",
+      "q34-adopted-native-copies-20261013\\adoption.json": "268992dfecd2bca5e78c316e0a5e8130f08450e024797c6e0ce0c6f689b106e6"
+    },
+    "new_CSS_build": false,
+    "new_HTTP_runtime": false,
+    "no_push_deploy_release": true
+  },
+  "cleanup": {
+    "owned_npm_cache_removed": true,
+    "cache_payload_bytes": 5458196,
+    "node_modules_created": false,
+    "global_cache_modified": false
+  },
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-f459-current-graph-r2-20261014",
+  "qualification_sha256": "a1d7f109550062eab4b7c42c54e6e95d6df198481bd941b3274fb5fa2b0fc28a",
+  "initial_network_refusal": {
+    "stdout_sha256": "e7d70d69bd6982f0ab767511e2566dd5bc696909a84f31bbd885e896b4b4f9bb",
+    "cleanup_sha256": "0ea90a031ba6b2d95066b600ea8c501c8ae1e723b0403352af78b9ee2261104d"
+  },
+  "F459_closed_in_current_source": true,
+  "scope": "Exact four Markdown report/plan changes only. Fresh npm audit checks the unchanged adopted frontend graph; prior CSS/HTTP and Linux20 execution dates/source/binary/raw facts retained. No new build/device/network runtime, upstream braces patch or hosted release claim.",
+  "no_push_deploy_release": true
+}

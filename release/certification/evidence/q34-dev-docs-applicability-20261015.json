@@ -1,0 +1,23 @@
+{
+  "status": "FRESH_LINUX20_AND_CURRENT_CI_APPLY_AFTER_TEN_MARKDOWN_REPORTS",
+  "audited_source_commit": "9fa0903a191aea54019a2ba293c709d740c661de",
+  "report_commit": "e707060b4e518ec5c05124929b2865fd0ce010e7",
+  "source_digest": "2ab27de3b51311ee722e371a509619a92302d57029da239095d95c6292fa0a3a",
+  "native_source_digest": "2e94d94ca30041f6834a49fdcc06df76546c82b1c3129696c07abbdc11a46cda",
+  "exact_source_delta": {
+    "docs/eng/plans/AUDIT-DEBT.md": "8221cc28e5336d819b9b03c48ee346cc0c4d39e5c5ac02a94c36f2ae567efcca",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "f7de99fe5501912b8b3077f021118de067a7985474bdd192141f336c074413c6",
+    "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md": "45325351aca97b34b142c982178453488124cee48583793b8d2fdb3580ba65d1",
+    "docs/eng/reports/AUDIT-Q34-ADOPTED-NATIVE.md": "e945ebf5ee1fc4b427e03135d543b303afd6b2a8111817858c17975b7a4d9223",
+    "docs/eng/reports/AUDIT-Q34-CLIENT-SUPPLY.md": "fb22d27c8f808baf69d925ec7f51cd0e89aeec0a58a7d31cbf7841155469d74d",
+    "docs/ru/plans/AUDIT-DEBT.md": "ecbe625fed65478975edab486832e99be4992b5359b9c027b55c4d65ab962e40",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "966ae84eb0b70b0400428427f0c4fc312c25972c909f1b40383b75f3e3f1f0e1",
+    "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md": "e9db15c6d9fa819133cda230db8423a6b768330892927bdd8992998940352132",
+    "docs/ru/reports/AUDIT-Q34-ADOPTED-NATIVE.md": "4c97fc12461cbf321b7e0b9563aa2020d5907e44e01dda096078cf0faa0157ce",
+    "docs/ru/reports/AUDIT-Q34-CLIENT-SUPPLY.md": "84015894355ed2c76550490a6342a3448e76c8fd3ba2f789e8f8d0d8cebc6d4d"
+  },
+  "scope": "Ten RU/EN reports and plan/debt ledgers only; product, dependency graphs, recipes, workflows, fixtures and runtime harness unchanged since the successful exact-SHA CI and fresh Linux20 execution. Actual execution source, timestamp, CLI hash and rows retained.",
+  "actual_runtime_evidence": "release/certification/evidence/q34-dev-linux-runtime-20261015.json",
+  "actual_CI": "https://github.com/litvinovtd/qeli/actions/runs/38754898316",
+  "physical_rows_unchanged": true
+}

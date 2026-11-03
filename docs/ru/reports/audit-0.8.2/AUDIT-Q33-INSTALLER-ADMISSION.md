@@ -1,0 +1,25 @@
+# Q33: зависимости installer и допуск Debian-пакета
+
+<!-- normative-sync: q33-installer-admission-v1 -->
+
+8 октября 2026. F422–F426 / Q33-F025–F029. Q33 остаётся IN_PROGRESS. Здесь проверен этап зависимостей/пакета; config, identity, users, panel, tuning, restart и Docker integration ещё открыты.
+
+## Находки и исправления
+
+- **F422 / Q33-F025:** безусловный apt update/install требовал доступных репозиториев даже при полном локальном payload. Теперь устанавливаются только отсутствующие зависимости, затем повторно проверяются команды и, для HTTP, CA bundle. Локальный payload с явно указанным public host не требует curl/jq/CA setup. Полный набор remote prerequisites также пропускает apt. Ошибка обновления индекса/установки и ложный успех apt не позволяют перейти к публикации Qeli. При отсутствии account tools запрашивается adduser; IPv6 capability fallback сохранён.
+- **F423 / Q33-F026:** проверка архитектуры пропускала чужой Package. Локальный и загруженный .deb должны иметь Package=qeli, host architecture/all и версию. Неверный/повреждённый локальный пакет отклоняется до изменений зависимостей/конфига. Байты локального пакета оператора остаются доверенным вводом, если attestation не запрошена.
+- **F424 / Q33-F027:** после неудачного apt, failed dpkg и успешного dependency repair установка продолжалась при отсутствующем, старом или unpacked Qeli. Теперь точные status/version/architecture из dpkg-query должны совпасть с допущенным артефактом, включая Debian revision и architecture=all. При несовпадении генерация конфига не начинается; уже предпринятые изменения пакетов/зависимостей автоматически не откатываются.
+- **F425 / Q33-F028:** обязательная attestation учитывалась при извлечении binary payload, но игнорировалась полным Debian install path. QELI_VERIFY_ATTESTATION=1 теперь требует gh и успешную проверку до установки локального или удалённого пакета. Release SHA sums подтверждают целостность относительно metadata релиза, а не независимую подпись; ошибочная формулировка signed sums исправлена.
+- **F426 / Q33-F029:** поддержка URL в QELI_DEB оставалась в комментариях и недостижимой ветке, хотя ранний guard требовал обычный файл. Ветка удалена; QELI_DEB означает локальный .deb. Автоматическая загрузка релиза остаётся default при отсутствии локального binary/package. Для локального пакета используйте абсолютный путь, как предусмотрено для apt.
+
+## Доказательства и границы
+
+Команда: `sudo unshare --mount --net --pid --fork python3 -B scripts/test_installer_admission.py`. Fixture требуют Linux root, chroot, dpkg/dpkg-deb/dpkg-query, Bash/coreutils, jq и openssl. Suite использует setup updater/binary и его snapshot/record environment variables. QELI_ADMISSION_BASELINE=1 исполняет точные старые dependency/package stage blocks после точного prefix без переписывания production functions. Обычный запуск исполняет новые helpers и два ранних отказа полного скрипта.
+
+Двенадцать targeted baseline methods дали14 assertion failures/14 executions. Все18 итоговых методов PASS без skipped:22 запуска,20helper/prefix и два early whole-program refusal. Настоящий dpkg устанавливает inert .deb и проверяет настоящую базу пакетов: успешные amd64/all, dependency-broken пакет в unpacked и сохранённую старую revision. Проверены чужое имя/архитектура/corruption, ложный apt/repair success, отказы зависимостей и gh missing/failure/success. Config/users/identity и внешние файлы — fixture data.
+
+apt repository/dependency acquisition, HTTP, account creation, systemctl, qeli/version и gh — явные seams с детерминированными ответами. Успешный gh записывает argv, не подтверждает настоящую OIDC/crypto verification. Наличие prerequisites проверяется на fixture commands/CA availability, не на полностью отключённом хосте; apt ещё может загружать зависимости самого пакета. Полный положительный installer, настоящий daemon/VPN/firewall/sysctl/identity/users/panel/restart не квалифицированы. Automatic rollback, descriptor-safe publication от гонок и power-loss durability не заявлены.
+
+Точная локальная CI-команда повторно прошла18 methods/22 executions; binary18 и updater21 regression methods PASS. ShellCheck0.10.0 warning gate и bash syntax PASS. Два старых recipe checks сначала упали из-за буквального сравнения unconditional apt и старого имени metadata variable; эти assertions удалены в пользу настоящего admission suite. После этого все38 mocked recipe tests PASS. Native14 SHA/provenance PASS без изменений native/Rust/ABI/core и новой тяжёлой сборки. Это не новый Actions run.
+
+Raw `audit-debt-20260924/q33-installer-admission-20261008`: 63 files / 6758706 bytes; SHA256 cb023e63281f3e10178178166cb245a978df23a81ffbc9f1c150f6f5e7448392. Evidence: `release/certification/evidence/q33-installer-admission-20261008.json`. Собственный .11 root сохранён в recoverable SHA-backup и guarded-cleaned; рабочие service777/845 не менялись. Общий аудит29/37 DONE(78.4%),осталось8; Q31 3/5/bootstrap/source-cut/current Actions, Q29 SIGKILL/ENONET, Q30 Apple/callback, USER_EXCLUDED платформы и D06 ACCEPTED сохранены. Локальный dev commit, без push/deploy/release.

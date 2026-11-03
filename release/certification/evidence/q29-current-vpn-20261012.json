@@ -1,0 +1,210 @@
+{
+  "status": "CURRENT_MATCHING_R8_ROUTED_7_ANDROID_VPN_CASES_PASS_COLD_UI_FAIL_OPEN",
+  "source_identity": "e461738713c37e4acfb9a796b4acdd13666c4582\n3267c9435bf2dd086c943059423110f03a6ab2ec\n",
+  "server_sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069",
+  "apk_inputs": {
+    "fixed/app.apk": {
+      "bytes": 12207583,
+      "sha256": "77c120515d6496969fab475dd16e4938e75c636224cf892a7bc06c2f245b0c95"
+    },
+    "fixed/test.apk": {
+      "bytes": 772485,
+      "sha256": "4d6f5107a37da728ec74a0a3b1719b9c6daee7a02331d09dc2ee2c6cd3935396"
+    },
+    "qeli": {
+      "bytes": 14454184,
+      "sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069"
+    },
+    "audit_android_data_plane_lab.py": {
+      "bytes": 53120,
+      "sha256": "4b65e31d931eb41082950d55a4e6881936207ee9b157b10807d67d6057ccebc6"
+    },
+    "android_lab_ui.py": {
+      "bytes": 7817,
+      "sha256": "c5d2bd815240ab3c7003a638416fd1bc4a30951a3f7fa79cb02a38889f41eb37"
+    },
+    "audit_udp_handshake_contracts.py": {
+      "bytes": 19012,
+      "sha256": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+    },
+    "audit_android_network_handover.py": {
+      "bytes": 9275,
+      "sha256": "4397909b4f528165a869c9a69bfb7d092d4fa4a29b35771988bde13f32550bfc"
+    },
+    "audit_android_release_ui.py": {
+      "bytes": 5036,
+      "sha256": "eedd5211c4bd24cf863d8bf5d0d19df6efc4e20c46beb6bd3ab0bf0a69e681ee"
+    },
+    "audit_android_nat64.py": {
+      "bytes": 11650,
+      "sha256": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78"
+    },
+    "audit_android_leak_bursts.py": {
+      "bytes": 7317,
+      "sha256": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3"
+    },
+    "audit_android_startup_dns.py": {
+      "bytes": 9424,
+      "sha256": "53d7a6d9852c3d9ad8fa7388462f9c3f3ab84ad9266bb6491b1a4c729d069765"
+    },
+    "audit_android_dns_fixture.py": {
+      "bytes": 1421,
+      "sha256": "02fa34c1ee922d32756455411c6f24acee39b51b0126412b3a453c33a3a5b2ce"
+    }
+  },
+  "canonical_android_build_inputs": 126,
+  "actual_guest_memory": {
+    "requested_mb": 1536,
+    "actual_guest_total_kib": 1505648,
+    "explicit_lowram_override": true
+  },
+  "scoped_cases": [
+    "fullKillSwitchRefusesWithoutSystemLockdown",
+    "quicRoutedFullPayloadDns",
+    "quicRoutedSplitPayloadDns",
+    "tcpRoutedFullPayloadDns",
+    "tcpRoutedSplitPayloadDns",
+    "udpRoutedFullPayloadDns",
+    "udpRoutedSplitPayloadDns"
+  ],
+  "fresh_instrumented_cases": 7,
+  "echo_receipts": 72,
+  "payload_bytes": [
+    32,
+    257,
+    1024,
+    16384
+  ],
+  "all_payload_sha_verified": true,
+  "dns_names": 6,
+  "dns_question_types": [
+    1,
+    28
+  ],
+  "dns_answer_receipts": 12,
+  "host_service_userdata_preserved_all7_attempts": true,
+  "prior_failures": [
+    {
+      "packet": "q29-current-vpn-20261012",
+      "status": "FAIL_PRESERVED",
+      "error": "Traceback (most recent call last):\n  File \"/var/tmp/qeli-q29-data-current-a00edbd788724ca6a76e2e9c399758f5/audit_android_data_plane_lab.py\", line 542, in main\n    assert emulator.poll() is None, \"emulator exited\"\n           ^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: emulator exited\n",
+      "result_sha256": "37bf03f5d0a013796183388d65b56af418931fcda6b30e3c092105cfdb250f12"
+    },
+    {
+      "packet": "q29-current-vpn-r2-20261012",
+      "status": "FAIL_PRESERVED",
+      "error": "Traceback (most recent call last):\n  File \"/var/tmp/qeli-q29-data-current-3b4ef53bd692449ebb99ea31140d38eb/audit_android_data_plane_lab.py\", line 633, in main\n    import_release_profile(arun, evidence, result, keys, ui_transport, server=\"q29-v4-only.test\" if nat64 is not None else None, tunnel_dns=args.suite in (\"startup\", \"app-policy\", \"endurance\", \"private-dns\"), apps_mode=args.apps_mode, policy_fixture=args.suite == \"app-policy\")\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-3b4ef53bd692449ebb99ea31140d38eb/audit_android_release_ui.py\", line 51, in import_release_profile\n    ui.tap(option);tree=stable_ui(\"file-picker\")\n                        ~~~~~~~~~^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-3b4ef53bd692449ebb99ea31140d38eb/audit_android_release_ui.py\", line 13, in stable_ui\n    tree=ui.ui(label)\n  File \"/var/tmp/qeli-q29-data-current-3b4ef53bd692449ebb99ea31140d38eb/android_lab_ui.py\", line 42, in ui\n    raise AssertionError(\"uiautomator did not produce a fresh XML after3 attempts; dump diagnostics retained\")\nAssertionError: uiautomator did not produce a fresh XML after3 attempts; dump diagnostics retained\n",
+      "result_sha256": "ce36c0df939b50497c638752e8e7c649fc430a8585689ac7428a395d730cfe00"
+    },
+    {
+      "packet": "q29-current-vpn-r3-20261012",
+      "status": "FAIL_PRESERVED",
+      "error": "Traceback (most recent call last):\n  File \"/var/tmp/qeli-q29-data-current-3fbe1e230da446298f50417998633507/audit_android_data_plane_lab.py\", line 675, in main\n    system_lifecycle(arun, evidence, echo, result, dot=dot)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-3fbe1e230da446298f50417998633507/audit_android_data_plane_lab.py\", line 227, in system_lifecycle\n    startup.enable_lockdown(settings, bursts)\n    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-3fbe1e230da446298f50417998633507/audit_android_startup_dns.py\", line 91, in enable_lockdown\n    assert chosen,('no fresh samples after CONNECTED',family,protocol)\n           ^^^^^^\nAssertionError: ('no fresh samples after CONNECTED', 'ipv4', 'tcp')\n",
+      "result_sha256": "2bc3c33dde32df1bfc5b36af5d966f4d93a28f8b453342ede846f10f0d13ed7d"
+    },
+    {
+      "packet": "q29-current-vpn-r4-20261012",
+      "status": "FAIL_PRESERVED",
+      "error": "Traceback (most recent call last):\n  File \"/var/tmp/qeli-q29-data-current-cb53e2900738412b8c001341200c9923/audit_android_data_plane_lab.py\", line 650, in main\n    import_release_profile(arun, evidence, result, keys, ui_transport, server=\"q29-v4-only.test\" if nat64 is not None else None, tunnel_dns=args.suite in (\"startup\", \"app-policy\", \"endurance\", \"private-dns\"), apps_mode=args.apps_mode, policy_fixture=args.suite == \"app-policy\")\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-cb53e2900738412b8c001341200c9923/audit_android_release_ui.py\", line 48, in import_release_profile\n    assert button is not None,\"product Import button absent\"\n           ^^^^^^^^^^^^^^^^^^\nAssertionError: product Import button absent\n",
+      "result_sha256": "18153a62b861db18bcd319eea489d9fa4295e42add316fbee1b53fe03d81dfa4"
+    },
+    {
+      "packet": "q29-current-vpn-r5-20261012",
+      "status": "FAIL_PRESERVED",
+      "error": "Traceback (most recent call last):\n  File \"/var/tmp/qeli-q29-data-current-25caab49d0234526b611fa5f0ff68b25/audit_android_data_plane_lab.py\", line 675, in main\n    system_lifecycle(arun, evidence, echo, result, dot=dot)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-25caab49d0234526b611fa5f0ff68b25/audit_android_data_plane_lab.py\", line 220, in system_lifecycle\n    open_settings(); switch(\"Always-on VPN\", True)\n                     ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-25caab49d0234526b611fa5f0ff68b25/android_lab_ui.py\", line 114, in switch\n    assert positive is not None, \"unrecognized VPN switch confirmation; UI retained\"\n           ^^^^^^^^^^^^^^^^^^^^\nAssertionError: unrecognized VPN switch confirmation; UI retained\n",
+      "result_sha256": "d2a3ac3b5d94bd80b904bf609335ebec9855cf306f401e4b3353d2de65b37f44"
+    },
+    {
+      "packet": "q29-current-vpn-r6-20261012",
+      "status": "FAIL_PRESERVED",
+      "error": "Traceback (most recent call last):\n  File \"/var/tmp/qeli-q29-data-current-bebca047ee0d44928c447f151aa84f35/audit_android_data_plane_lab.py\", line 650, in main\n    import_release_profile(arun, evidence, result, keys, ui_transport, server=\"q29-v4-only.test\" if nat64 is not None else None, tunnel_dns=args.suite in (\"startup\", \"app-policy\", \"endurance\", \"private-dns\"), apps_mode=args.apps_mode, policy_fixture=args.suite == \"app-policy\")\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-bebca047ee0d44928c447f151aa84f35/audit_android_release_ui.py\", line 55, in import_release_profile\n    arun(\"push\",str(path),\"/sdcard/Download/q29-release-fixture.ini\")\n    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/tmp/qeli-q29-data-current-bebca047ee0d44928c447f151aa84f35/audit_android_data_plane_lab.py\", line 501, in arun\n    assert proc.returncode == 0, (argv, proc.stdout, proc.stderr)\n           ^^^^^^^^^^^^^^^^^^^^\nAssertionError: (('push', '/var/tmp/qeli-q29-data-current-bebca047ee0d44928c447f151aa84f35/evidence/release-fixture.ini', '/sdcard/Download/q29-release-fixture.ini'), '', \"/var/tmp/qeli-q29-data-current-bebca047ee0d44928c447f151aa84f35/evidence/release-fixture.ini: 1 file pushed, 0 skipped. 5.5 MB/s (440 bytes in 0.000s)\\nadb: error: failed to copy '/var/tmp/qeli-q29-data-current-bebca047ee0d44928c447f151aa84f35/evidence/release-fixture.ini' to '/sdcard/Download/q29-release-fixture.ini': remote secure_mkdirs failed: No such file or directory\\n\")\n",
+      "result_sha256": "8b0187c386e75f1ea92663f33242362daeffa53605b8642e74c26452e3986b3c"
+    }
+  ],
+  "helper_methods": 23,
+  "elapsed_seconds": 130.93,
+  "ordinary_production_rules_apk_runtime_qualified": false,
+  "independent_non_vpn_owner_uid_runtime_qualified": false,
+  "current_cold_startup_matrix": "FAIL_PRESERVED_NOT_CLOSED",
+  "generic_auto_null_dns": "Historical ENONET retained, not executed by this routed suite",
+  "sigkill": "Historical product and independent minimal TUN control FAIL retained, not repeated",
+  "arm64_runtime_qualified": false,
+  "physical_platforms_qualified": false,
+  "whole_audit_complete": false,
+  "Q29": "IN_PROGRESS",
+  "official_done": 32,
+  "total": 37,
+  "no_push_deploy_release": true,
+  "source_dirty": true,
+  "executed_uncommitted_fixture_inputs": {
+    "docs/eng/reports/AUDIT-Q29-ANDROID-DATA.md": "0ab8f00ffacfc465f3ba43d411725fb18cb2b35d2ebfae57ef1a1ac208528278",
+    "docs/eng/reports/AUDIT-Q29-ANDROID-SYSTEM.md": "5d45250cf84ba9fbb157ddc037a1cf775f32a82ac04b3e41f201553e67164daa",
+    "docs/ru/reports/AUDIT-Q29-ANDROID-DATA.md": "3f7ee02c905c7e39bd2eba2c8c51a9d87ac30dcc82853554f57ce742530eb36d",
+    "docs/ru/reports/AUDIT-Q29-ANDROID-SYSTEM.md": "be98136dffbda5f1282fab17eb9282a76cb687df85b1b7d8bc6606bc80a378d4",
+    "scripts/android_lab_ui.py": "c5d2bd815240ab3c7003a638416fd1bc4a30951a3f7fa79cb02a38889f41eb37",
+    "scripts/audit_android_data_plane_lab.py": "4b65e31d931eb41082950d55a4e6881936207ee9b157b10807d67d6057ccebc6",
+    "scripts/audit_android_release_ui.py": "eedd5211c4bd24cf863d8bf5d0d19df6efc4e20c46beb6bd3ab0bf0a69e681ee",
+    "scripts/audit_android_startup_dns.py": "53d7a6d9852c3d9ad8fa7388462f9c3f3ab84ad9266bb6491b1a4c729d069765",
+    "scripts/test_android_emulator_memory.py": "90a2121ba59b9eae9b0294b32e5f49be452953193684bab1917a30a4137345af",
+    "scripts/test_android_lab_ui_anr.py": "c334464696a688527e3bffb15efabd12d532e91852be0b44f2077dc37c7ce38f",
+    "scripts/test_android_release_ui_transition.py": "e7c62f0f1a5d38eddce959738e338ec336027e7612926c05cec81ae1c1d6665b",
+    "scripts/test_android_startup_state.py": "e03c5c8eccf511dbc6482f52dbcec3c46fa7c7e88e55cdb875e9cdf5e314b027"
+  },
+  "initial_qualification_count_error_retained": "Expected48 echo receipts omitted24 actual IPv4 receipts after each rejected invalid CONNECT;source and raw prove72;no runtime replay",
+  "actual_android_instrumentation_runtime_seconds": 23.876,
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q29-current-vpn-r7-20261012",
+  "recovery_cleanup": [
+    {
+      "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+      "root": "/var/tmp/qeli-q29-data-current-a00edbd788724ca6a76e2e9c399758f5",
+      "owned_file_bytes": 27657039,
+      "free_before": 7450202112,
+      "free_after": 7478022144
+    },
+    {
+      "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+      "root": "/var/tmp/qeli-q29-data-current-3b4ef53bd692449ebb99ea31140d38eb",
+      "owned_file_bytes": 27737967,
+      "free_before": 7478001664,
+      "free_after": 7505960960
+    },
+    {
+      "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+      "root": "/var/tmp/qeli-q29-data-current-3fbe1e230da446298f50417998633507",
+      "owned_file_bytes": 28698756,
+      "free_before": 7505764352,
+      "free_after": 7534788608
+    },
+    {
+      "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+      "root": "/var/tmp/qeli-q29-data-current-cb53e2900738412b8c001341200c9923",
+      "owned_file_bytes": 27806958,
+      "free_before": 7534968832,
+      "free_after": 7562989568
+    },
+    {
+      "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+      "root": "/var/tmp/qeli-q29-data-current-25caab49d0234526b611fa5f0ff68b25",
+      "owned_file_bytes": 28154070,
+      "free_before": 7562919936,
+      "free_after": 7591415808
+    },
+    {
+      "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+      "root": "/var/tmp/qeli-q29-data-current-bebca047ee0d44928c447f151aa84f35",
+      "owned_file_bytes": 27792471,
+      "free_before": 7591485440,
+      "free_after": 7619481600
+    },
+    {
+      "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+      "root": "/var/tmp/qeli-q29-data-current-48cda47960424a7fa195090614c70f6b",
+      "owned_file_bytes": 28053887,
+      "free_before": 7619461120,
+      "free_after": 7647703040
+    }
+  ],
+  "raw_receipts_sha256": "aa7f3daccadd8f627106ba76921abd50edb55c7f6349537024132c8308b5f8f7",
+  "qualification_sha256": "0c8434bca95d04dade1b2789109c3f8475dddb3eaa24a649bdb286efcf803d78",
+  "helper_log_sha256": "911ea3d82bafbecbdab11c986b4bc2c960b2912605dc46d124555c065449c9ae"
+}

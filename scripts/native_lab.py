@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from native_repro import atomic_write_bytes, sha256_bytes, sha256_file
+from ssh_command import run_ssh_command
 
 
 class LabConnection:
@@ -20,10 +21,8 @@ class LabConnection:
         self.client = client
 
     def run(self, command: str, timeout: int = 2400) -> tuple[str, int]:
-        _stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
-        output = stdout.read().decode("utf-8", "replace")
-        output += stderr.read().decode("utf-8", "replace")
-        return output.strip(), stdout.channel.recv_exit_status()
+        output, status = run_ssh_command(self.client, command, timeout)
+        return output.strip(), status
 
     def checked(self, command: str, label: str, timeout: int = 2400) -> str:
         output, return_code = self.run(command, timeout)
@@ -40,6 +39,7 @@ class LabConnection:
 
 def connect_lab(host: str, user: str, password: str) -> LabConnection:
     """Connect with the repository's strict host-key policy and no ambient credentials."""
+    client = None
     try:
         import paramiko
 
@@ -56,6 +56,11 @@ def connect_lab(host: str, user: str, password: str) -> LabConnection:
             allow_agent=False,
         )
     except Exception as error:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass  # Preserve the original connection failure.
         raise RuntimeError(f"cannot connect to native build lab {host}: {error}") from error
     return LabConnection(client)
 
@@ -123,18 +128,37 @@ def ensure_rust_targets(
     return ",".join(required)
 
 
+REPRO_BUILD_ROOT = "/var/tmp/qeli-native-repro"
+MIN_REPRO_FREE_KIB = 8 * 1024 * 1024
+
+
 def reset_repro_group(connection: LabConnection, group: str) -> str:
-    """Remove only this recipe's two rebuildable /tmp roots and report free space."""
+    """Check capacity before changing disk; reset only this recipe's pass roots."""
     if not re.fullmatch(r"[a-z0-9-]+", group):
         raise ValueError(f"invalid reproducibility group: {group!r}")
-    root = "/tmp/qeli-native-repro"
-    first = f"{root}/{group}-a"
-    second = f"{root}/{group}-b"
+    first = f"{REPRO_BUILD_ROOT}/{group}-a"
+    second = f"{REPRO_BUILD_ROOT}/{group}-b"
+    free_text = connection.checked(
+        f"if test -e {shlex.quote(REPRO_BUILD_ROOT)}; then "
+        f"LC_ALL=C df -Pk {shlex.quote(REPRO_BUILD_ROOT)}; else "
+        f"LC_ALL=C df -Pk {shlex.quote(posixpath.dirname(REPRO_BUILD_ROOT))}; fi | tail -1",
+        "build filesystem free space",
+    )
+    try:
+        free_kib = int(free_text.split()[3])
+    except (IndexError, ValueError) as error:
+        raise RuntimeError(f"invalid build filesystem inventory: {free_text!r}") from error
+    if free_kib < MIN_REPRO_FREE_KIB:
+        raise RuntimeError(
+            f"{group} reproducible build needs at least 8 GiB free on "
+            f"{REPRO_BUILD_ROOT}; found {free_kib // 1024} MiB"
+        )
     connection.checked(
-        f"rm -rf {shlex.quote(first)} {shlex.quote(second)} && mkdir -p {root}",
+        f"rm -rf {shlex.quote(first)} {shlex.quote(second)} "
+        f"&& mkdir -p {shlex.quote(REPRO_BUILD_ROOT)}",
         f"clean {group} reproducibility roots",
     )
-    return connection.checked("df -h / | tail -1", "disk space after reproducibility cleanup")
+    return f"{free_kib // 1024} MiB free on {REPRO_BUILD_ROOT}"
 
 
 def sync_qeli_source(
@@ -143,28 +167,44 @@ def sync_qeli_source(
     local_qeli: str | os.PathLike[str],
     remote_source: str,
 ) -> int:
-    """Replace remote sources/assets/manifests with the exact local build inputs."""
+    """Replace remote sources/assets/manifests/Cargo config with exact local inputs."""
     if not remote_source.startswith("/") or remote_source == "/" or ".." in remote_source.split("/"):
         raise ValueError(f"unsafe remote source root: {remote_source!r}")
     local_root = Path(local_qeli)
     remote_src = posixpath.join(remote_source, "src")
+    remote_cargo = posixpath.join(remote_source, ".cargo")
+    local_cargo_config = local_root / ".cargo" / "config.toml"
+    if not local_cargo_config.is_file():
+        raise RuntimeError(f"native build input is missing: {local_cargo_config}")
+    trees = ["src"]
+    if (local_root / "src/embedded_license_files.rs").is_file():
+        if not (local_root / "third-party-notices/rust/INDEX.tsv").is_file():
+            raise RuntimeError("embedded CLI license catalogue has no canonical source bundle")
+        trees.append("third-party-notices/rust")
     connection.checked(
-        f"rm -rf {shlex.quote(remote_src)} && mkdir -p {shlex.quote(remote_src)}",
-        "clean remote source",
+        f"rm -rf {shlex.quote(remote_src)} {shlex.quote(remote_cargo)} "
+        f"&& mkdir -p {shlex.quote(remote_src)} {shlex.quote(remote_cargo)}",
+        "clean remote source and Cargo config",
     )
+    sftp.put(os.fspath(local_cargo_config), posixpath.join(remote_cargo, "config.toml"))
     count = 0
-    for root, directories, names in os.walk(local_root / "src"):
-        directories.sort()
-        for name in sorted(names):
-            local = Path(root) / name
-            relative = local.relative_to(local_root).as_posix()
-            remote = posixpath.join(remote_source, relative)
-            connection.checked(
-                f"mkdir -p {shlex.quote(posixpath.dirname(remote))}",
-                "create remote source directory",
-            )
-            sftp.put(os.fspath(local), remote)
-            count += 1
+    created = set()
+    for tree in trees:
+        if tree != "src":
+            destination = posixpath.join(remote_source, tree)
+            connection.checked(f"rm -rf {shlex.quote(destination)}", "replace private source notice tree")
+        for root, directories, names in os.walk(local_root / tree):
+            directories.sort()
+            for name in sorted(names):
+                local = Path(root) / name
+                relative = local.relative_to(local_root).as_posix()
+                remote = posixpath.join(remote_source, relative)
+                parent = posixpath.dirname(remote)
+                if parent not in created:
+                    connection.checked(f"mkdir -p {shlex.quote(parent)}", "create remote source directory")
+                    created.add(parent)
+                sftp.put(os.fspath(local), remote)
+                count += 1
     for manifest in ("Cargo.toml", "Cargo.lock"):
         local = local_root / manifest
         if not local.is_file():

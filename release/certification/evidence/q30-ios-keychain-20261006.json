@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F292_F294_SOURCE_FIXES_Q30_IN_PROGRESS",
+  "executed_at": "2026-10-06T11:30:18.853688+00:00",
+  "base_commit": "cbb7051069f2182a7f448829cca911e66575b32d",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q30-ios-keychain-20261006",
+  "raw_seal_sha256": "384aca593d9a0da6b53463af6fb11ff916f9282083d115d8773bbd4c7ef97a15",
+  "checks": [
+    {
+      "id": "ipa-verifier",
+      "status": "PASS",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_verify_ios_ipa.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "ipa-verifier.log"
+    },
+    {
+      "id": "docs",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "status": "PASS",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    }
+  ],
+  "source_review": {
+    "status": "SOURCE_AND_STRUCTURE_ONLY",
+    "new_xctest_cases": {
+      "KeychainIdentityTests.swift": 7,
+      "TunnelProfileSelectionTests.swift": 4
+    },
+    "xctest": "NOT_RUN",
+    "swift_build": "NOT_RUN",
+    "apple_runtime": "USER_EXCLUDED",
+    "new_production_files": [
+      "qeli-ios/QeliCore/Model/TunnelProfileSelection.swift"
+    ],
+    "removed_dead_method": "KeychainStore.write; both production callers migrated, no SecItemUpdate replacement",
+    "storage_contracts": "shared access groups/services/accounts unchanged; insert-if-absent duplicate returns winner; key size checks before RNG/decryption; invalid ID not replaced",
+    "provider_selection": "one authoritative UUID then one archive lookup before engine creation",
+    "native_stop_review": "OPEN: cancellation is not a joined runner/packet callback proof",
+    "unchanged_git_inputs": 778,
+    "xml_inputs": [
+      "qeli-ios/Config/App-Info.plist",
+      "qeli-ios/Config/PacketTunnel-Info.plist",
+      "qeli-ios/Config/PrivacyInfo.xcprivacy",
+      "qeli-ios/Config/QeliIOS.entitlements",
+      "qeli-ios/Config/QeliPacketTunnel.entitlements",
+      "qeli-ios/Config/QeliWidgets.entitlements",
+      "qeli-ios/Config/Widget-Info.plist",
+      "qeli-ios/MDM/Apple-IKEv2-AlwaysOn.mobileconfig",
+      "qeli-ios/MDM/Qeli-Managed-App-Configuration.plist",
+      "qeli-ios/MDM/Qeli-PerApp-VPN.mobileconfig"
+    ],
+    "changed_paths": [
+      "docs/eng/index.md",
+      "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/eng/reports/AUDIT-Q30-IOS-KEYCHAIN.md",
+      "docs/ru/index.md",
+      "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/ru/reports/AUDIT-Q30-IOS-KEYCHAIN.md",
+      "qeli-ios/PARITY.md",
+      "qeli-ios/QeliCore/Model/TunnelProfileSelection.swift",
+      "qeli-ios/QeliCore/Storage/KeychainStore.swift",
+      "qeli-ios/QeliCore/Storage/ProfileStore.swift",
+      "qeli-ios/QeliCore/Storage/SecureIdentityStore.swift",
+      "qeli-ios/QeliIOSTests/KeychainIdentityTests.swift",
+      "qeli-ios/QeliIOSTests/TunnelProfileSelectionTests.swift",
+      "qeli-ios/QeliPacketTunnel/PacketTunnelProvider.swift",
+      "qeli-ios/QeliPacketTunnel/QeliNativeTunnelEngine.swift"
+    ]
+  },
+  "findings": {
+    "F292": "first-writer device ID/TOFU ownership; concurrent winning pin compared outside unpinned persistence fallback; no silent invalid-ID rotation",
+    "F293": "requested/existing master key lengths validated before RNG/AES; invalid data not regenerated",
+    "F294": "explicit malformed/stale profile request cannot fall back to persisted profile"
+  },
+  "qualification": "Source/structure only;11 new XCTest NOT_RUN,no Swift/Xcode/Keychain/actual provider or signed IPA execution",
+  "historical_runtime": "unchanged implementation Git input hashes; old artifacts/dates/statuses preserved; no repeated Android/Linux runtime matrix",
+  "plan": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "Q29": "IN_PROGRESS; SIGKILL FAIL/auto-null ENONET",
+    "Q30": "IN_PROGRESS;engine/settings/packet lifetime still under review"
+  },
+  "D06": "UNCHANGED_ACCEPTED_LIMITATION",
+  "platform_skips": "UNCHANGED_USER_EXCLUDED",
+  "push": "NOT_RUN",
+  "source_digest": "d1beaee61500e240c7d6660fe38ab4badf9df7c31cf2945b0fe1105d9117c947"
+}

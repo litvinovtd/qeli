@@ -1,0 +1,1751 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q33_PACKAGE_MANAGER_SCOPED",
+  "source_digest": "0461485909f0e273bf242d2bf5738ac41c781debc6c6984af402a22330c8f8b3",
+  "qualification_source_commit": "e9607c475111ac15bbbef799d54bf0daa2114cbf",
+  "baseline_worktree_commit": "9afbb348626ab14d95f86d9ec38117fabb52803d",
+  "baseline_dev_commit": "0e4a3f001150c996ae6cfa866f1d3eb95bb3e32f",
+  "product_changes": [],
+  "audit_helpers": [
+    "explicit actual apt/dpkg/debconf/CLI/systemd fixture with private filesystem/database and strict owned unit/network mapping",
+    "real portable loader libraries and dpkg architecture data; adapter remains reachable through sanitized apt PATH",
+    "explicit package/ELF SHA admission; only strict SHA-checked owned artifact reuse; no fabricated manager health"
+  ],
+  "verification": {
+    "portable_release": {
+      "status": "PASS",
+      "source_commit": "9afbb348626ab14d95f86d9ec38117fabb52803d",
+      "command": "export PATH=/root/.cargo/bin:$PATH RUSTUP_TOOLCHAIN=1.97.0 CARGO_HOME=/var/tmp/qeli-q33-package-build-20261008.niUG1m/cargo CARGO_NET_OFFLINE=true CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/var/tmp/qeli-q33-package-build-20261008.niUG1m/target ZIG_GLOBAL_CACHE_DIR=/var/tmp/qeli-q33-package-build-20261008.niUG1m/zig-global ZIG_LOCAL_CACHE_DIR=/var/tmp/qeli-q33-package-build-20261008.niUG1m/zig-local TMPDIR=/var/tmp/qeli-q33-package-build-20261008.niUG1m/tmp; cd /var/tmp/qeli-q33-package-build-20261008.niUG1m/source/qeli/debian; make deb-portable ZIG_BINARY=/var/tmp/qeli-q33-package-build-20261008.niUG1m/target/x86_64-unknown-linux-gnu/release/qeli",
+      "rc": 0,
+      "binary_sha256": "f9c70e679ce68120a19e9ce93c10199860d04c89b7e6c919d1a45efc9b9a3cfd",
+      "package_sha256": "b3d0363b58cc1ae36c3b5da3518fb9d9a8e00d6153b442ac477a5772f36c9809",
+      "scope": "actual pinned portable release jemalloc packaging recipe and ABI floor/CPU heuristic; not Actions attestation or independent reproducibility"
+    },
+    "release_source": {
+      "commit": "9afbb348626ab14d95f86d9ec38117fabb52803d",
+      "sha256": "f951e026d02d3592c0c8daa5f7105ad8a56192e8fc4567fb4bf2b3b5bf958816"
+    },
+    "unchanged_product_git_blobs": {
+      "status": "PASS",
+      "release_source_commit": "9afbb348626ab14d95f86d9ec38117fabb52803d",
+      "unchanged_current_qeli_git_tree": [
+        "100644 blob 25a1feb32a65ef1d1ef1a605587c35638387fa8b\tqeli/.cargo/config.toml",
+        "100644 blob 8504bc3b033e97f389f5ec85c2d41fc1a8359a01\tqeli/Cargo.lock",
+        "100644 blob 2fdcd0223e96d9887f8c3df11f5b6fed6202e731\tqeli/Cargo.toml",
+        "100644 blob be3f7b28e564e7dd05eaf59d64adba1a4065ac0e\tqeli/LICENSE",
+        "100644 blob a43199f415fc3818ce9db05c608f5c591f2156b4\tqeli/config/client-maxobf.conf",
+        "100644 blob e53e5969b8e2753c7a593e805b8970d41e910fb9\tqeli/config/client-reality.conf",
+        "100644 blob c1e2536ae3d6c7d6edcd4ebd177f4c8704be77c6\tqeli/config/client.conf",
+        "100644 blob f39a20330e03be75f896d2c1fac706664931e314\tqeli/config/server-ipv6.conf",
+        "100644 blob 31c9c12509bfc82898c5bb96488989b5e587ad4d\tqeli/config/server-maxobf.conf",
+        "100644 blob b9980aab2f1255f9c0070eb8f24df64ba2485746\tqeli/config/server-multiprofile.conf",
+        "100644 blob a24a68e0cb6e810c597e02ec932330d9e1b71989\tqeli/config/server.conf",
+        "100644 blob 3b7c7d3e85ecad7648fb04290d9f804384efe6b4\tqeli/config/users.conf",
+        "100644 blob 51025826a5b917cbb04c5473229f76039bb45c03\tqeli/debian/49-qeli.rules",
+        "100644 blob 4a65cffe1b2f6861c19962cea9da643ea4b43fe8\tqeli/debian/Makefile",
+        "100644 blob 11c6e90162e14956a66ffe921dfe826021aff78c\tqeli/debian/config",
+        "100644 blob c202ec97cc58dc77a02f731527fc414124eff610\tqeli/debian/control",
+        "100644 blob fb2a0236f5171604003ff592af25b17668f4f65e\tqeli/debian/postinst",
+        "100644 blob 59319b4e27c3ff5541074e5b48947f333c4a21e4\tqeli/debian/preinst",
+        "100644 blob 2f863b5b599dd92e218fa72e8207e7e27a765396\tqeli/debian/prerm",
+        "100644 blob ee99901df8f45aa2b87c5317ac3b8ac996778a6a\tqeli/debian/qeli.service",
+        "100644 blob a1d16c90020347a03a0359ea5e65188b1435f5f3\tqeli/debian/templates",
+        "100644 blob e2c1320c3aa8fba0b70ffe043d4c93eca1e54b10\tqeli/deny.toml",
+        "100644 blob 3bc1f83ce23da3a358ef30cd6fe560850176a554\tqeli/examples/audit_auth_contracts.rs",
+        "100644 blob 35a1512325565fdcf5d9eabec8a71d7dcc1fdbac\tqeli/examples/realtls_probe.rs",
+        "100644 blob c473721760cd2b48369e57fdbe39d8bfcdde73d8\tqeli/examples/replay_probe.rs",
+        "100644 blob a0c45a65770a39a679c236dabc397fe320882bac\tqeli/fuzz/Cargo.toml",
+        "100644 blob 899a898fe949a7f7b0c6a58be5467223402130b1\tqeli/fuzz/README.md",
+        "100644 blob 4f263e4cb13db1e654d5b974b195928af013d526\tqeli/fuzz/fuzz_targets/client_config.rs",
+        "100644 blob 8ac35cc1d67a46d9400dbe6874a0a48ea52ecf1e\tqeli/fuzz/fuzz_targets/clienthello.rs",
+        "100644 blob e6f28a378668e43d50ea2b368ff9b43fd7a4c129\tqeli/fuzz/fuzz_targets/control_v2.rs",
+        "100644 blob ca143b9a827eb4f0723836a9098e3b2551493c5d\tqeli/fuzz/fuzz_targets/data_frag.rs",
+        "100644 blob 2c44f451102fb4e36e74c322fd442f0486a73ac5\tqeli/fuzz/fuzz_targets/ip_packet.rs",
+        "100644 blob 43d48e86f5ecba945d31abafc62c6f06ac71e7f8\tqeli/fuzz/fuzz_targets/obfs_datagram.rs",
+        "100644 blob 22d6fc3205037cd1e4e6bb6d2c44ff1bc413934c\tqeli/fuzz/fuzz_targets/packet_decrypt.rs",
+        "100644 blob 7d71fd115537b512d4c5ec58304240b064260b4c\tqeli/fuzz/fuzz_targets/quic.rs",
+        "100644 blob 83e4575cc7a2502e44039ebd26265768d22375fc\tqeli/fuzz/fuzz_targets/quic_envelope.rs",
+        "100644 blob dd55668ae0c46f369d52a8ba65cd2e0c38aa9985\tqeli/fuzz/fuzz_targets/realtls_client.rs",
+        "100644 blob e13ebdb298812334d49e149972fdf290f2c5cbe5\tqeli/fuzz/fuzz_targets/realtls_record.rs",
+        "100644 blob d7ddf9c481be09ecc24868d589800215ec08aa3c\tqeli/fuzz/fuzz_targets/roaming_wire.rs",
+        "100644 blob 8447efc252f163002c36cc0fda505f85fcc8069d\tqeli/fuzz/fuzz_targets/udp_frag.rs",
+        "100644 blob 758af64dd35a894566327bbef060e138a9306044\tqeli/fuzz/fuzz_targets/websocket_frame.rs",
+        "100644 blob 344af9406fd413e796c0aca250842be2910cdadc\tqeli/fuzz/fuzz_targets/websocket_head.rs",
+        "100644 blob dc007e24dc4ff8a59e208bfe13565a89d57e9356\tqeli/include/qeli_transport_core.h",
+        "100644 blob e4850ddc0197418a07ce7d63c100d590b4d019fc\tqeli/src/client/carrier_cancel_tests.rs",
+        "100644 blob 346cccfb1c24e05d22a7924079aa10965923e5b8\tqeli/src/client/dns.rs",
+        "100644 blob c46db30f25690c3997dc63ae567b2e640a3b9ca5\tqeli/src/client/dns/resolver_config.rs",
+        "100644 blob 870f6b10d5570699a48058db4b0cc129826b23c1\tqeli/src/client/dns/resolver_context.rs",
+        "100644 blob 4bed8425fabcad2553726ec48f0e74e0b69dfc89\tqeli/src/client/dns/resolver_context_tests.rs",
+        "100644 blob e310f2eca1cc85969a49bf32e5b5836c3e0e1f11\tqeli/src/client/gateway.rs",
+        "100644 blob d0d187c7e79d0ba579f3d7accb0cc090c2535a58\tqeli/src/client/gateway/budget.rs",
+        "100644 blob 53f43424afd1f986a41903272ac52e777d2f22a0\tqeli/src/client/gateway/budget_tests.rs",
+        "100644 blob 72e7d94d38985f9225695e4f3b6bf2d87fb3a404\tqeli/src/client/gateway/exit_tests.rs",
+        "100644 blob 90940ac00bb31dba6df05abf62a7f3c30521ec73\tqeli/src/client/gateway/host.rs",
+        "100644 blob d5915ea6c79d1444b518a9f65490caa1c3744403\tqeli/src/client/gateway/identity.rs",
+        "100644 blob 06042b3d5f0975a43250db7638189bc8f6eec1ba\tqeli/src/client/gateway/identity_tests.rs",
+        "100644 blob fc2ef88a6acd209d7623d9c08a299e04ba456ee9\tqeli/src/client/gateway/kill_switch_tests.rs",
+        "100644 blob a8f96743a523768a31a3e41668050991dbad7bb4\tqeli/src/client/gateway/owner_tests.rs",
+        "100644 blob 7bd920daf6d4d38f6e0743cb9fc1059bf6fdb442\tqeli/src/client/gateway/rollback_tests.rs",
+        "100644 blob 6341bea333129a5efef2c67ffe43da594faad163\tqeli/src/client/gateway/wan.rs",
+        "100644 blob bfe340e8dbba7059de000a68e35d1db1e2e88dcb\tqeli/src/client/gateway/wan/tests.rs",
+        "100644 blob c8f7ed403aaf1d3096e8c9f4428efb97682109a2\tqeli/src/client/identity_adapter_tests.rs",
+        "100644 blob c2edd4fcface0916b2221ea999dd1f3a54de41d7\tqeli/src/client/identity_files.rs",
+        "100644 blob a8a72c17144273ff6c1b3f9413f5bf90f5ba5b7b\tqeli/src/client/identity_files_tests.rs",
+        "100644 blob 41c0206818cc888f8e775dcef5fd9764e06837bd\tqeli/src/client/identity_worker.rs",
+        "100644 blob 6354a29dcbd5017493a9934d30253c9e9114b15f\tqeli/src/client/identity_worker_tests.rs",
+        "100644 blob 08bd4526e066ab0778e2a9a0bf67b6b3cb2142a3\tqeli/src/client/killswitch.rs",
+        "100644 blob 25cd2e189738c422714e23395e30394327fa22cb\tqeli/src/client/killswitch/admission.rs",
+        "100644 blob f0924449b445d8f520479c5d14155b2d4aa459d5\tqeli/src/client/killswitch/cleanup_budget_tests.rs",
+        "100644 blob 4a2988eaf6d198c5799869e55e327f704678d347\tqeli/src/client/killswitch/command_bounds_tests.rs",
+        "100644 blob cc26c77f001f14fff242519158f0dd0d79dfc9c2\tqeli/src/client/killswitch/ipv6_state.rs",
+        "100644 blob 2b3f29c84de0708382213b24c1f5435753f07e1d\tqeli/src/client/killswitch/native_tests.rs",
+        "100644 blob 5123917f73838a77ac3752f897052deb703b7dab\tqeli/src/client/killswitch/ownership.rs",
+        "100644 blob 2be9f6f68bd879b9c5e87e16eb528d35efd7ec6e\tqeli/src/client/killswitch/rebuild.rs",
+        "100644 blob dc2c504252415b8b5d82e3b962d29465b88392b8\tqeli/src/client/killswitch/refresh_budget_tests.rs",
+        "100644 blob 75464067141f9fa241e6c50f11e6a0f425c16bc3\tqeli/src/client/killswitch/setup_budget_tests.rs",
+        "100644 blob 4b6bca5e68c130d0cb47717c11f04772f7818c5c\tqeli/src/client/logging_bootstrap.rs",
+        "100644 blob 7be6e4958ce0fc6108625e8d4c2c3e79a4e17f8a\tqeli/src/client/mod.rs",
+        "100644 blob 2886ea866abef960744d40c0ebc5f64996d28db7\tqeli/src/client/network_lease.rs",
+        "100644 blob 22964d2634804f1027fcb0da90092219022abdb0\tqeli/src/client/network_task.rs",
+        "100644 blob fe6c9decc8e79e92be24abb753526f1b1d877595\tqeli/src/client/network_task/prepared_tests.rs",
+        "100644 blob fbb73f8458e5f676af3479da4ba2e78a0d5aa1b9\tqeli/src/client/network_task/teardown_tests.rs",
+        "100644 blob a67613b7033dcb7917a2f59d6b4f26ec452f374d\tqeli/src/client/network_task/tests.rs",
+        "100644 blob 87f0af897a0b1b146a4630a2d7c85e169eefe5ff\tqeli/src/client/network_view_tests.rs",
+        "100644 blob b45c4b951d919af1698949646281701efdc60572\tqeli/src/client/plan_publication.rs",
+        "100644 blob b18f171b0270004adc24e22e1202313c070d85d7\tqeli/src/client/roaming_linux.rs",
+        "100644 blob b5e74d18558059773688bf0f9c8d5bbba192c028\tqeli/src/client/route.rs",
+        "100644 blob f5b96761b70e9360dd774dd670f9c4eac949382f\tqeli/src/client/route/budget.rs",
+        "100644 blob b777f17e16c83f46905ce067a72fe73d30a40e83\tqeli/src/client/route/budget_tests.rs",
+        "100644 blob 9cd87b1e20e7815eccf55743468aaf954af20e70\tqeli/src/client/route/candidate_outcome_tests.rs",
+        "100644 blob 517734887180f3b14760f0f1386f613fa19ec1ca\tqeli/src/client/route/cleanup_identity_tests.rs",
+        "100644 blob 57c478a3c3cdf7461ed5552c9e88e1f2c371eb65\tqeli/src/client/route/command_bounds_tests.rs",
+        "100644 blob b713fae049fde279790aa6c14aac6aea396b14c3\tqeli/src/client/route/identity_linux_tests.rs",
+        "100644 blob 7ac91bf99a46ee4fbfab3b54d522a787723f036a\tqeli/src/client/route/journal.rs",
+        "100644 blob 0f1298098f5bbda0f6723f95b613d82787c6df95\tqeli/src/client/route/ownership.rs",
+        "100644 blob 6c303cea81b60bfd21a526ce46daae3fe7694ac2\tqeli/src/client/route/ownership_identity_tests.rs",
+        "100644 blob af752a87a8a86264b046a9be722c85931e61993b\tqeli/src/client/route/pending_tests.rs",
+        "100644 blob 00022f8467e9a6b0e2c55b9be807eda3864ada95\tqeli/src/client/route/persistent.rs",
+        "100644 blob fb86008d7d45f6349cc646ba4777129330be5b74\tqeli/src/client/route/persistent/native.rs",
+        "100644 blob c0514cd03ab3548180f086f7cc6e977bc8ed4054\tqeli/src/client/route/persistent/native/tests.rs",
+        "100644 blob 0a50db6f23fcfe05ed030c239758ef139bd51334\tqeli/src/client/route/persistent/tests.rs",
+        "100644 blob f2b8a2aea810dcda6020eff7c07e99daf9faf0ab\tqeli/src/client/route/postcondition_tests.rs",
+        "100644 blob 83e93a1daddc9c07a29ee00aae639e09b1ef809b\tqeli/src/client/route/setup_flush_tests.rs",
+        "100644 blob 98ae0ed3844ef98fcafeaaa7af432b576261d69c\tqeli/src/client/route/setup_identity_tests.rs",
+        "100644 blob 51f3db6a79149e0d2f62c48ac78f286adaa3363a\tqeli/src/client/route/tunnel_plan_tests.rs",
+        "100644 blob 195417e9bd2a1b2314a6fc9677414a43cf0063a6\tqeli/src/client/status_writer.rs",
+        "100644 blob f71dbd39d0b94184085b149eece933045f2bdd6e\tqeli/src/client/status_writer_tests.rs",
+        "100644 blob 4384c5afb5482b5ffcdb227a30ba2b4fbb082537\tqeli/src/client/sysctl.rs",
+        "100644 blob 0680026f4995f1f8df68e0c8a9d071ab3b08818e\tqeli/src/client/sysctl/host.rs",
+        "100644 blob eb09c2e7fc811f1cb851e0dec00b26219d265d5d\tqeli/src/client/sysctl/namespace.rs",
+        "100644 blob aa12519befab227eddcc07d49ffcb0b2607370c4\tqeli/src/client/sysctl/namespace_tests.rs",
+        "100644 blob 369ead4b8ef333a894b161448aad13526c0bd5f7\tqeli/src/client/sysctl/ownership_tests.rs",
+        "100644 blob 85e6e4bc11f2dae21fae6c81044a343c1f1d9d44\tqeli/src/client/sysctl/target.rs",
+        "100644 blob 48000eec8e1a3afe32f06328f645e16f5b71bd85\tqeli/src/client/sysctl/target_tests.rs",
+        "100644 blob e41bd639bb455b81459579f2e12de6c49d2201bc\tqeli/src/client/tun_recovery.rs",
+        "100644 blob 2730eef41ae44f6169d0cc8019d8332817e7d80a\tqeli/src/client/tun_recovery_tests.rs",
+        "100644 blob 3f9771ad9004bad591d0ab378de06f8dc944d185\tqeli/src/client_cleanup.rs",
+        "100644 blob 74a5415881d8fef013296f1eefe405237531fe16\tqeli/src/client_main.rs",
+        "100644 blob b2b659b96a065a2a46f808548fa422ae70a6ea35\tqeli/src/client_tasks.rs",
+        "100644 blob 0ac6e812d888680f0c8ef6a788ae1c29f3989bad\tqeli/src/config/client.rs",
+        "100644 blob d3a7e1be2a3d51fd29ec13fd3635acc7588b7367\tqeli/src/config/client_boundary_tests.rs",
+        "100644 blob 453eeaebe13a9caeb3fea16de6a2fce0f93a2131\tqeli/src/config/editor/mod.rs",
+        "100644 blob 1b5c67375a0d6fc532823d2441666a6022f2ae76\tqeli/src/config/editor/schema.rs",
+        "100644 blob f14f8dc38dcb5c9efe7f0285d48df07b9a7c3493\tqeli/src/config/format.rs",
+        "100644 blob c20259bfa7f3ad2e4c80b78ea1307703a0549ea1\tqeli/src/config/mod.rs",
+        "100644 blob d7c36e4cc8217995f7d5a83fb32c5bbc11a7e4c6\tqeli/src/config/notify.rs",
+        "100644 blob bb2120f9497223769dec778d832bbfad4524f1c5\tqeli/src/config/policy.rs",
+        "100644 blob 44b1d48dcdded9563d0f7bbd0a8c5e483b0f00bf\tqeli/src/config/route_file.rs",
+        "100644 blob 92d485f0706a3883fc501fa5bcb12e4236c32df7\tqeli/src/config/server.rs",
+        "100644 blob b38cfeaf67687152b8ae7ffc8164ce8a5740e679\tqeli/src/config/server_ini.rs",
+        "100644 blob 1eb3c9bdbfb9f07f179e0820bf53b255fa0bd498\tqeli/src/config/share.rs",
+        "100644 blob a3163e54804dd152434b442a39c3ed86148442cf\tqeli/src/config/users.rs",
+        "100644 blob b87975ae372b877617416bdfe8ebbe489626bea1\tqeli/src/config_source.rs",
+        "100644 blob 313fecfe92c71a29d27ecc87c6bc5a51858f550b\tqeli/src/credential_file.rs",
+        "100644 blob 80f4038b086ddee21707912b1708b5ea731286a0\tqeli/src/crypto/auth.rs",
+        "100644 blob eba1d9394c4b12357b70171dc904d6b01a35120a\tqeli/src/crypto/cipher.rs",
+        "100644 blob b9fdd06e374b68aeec2714c76b43f2e249f62220\tqeli/src/crypto/derive.rs",
+        "100644 blob 40f931a25f4b70f8a49a9827ae0079b7fe239ce2\tqeli/src/crypto/exchange.rs",
+        "100644 blob f8eb15a709b07a8a967c37ef747ff41d438eca18\tqeli/src/crypto/key_file.rs",
+        "100644 blob 0a66e038d62398a1da52e522b08d534f9afcbaf0\tqeli/src/crypto/mlkem.rs",
+        "100644 blob 15d75bd7d3712054e75da88da1d7e12646832924\tqeli/src/crypto/mod.rs",
+        "100644 blob e09f333e247e3d3b51969c19ba67a9ecf316c841\tqeli/src/crypto/reality.rs",
+        "100644 blob f3e30aa0bd7b8da8503bef54f27f80c14b1648aa\tqeli/src/crypto/secret.rs",
+        "100644 blob d312f8ce6fac7650ba7a89128d133a58ddfa2a64\tqeli/src/dns_lease.rs",
+        "100644 blob 2a63acfb17d19a60f378caf56105c0ebbae1cdb3\tqeli/src/dns_lease/storage.rs",
+        "100644 blob 73ba33f1d6d403768fa879f45222e61a47ff54b9\tqeli/src/dns_lease/tests.rs",
+        "100644 blob b8b408f71a983bb68b40d921df19f1d666be36f2\tqeli/src/dns_legacy.rs",
+        "100644 blob 4fb7935c17fff53f8fda1a160d14f024def406c3\tqeli/src/firewall_check.rs",
+        "100644 blob a080a7eb088046166446f197d9145cca05d18778\tqeli/src/gen_conformance_main.rs",
+        "100644 blob b31f3c52c8b9c19cca74ea2f17fe6ea9f8ba9219\tqeli/src/hooks.rs",
+        "100644 blob 60c3f38c7a2ef73e5dc41d7cbd7571df9ba81483\tqeli/src/hooks/io_tests.rs",
+        "100644 blob e16dd3963d1a0714ee9e9aadc1c38f2c6f1e0cd8\tqeli/src/hooks/output.rs",
+        "100644 blob 4f4b2ffbc7cb1815001c32434d3767375259681f\tqeli/src/hooks/process.rs",
+        "100644 blob d9e6991b7b4f4784695cb2f15bd38a81fd23615c\tqeli/src/hooks/secret.rs",
+        "100644 blob 6f674fbea2bb28124dbdb43626e255b3683e6da1\tqeli/src/hooks/worker.rs",
+        "100644 blob 760556a29e4e5df97bb98d60dd3aff1687cd3c8b\tqeli/src/lib.rs",
+        "100644 blob 96cb404c39b93b926e07aedaee5d58ac11a80dbb\tqeli/src/main.rs",
+        "100644 blob c806536196505aef9e4a7b217e98fa65c6fd3a8b\tqeli/src/network_default_route.rs",
+        "100644 blob c1f696ed06f8bfc0e3b6bd333355cf9db5aa4003\tqeli/src/network_interface.rs",
+        "100644 blob 216d94427277d525438efcf5d17e79d0d97ada02\tqeli/src/network_namespace.rs",
+        "100644 blob 8f795e58c41fb6979f91032ca4500984dc70eebe\tqeli/src/operation_budget.rs",
+        "100644 blob 808788cf4b5ff44c893633657bc65130da856818\tqeli/src/packet_bench_main.rs",
+        "100644 blob 60483b7524381c83c2ddeead33e0ddb7900cba22\tqeli/src/protocol/capabilities.rs",
+        "100644 blob 03e5844196ebc144f7d5555445204684114634dd\tqeli/src/protocol/control_v2.rs",
+        "100644 blob ee47f77452d33b2a259afab95fd239feb7844f68\tqeli/src/protocol/ctrl.rs",
+        "100644 blob 43a70858a8c97058bcbb56abb4852a8378ccf097\tqeli/src/protocol/data_frag.rs",
+        "100644 blob ea0412c7e30a2cd89475db655a6358204c6f3291\tqeli/src/protocol/h2_carrier.rs",
+        "100644 blob 9240d8c24e5e91500acb9ff00f33a53a064b8019\tqeli/src/protocol/h2_carrier/hardening_tests.rs",
+        "100644 blob bf88cf53b49ab081bbfea09e0abe252c1813f541\tqeli/src/protocol/h2_carrier/ownership_tests.rs",
+        "100644 blob 0cfb91e489799f0e566be5d85957303dcfd403ef\tqeli/src/protocol/h2_carrier/server_ownership_tests.rs",
+        "100644 blob 7c322549dae6225aecfde9d0c236f15e70d8e89c\tqeli/src/protocol/h2_carrier/test_support.rs",
+        "100644 blob ace101e4cd1235c4ece242aa9dde83b8fd55d9cf\tqeli/src/protocol/icmp.rs",
+        "100644 blob c5a415695ad79f8519bc84fae2bd5ac385aa1a96\tqeli/src/protocol/ip.rs",
+        "100644 blob 02e80554fef2c48a7d5afa6f1fe4217dd40abbb1\tqeli/src/protocol/mod.rs",
+        "100644 blob 7d614c6442af1ae55e0db98f3f8bf92c7230ec39\tqeli/src/protocol/obfs.rs",
+        "100644 blob 422b8a49fc60d0c47b9dff06dedb7934423f3fb1\tqeli/src/protocol/obfuscate.rs",
+        "100644 blob 501ae46051533e2f02c2566f8b0f1e34024963bb\tqeli/src/protocol/packet.rs",
+        "100644 blob 4bb6b62cebe1be9656b5b9ad38d7fac4df46b04c\tqeli/src/protocol/quic.rs",
+        "100644 blob 153a526c3c9a9b7b1ab58102a494f48268a4ae1b\tqeli/src/protocol/realtls/application.rs",
+        "100644 blob 7c500d139799dea5fc16b6f385875c7b92d9a03d\tqeli/src/protocol/realtls/client.rs",
+        "100644 blob 1d7df7b1751d59b6c3dd13b7890034f42620d4db\tqeli/src/protocol/realtls/clienthello.rs",
+        "100644 blob 23c35514f0d1800eece5716ce19dd39ddadc574a\tqeli/src/protocol/realtls/ffi.rs",
+        "100644 blob 38268957ffce5beacf084a98551aaf6f5ba9d376\tqeli/src/protocol/realtls/keyschedule.rs",
+        "100644 blob 912ed10ed7045c1c7c372474374e6c452f5b93e1\tqeli/src/protocol/realtls/mod.rs",
+        "100644 blob d628cbf8404729afd097f8d2487b753e9744b391\tqeli/src/protocol/realtls/record.rs",
+        "100644 blob 4c6364a8a4f77f86c99bbe631c8af8538aae9c83\tqeli/src/protocol/realtls/registry.rs",
+        "100644 blob ec5ba20e0c109d85345f7902d0dc0a37359561c3\tqeli/src/protocol/realtls/sansio.rs",
+        "100644 blob c7e30cba7b513783108bd2ec2b6174c095c2151b\tqeli/src/protocol/realtls/server.rs",
+        "100644 blob 4043be011543aa43dd533b8f2bc0a6b16618db3d\tqeli/src/protocol/realtls/stream.rs",
+        "100644 blob 41eac47e393335fb693d7b03a96c3a073b362aae\tqeli/src/protocol/recordizer.rs",
+        "100644 blob d1e86ab40034e1e6e00769ce6f0ab1f24a789be5\tqeli/src/protocol/roaming.rs",
+        "100644 blob 9ed21f187c2cf1e614c0a8807a5c709b66fd9453\tqeli/src/protocol/shaper.rs",
+        "100644 blob 8e76c0311c7d2251abb5ae03f9c101fd1d9d702e\tqeli/src/protocol/stream_io.rs",
+        "100644 blob 6ee40ff8b0ea131b00f4e722b2dd0755ea5817e9\tqeli/src/protocol/tls.rs",
+        "100644 blob f2968c92bb20c2ecb83bb5b0375624e432dd7560\tqeli/src/protocol/udp_frag.rs",
+        "100644 blob f2d6a7f9eccea401f612ea4c0258c9d1816b3fc2\tqeli/src/secret_buffer.rs",
+        "100644 blob face5864bda83f1a1ca7666ff35d79104cb683c4\tqeli/src/server/acl.rs",
+        "100644 blob 4cf1f6912a211a594a8f5b3a2e47619ed995fd92\tqeli/src/server/client_manager.rs",
+        "100644 blob f0a14f09176339ccce6562079ca5a6cbbca0debe\tqeli/src/server/config_transaction.rs",
+        "100644 blob 5c5adc45f284f60b3b7ccb2d089ba3d514be4ff5\tqeli/src/server/control.rs",
+        "100644 blob c880fad328a107ec45ff8cb4ac7b41c0f94a7d64\tqeli/src/server/control_io.rs",
+        "100644 blob 7e498502bc24c804c7414e7643b34f7a986b8ec7\tqeli/src/server/control_socket.rs",
+        "100644 blob 1fb8dd392d230d04f3b104d772c1f262da545db8\tqeli/src/server/dhcp.rs",
+        "100644 blob 0a741f7dc412f25d5bb85f54f8ccfee472398ec4\tqeli/src/server/dns.rs",
+        "100644 blob e451661f5fd89f08277d5bf7461108b2ca545362\tqeli/src/server/dns/resolver.rs",
+        "100644 blob 7fc308ce6d903716b86b2223f772e8312a8eb1d7\tqeli/src/server/dns/test_support.rs",
+        "100644 blob bea69d9661ca3a8ceb48663a437215d5509719e0\tqeli/src/server/handler.rs",
+        "100644 blob 99ef86a052295611fab02c3415ce3f4fda7e606d\tqeli/src/server/metrics.rs",
+        "100644 blob 48ba14546e367130f2d0538080c432d445358a12\tqeli/src/server/mod.rs",
+        "100644 blob 141b6c02a075763eb213e7e265605d0c3e541731\tqeli/src/server/nat.rs",
+        "100644 blob e1729b47efb3764618d559f0a674ef8db920ef7b\tqeli/src/server/nat/cleanup.rs",
+        "100644 blob 869dc8800743d288f1f2b01f99792decc458683a\tqeli/src/server/nat/cleanup/tests.rs",
+        "100644 blob 6cac1c8628f5ea012d1e9ed24ff0899cd7e8b580\tqeli/src/server/nat/cleanup_budget.rs",
+        "100644 blob d8a54f68ee5e5a5d0752ab246dde3430ccefea7f\tqeli/src/server/nat/cleanup_budget_tests.rs",
+        "100644 blob a28c11cf60c5dcf688b952629d1c0df6cc3def8b\tqeli/src/server/nat/discovery.rs",
+        "100644 blob 7ea9b809823c5291ec73c65743e30f41a10cba9d\tqeli/src/server/nat/discovery/tests.rs",
+        "100644 blob c9e18de899eed492f0a3e11df7a8d9ec56b55178\tqeli/src/server/nat/dns_input.rs",
+        "100644 blob f6412e626bdf476ba898f70157a5a0e7b0101732\tqeli/src/server/nat/dns_input/tests.rs",
+        "100644 blob ecea9d4420d8692b7a7ffd287272a2359f84b143\tqeli/src/server/nat/dns_input_budget_tests.rs",
+        "100644 blob e0e6ffec153c9a5a10d342e35370c06bdd05847c\tqeli/src/server/nat/firewall_journal.rs",
+        "100644 blob 4226d9e4b2cd0e54aafc97683cda23bc45851713\tqeli/src/server/nat/firewall_journal/native.rs",
+        "100644 blob 9d3e61e29789e8e388dd6fe1d1908ebadf80e5a4\tqeli/src/server/nat/firewall_journal/native_tests.rs",
+        "100644 blob bdd335ade9df69eb3d7ce2a5db62de789722580c\tqeli/src/server/nat/firewall_journal/tests.rs",
+        "100644 blob e9f8af59d2145889834cb5d4b016e30adb7c3f7e\tqeli/src/server/nat/ipv6_sysctl.rs",
+        "100644 blob d36e55bb08c831a4cfd25161cb2eeeb2f609f013\tqeli/src/server/nat/ipv6_sysctl/tests.rs",
+        "100644 blob fdb59dae6b1962e96ad1c7a454b0ebfe16cb7ef3\tqeli/src/server/nat/journal.rs",
+        "100644 blob 6a35b683297f5bbbb7802f8e159ead409f45de4d\tqeli/src/server/nat/native_tests.rs",
+        "100644 blob 478175db6e92bb1d0bb05804e33230080004583d\tqeli/src/server/nat/owned_rules.rs",
+        "100644 blob e1c1a9881fef659b87f69156fe71aee257944f10\tqeli/src/server/nat/setup_budget_tests.rs",
+        "100644 blob ce24618fc5ea0b23e46b2e1f947749668cfc7917\tqeli/src/server/nat/test_support.rs",
+        "100644 blob acb024f5259f8c9baa53fcf6c7afe08f22a7951d\tqeli/src/server/ndp_proxy.rs",
+        "100644 blob abc106b7e36c8cf0df58764b197925b15bc4c12b\tqeli/src/server/network_lease.rs",
+        "100644 blob 19c12d6ca5c7b8c7bd69f2d00521ce7395268e9c\tqeli/src/server/network_lease_tests.rs",
+        "100644 blob a7d90305905e1b432a6746770b9f9915f6ddb16e\tqeli/src/server/notify.rs",
+        "100644 blob b3b530f9ddb6e54d8847270b1ac2111971ef727b\tqeli/src/server/notify_tasks.rs",
+        "100644 blob 4f3dcd62d093622b739fe1a02d17358fceaaec12\tqeli/src/server/pool.rs",
+        "100644 blob b21e9c29e41289a43d994d3cb464b378d08708d4\tqeli/src/server/preflight.rs",
+        "100644 blob 3b74d0579d9e858b61d9064833bf2957cbe62b72\tqeli/src/server/preflight/snapshot_tests.rs",
+        "100644 blob da30cea2f320e3db08caf66ef0919d1b88a4763e\tqeli/src/server/reality.rs",
+        "100644 blob 2ea5a0757660b81504e5a9e9ab4cde063693c7db\tqeli/src/server/roaming_metrics.rs",
+        "100644 blob 879889bc3410c64bf01113025d41318ede6377af\tqeli/src/server/shutdown.rs",
+        "100644 blob e17ecada0c67d2ffb6b7aa2c0555add99c2dd4e3\tqeli/src/server/shutdown_budget.rs",
+        "100644 blob 49ecb15ef61cb7cf86530059a9da60bf9107c4d5\tqeli/src/server/supervisor.rs",
+        "100644 blob 18c8eb71454324d5ca2a3d48f8ce17bf6fb36e9d\tqeli/src/server/tasks.rs",
+        "100644 blob ceab7a0c2298d2311e74c63bee039847873aefbf\tqeli/src/server/teardown.rs",
+        "100644 blob 3ac5a8707fc3a4b7b405d54d238d0cc7d6610d25\tqeli/src/server/teardown/tests.rs",
+        "100644 blob ba2c53575ab4799e6eaf51effa9a091f75fa62f8\tqeli/src/server/udp_handler.rs",
+        "100644 blob bdcbe98ad1a4e9c18208e3a9b3aca9f2cb99869f\tqeli/src/server/update.rs",
+        "100644 blob a11068fd945300f32d7feedcea882e63fc676a31\tqeli/src/server/usage.rs",
+        "100644 blob 41ebde4d16985b3b2af6096a01f92943804ffeaf\tqeli/src/server/web.rs",
+        "100644 blob 5d2b5809aa4c17f459a30c14b33cb4b454bb1f86\tqeli/src/state_storage.rs",
+        "100644 blob 19691041e9d21d371d8aabeeefdc30a557424b36\tqeli/src/state_storage/journal_file.rs",
+        "100644 blob 115f98431ed8ca7408919d4d0e89e1c760f3fce7\tqeli/src/state_storage/state_dir.rs",
+        "100644 blob 9abba8aff039c052749084bd8557e6c10ba0ad30\tqeli/src/state_storage/state_dir_tests.rs",
+        "100644 blob 4e717f25bc1e45fb8bd3bcc475f3d64248cef6a7\tqeli/src/system_command.rs",
+        "100644 blob 9e1d8902a7cbb8f1bc576f9e47e458c9edb0f372\tqeli/src/system_command/test_support.rs",
+        "100644 blob 84004b9142d6d8ce1e8eb782e7e1afad97ebff19\tqeli/src/system_command/tests.rs",
+        "100644 blob 3b35b3f562e86d3ec0ac55e10f95bea03f4c5312\tqeli/src/trace.rs",
+        "100644 blob 85aaf9b749b53261e9cded1a1725962474bc4811\tqeli/src/transport/mod.rs",
+        "100644 blob ba0f3c093782c46b2c58171ecefdf99d100ae6c7\tqeli/src/transport/tcp.rs",
+        "100644 blob 968ddf85f25ba0a3dc759168814e48f881c8fb7c\tqeli/src/transport/udp.rs",
+        "100644 blob 79bc8ceda98f56e5141117a9a8aabec54c03d0ef\tqeli/src/transport_core/buffer_pool.rs",
+        "100644 blob 614a8483e7737c2875747ee1014ae26bab0e5098\tqeli/src/transport_core/carrier.rs",
+        "100644 blob 348298c8f9bf390391bac17e8aee3ada82f84ae6\tqeli/src/transport_core/config_jni.rs",
+        "100644 blob 7cff697803f0d78038933f509d428d0509865e4c\tqeli/src/transport_core/diagnostic.rs",
+        "100644 blob bdf48d1206be66668c851244b95ec6407bcb0b18\tqeli/src/transport_core/ffi.rs",
+        "100644 blob 4296dd7eeb38fe4331c725733f480e4142820e4b\tqeli/src/transport_core/jni.rs",
+        "100644 blob 172e055c8242e47739713d8b04e0565910d77eab\tqeli/src/transport_core/linux_tun.rs",
+        "100644 blob dd4fec3cfb96db6f8104835bbd7be53b6455eddc\tqeli/src/transport_core/mod.rs",
+        "100644 blob 9bbe31c3ad7a3478faef57ee91e122d79d162711\tqeli/src/transport_core/network.rs",
+        "100644 blob 7715a3d80ab7706127330cd72cd8c2685ddc696c\tqeli/src/transport_core/packet_tun.rs",
+        "100644 blob dfe11b5a337dffb4e248958d5c76cf11aca3ffad\tqeli/src/transport_core/path.rs",
+        "100644 blob a4d825abda96a1f03240ed49df0724505cef96c7\tqeli/src/transport_core/resolver.rs",
+        "100644 blob e8c41d42806a9e1202bb6a3e7055845b49f4141d\tqeli/src/transport_core/resolver/system_config.rs",
+        "100644 blob aa6cd14a7c8c004a19c7f33f23475dc4bb345e2d\tqeli/src/transport_core/resolver/system_config/tests.rs",
+        "100644 blob c72d785fb00ff6eace8a7505f44f2b2488cd0cfb\tqeli/src/transport_core/resolver/tests.rs",
+        "100644 blob cb9ba741eec2eba8b4167719c881b8543bfbb70c\tqeli/src/transport_core/runtime.rs",
+        "100644 blob fcc858de0aec0b53952cd97ba21494ba7de09c45\tqeli/src/transport_core/session.rs",
+        "100644 blob 93f2b13283ebf03a4c31ecb3fbc061c442f76993\tqeli/src/transport_core/tasks.rs",
+        "100644 blob a3e1c3771c3928a276d2cf8c27ee7d475a17543b\tqeli/src/transport_core/tcp_roaming.rs",
+        "100644 blob 552d103ab2406c46636df9156b876c80e9406710\tqeli/src/transport_core/tun_workers.rs",
+        "100644 blob 3235a3b4bf211be48c81c942b0654fbc394b5576\tqeli/src/transport_core/udp_batch.rs",
+        "100644 blob 948e37115645f3dfa8b130fab77270102e4883ec\tqeli/src/transport_core/udp_buffer.rs",
+        "100644 blob ff7e27437a8c6645bf5d4f230e77f0670545bc7c\tqeli/src/transport_core/udp_client_framing.rs",
+        "100644 blob 572838edab47050a748ab11c8790a1cc4e90a8b2\tqeli/src/transport_core/udp_receive.rs",
+        "100644 blob 130fa1abfeeb9918ba8d5b8a5f144c6e13ad17ac\tqeli/src/transport_core/udp_roaming.rs",
+        "100644 blob e68675882ee04454093d0a0816b81942ec962848\tqeli/src/transport_core/udp_roaming_client.rs",
+        "100644 blob 6d134adab9266da0f5d604a59b9046441477e765\tqeli/src/transport_core/udp_source.rs",
+        "100644 blob 653e717439e826987696c89b1a35abe77b77ab30\tqeli/src/transport_core/udp_source/tests.rs",
+        "100644 blob 0be5d5a7abdb6809c5d51cb3bcf882ec16efbd7e\tqeli/src/transport_core/wintun.rs",
+        "100644 blob 33680e96996e3e63504e3bb4f55236c1df06138f\tqeli/src/tun/attach_linux_tests.rs",
+        "100644 blob b56ae04569484ade413c35485c5d951e4effd20b\tqeli/src/tun/attach_tests.rs",
+        "100644 blob 573e32dcf790f210d98c0d853ef524f880ba8e11\tqeli/src/tun/iface.rs",
+        "100644 blob 42eaa570441185757e813a50db82f0265286e9eb\tqeli/src/tun/mod.rs",
+        "100644 blob b066f609b9c7114dc11edb21456c894cf09c6745\tqeli/src/tun/open.rs",
+        "100644 blob fe211b1de6a2d7f2373be8d250634ab2271ac74e\tqeli/src/tun/open_tests.rs",
+        "100644 blob a984035b2a938702f5f29c7b323f1b3ca89326f6\tqeli/src/tun/tap.rs",
+        "100644 blob b002c3107a23c0cd0595fdf3161d3ba7274ea4cb\tqeli/src/util.rs",
+        "100644 blob 7509f841cf8870bebd40a58f1f26eab2d2e9ebf4\tqeli/src/util/atomic_file.rs",
+        "100644 blob 331d585b25df2a37b635360a23f477f92aa7d511\tqeli/src/util/atomic_file_tests.rs",
+        "100644 blob fc80788fee23df11e7c05f78a41faa282764ee5d\tqeli/src/web/api/backup.rs",
+        "100644 blob b88aafa37e27a55979cdc342a17c0a02285560bd\tqeli/src/web/api/backup_io_tests.rs",
+        "100644 blob b9c9fdd03670980e1590900ec77803114fcbc76e\tqeli/src/web/api/backup_listing.rs",
+        "100644 blob a29652f045ea220bf3d8aabc2a6ce2f41b73f349\tqeli/src/web/api/client.rs",
+        "100644 blob 93a2ed35b3396b8c022a50cf5c8e230879611734\tqeli/src/web/api/config.rs",
+        "100644 blob e2d8828659551990c955e142d77ffb9b4f615f84\tqeli/src/web/api/control.rs",
+        "100644 blob 1a83a73137d0a33bdc8f7a5731cd2cd9a03ba4b6\tqeli/src/web/api/firewall.rs",
+        "100644 blob 5ac62e2fc60afb59fdb4437c3df1cad23634bd7a\tqeli/src/web/api/firewall/tests.rs",
+        "100644 blob 0af05e37eb4c8b14af58a1f7bb3e72454132be15\tqeli/src/web/api/hash.rs",
+        "100644 blob cbd260438f3ea8bdd8df7071a28a57a8ef4dea88\tqeli/src/web/api/identity.rs",
+        "100644 blob 19ea1221895910052b0ec26e9ef9e4fa07fea044\tqeli/src/web/api/login.rs",
+        "100644 blob ae240ca9b071afba8f65d0b38fb37f1bf62541ce\tqeli/src/web/api/logs.rs",
+        "100644 blob 5205e54c084a5e0b1dc135fa77f870b4258abf84\tqeli/src/web/api/mod.rs",
+        "100644 blob 2f84e4237fb6a96d8505995741617e95c9b7b973\tqeli/src/web/api/notify.rs",
+        "100644 blob 6e059969b67a5843472712f7a0451662c23b514f\tqeli/src/web/api/paths.rs",
+        "100644 blob b2934e8c3e6b660c4abec583d583351744126ab5\tqeli/src/web/api/preflight.rs",
+        "100644 blob ae0b869530c7b92581b04b20521f83279639e8c3\tqeli/src/web/api/share.rs",
+        "100644 blob a8b70fd14c67acb95a911c8d1b018f5e0c7e345e\tqeli/src/web/api/status.rs",
+        "100644 blob 4e375b39cd060eb2407dcaa2339a7ff9f46baca9\tqeli/src/web/api/system.rs",
+        "100644 blob 85d0835419e6612728e9480a37da377631218773\tqeli/src/web/api/transport.rs",
+        "100644 blob e6721adf9cbd3754f7f5093400a1fd5021eeb938\tqeli/src/web/api/usage.rs",
+        "100644 blob dbafd8b87761cd107656fd78a84927e74835af7a\tqeli/src/web/api/users.rs",
+        "100644 blob 8223cc71f068d06f9b2216bbbb9b97d962b736df\tqeli/src/web/assets.rs",
+        "100644 blob 2a6d94d274614656f24f7dc260b0ebfe786b5536\tqeli/src/web/assets/alpine.js",
+        "100644 blob 050e732263d1bf2c914a36687e3ef92422a23459\tqeli/src/web/assets/app.css",
+        "100644 blob d228a4af2fcc51e12c8a744e6c35d2363bd4b98a\tqeli/src/web/assets/fonts/inter-400.woff2",
+        "100644 blob 21db79416d8d50282a37c2a564aef73d4f80fe64\tqeli/src/web/assets/fonts/inter-500.woff2",
+        "100644 blob da1c039b755d138290ee1291ec4c42b9f0703f1b\tqeli/src/web/assets/fonts/inter-600.woff2",
+        "100644 blob 775f7575e653614760dba82fd9dffaddb939770f\tqeli/src/web/assets/fonts/inter-700.woff2",
+        "100644 blob 39b9673d88bcda84d6cc19b883c7273cba0ca3d6\tqeli/src/web/assets/fonts/inter-800.woff2",
+        "100644 blob c3f046fc9a32a2cf739a51ad613214f0a8735bc5\tqeli/src/web/assets/fonts/jbmono-400.woff2",
+        "100644 blob 001a3d0bef06f94ea61d3c5ea4f6ac332cb71d2b\tqeli/src/web/assets/fonts/jbmono-600.woff2",
+        "100644 blob 6ce2095d2dba73c49b4f86d81c6b843282d0a6ee\tqeli/src/web/assets/i18n.js",
+        "100644 blob 63501fbcd506768a23ee10931960625daa7dc3b3\tqeli/src/web/auth.rs",
+        "100644 blob c6dbd9ca51adfb228902370cfdefa9bc810ca618\tqeli/src/web/lifetime.rs",
+        "100644 blob 9b75e692351caec3aaf2678eea79b52c8566e842\tqeli/src/web/mod.rs",
+        "100644 blob 49fa3b470d9f91f15a6def6fd5ce743669d16cdc\tqeli/src/web/pages/blocked.rs",
+        "100644 blob 1442d021a443102729cdcb27358dd86772fcd586\tqeli/src/web/pages/client.rs",
+        "100644 blob 85fa9cc7f8662296d6b179d07c4f027795203a8a\tqeli/src/web/pages/config.rs",
+        "100644 blob b1ff0cceeea15223473479b884369dc8a1d809ee\tqeli/src/web/pages/dashboard.rs",
+        "100644 blob cf59b1f8972052e4a509409269e37c986b944077\tqeli/src/web/pages/login.rs",
+        "100644 blob 4c7589a802431fdb6b946df956f1a1b5eb03b269\tqeli/src/web/pages/logs.rs",
+        "100644 blob 9334b156c184541b445054a431fea49c4512caab\tqeli/src/web/pages/mod.rs",
+        "100644 blob 2386e9250e6489530b01c6d1bd3d59d973f4a797\tqeli/src/web/pages/notifications.rs",
+        "100644 blob 135e3b248f08acecfecde723bf083f8040e8e9d6\tqeli/src/web/pages/quickstart.rs",
+        "100644 blob 9275f140050e51d001bac91750a5a93d80a1581a\tqeli/src/web/pages/transport.rs",
+        "100644 blob 04e1735a66ca047d046e692646852209ba31a35c\tqeli/src/web/pages/users.rs",
+        "100644 blob 2db95d5b181283c102e806f80ed864375ec6330f\tqeli/src/web/templates/blocked.html",
+        "100644 blob c0c7977106053f0d79613fad6f78e0a31d9fa0c4\tqeli/src/web/templates/client.html",
+        "100644 blob d68950b5d2d6495cce016253278b02254b172a2b\tqeli/src/web/templates/config.html",
+        "100644 blob f40c46f44deebcd726fc8ae78bc312c0e054926d\tqeli/src/web/templates/dashboard.html",
+        "100644 blob 60ae0fe8601d02ce0241436b20d7953e3f1ef3e8\tqeli/src/web/templates/layout.html",
+        "100644 blob ecd3ce76db1d009ee0c4bdfaedf41683bec7acf1\tqeli/src/web/templates/login.html",
+        "100644 blob fd2cb272daef0e05ef1af434748e041a13d92f07\tqeli/src/web/templates/logs.html",
+        "100644 blob be6fbe11dad09316ed0706f44e7a69592495ac6b\tqeli/src/web/templates/notifications.html",
+        "100644 blob 758d0bf8c1b5bc91b1320c37441728d32f84329e\tqeli/src/web/templates/quickstart.html",
+        "100644 blob b8f589eae4cd873a5b6ee5d8862323afc4d327a5\tqeli/src/web/templates/transport.html",
+        "100644 blob 87e44bd79da18a9670443c5c77a7861f9ed9d4e4\tqeli/src/web/templates/users.html",
+        "100644 blob a8fef10e1dd8053f30532ffb799ca9e1cf23d7b4\tqeli/src/web/tls.rs",
+        "100644 blob 0fee331bb231be1925a7a52fe96f0bb81dff2dcd\tqeli/tests/config_editor.rs",
+        "100644 blob 99a6270a7e54883d3fef4d694b11f2ad19d1aff2\tqeli/tests/config_examples.rs",
+        "100644 blob 02d98529d4b8976dee628b83d1e89759f9ab84e5\tqeli/tests/server_ini_audit.rs",
+        "100644 blob d55e08d3e48d2d9d56feb389903fc0ce31bb5a80\tqeli/web-assets/README.md",
+        "100644 blob 1f89c458507e3b5c866e2ab24d94c568739c6b59\tqeli/web-assets/input.css",
+        "100644 blob d4287d4c1cbbfab3322f446dbf3f47feab74b6d1\tqeli/web-assets/package-lock.json",
+        "100644 blob 0fda41f64ec8c3a352cc6f3f6321af51856be1b9\tqeli/web-assets/package.json",
+        "100644 blob 3be34a5a6e025ce3a5fd08beb290420c6e599bc1\tqeli/web-assets/tailwind.config.js"
+      ],
+      "native_source_digest": "923b93a93106161bdc6409765682ac6d7b6562b7d64874a87a1303eddb3a5b49",
+      "note": "Git blobs compared, checkout CRLF in unchanged fuzz files is not a source change; archive bytes are bound by release-source.json. New audit helpers do not change product/native build inputs; previous sealed native qualification retained."
+    },
+    "local": {
+      "status": "PASS",
+      "commands": [
+        {
+          "script": "check_docs.py",
+          "rc": 0
+        },
+        {
+          "script": "test_native_recipes.py",
+          "rc": 0
+        }
+      ],
+      "docs_checks": 9,
+      "markdown_files": 684,
+      "recipes_mocked_methods": 38,
+      "helper_ast": "PASS",
+      "native_source_digest": "923b93a93106161bdc6409765682ac6d7b6562b7d64874a87a1303eddb3a5b49",
+      "native_sha_entries": 14,
+      "native_evidence": "previous qualified A/B and consumed copies remain exact; not new native builds"
+    },
+    "package_manager": {
+      "status": "PASS",
+      "checks": [
+        {
+          "name": "fresh package configured by actual dpkg",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "fresh package supervisor and worker ready",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "updater exit reflects revision2",
+          "status": "PASS",
+          "detail": " [4553 kB]\n(Reading database ... 112403 files and directories currently installed.)\nPreparing to unpack .../qeli_0.8.2-2_amd64.deb ...\nUnpacking qeli (0.8.2-2) over (0.8.2-1) ...\nSetting up qeli (0.8.2-2) ...\n\n\u001b[1;36m== Restarting qeli\u001b[0m\n\n\u001b[1;36m== Done — 0.8.2 → 0.8.2\u001b[0m\nNo root override present — qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\nqeli configured successfully.\nService runs as: qeli   (change later: qeli set-service-user root|qeli)\nExamples in /etc/qeli/ (flat-INI):\n  server.conf.example              - exhaustive single-profile reference (every key)\n  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)\n  server-ipv6.conf.example         - runnable dual-stack IPv4+IPv6 profile\n  server-maxobf.conf.example       - maximum-obfuscation server reference\n  client.conf.example              - standard client reference\n  client-reality.conf.example      - REALITY client template\n  client-maxobf.conf.example       - maximum-obfuscation client template\nCreate your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf\nAdd users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf\nShow identity: qeli show-identity --config /etc/qeli/server.conf\n\nIMPORTANT — ownership: the service runs as user 'qeli' and WRITES inside\n/etc/qeli (identity keys, users file, panel saves). Files you create there as\nroot AFTER this install stay root-owned and the service cannot write them\n(profile fails to bind, users/panel changes don't persist). Either run the CLI\nas the service user:\n    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf\nor restore ownership once you are done:\n    qeli set-service-user qeli\n\nStart: systemctl start qeli\n"
+        },
+        {
+          "name": "exact package revision installed/recovered 2",
+          "status": "PASS",
+          "detail": "install ok installed 0.8.2-2"
+        },
+        {
+          "name": "real service restarted/recovered 2",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "state bytes/owner/mode preserved 2",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "real installed ELF restored 2",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "updater exit reflects revision3",
+          "status": "PASS",
+          "detail": "tart after the update — attempting rollback…\n  reinstalling the previous package: /var/cache/qeli/qeli_0.8.2-2_amd64.deb\ndpkg: warning: downgrading qeli (0.8.2-3) to (0.8.2-2)\nNo root override present — qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\nqeli configured successfully.\nService runs as: qeli   (change later: qeli set-service-user root|qeli)\nExamples in /etc/qeli/ (flat-INI):\n  server.conf.example              - exhaustive single-profile reference (every key)\n  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)\n  server-ipv6.conf.example         - runnable dual-stack IPv4+IPv6 profile\n  server-maxobf.conf.example       - maximum-obfuscation server reference\n  client.conf.example              - standard client reference\n  client-reality.conf.example      - REALITY client template\n  client-maxobf.conf.example       - maximum-obfuscation client template\nCreate your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf\nAdd users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf\nShow identity: qeli show-identity --config /etc/qeli/server.conf\n\nIMPORTANT — ownership: the service runs as user 'qeli' and WRITES inside\n/etc/qeli (identity keys, users file, panel saves). Files you create there as\nroot AFTER this install stay root-owned and the service cannot write them\n(profile fails to bind, users/panel changes don't persist). Either run the CLI\nas the service user:\n    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf\nor restore ownership once you are done:\n    qeli set-service-user qeli\n\nStart: systemctl start qeli\n\u001b[1;31mERROR: update failed to start — rolled back to 0.8.2. Investigate: journalctl -u qeli -e\u001b[0m\n"
+        },
+        {
+          "name": "exact package revision installed/recovered 3",
+          "status": "PASS",
+          "detail": "install ok installed 0.8.2-2"
+        },
+        {
+          "name": "real service restarted/recovered 3",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "state bytes/owner/mode preserved 3",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "failure reported as rollback 3",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "real installed ELF restored 3",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "updater exit reflects revision4",
+          "status": "PASS",
+          "detail": "tart after the update — attempting rollback…\n  reinstalling the previous package: /var/cache/qeli/qeli_0.8.2-2_amd64.deb\ndpkg: warning: downgrading qeli (0.8.2-4) to (0.8.2-2)\nNo root override present — qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\nqeli configured successfully.\nService runs as: qeli   (change later: qeli set-service-user root|qeli)\nExamples in /etc/qeli/ (flat-INI):\n  server.conf.example              - exhaustive single-profile reference (every key)\n  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)\n  server-ipv6.conf.example         - runnable dual-stack IPv4+IPv6 profile\n  server-maxobf.conf.example       - maximum-obfuscation server reference\n  client.conf.example              - standard client reference\n  client-reality.conf.example      - REALITY client template\n  client-maxobf.conf.example       - maximum-obfuscation client template\nCreate your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf\nAdd users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf\nShow identity: qeli show-identity --config /etc/qeli/server.conf\n\nIMPORTANT — ownership: the service runs as user 'qeli' and WRITES inside\n/etc/qeli (identity keys, users file, panel saves). Files you create there as\nroot AFTER this install stay root-owned and the service cannot write them\n(profile fails to bind, users/panel changes don't persist). Either run the CLI\nas the service user:\n    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf\nor restore ownership once you are done:\n    qeli set-service-user qeli\n\nStart: systemctl start qeli\n\u001b[1;31mERROR: update failed to start — rolled back to 0.8.2. Investigate: journalctl -u qeli -e\u001b[0m\n"
+        },
+        {
+          "name": "exact package revision installed/recovered 4",
+          "status": "PASS",
+          "detail": "install ok installed 0.8.2-2"
+        },
+        {
+          "name": "real service restarted/recovered 4",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "state bytes/owner/mode preserved 4",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "failure reported as rollback 4",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "real installed ELF restored 4",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "rollback cache private and exact package",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "prerm stops actual owned service",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "remove preserves operator state",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "purge preserves operator state",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "name": "purge removes packaged examples",
+          "status": "PASS",
+          "detail": null
+        }
+      ],
+      "commands": [
+        {
+          "label": "private mount propagation",
+          "argv": [
+            "mount",
+            "--make-rprivate",
+            "/"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "real manager socket",
+          "argv": [
+            "mount",
+            "--bind",
+            "/run/systemd/private",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root/run/systemd/private"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "owned manager paths",
+          "argv": [
+            "mount",
+            "--bind",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/unit-map",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root/run/qeli-audit-unit"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "owned manager paths",
+          "argv": [
+            "mount",
+            "--bind",
+            "/run/systemd/system/qeli-q33-pkg-20261008084158808651.service.d",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root/run/qeli-audit-dropin"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "read-only process inspection",
+          "argv": [
+            "mount",
+            "--bind",
+            "/proc",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root/proc"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "protect proc",
+          "argv": [
+            "mount",
+            "-o",
+            "remount,bind,ro",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root/proc"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "extract production package",
+          "argv": [
+            "dpkg-deb",
+            "-R",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/qeli_0.8.2_amd64.deb",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/package-1"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "build revision/fault package",
+          "argv": [
+            "dpkg-deb",
+            "--root-owner-group",
+            "-Zxz",
+            "--build",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/package-1",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root/fixtures/qeli_0.8.2-1_amd64.deb"
+          ],
+          "rc": 0,
+          "output": "dpkg-deb: сборка пакета «qeli» в «/var/tmp/qeli-q33-pkg-20261008084158808651/root/fixtures/qeli_0.8.2-1_amd64.deb».\n"
+        },
+        {
+          "label": "extract production package",
+          "argv": [
+            "dpkg-deb",
+            "-R",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/qeli_0.8.2_amd64.deb",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/package-2"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "build revision/fault package",
+          "argv": [
+            "dpkg-deb",
+            "--root-owner-group",
+            "-Zxz",
+            "--build",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/package-2",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root/fixtures/qeli_0.8.2-2_amd64.deb"
+          ],
+          "rc": 0,
+          "output": "dpkg-deb: сборка пакета «qeli» в «/var/tmp/qeli-q33-pkg-20261008084158808651/root/fixtures/qeli_0.8.2-2_amd64.deb».\n"
+        },
+        {
+          "label": "extract production package",
+          "argv": [
+            "dpkg-deb",
+            "-R",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/qeli_0.8.2_amd64.deb",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/package-3"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "build revision/fault package",
+          "argv": [
+            "dpkg-deb",
+            "--root-owner-group",
+            "-Zxz",
+            "--build",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/package-3",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root/fixtures/qeli_0.8.2-3_amd64.deb"
+          ],
+          "rc": 0,
+          "output": "dpkg-deb: сборка пакета «qeli» в «/var/tmp/qeli-q33-pkg-20261008084158808651/root/fixtures/qeli_0.8.2-3_amd64.deb».\n"
+        },
+        {
+          "label": "extract production package",
+          "argv": [
+            "dpkg-deb",
+            "-R",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/qeli_0.8.2_amd64.deb",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/package-4"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "build revision/fault package",
+          "argv": [
+            "dpkg-deb",
+            "--root-owner-group",
+            "-Zxz",
+            "--build",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/package-4",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root/fixtures/qeli_0.8.2-4_amd64.deb"
+          ],
+          "rc": 0,
+          "output": "dpkg-deb: сборка пакета «qeli» в «/var/tmp/qeli-q33-pkg-20261008084158808651/root/fixtures/qeli_0.8.2-4_amd64.deb».\n"
+        },
+        {
+          "label": "fresh production maintainer scripts",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "/usr/bin/dpkg",
+            "-i",
+            "/fixtures/qeli_0.8.2-1_amd64.deb"
+          ],
+          "rc": 0,
+          "output": "Selecting previously unselected package qeli.\n(Reading database ... 112387 files and directories currently installed.)\nPreparing to unpack .../qeli_0.8.2-1_amd64.deb ...\nUnpacking qeli (0.8.2-1) ...\nSetting up qeli (0.8.2-1) ...\nNo root override present — qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\nqeli configured successfully.\nService runs as: qeli   (change later: qeli set-service-user root|qeli)\nExamples in /etc/qeli/ (flat-INI):\n  server.conf.example              - exhaustive single-profile reference (every key)\n  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)\n  server-ipv6.conf.example         - runnable dual-stack IPv4+IPv6 profile\n  server-maxobf.conf.example       - maximum-obfuscation server reference\n  client.conf.example              - standard client reference\n  client-reality.conf.example      - REALITY client template\n  client-maxobf.conf.example       - maximum-obfuscation client template\nCreate your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf\nAdd users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf\nShow identity: qeli show-identity --config /etc/qeli/server.conf\n\nIMPORTANT — ownership: the service runs as user 'qeli' and WRITES inside\n/etc/qeli (identity keys, users file, panel saves). Files you create there as\nroot AFTER this install stay root-owned and the service cannot write them\n(profile fails to bind, users/panel changes don't persist). Either run the CLI\nas the service user:\n    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf\nor restore ownership once you are done:\n    qeli set-service-user qeli\n\nStart: systemctl start qeli\n"
+        },
+        {
+          "label": "fresh status",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "dpkg-query",
+            "-W",
+            "-f=${Status} ${Version}",
+            "qeli"
+          ],
+          "rc": 0,
+          "output": "install ok installed 0.8.2-1"
+        },
+        {
+          "label": "real panel password",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "qeli",
+            "set-web-password",
+            "--password",
+            "synthetic-package-panel-password",
+            "--config",
+            "/etc/qeli/server.conf"
+          ],
+          "rc": 0,
+          "output": "Web panel admin set: user 'admin' in /etc/qeli/server.conf\nWeb panel enabled (web.enabled = true).\nRestart qeli for the change to take effect (e.g. systemctl restart qeli).\n"
+        },
+        {
+          "label": "real user persistence",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "qeli",
+            "add-client",
+            "audit-package-user",
+            "--password",
+            "synthetic-package-user-password",
+            "--config",
+            "/etc/qeli/server.conf"
+          ],
+          "rc": 0,
+          "output": "Added client 'audit-package-user' to /etc/qeli/users.conf\nReload/restart qeli for the new user to take effect.\n"
+        },
+        {
+          "label": "real ownership/default run-as",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "qeli",
+            "set-service-user",
+            "qeli"
+          ],
+          "rc": 0,
+          "output": "No root override present — qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\n"
+        },
+        {
+          "label": "real fresh package startup",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "systemctl",
+            "start",
+            "qeli"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "MainPID",
+          "argv": [
+            "systemctl",
+            "show",
+            "qeli-q33-pkg-20261008084158808651.service",
+            "-p",
+            "MainPID",
+            "--value"
+          ],
+          "rc": 0,
+          "output": "2898687\n"
+        },
+        {
+          "label": "real unit listeners",
+          "argv": [
+            "nsenter",
+            "-t",
+            "2898687",
+            "-n",
+            "--",
+            "ss",
+            "-lnt"
+          ],
+          "rc": 0,
+          "output": "State  Recv-Q Send-Q Local Address:Port Peer Address:Port\nLISTEN 0      65535  127.0.0.53%lo:53        0.0.0.0:*   \nLISTEN 0      128        127.0.0.1:8080      0.0.0.0:*   \nLISTEN 0      128        127.0.0.1:5037      0.0.0.0:*   \nLISTEN 0      128          0.0.0.0:22        0.0.0.0:*   \nLISTEN 0      65535        0.0.0.0:5355      0.0.0.0:*   \nLISTEN 0      65535     127.0.0.54:53        0.0.0.0:*   \nLISTEN 0      128          0.0.0.0:443       0.0.0.0:*   \nLISTEN 0      128             [::]:22           [::]:*   \nLISTEN 0      65535           [::]:5355         [::]:*   \n"
+        },
+        {
+          "label": "MainPID",
+          "argv": [
+            "systemctl",
+            "show",
+            "qeli-q33-pkg-20261008084158808651.service",
+            "-p",
+            "MainPID",
+            "--value"
+          ],
+          "rc": 0,
+          "output": "2898687\n"
+        },
+        {
+          "label": "real unit listeners",
+          "argv": [
+            "nsenter",
+            "-t",
+            "2898687",
+            "-n",
+            "--",
+            "ss",
+            "-lnt"
+          ],
+          "rc": 0,
+          "output": "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port\nLISTEN 0      128        127.0.0.1:24990      0.0.0.0:*   \nLISTEN 0      128        127.0.0.1:443        0.0.0.0:*   \n"
+        },
+        {
+          "label": "real updater revision2",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "env",
+            "QELI_DEB=/fixtures/qeli_0.8.2-2_amd64.deb",
+            "bash",
+            "/update.sh",
+            "--force"
+          ],
+          "rc": 0,
+          "output": "Installed version: 0.8.2\n\n\u001b[1;36m== Using local .deb: /fixtures/qeli_0.8.2-2_amd64.deb\u001b[0m\n  backed up current binary → /usr/bin/qeli.prev-0.8.2\n  rollback package on hand: /var/cache/qeli/qeli_0.8.2-1_amd64.deb\n\n\u001b[1;36m== Installing the update\u001b[0m\nReading package lists...\nBuilding dependency tree...\nThe following packages will be upgraded:\n  qeli\n1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nNeed to get 0 B/4553 kB of archives.\nAfter this operation, 0 B of additional disk space will be used.\nGet:1 /fixtures/qeli_0.8.2-2_amd64.deb qeli amd64 0.8.2-2 [4553 kB]\n(Reading database ... 112403 files and directories currently installed.)\nPreparing to unpack .../qeli_0.8.2-2_amd64.deb ...\nUnpacking qeli (0.8.2-2) over (0.8.2-1) ...\nSetting up qeli (0.8.2-2) ...\n\n\u001b[1;36m== Restarting qeli\u001b[0m\n\n\u001b[1;36m== Done — 0.8.2 → 0.8.2\u001b[0m\nNo root override present — qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\nqeli configured successfully.\nService runs as: qeli   (change later: qeli set-service-user root|qeli)\nExamples in /etc/qeli/ (flat-INI):\n  server.conf.example              - exhaustive single-profile reference (every key)\n  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)\n  server-ipv6.conf.example         - runnable dual-stack IPv4+IPv6 profile\n  server-maxobf.conf.example       - maximum-obfuscation server reference\n  client.conf.example              - standard client reference\n  client-reality.conf.example      - REALITY client template\n  client-maxobf.conf.example       - maximum-obfuscation client template\nCreate your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf\nAdd users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf\nShow identity: qeli show-identity --config /etc/qeli/server.conf\n\nIMPORTANT — ownership: the service runs as user 'qeli' and WRITES inside\n/etc/qeli (identity keys, users file, panel saves). Files you create there as\nroot AFTER this install stay root-owned and the service cannot write them\n(profile fails to bind, users/panel changes don't persist). Either run the CLI\nas the service user:\n    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf\nor restore ownership once you are done:\n    qeli set-service-user qeli\n\nStart: systemctl start qeli\n"
+        },
+        {
+          "label": "installed state after revision2",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "dpkg-query",
+            "-W",
+            "-f=${Status} ${Version}",
+            "qeli"
+          ],
+          "rc": 0,
+          "output": "install ok installed 0.8.2-2"
+        },
+        {
+          "label": "MainPID",
+          "argv": [
+            "systemctl",
+            "show",
+            "qeli-q33-pkg-20261008084158808651.service",
+            "-p",
+            "MainPID",
+            "--value"
+          ],
+          "rc": 0,
+          "output": "2898987\n"
+        },
+        {
+          "label": "real unit listeners",
+          "argv": [
+            "nsenter",
+            "-t",
+            "2898987",
+            "-n",
+            "--",
+            "ss",
+            "-lnt"
+          ],
+          "rc": 0,
+          "output": "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port\nLISTEN 0      128        127.0.0.1:24990      0.0.0.0:*   \nLISTEN 0      128        127.0.0.1:443        0.0.0.0:*   \n"
+        },
+        {
+          "label": "real updater revision3",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "env",
+            "QELI_DEB=/fixtures/qeli_0.8.2-3_amd64.deb",
+            "bash",
+            "/update.sh",
+            "--force"
+          ],
+          "rc": 1,
+          "output": "Installed version: 0.8.2\n\n\u001b[1;36m== Using local .deb: /fixtures/qeli_0.8.2-3_amd64.deb\u001b[0m\n  backed up current binary → /usr/bin/qeli.prev-0.8.2\n  rollback package on hand: /var/cache/qeli/qeli_0.8.2-2_amd64.deb\n\n\u001b[1;36m== Installing the update\u001b[0m\nReading package lists...\nBuilding dependency tree...\nReading state information...\nThe following packages will be upgraded:\n  qeli\n1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nNeed to get 0 B/4553 kB of archives.\nAfter this operation, 0 B of additional disk space will be used.\nGet:1 /fixtures/qeli_0.8.2-3_amd64.deb qeli amd64 0.8.2-3 [4553 kB]\n(Reading database ... 112403 files and directories currently installed.)\nPreparing to unpack .../qeli_0.8.2-3_amd64.deb ...\nUnpacking qeli (0.8.2-3) over (0.8.2-2) ...\nSetting up qeli (0.8.2-3) ...\n\n\u001b[1;36m== Restarting qeli\u001b[0m\nReading package lists...\nBuilding dependency tree...\nReading state information...\nThe following packages will be DOWNGRADED:\n  qeli\n0 upgraded, 0 newly installed, 1 downgraded, 0 to remove and 0 not upgraded.\nNeed to get 0 B/4553 kB of archives.\nAfter this operation, 0 B of additional disk space will be used.\nGet:1 /var/cache/qeli/qeli_0.8.2-2_amd64.deb qeli amd64 0.8.2-2 [4553 kB]\n(Reading database ... 112403 files and directories currently installed.)\nPreparing to unpack .../qeli/qeli_0.8.2-2_amd64.deb ...\nUnpacking qeli (0.8.2-2) over (0.8.2-3) ...\nSetting up qeli (0.8.2-2) ...\nNo root override present — qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\nqeli configured successfully.\nService runs as: qeli   (change later: qeli set-service-user root|qeli)\nExamples in /etc/qeli/ (flat-INI):\n  server.conf.example              - exhaustive single-profile reference (every key)\n  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)\n  server-ipv6.conf.example         - runnable dual-stack IPv4+IPv6 profile\n  server-maxobf.conf.example       - maximum-obfuscation server reference\n  client.conf.example              - standard client reference\n  client-reality.conf.example      - REALITY client template\n  client-maxobf.conf.example       - maximum-obfuscation client template\nCreate your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf\nAdd users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf\nShow identity: qeli show-identity --config /etc/qeli/server.conf\n\nIMPORTANT — ownership: the service runs as user 'qeli' and WRITES inside\n/etc/qeli (identity keys, users file, panel saves). Files you create there as\nroot AFTER this install stay root-owned and the service cannot write them\n(profile fails to bind, users/panel changes don't persist). Either run the CLI\nas the service user:\n    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf\nor restore ownership once you are done:\n    qeli set-service-user qeli\n\nStart: systemctl start qeli\nService failed to start after the update — attempting rollback…\n  reinstalling the previous package: /var/cache/qeli/qeli_0.8.2-2_amd64.deb\ndpkg: warning: downgrading qeli (0.8.2-3) to (0.8.2-2)\nNo root override present — qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\nqeli configured successfully.\nService runs as: qeli   (change later: qeli set-service-user root|qeli)\nExamples in /etc/qeli/ (flat-INI):\n  server.conf.example              - exhaustive single-profile reference (every key)\n  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)\n  server-ipv6.conf.example         - runnable dual-stack IPv4+IPv6 profile\n  server-maxobf.conf.example       - maximum-obfuscation server reference\n  client.conf.example              - standard client reference\n  client-reality.conf.example      - REALITY client template\n  client-maxobf.conf.example       - maximum-obfuscation client template\nCreate your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf\nAdd users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf\nShow identity: qeli show-identity --config /etc/qeli/server.conf\n\nIMPORTANT — ownership: the service runs as user 'qeli' and WRITES inside\n/etc/qeli (identity keys, users file, panel saves). Files you create there as\nroot AFTER this install stay root-owned and the service cannot write them\n(profile fails to bind, users/panel changes don't persist). Either run the CLI\nas the service user:\n    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf\nor restore ownership once you are done:\n    qeli set-service-user qeli\n\nStart: systemctl start qeli\n\u001b[1;31mERROR: update failed to start — rolled back to 0.8.2. Investigate: journalctl -u qeli -e\u001b[0m\n"
+        },
+        {
+          "label": "installed state after revision3",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "dpkg-query",
+            "-W",
+            "-f=${Status} ${Version}",
+            "qeli"
+          ],
+          "rc": 0,
+          "output": "install ok installed 0.8.2-2"
+        },
+        {
+          "label": "MainPID",
+          "argv": [
+            "systemctl",
+            "show",
+            "qeli-q33-pkg-20261008084158808651.service",
+            "-p",
+            "MainPID",
+            "--value"
+          ],
+          "rc": 0,
+          "output": "2899478\n"
+        },
+        {
+          "label": "real unit listeners",
+          "argv": [
+            "nsenter",
+            "-t",
+            "2899478",
+            "-n",
+            "--",
+            "ss",
+            "-lnt"
+          ],
+          "rc": 0,
+          "output": "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port\nLISTEN 0      128        127.0.0.1:24990      0.0.0.0:*   \nLISTEN 0      128        127.0.0.1:443        0.0.0.0:*   \n"
+        },
+        {
+          "label": "real updater revision4",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "env",
+            "QELI_DEB=/fixtures/qeli_0.8.2-4_amd64.deb",
+            "bash",
+            "/update.sh",
+            "--force"
+          ],
+          "rc": 1,
+          "output": "Installed version: 0.8.2\n\n\u001b[1;36m== Using local .deb: /fixtures/qeli_0.8.2-4_amd64.deb\u001b[0m\n  backed up current binary → /usr/bin/qeli.prev-0.8.2\n  rollback package on hand: /var/cache/qeli/qeli_0.8.2-2_amd64.deb\n\n\u001b[1;36m== Installing the update\u001b[0m\nReading package lists...\nBuilding dependency tree...\nReading state information...\nThe following packages will be upgraded:\n  qeli\n1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nNeed to get 0 B/26.2 kB of archives.\nAfter this operation, 0 B of additional disk space will be used.\nGet:1 /fixtures/qeli_0.8.2-4_amd64.deb qeli amd64 0.8.2-4 [26.2 kB]\n(Reading database ... 112403 files and directories currently installed.)\nPreparing to unpack .../qeli_0.8.2-4_amd64.deb ...\nUnpacking qeli (0.8.2-4) over (0.8.2-2) ...\nSetting up qeli (0.8.2-4) ...\n(Reading database ... 112403 files and directories currently installed.)\nPreparing to unpack .../qeli_0.8.2-4_amd64.deb ...\nUnpacking qeli (0.8.2-4) over (0.8.2-4) ...\nSetting up qeli (0.8.2-4) ...\nReading package lists...\nBuilding dependency tree...\nReading state information...\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\n1 not fully installed or removed.\nAfter this operation, 0 B of additional disk space will be used.\nSetting up qeli (0.8.2-4) ...\n\n\u001b[1;36m== Restarting qeli\u001b[0m\nReading package lists...\nBuilding dependency tree...\nReading state information...\nThe following packages will be DOWNGRADED:\n  qeli\n0 upgraded, 0 newly installed, 1 downgraded, 0 to remove and 0 not upgraded.\n1 not fully installed or removed.\nNeed to get 0 B/4553 kB of archives.\nAfter this operation, 0 B of additional disk space will be used.\nGet:1 /var/cache/qeli/qeli_0.8.2-2_amd64.deb qeli amd64 0.8.2-2 [4553 kB]\n(Reading database ... 112403 files and directories currently installed.)\nPreparing to unpack .../qeli/qeli_0.8.2-2_amd64.deb ...\nUnpacking qeli (0.8.2-2) over (0.8.2-4) ...\nSetting up qeli (0.8.2-2) ...\n/usr/bin/qeli: line 1: not: command not found\nqeli: could not apply service user qeli\ndpkg: error processing package qeli (--configure):\n installed qeli package post-installation script subprocess returned error exit status 1\nErrors were encountered while processing:\n qeli\nE: Sub-process /usr/bin/dpkg returned an error code (1)\n/usr/bin/qeli: line 1: not: command not found\nqeli: could not apply service user qeli\ndpkg: error processing package qeli (--install):\n installed qeli package post-installation script subprocess returned error exit status 1\nErrors were encountered while processing:\n qeli\n/usr/bin/qeli: line 1: not: command not found\nqeli: could not apply service user qeli\ndpkg: error processing package qeli (--configure):\n installed qeli package post-installation script subprocess returned error exit status 1\nErrors were encountered while processing:\n qeli\nE: Sub-process /usr/bin/dpkg returned an error code (1)\nPackage installation failed — attempting rollback.\nService failed to start after the update — attempting rollback…\n  reinstalling the previous package: /var/cache/qeli/qeli_0.8.2-2_amd64.deb\ndpkg: warning: downgrading qeli (0.8.2-4) to (0.8.2-2)\nNo root override present — qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\nqeli configured successfully.\nService runs as: qeli   (change later: qeli set-service-user root|qeli)\nExamples in /etc/qeli/ (flat-INI):\n  server.conf.example              - exhaustive single-profile reference (every key)\n  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)\n  server-ipv6.conf.example         - runnable dual-stack IPv4+IPv6 profile\n  server-maxobf.conf.example       - maximum-obfuscation server reference\n  client.conf.example              - standard client reference\n  client-reality.conf.example      - REALITY client template\n  client-maxobf.conf.example       - maximum-obfuscation client template\nCreate your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf\nAdd users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf\nShow identity: qeli show-identity --config /etc/qeli/server.conf\n\nIMPORTANT — ownership: the service runs as user 'qeli' and WRITES inside\n/etc/qeli (identity keys, users file, panel saves). Files you create there as\nroot AFTER this install stay root-owned and the service cannot write them\n(profile fails to bind, users/panel changes don't persist). Either run the CLI\nas the service user:\n    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf\nor restore ownership once you are done:\n    qeli set-service-user qeli\n\nStart: systemctl start qeli\n\u001b[1;31mERROR: update failed to start — rolled back to 0.8.2. Investigate: journalctl -u qeli -e\u001b[0m\n"
+        },
+        {
+          "label": "installed state after revision4",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "dpkg-query",
+            "-W",
+            "-f=${Status} ${Version}",
+            "qeli"
+          ],
+          "rc": 0,
+          "output": "install ok installed 0.8.2-2"
+        },
+        {
+          "label": "MainPID",
+          "argv": [
+            "systemctl",
+            "show",
+            "qeli-q33-pkg-20261008084158808651.service",
+            "-p",
+            "MainPID",
+            "--value"
+          ],
+          "rc": 0,
+          "output": "2900017\n"
+        },
+        {
+          "label": "real unit listeners",
+          "argv": [
+            "nsenter",
+            "-t",
+            "2900017",
+            "-n",
+            "--",
+            "ss",
+            "-lnt"
+          ],
+          "rc": 0,
+          "output": "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port\nLISTEN 0      128        127.0.0.1:24990      0.0.0.0:*   \nLISTEN 0      128        127.0.0.1:443        0.0.0.0:*   \n"
+        },
+        {
+          "label": "real package remove",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "apt-get",
+            "remove",
+            "-y",
+            "qeli"
+          ],
+          "rc": 0,
+          "output": "Reading package lists...\nBuilding dependency tree...\nReading state information...\nThe following packages will be REMOVED:\n  qeli\n0 upgraded, 0 newly installed, 1 to remove and 0 not upgraded.\nAfter this operation, 14.4 MB disk space will be freed.\n(Reading database ... 112403 files and directories currently installed.)\nRemoving qeli (0.8.2-2) ...\n"
+        },
+        {
+          "label": "MainPID",
+          "argv": [
+            "systemctl",
+            "show",
+            "qeli-q33-pkg-20261008084158808651.service",
+            "-p",
+            "MainPID",
+            "--value"
+          ],
+          "rc": 0,
+          "output": "0\n"
+        },
+        {
+          "label": "real package purge",
+          "argv": [
+            "chroot",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/root",
+            "/usr/bin/env",
+            "PATH=/usr/local/bin:/usr/bin:/bin",
+            "LC_ALL=C",
+            "DEBIAN_FRONTEND=noninteractive",
+            "SYSTEMD_IGNORE_CHROOT=1",
+            "dpkg",
+            "--purge",
+            "qeli"
+          ],
+          "rc": 0,
+          "output": "(Reading database ... 112396 files and directories currently installed.)\nPurging configuration files for qeli (0.8.2-2) ...\ndpkg: warning: while removing qeli, directory '/etc/qeli' not empty so not removed\n"
+        },
+        {
+          "label": "stop only owned service",
+          "argv": [
+            "systemctl",
+            "stop",
+            "qeli-q33-pkg-20261008084158808651.service"
+          ],
+          "rc": 5,
+          "output": "Failed to stop qeli-q33-pkg-20261008084158808651.service: Unit qeli-q33-pkg-20261008084158808651.service not loaded.\n"
+        },
+        {
+          "label": "MainPID",
+          "argv": [
+            "systemctl",
+            "show",
+            "qeli-q33-pkg-20261008084158808651.service",
+            "-p",
+            "MainPID",
+            "--value"
+          ],
+          "rc": 0,
+          "output": "0\n"
+        }
+      ],
+      "preserved_state": {
+        "server.conf": {
+          "sha256": "bfed48c79f9451eb3d0963bb465ab1719fc02904f1a1765356ce804fcd7f3145",
+          "uid": 103,
+          "mode": 384
+        },
+        "users.conf": {
+          "sha256": "580e99d2aa74dab5e2e1d2bf0c5de8d1127b92c0ae265f96ec2b3eb04eb1ecdb",
+          "uid": 103,
+          "mode": 384
+        },
+        "identity/fixture.key": {
+          "sha256": "e443b16675d29f2dd610de0b9db4c66eb190798aec88c4cdced57f8a4ec41c2f",
+          "uid": 103,
+          "mode": 384
+        },
+        "client-links/INSTALL-PENDING-fixture": {
+          "sha256": "390390130ea573a556034b34e15fbb1d2b38246ea0f6e64e6791bdab516e7640",
+          "uid": 0,
+          "mode": 384
+        },
+        "server.conf.bak-fixture": {
+          "sha256": "390390130ea573a556034b34e15fbb1d2b38246ea0f6e64e6791bdab516e7640",
+          "uid": 0,
+          "mode": 384
+        }
+      },
+      "owned_main_pid_after_stop": "0"
+    },
+    "host_integrity": {
+      "status": "PASS",
+      "remote": "/var/tmp/qeli-q33-pkg-20261008084158808651",
+      "unit": "qeli-q33-pkg-20261008084158808651.service",
+      "source_commit": "f1ce78920210a4472ca363309c5ea1c7a1b58a5e",
+      "package_sha256": "b3d0363b58cc1ae36c3b5da3518fb9d9a8e00d6153b442ac477a5772f36c9809",
+      "binary_sha256": "f9c70e679ce68120a19e9ce93c10199860d04c89b7e6c919d1a45efc9b9a3cfd",
+      "commands": [
+        {
+          "label": "service before",
+          "argv": [
+            "systemctl",
+            "show",
+            "qeli",
+            "-p",
+            "MainPID",
+            "-p",
+            "ExecMainStartTimestampMonotonic",
+            "-p",
+            "ActiveState"
+          ],
+          "rc": 0,
+          "output": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active"
+        },
+        {
+          "label": "binary before",
+          "argv": [
+            "sha256sum",
+            "/usr/bin/qeli"
+          ],
+          "rc": 0,
+          "output": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli"
+        },
+        {
+          "label": "fresh own root",
+          "argv": [
+            "test",
+            "!",
+            "-e",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "create owned package root",
+          "argv": [
+            "mkdir",
+            "-m",
+            "755",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "fresh owned manager directories",
+          "argv": [
+            "mkdir",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/unit-map",
+            "/run/systemd/system/qeli-q33-pkg-20261008084158808651.service.d"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "fresh own unit",
+          "argv": [
+            "test",
+            "!",
+            "-e",
+            "/run/systemd/system/qeli-q33-pkg-20261008084158808651.service"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "map only own unit",
+          "argv": [
+            "ln",
+            "-s",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/unit-map/qeli-q33-pkg-20261008084158808651.service",
+            "/run/systemd/system/qeli-q33-pkg-20261008084158808651.service"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "owned service namespace",
+          "argv": [
+            "ip",
+            "netns",
+            "add",
+            "qeli-q33-pkg-20261008084158808651"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "owned service network",
+          "argv": [
+            "ip",
+            "-n",
+            "qeli-q33-pkg-20261008084158808651",
+            "link",
+            "set",
+            "lo",
+            "up"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "owned service network",
+          "argv": [
+            "ip",
+            "-n",
+            "qeli-q33-pkg-20261008084158808651",
+            "link",
+            "add",
+            "wan0",
+            "type",
+            "dummy"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "owned service network",
+          "argv": [
+            "ip",
+            "-n",
+            "qeli-q33-pkg-20261008084158808651",
+            "link",
+            "set",
+            "wan0",
+            "up"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "owned service network",
+          "argv": [
+            "ip",
+            "-n",
+            "qeli-q33-pkg-20261008084158808651",
+            "addr",
+            "add",
+            "192.0.2.1/24",
+            "dev",
+            "wan0"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "owned service network",
+          "argv": [
+            "ip",
+            "-n",
+            "qeli-q33-pkg-20261008084158808651",
+            "route",
+            "add",
+            "default",
+            "dev",
+            "wan0"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "reuse nonlinked input",
+          "argv": [
+            "test",
+            "!",
+            "-L",
+            "/var/tmp/qeli-q33-pkg-20261008083913336125/qeli_0.8.2_amd64.deb"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "reuse prior input SHA",
+          "argv": [
+            "sha256sum",
+            "/var/tmp/qeli-q33-pkg-20261008083913336125/qeli_0.8.2_amd64.deb"
+          ],
+          "rc": 0,
+          "output": "b3d0363b58cc1ae36c3b5da3518fb9d9a8e00d6153b442ac477a5772f36c9809  /var/tmp/qeli-q33-pkg-20261008083913336125/qeli_0.8.2_amd64.deb"
+        },
+        {
+          "label": "copy only prior owned input",
+          "argv": [
+            "cp",
+            "--",
+            "/var/tmp/qeli-q33-pkg-20261008083913336125/qeli_0.8.2_amd64.deb",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/qeli_0.8.2_amd64.deb"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "input SHA qeli_0.8.2_amd64.deb",
+          "argv": [
+            "sha256sum",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/qeli_0.8.2_amd64.deb"
+          ],
+          "rc": 0,
+          "output": "b3d0363b58cc1ae36c3b5da3518fb9d9a8e00d6153b442ac477a5772f36c9809  /var/tmp/qeli-q33-pkg-20261008084158808651/qeli_0.8.2_amd64.deb"
+        },
+        {
+          "label": "reuse nonlinked input",
+          "argv": [
+            "test",
+            "!",
+            "-L",
+            "/var/tmp/qeli-q33-pkg-20261008083913336125/release-binary"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "reuse prior input SHA",
+          "argv": [
+            "sha256sum",
+            "/var/tmp/qeli-q33-pkg-20261008083913336125/release-binary"
+          ],
+          "rc": 0,
+          "output": "f9c70e679ce68120a19e9ce93c10199860d04c89b7e6c919d1a45efc9b9a3cfd  /var/tmp/qeli-q33-pkg-20261008083913336125/release-binary"
+        },
+        {
+          "label": "copy only prior owned input",
+          "argv": [
+            "cp",
+            "--",
+            "/var/tmp/qeli-q33-pkg-20261008083913336125/release-binary",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/release-binary"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "input SHA release-binary",
+          "argv": [
+            "sha256sum",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/release-binary"
+          ],
+          "rc": 0,
+          "output": "f9c70e679ce68120a19e9ce93c10199860d04c89b7e6c919d1a45efc9b9a3cfd  /var/tmp/qeli-q33-pkg-20261008084158808651/release-binary"
+        },
+        {
+          "label": "input SHA update-qeli-server.sh",
+          "argv": [
+            "sha256sum",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/update-qeli-server.sh"
+          ],
+          "rc": 0,
+          "output": "f35c515c2c6f7932ed40c2c4d0500d9634d8f6e40d71866882ae4fcfa77883c9  /var/tmp/qeli-q33-pkg-20261008084158808651/update-qeli-server.sh"
+        },
+        {
+          "label": "input SHA fixture.py",
+          "argv": [
+            "sha256sum",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/fixture.py"
+          ],
+          "rc": 0,
+          "output": "e319896119110c3c1e48974aaf4bb586c7d59138ba93246afc06e0250b05e950  /var/tmp/qeli-q33-pkg-20261008084158808651/fixture.py"
+        },
+        {
+          "label": "actual apt/dpkg manager fixture",
+          "argv": [
+            "timeout",
+            "--signal=TERM",
+            "--kill-after=20",
+            "600",
+            "unshare",
+            "--mount",
+            "--net",
+            "python3",
+            "-u",
+            "-B",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651/fixture.py",
+            "--root",
+            "/var/tmp/qeli-q33-pkg-20261008084158808651",
+            "--unit",
+            "qeli-q33-pkg-20261008084158808651"
+          ],
+          "rc": 0,
+          "output": "PASS fresh package configured by actual dpkg\nPASS fresh package supervisor and worker ready\nPASS updater exit reflects revision2\nPASS exact package revision installed/recovered 2\nPASS real service restarted/recovered 2\nPASS state bytes/owner/mode preserved 2\nPASS real installed ELF restored 2\nPASS updater exit reflects revision3\nPASS exact package revision installed/recovered 3\nPASS real service restarted/recovered 3\nPASS state bytes/owner/mode preserved 3\nPASS failure reported as rollback 3\nPASS real installed ELF restored 3\nPASS updater exit reflects revision4\nPASS exact package revision installed/recovered 4\nPASS real service restarted/recovered 4\nPASS state bytes/owner/mode preserved 4\nPASS failure reported as rollback 4\nPASS real installed ELF restored 4\nPASS rollback cache private and exact package\nPASS prerm stops actual owned service\nPASS remove preserves operator state\nPASS purge preserves operator state\nPASS purge removes packaged examples"
+        },
+        {
+          "label": "owned package journal",
+          "argv": [
+            "journalctl",
+            "-u",
+            "qeli-q33-pkg-20261008084158808651.service",
+            "--no-pager",
+            "-n",
+            "150"
+          ],
+          "rc": 0,
+          "output": "окт 08 11:43:12 debian qeli[2898687]: 2026-10-08 11:43:12.012 INFO  qeli: Starting server (supervisor) with config: /etc/qeli/server.conf\nокт 08 11:43:12 debian qeli[2898687]: 2026-10-08 11:43:12.012 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:12 debian qeli[2898687]: 2026-10-08 11:43:12.020 INFO  qeli_core::web: Web UI listening on http://127.0.0.1:24990\nокт 08 11:43:12 debian qeli[2898687]: 2026-10-08 11:43:12.020 INFO  qeli_core::server: qeli v0.8.2 — control plane up (1 profile(s), panel on)\nокт 08 11:43:12 debian qeli[2898687]: 2026-10-08 11:43:12.022 INFO  qeli_core::server_supervisor: supervisor: data-plane worker started (pid 2898703)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.024 INFO  qeli: Starting data-plane worker with config: /etc/qeli/server.conf\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.024 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.032 INFO  qeli_core::server: Loaded 1 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.032 INFO  qeli_core::server::control: Control socket listening on /run/qeli-q33-pkg-20261008084158808651/control.sock\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.046 INFO  qeli_core::server: Starting profile 'fixture' (tcp://127.0.0.1:443)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.055 INFO  qeli_core::server: Profile 'fixture': TUN q33pkg is up with 2 queue(s) (10.77.1.1/24)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.067 INFO  qeli_core::server: Profile 'fixture': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.068 INFO  qeli_core::server: Profile 'fixture': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.069 INFO  qeli_core::server: Profile 'fixture': generated new identity key at /etc/qeli/identity/fixture.key\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.069 INFO  qeli_core::server: Profile 'fixture': server identity public key (pin on client): d04ea1606779adeffb95fec9ea44be58cf0e1231f61a7c0f8b32a1d06c837610\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.070 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' started\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.070 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' started\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.070 INFO  qeli_core::server: Profile 'fixture' listening on 127.0.0.1:443 (TCP)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.070 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' started\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.070 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' started\nокт 08 11:43:13 debian qeli[2898687]: 2026-10-08 11:43:13.234 INFO  qeli_core::server_supervisor: supervisor: stopping worker\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.234 INFO  qeli_core::server: Received SIGTERM, stopping server...\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.234 INFO  qeli_core::server: worker shutdown: shared 45-second process budget armed; expiry exits 124 with cleanup unconfirmed\nокт 08 11:43:13 debian systemd[1]: Stopping qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server...\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.247 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' stopped\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.247 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' stopped\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.247 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' stopped\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.248 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' stopped\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.273 INFO  qeli_core::server: Profile 'fixture': teardown attempted (TUN, NAT, registry)\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.309 INFO  qeli_core::server: Server shutdown complete\nокт 08 11:43:13 debian qeli[2898687]: 2026-10-08 11:43:13.309 INFO  qeli_core::server_supervisor: supervisor: worker exited (exit status: 0)\nокт 08 11:43:13 debian qeli[2898687]: 2026-10-08 11:43:13.309 INFO  qeli_core::server: Supervisor shutdown complete\nокт 08 11:43:13 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Deactivated successfully.\nокт 08 11:43:13 debian systemd[1]: Stopped qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:13 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Consumed 110ms CPU time, 68.7M memory peak.\nокт 08 11:43:13 debian systemd[1]: Started qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:13 debian qeli[2898987]: 2026-10-08 11:43:13.362 INFO  qeli: Starting server (supervisor) with config: /etc/qeli/server.conf\nокт 08 11:43:13 debian qeli[2898987]: 2026-10-08 11:43:13.362 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:13 debian qeli[2898987]: 2026-10-08 11:43:13.370 INFO  qeli_core::web: Web UI listening on http://127.0.0.1:24990\nокт 08 11:43:13 debian qeli[2898987]: 2026-10-08 11:43:13.370 INFO  qeli_core::server: qeli v0.8.2 — control plane up (1 profile(s), panel on)\nокт 08 11:43:13 debian qeli[2898987]: 2026-10-08 11:43:13.372 INFO  qeli_core::server_supervisor: supervisor: data-plane worker started (pid 2899003)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.374 INFO  qeli: Starting data-plane worker with config: /etc/qeli/server.conf\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.374 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.382 INFO  qeli_core::server: Loaded 1 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.382 INFO  qeli_core::server::control: Control socket listening on /run/qeli-q33-pkg-20261008084158808651/control.sock\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.396 INFO  qeli_core::server: Starting profile 'fixture' (tcp://127.0.0.1:443)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.405 INFO  qeli_core::server: Profile 'fixture': TUN q33pkg is up with 2 queue(s) (10.77.1.1/24)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.418 INFO  qeli_core::server: Profile 'fixture': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.419 INFO  qeli_core::server: Profile 'fixture': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.419 INFO  qeli_core::server: Profile 'fixture': loaded identity key from /etc/qeli/identity/fixture.key\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.419 INFO  qeli_core::server: Profile 'fixture': server identity public key (pin on client): d04ea1606779adeffb95fec9ea44be58cf0e1231f61a7c0f8b32a1d06c837610\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.419 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' started\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.419 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' started\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.420 INFO  qeli_core::server: Profile 'fixture' listening on 127.0.0.1:443 (TCP)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.420 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' started\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.420 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' started\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.497 INFO  qeli_core::server: Received SIGTERM, stopping server...\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.497 INFO  qeli_core::server: worker shutdown: shared 45-second process budget armed; expiry exits 124 with cleanup unconfirmed\nокт 08 11:43:19 debian qeli[2898987]: 2026-10-08 11:43:19.497 INFO  qeli_core::server_supervisor: supervisor: stopping worker\nокт 08 11:43:19 debian systemd[1]: Stopping qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server...\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.510 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' stopped\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.510 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' stopped\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.510 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' stopped\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.510 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' stopped\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.536 INFO  qeli_core::server: Profile 'fixture': teardown attempted (TUN, NAT, registry)\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.564 INFO  qeli_core::server: Server shutdown complete\nокт 08 11:43:19 debian qeli[2898987]: 2026-10-08 11:43:19.565 INFO  qeli_core::server_supervisor: supervisor: worker exited (exit status: 0)\nокт 08 11:43:19 debian qeli[2898987]: 2026-10-08 11:43:19.565 INFO  qeli_core::server: Supervisor shutdown complete\nокт 08 11:43:19 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Deactivated successfully.\nокт 08 11:43:19 debian systemd[1]: Stopped qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:19 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Consumed 117ms CPU time, 67.8M memory peak.\nокт 08 11:43:19 debian systemd[1]: Started qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:19 debian qeli[2899317]: error: unrecognized subcommand 'intentional-audit-startup-failure'\nокт 08 11:43:19 debian qeli[2899317]: Usage: qeli <COMMAND>\nокт 08 11:43:19 debian qeli[2899317]: For more information, try '--help'.\nокт 08 11:43:19 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Main process exited, code=exited, status=2/INVALIDARGUMENT\nокт 08 11:43:19 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Failed with result 'exit-code'.\nокт 08 11:43:21 debian systemd[1]: Stopped qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:22 debian systemd[1]: Started qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:22 debian qeli[2899478]: 2026-10-08 11:43:22.561 INFO  qeli: Starting server (supervisor) with config: /etc/qeli/server.conf\nокт 08 11:43:22 debian qeli[2899478]: 2026-10-08 11:43:22.561 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:22 debian qeli[2899478]: 2026-10-08 11:43:22.568 INFO  qeli_core::web: Web UI listening on http://127.0.0.1:24990\nокт 08 11:43:22 debian qeli[2899478]: 2026-10-08 11:43:22.568 INFO  qeli_core::server: qeli v0.8.2 — control plane up (1 profile(s), panel on)\nокт 08 11:43:22 debian qeli[2899478]: 2026-10-08 11:43:22.570 INFO  qeli_core::server_supervisor: supervisor: data-plane worker started (pid 2899493)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.572 INFO  qeli: Starting data-plane worker with config: /etc/qeli/server.conf\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.572 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.581 INFO  qeli_core::server: Loaded 1 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.581 INFO  qeli_core::server::control: Control socket listening on /run/qeli-q33-pkg-20261008084158808651/control.sock\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.596 INFO  qeli_core::server: Starting profile 'fixture' (tcp://127.0.0.1:443)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.605 INFO  qeli_core::server: Profile 'fixture': TUN q33pkg is up with 2 queue(s) (10.77.1.1/24)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.618 INFO  qeli_core::server: Profile 'fixture': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: Profile 'fixture': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: Profile 'fixture': loaded identity key from /etc/qeli/identity/fixture.key\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: Profile 'fixture': server identity public key (pin on client): d04ea1606779adeffb95fec9ea44be58cf0e1231f61a7c0f8b32a1d06c837610\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' started\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' started\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: Profile 'fixture' listening on 127.0.0.1:443 (TCP)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.620 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' started\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.621 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' started\nокт 08 11:43:28 debian systemd[1]: Stopping qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server...\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.944 INFO  qeli_core::server: Received SIGTERM, stopping server...\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.944 INFO  qeli_core::server: worker shutdown: shared 45-second process budget armed; expiry exits 124 with cleanup unconfirmed\nокт 08 11:43:28 debian qeli[2899478]: 2026-10-08 11:43:28.944 INFO  qeli_core::server_supervisor: supervisor: stopping worker\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.958 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' stopped\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.958 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' stopped\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.958 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' stopped\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.959 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' stopped\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.984 INFO  qeli_core::server: Profile 'fixture': teardown attempted (TUN, NAT, registry)\nокт 08 11:43:29 debian qeli[2899493]: 2026-10-08 11:43:29.025 INFO  qeli_core::server: Server shutdown complete\nокт 08 11:43:29 debian qeli[2899478]: 2026-10-08 11:43:29.025 INFO  qeli_core::server_supervisor: supervisor: worker exited (exit status: 0)\nокт 08 11:43:29 debian qeli[2899478]: 2026-10-08 11:43:29.025 INFO  qeli_core::server: Supervisor shutdown complete\nокт 08 11:43:29 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Deactivated successfully.\nокт 08 11:43:29 debian systemd[1]: Stopped qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:29 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Consumed 119ms CPU time, 65.5M memory peak.\nокт 08 11:43:29 debian systemd[1]: Started qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:30 debian qeli[2900017]: 2026-10-08 11:43:30.008 INFO  qeli: Starting server (supervisor) with config: /etc/qeli/server.conf\nокт 08 11:43:30 debian qeli[2900017]: 2026-10-08 11:43:30.008 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:30 debian qeli[2900017]: 2026-10-08 11:43:30.016 INFO  qeli_core::web: Web UI listening on http://127.0.0.1:24990\nокт 08 11:43:30 debian qeli[2900017]: 2026-10-08 11:43:30.016 INFO  qeli_core::server: qeli v0.8.2 — control plane up (1 profile(s), panel on)\nокт 08 11:43:30 debian qeli[2900017]: 2026-10-08 11:43:30.017 INFO  qeli_core::server_supervisor: supervisor: data-plane worker started (pid 2900032)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.019 INFO  qeli: Starting data-plane worker with config: /etc/qeli/server.conf\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.020 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.027 INFO  qeli_core::server: Loaded 1 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.027 INFO  qeli_core::server::control: Control socket listening on /run/qeli-q33-pkg-20261008084158808651/control.sock\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.042 INFO  qeli_core::server: Starting profile 'fixture' (tcp://127.0.0.1:443)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.050 INFO  qeli_core::server: Profile 'fixture': TUN q33pkg is up with 2 queue(s) (10.77.1.1/24)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.063 INFO  qeli_core::server: Profile 'fixture': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.064 INFO  qeli_core::server: Profile 'fixture': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.064 INFO  qeli_core::server: Profile 'fixture': loaded identity key from /etc/qeli/identity/fixture.key\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.064 INFO  qeli_core::server: Profile 'fixture': server identity public key (pin on client): d04ea1606779adeffb95fec9ea44be58cf0e1231f61a7c0f8b32a1d06c837610\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.064 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' started\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.064 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' started\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.065 INFO  qeli_core::server: Profile 'fixture' listening on 127.0.0.1:443 (TCP)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.065 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' started\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.065 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' started\nокт 08 11:43:35 debian qeli[2900017]: 2026-10-08 11:43:35.279 INFO  qeli_core::server_supervisor: supervisor: stopping worker\nокт 08 11:43:35 debian systemd[1]: Stopping qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server...\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.280 INFO  qeli_core::server: Received SIGTERM, stopping server...\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.280 INFO  qeli_core::server: worker shutdown: shared 45-second process budget armed; expiry exits 124 with cleanup unconfirmed\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.293 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' stopped\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.293 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' stopped\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.293 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' stopped\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.293 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' stopped\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.318 INFO  qeli_core::server: Profile 'fixture': teardown attempted (TUN, NAT, registry)\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.349 INFO  qeli_core::server: Server shutdown complete\nокт 08 11:43:35 debian qeli[2900017]: 2026-10-08 11:43:35.350 INFO  qeli_core::server_supervisor: supervisor: worker exited (exit status: 0)\nокт 08 11:43:35 debian qeli[2900017]: 2026-10-08 11:43:35.350 INFO  qeli_core::server: Supervisor shutdown complete\nокт 08 11:43:35 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Deactivated successfully.\nокт 08 11:43:35 debian systemd[1]: Stopped qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:35 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Consumed 113ms CPU time, 65.8M memory peak."
+        },
+        {
+          "label": "stop own package unit",
+          "argv": [
+            "systemctl",
+            "stop",
+            "qeli-q33-pkg-20261008084158808651.service"
+          ],
+          "rc": 5,
+          "output": "Failed to stop qeli-q33-pkg-20261008084158808651.service: Unit qeli-q33-pkg-20261008084158808651.service not loaded."
+        },
+        {
+          "label": "own stopped PID",
+          "argv": [
+            "systemctl",
+            "show",
+            "qeli-q33-pkg-20261008084158808651.service",
+            "--value",
+            "-p",
+            "MainPID"
+          ],
+          "rc": 0,
+          "output": "0"
+        },
+        {
+          "label": "remove only own manager mapping",
+          "argv": [
+            "python3",
+            "-B",
+            "-c",
+            "from pathlib import Path; u=Path('/run/systemd/system/qeli-q33-pkg-20261008084158808651.service'); d=Path('/run/systemd/system/qeli-q33-pkg-20261008084158808651.service.d'); assert u.parent==d.parent==Path('/run/systemd/system') and u.name=='qeli-q33-pkg-20261008084158808651.service';\nif u.is_symlink():\n assert str(u.readlink())=='/var/tmp/qeli-q33-pkg-20261008084158808651/unit-map/qeli-q33-pkg-20261008084158808651.service';u.unlink()\nif d.exists():\n assert not d.is_symlink();\n for p in d.iterdir():\n  assert p.name=='run-as.conf' and p.is_file() and not p.is_symlink();p.unlink()\n d.rmdir()"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "unload own manager mapping",
+          "argv": [
+            "systemctl",
+            "daemon-reload"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "remove own namespace",
+          "argv": [
+            "ip",
+            "netns",
+            "delete",
+            "qeli-q33-pkg-20261008084158808651"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "retain owned manager /var/lib",
+          "argv": [
+            "python3",
+            "-B",
+            "-c",
+            "from pathlib import Path;p=Path('/var/lib/qeli-q33-pkg-20261008084158808651'); d=Path('/var/tmp/qeli-q33-pkg-20261008084158808651/manager-state');\nif p.exists():\n assert p.parent==Path('/var/lib') and not p.is_symlink() and not d.exists();p.rename(d)"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "retain owned manager /var/log",
+          "argv": [
+            "python3",
+            "-B",
+            "-c",
+            "from pathlib import Path;p=Path('/var/log/qeli-q33-pkg-20261008084158808651'); d=Path('/var/tmp/qeli-q33-pkg-20261008084158808651/manager-logs');\nif p.exists():\n assert p.parent==Path('/var/log') and not p.is_symlink() and not d.exists();p.rename(d)"
+          ],
+          "rc": 0,
+          "output": ""
+        },
+        {
+          "label": "service after",
+          "argv": [
+            "systemctl",
+            "show",
+            "qeli",
+            "-p",
+            "MainPID",
+            "-p",
+            "ExecMainStartTimestampMonotonic",
+            "-p",
+            "ActiveState"
+          ],
+          "rc": 0,
+          "output": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active"
+        },
+        {
+          "label": "binary after",
+          "argv": [
+            "sha256sum",
+            "/usr/bin/qeli"
+          ],
+          "rc": 0,
+          "output": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli"
+        }
+      ],
+      "host_before": {
+        "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+        "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+        "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+        "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+        "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+        "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall6_legacy": "",
+        "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}",
+        "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=845,fd=11))",
+        "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+        "named_namespaces": ""
+      },
+      "service_before": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+      "binary_before": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+      "journal": "окт 08 11:43:12 debian qeli[2898687]: 2026-10-08 11:43:12.012 INFO  qeli: Starting server (supervisor) with config: /etc/qeli/server.conf\nокт 08 11:43:12 debian qeli[2898687]: 2026-10-08 11:43:12.012 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:12 debian qeli[2898687]: 2026-10-08 11:43:12.020 INFO  qeli_core::web: Web UI listening on http://127.0.0.1:24990\nокт 08 11:43:12 debian qeli[2898687]: 2026-10-08 11:43:12.020 INFO  qeli_core::server: qeli v0.8.2 — control plane up (1 profile(s), panel on)\nокт 08 11:43:12 debian qeli[2898687]: 2026-10-08 11:43:12.022 INFO  qeli_core::server_supervisor: supervisor: data-plane worker started (pid 2898703)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.024 INFO  qeli: Starting data-plane worker with config: /etc/qeli/server.conf\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.024 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.032 INFO  qeli_core::server: Loaded 1 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.032 INFO  qeli_core::server::control: Control socket listening on /run/qeli-q33-pkg-20261008084158808651/control.sock\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.046 INFO  qeli_core::server: Starting profile 'fixture' (tcp://127.0.0.1:443)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.055 INFO  qeli_core::server: Profile 'fixture': TUN q33pkg is up with 2 queue(s) (10.77.1.1/24)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.067 INFO  qeli_core::server: Profile 'fixture': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.068 INFO  qeli_core::server: Profile 'fixture': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.069 INFO  qeli_core::server: Profile 'fixture': generated new identity key at /etc/qeli/identity/fixture.key\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.069 INFO  qeli_core::server: Profile 'fixture': server identity public key (pin on client): d04ea1606779adeffb95fec9ea44be58cf0e1231f61a7c0f8b32a1d06c837610\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.070 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' started\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.070 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' started\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.070 INFO  qeli_core::server: Profile 'fixture' listening on 127.0.0.1:443 (TCP)\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.070 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' started\nокт 08 11:43:12 debian qeli[2898703]: 2026-10-08 11:43:12.070 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' started\nокт 08 11:43:13 debian qeli[2898687]: 2026-10-08 11:43:13.234 INFO  qeli_core::server_supervisor: supervisor: stopping worker\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.234 INFO  qeli_core::server: Received SIGTERM, stopping server...\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.234 INFO  qeli_core::server: worker shutdown: shared 45-second process budget armed; expiry exits 124 with cleanup unconfirmed\nокт 08 11:43:13 debian systemd[1]: Stopping qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server...\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.247 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' stopped\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.247 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' stopped\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.247 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' stopped\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.248 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' stopped\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.273 INFO  qeli_core::server: Profile 'fixture': teardown attempted (TUN, NAT, registry)\nокт 08 11:43:13 debian qeli[2898703]: 2026-10-08 11:43:13.309 INFO  qeli_core::server: Server shutdown complete\nокт 08 11:43:13 debian qeli[2898687]: 2026-10-08 11:43:13.309 INFO  qeli_core::server_supervisor: supervisor: worker exited (exit status: 0)\nокт 08 11:43:13 debian qeli[2898687]: 2026-10-08 11:43:13.309 INFO  qeli_core::server: Supervisor shutdown complete\nокт 08 11:43:13 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Deactivated successfully.\nокт 08 11:43:13 debian systemd[1]: Stopped qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:13 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Consumed 110ms CPU time, 68.7M memory peak.\nокт 08 11:43:13 debian systemd[1]: Started qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:13 debian qeli[2898987]: 2026-10-08 11:43:13.362 INFO  qeli: Starting server (supervisor) with config: /etc/qeli/server.conf\nокт 08 11:43:13 debian qeli[2898987]: 2026-10-08 11:43:13.362 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:13 debian qeli[2898987]: 2026-10-08 11:43:13.370 INFO  qeli_core::web: Web UI listening on http://127.0.0.1:24990\nокт 08 11:43:13 debian qeli[2898987]: 2026-10-08 11:43:13.370 INFO  qeli_core::server: qeli v0.8.2 — control plane up (1 profile(s), panel on)\nокт 08 11:43:13 debian qeli[2898987]: 2026-10-08 11:43:13.372 INFO  qeli_core::server_supervisor: supervisor: data-plane worker started (pid 2899003)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.374 INFO  qeli: Starting data-plane worker with config: /etc/qeli/server.conf\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.374 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.382 INFO  qeli_core::server: Loaded 1 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.382 INFO  qeli_core::server::control: Control socket listening on /run/qeli-q33-pkg-20261008084158808651/control.sock\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.396 INFO  qeli_core::server: Starting profile 'fixture' (tcp://127.0.0.1:443)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.405 INFO  qeli_core::server: Profile 'fixture': TUN q33pkg is up with 2 queue(s) (10.77.1.1/24)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.418 INFO  qeli_core::server: Profile 'fixture': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.419 INFO  qeli_core::server: Profile 'fixture': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.419 INFO  qeli_core::server: Profile 'fixture': loaded identity key from /etc/qeli/identity/fixture.key\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.419 INFO  qeli_core::server: Profile 'fixture': server identity public key (pin on client): d04ea1606779adeffb95fec9ea44be58cf0e1231f61a7c0f8b32a1d06c837610\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.419 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' started\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.419 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' started\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.420 INFO  qeli_core::server: Profile 'fixture' listening on 127.0.0.1:443 (TCP)\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.420 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' started\nокт 08 11:43:13 debian qeli[2899003]: 2026-10-08 11:43:13.420 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' started\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.497 INFO  qeli_core::server: Received SIGTERM, stopping server...\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.497 INFO  qeli_core::server: worker shutdown: shared 45-second process budget armed; expiry exits 124 with cleanup unconfirmed\nокт 08 11:43:19 debian qeli[2898987]: 2026-10-08 11:43:19.497 INFO  qeli_core::server_supervisor: supervisor: stopping worker\nокт 08 11:43:19 debian systemd[1]: Stopping qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server...\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.510 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' stopped\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.510 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' stopped\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.510 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' stopped\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.510 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' stopped\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.536 INFO  qeli_core::server: Profile 'fixture': teardown attempted (TUN, NAT, registry)\nокт 08 11:43:19 debian qeli[2899003]: 2026-10-08 11:43:19.564 INFO  qeli_core::server: Server shutdown complete\nокт 08 11:43:19 debian qeli[2898987]: 2026-10-08 11:43:19.565 INFO  qeli_core::server_supervisor: supervisor: worker exited (exit status: 0)\nокт 08 11:43:19 debian qeli[2898987]: 2026-10-08 11:43:19.565 INFO  qeli_core::server: Supervisor shutdown complete\nокт 08 11:43:19 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Deactivated successfully.\nокт 08 11:43:19 debian systemd[1]: Stopped qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:19 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Consumed 117ms CPU time, 67.8M memory peak.\nокт 08 11:43:19 debian systemd[1]: Started qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:19 debian qeli[2899317]: error: unrecognized subcommand 'intentional-audit-startup-failure'\nокт 08 11:43:19 debian qeli[2899317]: Usage: qeli <COMMAND>\nокт 08 11:43:19 debian qeli[2899317]: For more information, try '--help'.\nокт 08 11:43:19 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Main process exited, code=exited, status=2/INVALIDARGUMENT\nокт 08 11:43:19 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Failed with result 'exit-code'.\nокт 08 11:43:21 debian systemd[1]: Stopped qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:22 debian systemd[1]: Started qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:22 debian qeli[2899478]: 2026-10-08 11:43:22.561 INFO  qeli: Starting server (supervisor) with config: /etc/qeli/server.conf\nокт 08 11:43:22 debian qeli[2899478]: 2026-10-08 11:43:22.561 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:22 debian qeli[2899478]: 2026-10-08 11:43:22.568 INFO  qeli_core::web: Web UI listening on http://127.0.0.1:24990\nокт 08 11:43:22 debian qeli[2899478]: 2026-10-08 11:43:22.568 INFO  qeli_core::server: qeli v0.8.2 — control plane up (1 profile(s), panel on)\nокт 08 11:43:22 debian qeli[2899478]: 2026-10-08 11:43:22.570 INFO  qeli_core::server_supervisor: supervisor: data-plane worker started (pid 2899493)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.572 INFO  qeli: Starting data-plane worker with config: /etc/qeli/server.conf\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.572 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.581 INFO  qeli_core::server: Loaded 1 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.581 INFO  qeli_core::server::control: Control socket listening on /run/qeli-q33-pkg-20261008084158808651/control.sock\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.596 INFO  qeli_core::server: Starting profile 'fixture' (tcp://127.0.0.1:443)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.605 INFO  qeli_core::server: Profile 'fixture': TUN q33pkg is up with 2 queue(s) (10.77.1.1/24)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.618 INFO  qeli_core::server: Profile 'fixture': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: Profile 'fixture': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: Profile 'fixture': loaded identity key from /etc/qeli/identity/fixture.key\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: Profile 'fixture': server identity public key (pin on client): d04ea1606779adeffb95fec9ea44be58cf0e1231f61a7c0f8b32a1d06c837610\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' started\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' started\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.619 INFO  qeli_core::server: Profile 'fixture' listening on 127.0.0.1:443 (TCP)\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.620 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' started\nокт 08 11:43:22 debian qeli[2899493]: 2026-10-08 11:43:22.621 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' started\nокт 08 11:43:28 debian systemd[1]: Stopping qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server...\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.944 INFO  qeli_core::server: Received SIGTERM, stopping server...\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.944 INFO  qeli_core::server: worker shutdown: shared 45-second process budget armed; expiry exits 124 with cleanup unconfirmed\nокт 08 11:43:28 debian qeli[2899478]: 2026-10-08 11:43:28.944 INFO  qeli_core::server_supervisor: supervisor: stopping worker\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.958 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' stopped\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.958 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' stopped\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.958 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' stopped\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.959 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' stopped\nокт 08 11:43:28 debian qeli[2899493]: 2026-10-08 11:43:28.984 INFO  qeli_core::server: Profile 'fixture': teardown attempted (TUN, NAT, registry)\nокт 08 11:43:29 debian qeli[2899493]: 2026-10-08 11:43:29.025 INFO  qeli_core::server: Server shutdown complete\nокт 08 11:43:29 debian qeli[2899478]: 2026-10-08 11:43:29.025 INFO  qeli_core::server_supervisor: supervisor: worker exited (exit status: 0)\nокт 08 11:43:29 debian qeli[2899478]: 2026-10-08 11:43:29.025 INFO  qeli_core::server: Supervisor shutdown complete\nокт 08 11:43:29 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Deactivated successfully.\nокт 08 11:43:29 debian systemd[1]: Stopped qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:29 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Consumed 119ms CPU time, 65.5M memory peak.\nокт 08 11:43:29 debian systemd[1]: Started qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:30 debian qeli[2900017]: 2026-10-08 11:43:30.008 INFO  qeli: Starting server (supervisor) with config: /etc/qeli/server.conf\nокт 08 11:43:30 debian qeli[2900017]: 2026-10-08 11:43:30.008 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:30 debian qeli[2900017]: 2026-10-08 11:43:30.016 INFO  qeli_core::web: Web UI listening on http://127.0.0.1:24990\nокт 08 11:43:30 debian qeli[2900017]: 2026-10-08 11:43:30.016 INFO  qeli_core::server: qeli v0.8.2 — control plane up (1 profile(s), panel on)\nокт 08 11:43:30 debian qeli[2900017]: 2026-10-08 11:43:30.017 INFO  qeli_core::server_supervisor: supervisor: data-plane worker started (pid 2900032)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.019 INFO  qeli: Starting data-plane worker with config: /etc/qeli/server.conf\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.020 WARN  qeli_core::server: profile 'fixture': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.027 INFO  qeli_core::server: Loaded 1 user(s) (0 inline in config, rest from '/etc/qeli/users.conf')\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.027 INFO  qeli_core::server::control: Control socket listening on /run/qeli-q33-pkg-20261008084158808651/control.sock\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.042 INFO  qeli_core::server: Starting profile 'fixture' (tcp://127.0.0.1:443)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.050 INFO  qeli_core::server: Profile 'fixture': TUN q33pkg is up with 2 queue(s) (10.77.1.1/24)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.063 INFO  qeli_core::server: Profile 'fixture': bounded TUN read pool = 512 buffers x 65535 bytes (32.0 MiB)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.064 INFO  qeli_core::server: Profile 'fixture': bounded TUN write pool = 2015 buffers x 16645 bytes (32.0 MiB)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.064 INFO  qeli_core::server: Profile 'fixture': loaded identity key from /etc/qeli/identity/fixture.key\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.064 INFO  qeli_core::server: Profile 'fixture': server identity public key (pin on client): d04ea1606779adeffb95fec9ea44be58cf0e1231f61a7c0f8b32a1d06c837610\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.064 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' started\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.064 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' started\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.065 INFO  qeli_core::server: Profile 'fixture' listening on 127.0.0.1:443 (TCP)\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.065 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' started\nокт 08 11:43:30 debian qeli[2900032]: 2026-10-08 11:43:30.065 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' started\nокт 08 11:43:35 debian qeli[2900017]: 2026-10-08 11:43:35.279 INFO  qeli_core::server_supervisor: supervisor: stopping worker\nокт 08 11:43:35 debian systemd[1]: Stopping qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server...\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.280 INFO  qeli_core::server: Received SIGTERM, stopping server...\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.280 INFO  qeli_core::server: worker shutdown: shared 45-second process budget armed; expiry exits 124 with cleanup unconfirmed\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.293 INFO  qeli_core::server: TUN writer q0 for profile 'fixture' stopped\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.293 INFO  qeli_core::server: TUN reader q0 for profile 'fixture' stopped\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.293 INFO  qeli_core::server: TUN reader q1 for profile 'fixture' stopped\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.293 INFO  qeli_core::server: TUN writer q1 for profile 'fixture' stopped\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.318 INFO  qeli_core::server: Profile 'fixture': teardown attempted (TUN, NAT, registry)\nокт 08 11:43:35 debian qeli[2900032]: 2026-10-08 11:43:35.349 INFO  qeli_core::server: Server shutdown complete\nокт 08 11:43:35 debian qeli[2900017]: 2026-10-08 11:43:35.350 INFO  qeli_core::server_supervisor: supervisor: worker exited (exit status: 0)\nокт 08 11:43:35 debian qeli[2900017]: 2026-10-08 11:43:35.350 INFO  qeli_core::server: Supervisor shutdown complete\nокт 08 11:43:35 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Deactivated successfully.\nокт 08 11:43:35 debian systemd[1]: Stopped qeli-q33-pkg-20261008084158808651.service - Qeli VPN Server.\nокт 08 11:43:35 debian systemd[1]: qeli-q33-pkg-20261008084158808651.service: Consumed 113ms CPU time, 65.8M memory peak.",
+      "host_after": {
+        "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+        "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+        "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+        "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+        "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+        "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+        "firewall6_legacy": "",
+        "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}",
+        "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=845,fd=11))",
+        "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+        "named_namespaces": ""
+      },
+      "service_after": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+      "binary_after": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+      "host_restored": true
+    },
+    "production_maintainer_integrity": {
+      "status": "PASS",
+      "unchanged_production_scripts": [
+        {
+          "maintainer": "preinst",
+          "sha256": "2283607c94fa2a0ebe707db329cefbb3fa65a32c6741798809e5a2b82202db64"
+        },
+        {
+          "maintainer": "postinst",
+          "sha256": "c2d7290d4568b1326de624170a203e15ee75f1e883fdc2146eee4c0f7062f903"
+        },
+        {
+          "maintainer": "prerm",
+          "sha256": "e390dd020b23fab124b62338677c674fd47bed6a68c5bc9555d8c97ba985d832"
+        },
+        {
+          "maintainer": "config",
+          "sha256": "c3d6a27a6e30809aaeaf9790a5146fbfdf9f6472b01ee71d61352d0c0732875f"
+        },
+        {
+          "maintainer": "templates",
+          "sha256": "e9c00dda10803a74b259c55a675e1f88c342d4c821a6e90c64c1bbf11ea9a643"
+        }
+      ],
+      "faults": "revisions1/2 only Version metadata;3 modifies ExecStart;4 corrupts candidate ELF; no substituted package maintainer scripts"
+    },
+    "build_backup": {
+      "backup": "/var/tmp/qeli-q33-package-build-20261008.niUG1m-backup.tar.gz",
+      "sha256": "fe82ed0b6eb412c21a36ae33e7355287df8f62bd9c57348baba88d836bf00465",
+      "size": 25957772,
+      "excluded_build_caches": [
+        "cargo",
+        "target",
+        "tmp",
+        "zig-global",
+        "zig-local"
+      ],
+      "host_service": "MainPID=0\nActiveState=inactive\n",
+      "host_processes": "745 /opt/qeli-src/target/debug/qeli server -c /etc/qeli/server.conf\n901 /opt/qeli-src/target/debug/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "build_cleanup": {
+      "status": "PASS",
+      "owned_root_removed": "/var/tmp/qeli-q33-package-build-20261008.niUG1m",
+      "archive_verified_locally": true,
+      "host_service": "MainPID=0\nActiveState=inactive\n",
+      "host_processes": "745 /opt/qeli-src/target/debug/qeli server -c /etc/qeli/server.conf\n901 /opt/qeli-src/target/debug/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "runtime_cleanup": {
+      "q33-package-manager-runtime-20261008": {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008083056364361",
+        "archive_verified_locally": true,
+        "host_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      },
+      "q33-package-manager-fixed-20261008": {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008083410888041",
+        "archive_verified_locally": true,
+        "host_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      },
+      "q33-package-manager-qualified-20261008": {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008083913336125",
+        "archive_verified_locally": true,
+        "host_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      },
+      "q33-package-manager-final-20261008": {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008084158808651",
+        "archive_verified_locally": true,
+        "host_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      }
+    }
+  },
+  "raw_packets": {
+    "q33-package-manager-20261008": {
+      "name": "q33-package-manager-20261008",
+      "files": 19,
+      "bytes": 54018014,
+      "manifest_sha256": "8c22c42d377bd09f0f459e38c74cddf9409a23052a95efcb68852c3a0ee5983d",
+      "runtime_status": "PASS",
+      "path": "audit-debt-20260924/q33-package-manager-20261008",
+      "status": "SEALED"
+    },
+    "q33-package-manager-runtime-20261008": {
+      "name": "q33-package-manager-runtime-20261008",
+      "files": 7,
+      "bytes": 87061128,
+      "manifest_sha256": "8120803fabeedf107e2fe44102a36b38e5ece76c81e7b2e9a387630b447c70e0",
+      "runtime_status": "FAIL",
+      "path": "audit-debt-20260924/q33-package-manager-runtime-20261008",
+      "status": "SEALED"
+    },
+    "q33-package-manager-fixed-20261008": {
+      "name": "q33-package-manager-fixed-20261008",
+      "files": 7,
+      "bytes": 98297976,
+      "manifest_sha256": "cae6c74cacf938c0ad196657a7bc39a12189118745e6bfd7d6b31f3e3aa62e95",
+      "runtime_status": "FAIL",
+      "path": "audit-debt-20260924/q33-package-manager-fixed-20261008",
+      "status": "SEALED"
+    },
+    "q33-package-manager-qualified-20261008": {
+      "name": "q33-package-manager-qualified-20261008",
+      "files": 7,
+      "bytes": 107849891,
+      "manifest_sha256": "aa7414aba3b0997980a0b8599043ad41371ede8043657a4baa10a8764371e839",
+      "runtime_status": "FAIL",
+      "path": "audit-debt-20260924/q33-package-manager-qualified-20261008",
+      "status": "SEALED"
+    },
+    "q33-package-manager-final-20261008": {
+      "name": "q33-package-manager-final-20261008",
+      "files": 8,
+      "bytes": 101777324,
+      "manifest_sha256": "ab426256d692ae7f0ddf7bce58d7afdce1a3f5598387674c10b692b3838885a1",
+      "runtime_status": "PASS",
+      "path": "audit-debt-20260924/q33-package-manager-final-20261008",
+      "status": "SEALED"
+    }
+  },
+  "limits": [
+    "actual production portable release jemalloc make deb-portable/GLIBCmax2.28/AESNI-CPUID heuristic; not independent A/B release reproducibility, CPU path proof or Actions attestation",
+    "private chroot dependency dpkg status and qeli/_apt accounts seeded from host; genuine apt/debconf/CLI/manager, not empty-system dependency/account bootstrap",
+    "explicit systemctl name/path adapter plus genuine systemd257 and socket; owned config/binary/state/runtime/log/net/control mappings; not host production service replacement",
+    "package revisions1/2 share one release ELF; not old-to-new core version compatibility; faults3unit/4ELF intentional; production maintainer scripts unchanged",
+    "QELI_DEB local admission avoids remote HTTP/download/attestation; actual apt/dpkg rollback restores configured package DB, stable supervisor and listeners, not every VPN profile",
+    "three fixture FAIL retained: missingportablelibpthread,dpkgcputable,aptPATH adapter; each host restored; only final24currentPASS",
+    "remove/purge preserve operator state; all five raw roots recoverable SHA archived and guard cleaned; original745/901 and777/845 untouched;SSHsecret scan raw/uncompressed membersPASS",
+    "unchanged qeli/Cargo/native inputs; previous native A/B/ABI retained with source923b/14SHA verified, no new client rebuild",
+    "whole binary/kernel installer transaction rollback, release VPN roundtrip, Docker image/volume runtime, current remote Actions remain OPEN; no full Rustsuite/matrix/soak/benchmark rerun",
+    "Q31SDKbootstrap/sourcecut/Actions capacitydeferred3/5,Q29SIGKILLFAIL/ENONET,Q30ApplecallbackOPEN;Mac-iOS/router/WindowsVMUSER_EXCLUDED,D06ACCEPTED retained"
+  ],
+  "progress": {
+    "Q33": "IN_PROGRESS;scoped actual package manager lifecycle gate closed",
+    "full_audit": "29/37 DONE78.4%;8remain",
+    "old_debt": "14DONE+D06accepted"
+  },
+  "historical_policy": "41cases/acceptance+65prior supplements preserved modulo source_digest; append66; dates/artifacts/status unchanged;20required automated+21advisory physical",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

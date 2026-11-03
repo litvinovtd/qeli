@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -20,6 +21,11 @@ class NativeReproTests(unittest.TestCase):
         (self.root / "qeli" / "src" / "lib.rs").write_text("pub fn qeli() {}\n")
         (self.root / "qeli" / "Cargo.toml").write_text("[package]\nname='qeli'\n")
         (self.root / "qeli" / "Cargo.lock").write_text("version = 4\n")
+        for relative in native_repro.BUILD_INPUTS:
+            path = self.root / relative
+            if not path.is_file():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"{relative}\n")
         for paths in native_repro.EVIDENCE_SPECS.values():
             for relative in paths:
                 path = self.root / relative
@@ -139,10 +145,60 @@ class NativeReproTests(unittest.TestCase):
                 self.hashes("desktop"),
             )
 
+    def test_cargo_config_and_recipe_changes_invalidate_evidence(self):
+        self.write_all()
+        original = self.identity["source_digest"]
+        for relative in ("qeli/.cargo/config.toml", "scripts/macho_repro.py"):
+            path = self.root / relative
+            previous = path.read_bytes()
+            path.write_bytes(previous + b"changed\n")
+            changed = native_repro.source_digest(self.root)
+            self.assertNotEqual(changed, original)
+            errors = native_repro.validate_evidence(self.root, changed)
+            self.assertTrue(any("source digest" in error for error in errors))
+            path.write_bytes(previous)
+
     def test_wrong_source_digest_is_rejected(self):
         self.write_all()
         errors = native_repro.validate_evidence(self.root, "f" * 64)
         self.assertTrue(any("source digest" in error for error in errors))
+
+    def test_failed_artifact_sync_removes_temp_and_preserves_destination(self):
+        target = self.root / "artifact.bin"
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                if existing:
+                    target.write_bytes(b"previous artifact")
+                before = set(self.root.iterdir())
+                with mock.patch.object(
+                    native_repro.os, "fsync", side_effect=OSError("injected fsync failure")
+                ), self.assertRaisesRegex(OSError, "injected fsync failure"):
+                    native_repro.atomic_write_bytes(target, b"replacement artifact")
+                self.assertEqual(set(self.root.iterdir()), before)
+                self.assertEqual(target.exists(), existing)
+                if existing:
+                    self.assertEqual(target.read_bytes(), b"previous artifact")
+
+    def test_failed_evidence_replace_removes_temp_and_preserves_destination(self):
+        output_dir = self.root / "native-libs" / "reproducibility"
+        output_dir.mkdir(parents=True)
+        target = output_dir / "desktop.json"
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                if existing:
+                    target.write_bytes(b"previous evidence")
+                before = set(output_dir.iterdir())
+                with mock.patch.object(
+                    native_repro.os, "replace", side_effect=OSError("injected replace failure")
+                ), self.assertRaisesRegex(OSError, "injected replace failure"):
+                    native_repro.write_evidence(
+                        self.root, "desktop", self.identity,
+                        self.toolchain("desktop"), self.hashes("desktop"),
+                    )
+                self.assertEqual(set(output_dir.iterdir()), before)
+                self.assertEqual(target.exists(), existing)
+                if existing:
+                    self.assertEqual(target.read_bytes(), b"previous evidence")
 
     def test_atomic_binary_replace(self):
         target = self.root / "artifact.bin"

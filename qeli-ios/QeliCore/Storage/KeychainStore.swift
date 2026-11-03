@@ -12,21 +12,31 @@ final class KeychainStore: @unchecked Sendable {
     }
 
     func loadOrCreateSymmetricKey(account: String, byteCount: Int = 32) throws -> SymmetricKey {
-        if let existing = try read(account: account) { return SymmetricKey(data: existing) }
+        guard [16, 24, 32].contains(byteCount) else { throw KeychainError.invalidKeyLength }
+        if let existing = try read(account: account) {
+            guard existing.count == byteCount else { throw KeychainError.invalidKeyLength }
+            return SymmetricKey(data: existing)
+        }
         var bytes = Data(count: byteCount)
         let status = bytes.withUnsafeMutableBytes { buffer in
             SecRandomCopyBytes(kSecRandomDefault, byteCount, buffer.baseAddress!)
         }
         guard status == errSecSuccess else { throw KeychainError.status(status) }
+        let winner = try insertIfAbsent(bytes, account: account)
+        guard winner.count == byteCount else { throw KeychainError.invalidKeyLength }
+        return SymmetricKey(data: winner)
+    }
+
+    /// Keychain owns first-writer arbitration across app/extension processes. Never use
+    /// update-then-add for an identity or TOFU pin: that would overwrite a concurrent winner.
+    func insertIfAbsent(_ data: Data, account: String) throws -> Data {
         var item = baseQuery(account: account)
-        item[kSecValueData] = bytes
+        item[kSecValueData] = data
         item[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let add = SecItemAdd(item as CFDictionary, nil)
-        if add == errSecSuccess { return SymmetricKey(data: bytes) }
-        // App and Packet Tunnel can start concurrently on first use. Never overwrite
-        // the winner's new master key: an archive may already have been sealed with it.
+        if add == errSecSuccess { return data }
         if add == errSecDuplicateItem, let existing = try read(account: account) {
-            return SymmetricKey(data: existing)
+            return existing
         }
         throw KeychainError.status(add)
     }
@@ -42,20 +52,6 @@ final class KeychainStore: @unchecked Sendable {
             throw KeychainError.status(status)
         }
         return data
-    }
-
-    func write(_ data: Data, account: String) throws {
-        let query = baseQuery(account: account)
-        let attributes: [CFString: Any] = [kSecValueData: data]
-        let update = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if update == errSecSuccess { return }
-        guard update == errSecItemNotFound else { throw KeychainError.status(update) }
-
-        var item = query
-        item[kSecValueData] = data
-        item[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let add = SecItemAdd(item as CFDictionary, nil)
-        guard add == errSecSuccess else { throw KeychainError.status(add) }
     }
 
     /// Probes an access group without creating or changing a keychain item.
@@ -87,6 +83,8 @@ final class KeychainStore: @unchecked Sendable {
 
 enum KeychainError: LocalizedError {
     case status(OSStatus)
+    case invalidKeyLength
+    case invalidDeviceID
 
     var isMissingEntitlement: Bool {
         guard case .status(let status) = self else { return false }
@@ -95,6 +93,8 @@ enum KeychainError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .invalidKeyLength: return "The stored encryption key has an invalid length."
+        case .invalidDeviceID: return "The stored device identity is invalid."
         case .status(let status):
             return SecCopyErrorMessageString(status, nil) as String? ?? "Keychain error \(status)"
         }

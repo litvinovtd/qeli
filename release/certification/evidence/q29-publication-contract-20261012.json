@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-12",
+  "qualification": {
+    "status": "APPLIED_CONNECTED_CONTRACT_REVIEW_QUALIFIED_EXISTING_RUNTIME_ONLY",
+    "source_commit": "5a4fe7195b4f1ed21cc73f20b4e27ffad88a6243",
+    "source_files": {
+      "qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt": "8ace16b37f03f2933191356a5b251c059dd69d2985853c5db93552c18dc8bb2b",
+      "qeli-android/app/src/main/kotlin/com/qeli/AndroidVpnPublication.kt": "36b42098137025073654bd27f56d810ecfe9c2f91f2de63ab2a542fd68daf138",
+      "qeli/src/transport_core/mod.rs": "07fbf1375ca39519e792717dbfd176e640e4a955d9d279c1a5b90dac134f68a9",
+      "qeli/src/transport_core/runtime.rs": "99e5c525de7027a75ae4bf0f2e8bf6b747394d930fbcc507a070922ad191dcf8",
+      "scripts/audit_android_startup_dns.py": "53d7a6d9852c3d9ad8fa7388462f9c3f3ab84ad9266bb6491b1a4c729d069765",
+      "scripts/test_android_startup_state.py": "e03c5c8eccf511dbc6482f52dbcec3c46fa7c7e88e55cdb875e9cdf5e314b027"
+    },
+    "APPLIED": "generation TUN attached and positive native ACK; OS publication not yet confirmed",
+    "CONNECTED": "generation-owned VPN callback availability, VPN capabilities, expected link addresses/interface/MTU, then app state publication",
+    "existing_runtime": [
+      {
+        "packet": "q29-storage-startup-20261012",
+        "execution_source_commit": "b6496c10051dd6328b79c9953f100f9c46bdb4bf",
+        "original_runtime_status": "PASS",
+        "original_first_post_plan_status": "FAIL_POST_PLAN_BLOCKING",
+        "publication_delay_ms": 535.0,
+        "first_post_plan": [
+          {
+            "sample": 13,
+            "uid": 10149,
+            "family": "ipv4",
+            "protocol": "tcp",
+            "started_ms": 1791781975708,
+            "done_ms": 1791781975708,
+            "success": false,
+            "payload_sha256": "593c159290811bec55f5ef9da3abccc7043220d8b3c67091df4e7ab0d9a68386",
+            "reply_sha256": "806628a9d401b714d1c0c0a167fd9d711af5a279011108d070f12788080e76ea",
+            "detail": "error=ConnectException:failed to connect to /198.19.0.1 (port 26000) from /:: (port 0) after 250ms: connect failed: EACCES (Permission denied)"
+          },
+          {
+            "sample": 13,
+            "uid": 10149,
+            "family": "ipv4",
+            "protocol": "udp",
+            "started_ms": 1791781975707,
+            "done_ms": 1791781975708,
+            "success": false,
+            "payload_sha256": "593c159290811bec55f5ef9da3abccc7043220d8b3c67091df4e7ab0d9a68386",
+            "reply_sha256": "d6ea56220b1488e623b502b415bb9770487c5b9500949faddb63ef579a0f34d5",
+            "detail": "error=SocketException:Pending connect failure"
+          },
+          {
+            "sample": 13,
+            "uid": 10149,
+            "family": "ipv6",
+            "protocol": "tcp",
+            "started_ms": 1791781975706,
+            "done_ms": 1791781975706,
+            "success": false,
+            "payload_sha256": "593c159290811bec55f5ef9da3abccc7043220d8b3c67091df4e7ab0d9a68386",
+            "reply_sha256": "806628a9d401b714d1c0c0a167fd9d711af5a279011108d070f12788080e76ea",
+            "detail": "error=ConnectException:failed to connect to /2001:db8:29::1 (port 26000) from /:: (port 0) after 250ms: connect failed: EACCES (Permission denied)"
+          },
+          {
+            "sample": 13,
+            "uid": 10149,
+            "family": "ipv6",
+            "protocol": "udp",
+            "started_ms": 1791781975697,
+            "done_ms": 1791781975698,
+            "success": false,
+            "payload_sha256": "593c159290811bec55f5ef9da3abccc7043220d8b3c67091df4e7ab0d9a68386",
+            "reply_sha256": "d6ea56220b1488e623b502b415bb9770487c5b9500949faddb63ef579a0f34d5",
+            "detail": "error=SocketException:Pending connect failure"
+          }
+        ],
+        "all_first_post_plan_started_before_CONNECTED": true,
+        "pre_connected_failed_samples": 8,
+        "post_CONNECTED_samples": 80,
+        "post_CONNECTED_errors": 0,
+        "cold_post_CONNECTED_samples": 32,
+        "source_inputs": 126,
+        "artifacts": {
+          "launch.json": {
+            "bytes": 29338,
+            "sha256": "5f25b7d04774fa5460ebcc3ec1b42166b30ca1c959597d96ca89a50b722fd957"
+          },
+          "qualification.json": {
+            "bytes": 22829,
+            "sha256": "b2b311f562c1e4d226b2ecbd1278552a1a544492a6f46fc7953ce4e35edf9210"
+          },
+          "runtime/evidence/result.json": {
+            "bytes": 258527,
+            "sha256": "5bd0733221de0134cb98a2f36d8e549a4c3eef9d222e7a8e3313b6f62a1744e8"
+          },
+          "runtime/evidence/cold-start-epoch.log": {
+            "bytes": 77162,
+            "sha256": "30cc5b0a952b1bb010dafb93c102014921db0c44bafa9eb13bbebef99e6053b3"
+          },
+          "runtime/evidence/published-start-epoch.log": {
+            "bytes": 95425,
+            "sha256": "e4a92d32c564edbeb8a3bd133dd13774a43723f2a810af51cdb6826ec65ca259"
+          },
+          "runtime/evidence/echo-receipts.json": {
+            "bytes": 48863,
+            "sha256": "d569c6aaca0322023d31a6c8660ea400306d6bb629687508c66f14d04d03987a"
+          }
+        }
+      },
+      {
+        "packet": "q29-production-runtime-20261012",
+        "execution_source_commit": "9be14ad441f2d0ba4c36860cafddde0a1dd11ae0",
+        "original_runtime_status": "PASS",
+        "original_first_post_plan_status": "FAIL_POST_PLAN_BLOCKING",
+        "publication_delay_ms": 455.0,
+        "first_post_plan": [
+          {
+            "sample": 13,
+            "uid": 10149,
+            "family": "ipv4",
+            "protocol": "tcp",
+            "started_ms": 1791783316013,
+            "done_ms": 1791783316013,
+            "success": false,
+            "payload_sha256": "593c159290811bec55f5ef9da3abccc7043220d8b3c67091df4e7ab0d9a68386",
+            "reply_sha256": "806628a9d401b714d1c0c0a167fd9d711af5a279011108d070f12788080e76ea",
+            "detail": "error=ConnectException:failed to connect to /198.19.0.1 (port 26000) from /:: (port 0) after 250ms: connect failed: EACCES (Permission denied)"
+          },
+          {
+            "sample": 13,
+            "uid": 10149,
+            "family": "ipv4",
+            "protocol": "udp",
+            "started_ms": 1791783315985,
+            "done_ms": 1791783315986,
+            "success": false,
+            "payload_sha256": "593c159290811bec55f5ef9da3abccc7043220d8b3c67091df4e7ab0d9a68386",
+            "reply_sha256": "d6ea56220b1488e623b502b415bb9770487c5b9500949faddb63ef579a0f34d5",
+            "detail": "error=SocketException:Pending connect failure"
+          },
+          {
+            "sample": 13,
+            "uid": 10149,
+            "family": "ipv6",
+            "protocol": "tcp",
+            "started_ms": 1791783316000,
+            "done_ms": 1791783316001,
+            "success": false,
+            "payload_sha256": "593c159290811bec55f5ef9da3abccc7043220d8b3c67091df4e7ab0d9a68386",
+            "reply_sha256": "806628a9d401b714d1c0c0a167fd9d711af5a279011108d070f12788080e76ea",
+            "detail": "error=ConnectException:failed to connect to /2001:db8:29::1 (port 26000) from /:: (port 0) after 250ms: connect failed: EACCES (Permission denied)"
+          },
+          {
+            "sample": 13,
+            "uid": 10149,
+            "family": "ipv6",
+            "protocol": "udp",
+            "started_ms": 1791783316036,
+            "done_ms": 1791783316036,
+            "success": false,
+            "payload_sha256": "593c159290811bec55f5ef9da3abccc7043220d8b3c67091df4e7ab0d9a68386",
+            "reply_sha256": "d6ea56220b1488e623b502b415bb9770487c5b9500949faddb63ef579a0f34d5",
+            "detail": "error=SocketException:Pending connect failure"
+          }
+        ],
+        "all_first_post_plan_started_before_CONNECTED": true,
+        "pre_connected_failed_samples": 8,
+        "post_CONNECTED_samples": 80,
+        "post_CONNECTED_errors": 0,
+        "cold_post_CONNECTED_samples": 32,
+        "source_inputs": 126,
+        "artifacts": {
+          "launch.json": {
+            "bytes": 28993,
+            "sha256": "4d9591ba1aa5526a31bf3a6c8ceaf91d4d482b41f2d7cd60c8ba4c154d143c2e"
+          },
+          "qualification.json": {
+            "bytes": 185701,
+            "sha256": "defa70926ef3203c01553abb8cc061cc7cb1c2ff66fe1fffec23463eca2f5a25"
+          },
+          "runtime/evidence/result.json": {
+            "bytes": 257528,
+            "sha256": "4a1c6232a76b762452dfbddbe9741a89ecca64cd5e6a12062bd06b5099cc594f"
+          },
+          "runtime/evidence/cold-start-epoch.log": {
+            "bytes": 77556,
+            "sha256": "3c7c6f0dcc34ac102ef9184094c8616b20cb5d23832c5bb7e8b52ca5580bcb46"
+          },
+          "runtime/evidence/published-start-epoch.log": {
+            "bytes": 95819,
+            "sha256": "b5f77428b07d258176d824ad1b2949ad62ee23d023d1ef54152ceffa20a3ffcc"
+          },
+          "runtime/evidence/echo-receipts.json": {
+            "bytes": 46645,
+            "sha256": "d6819ccfcfe4cdb6ae8ea58fbc2465424d4922145c2ebb143fa6f1753fcc5bd9"
+          }
+        }
+      }
+    ],
+    "raw_runtime_statuses_preserved": true,
+    "immediate_first_possible_socket_qualified": false,
+    "continuous_zero_loss_qualified": false,
+    "no_new_runtime": true,
+    "no_product_or_helper_changes": true,
+    "helper_unit_tests": {
+      "command": "python -X utf8 -B -m unittest -v test_android_startup_state",
+      "methods": 6,
+      "exit_code": 0,
+      "skips": 0
+    },
+    "Q29": "IN_PROGRESS",
+    "official_done": 32,
+    "total": 37,
+    "whole_audit_complete": false,
+    "no_push_deploy_release": true
+  },
+  "whole_audit_complete": false,
+  "full_release_preflight_qualified": false
+}

@@ -1,0 +1,366 @@
+{
+  "schema_version": 1,
+  "release_version": "0.8.3",
+  "source_commit": "588c71c75779e92eb3ea2e25a0f1fd8414f10151",
+  "ci_run_url": "https://github.com/litvinovtd/qeli/actions/runs/40322332850",
+  "native_source_digest": "db81c0d0c813fd973fe0dc8c097c2650527408031d8362ee58f9b9a1c19dcee2",
+  "artifacts": {
+    "qeli-client-openwrt-aarch64": {
+      "sha256": "22c353d01c8981c3b957fa82f6165fb00a85ec9a5e226cf00dad6c83daaf8312",
+      "bytes": 9450184,
+      "target": "aarch64-unknown-linux-musl",
+      "version": "0.8.3",
+      "embedded_license_exact": true
+    },
+    "qeli-client-openwrt-x86_64": {
+      "sha256": "1dbd5a573e280fe72cb85046e6431cc36fdb140dc4ace42cb2a7f2914e59de33",
+      "bytes": 10221296,
+      "target": "x86_64-unknown-linux-musl",
+      "version": "0.8.3",
+      "embedded_license_exact": true
+    },
+    "qeli-client-openwrt-mipsel": {
+      "sha256": "16e8f8c048690b5af0e1761390f6b9b4f798f0a2d037b26e14f722fb277bab52",
+      "bytes": 11552144,
+      "target": "mipsel-unknown-linux-musl",
+      "version": "0.8.3",
+      "embedded_license_exact": true
+    },
+    "qeli-client-openwrt-armv7": {
+      "sha256": "4704ab30966a1814c1a7e4cce525602b98e39430c04a36aa5acb6d033705d4b8",
+      "bytes": 9605956,
+      "target": "armv7-unknown-linux-musleabihf",
+      "version": "0.8.3",
+      "embedded_license_exact": true
+    }
+  },
+  "exact_shipped_x86_client_cases": [
+    {
+      "arch": "x86_64",
+      "sha256": "1dbd5a573e280fe72cb85046e6431cc36fdb140dc4ace42cb2a7f2914e59de33",
+      "case": "default",
+      "passed": true,
+      "storage_probe_only": false,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "x86_64-default.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "1dbd5a573e280fe72cb85046e6431cc36fdb140dc4ace42cb2a7f2914e59de33",
+      "case": "real-root",
+      "passed": true,
+      "storage_probe_only": false,
+      "alive_after_recovery": true,
+      "exit_code": 0,
+      "log": "x86_64-real-root.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "1dbd5a573e280fe72cb85046e6431cc36fdb140dc4ace42cb2a7f2914e59de33",
+      "case": "real-var",
+      "passed": true,
+      "storage_probe_only": false,
+      "alive_after_recovery": true,
+      "exit_code": 0,
+      "log": "x86_64-real-var.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "1dbd5a573e280fe72cb85046e6431cc36fdb140dc4ace42cb2a7f2914e59de33",
+      "case": "linked-child",
+      "passed": true,
+      "storage_probe_only": false,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "x86_64-linked-child.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "1dbd5a573e280fe72cb85046e6431cc36fdb140dc4ace42cb2a7f2914e59de33",
+      "case": "foreign-parent",
+      "passed": true,
+      "storage_probe_only": false,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "x86_64-foreign-parent.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "1dbd5a573e280fe72cb85046e6431cc36fdb140dc4ace42cb2a7f2914e59de33",
+      "case": "writable-leaf",
+      "passed": true,
+      "storage_probe_only": false,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "x86_64-writable-leaf.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "1dbd5a573e280fe72cb85046e6431cc36fdb140dc4ace42cb2a7f2914e59de33",
+      "case": "retained-journal",
+      "passed": true,
+      "storage_probe_only": false,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "x86_64-retained-journal.log"
+    }
+  ],
+  "production_storage_abi_probe_cases": [
+    {
+      "arch": "aarch64",
+      "sha256": "eed923bf962e4f8f4dd067369d8ebbcd049787769e5eb02cf9a270b0d87d5197",
+      "case": "default",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "aarch64-default.log"
+    },
+    {
+      "arch": "aarch64",
+      "sha256": "eed923bf962e4f8f4dd067369d8ebbcd049787769e5eb02cf9a270b0d87d5197",
+      "case": "real-root",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 0,
+      "log": "aarch64-real-root.log"
+    },
+    {
+      "arch": "aarch64",
+      "sha256": "eed923bf962e4f8f4dd067369d8ebbcd049787769e5eb02cf9a270b0d87d5197",
+      "case": "real-var",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 0,
+      "log": "aarch64-real-var.log"
+    },
+    {
+      "arch": "aarch64",
+      "sha256": "eed923bf962e4f8f4dd067369d8ebbcd049787769e5eb02cf9a270b0d87d5197",
+      "case": "linked-child",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "aarch64-linked-child.log"
+    },
+    {
+      "arch": "aarch64",
+      "sha256": "eed923bf962e4f8f4dd067369d8ebbcd049787769e5eb02cf9a270b0d87d5197",
+      "case": "foreign-parent",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "aarch64-foreign-parent.log"
+    },
+    {
+      "arch": "aarch64",
+      "sha256": "eed923bf962e4f8f4dd067369d8ebbcd049787769e5eb02cf9a270b0d87d5197",
+      "case": "writable-leaf",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "aarch64-writable-leaf.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "313e50e6020761a9fa79507e3b1ddeccfe7ab4be076187c2bec9d754d844e1c2",
+      "case": "default",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "x86_64-default.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "313e50e6020761a9fa79507e3b1ddeccfe7ab4be076187c2bec9d754d844e1c2",
+      "case": "real-root",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 0,
+      "log": "x86_64-real-root.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "313e50e6020761a9fa79507e3b1ddeccfe7ab4be076187c2bec9d754d844e1c2",
+      "case": "real-var",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 0,
+      "log": "x86_64-real-var.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "313e50e6020761a9fa79507e3b1ddeccfe7ab4be076187c2bec9d754d844e1c2",
+      "case": "linked-child",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "x86_64-linked-child.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "313e50e6020761a9fa79507e3b1ddeccfe7ab4be076187c2bec9d754d844e1c2",
+      "case": "foreign-parent",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "x86_64-foreign-parent.log"
+    },
+    {
+      "arch": "x86_64",
+      "sha256": "313e50e6020761a9fa79507e3b1ddeccfe7ab4be076187c2bec9d754d844e1c2",
+      "case": "writable-leaf",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "x86_64-writable-leaf.log"
+    },
+    {
+      "arch": "mipsel",
+      "sha256": "0f57b55627d46b6a94f59c191c92627592798255d8e0aea44aee84ccbb949ff9",
+      "case": "default",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "mipsel-default.log"
+    },
+    {
+      "arch": "mipsel",
+      "sha256": "0f57b55627d46b6a94f59c191c92627592798255d8e0aea44aee84ccbb949ff9",
+      "case": "real-root",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 0,
+      "log": "mipsel-real-root.log"
+    },
+    {
+      "arch": "mipsel",
+      "sha256": "0f57b55627d46b6a94f59c191c92627592798255d8e0aea44aee84ccbb949ff9",
+      "case": "real-var",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 0,
+      "log": "mipsel-real-var.log"
+    },
+    {
+      "arch": "mipsel",
+      "sha256": "0f57b55627d46b6a94f59c191c92627592798255d8e0aea44aee84ccbb949ff9",
+      "case": "linked-child",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "mipsel-linked-child.log"
+    },
+    {
+      "arch": "mipsel",
+      "sha256": "0f57b55627d46b6a94f59c191c92627592798255d8e0aea44aee84ccbb949ff9",
+      "case": "foreign-parent",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "mipsel-foreign-parent.log"
+    },
+    {
+      "arch": "mipsel",
+      "sha256": "0f57b55627d46b6a94f59c191c92627592798255d8e0aea44aee84ccbb949ff9",
+      "case": "writable-leaf",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "mipsel-writable-leaf.log"
+    },
+    {
+      "arch": "armv7",
+      "sha256": "f019500505006fb51d438321b769499af5cd9d376c2c6632ff24ca2085f23a5d",
+      "case": "default",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "armv7-default.log"
+    },
+    {
+      "arch": "armv7",
+      "sha256": "f019500505006fb51d438321b769499af5cd9d376c2c6632ff24ca2085f23a5d",
+      "case": "real-root",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 0,
+      "log": "armv7-real-root.log"
+    },
+    {
+      "arch": "armv7",
+      "sha256": "f019500505006fb51d438321b769499af5cd9d376c2c6632ff24ca2085f23a5d",
+      "case": "real-var",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 0,
+      "log": "armv7-real-var.log"
+    },
+    {
+      "arch": "armv7",
+      "sha256": "f019500505006fb51d438321b769499af5cd9d376c2c6632ff24ca2085f23a5d",
+      "case": "linked-child",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "armv7-linked-child.log"
+    },
+    {
+      "arch": "armv7",
+      "sha256": "f019500505006fb51d438321b769499af5cd9d376c2c6632ff24ca2085f23a5d",
+      "case": "foreign-parent",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "armv7-foreign-parent.log"
+    },
+    {
+      "arch": "armv7",
+      "sha256": "f019500505006fb51d438321b769499af5cd9d376c2c6632ff24ca2085f23a5d",
+      "case": "writable-leaf",
+      "passed": true,
+      "storage_probe_only": true,
+      "alive_after_recovery": false,
+      "exit_code": 1,
+      "log": "armv7-writable-leaf.log"
+    }
+  ],
+  "probe_scope": "Production state_storage module built for all four ABIs from identical Rust inputs; not a full foreign-client runtime or physical firmware test.",
+  "prior_targeted_rust_test_executions": {
+    "passed": 393,
+    "failed": 0,
+    "ignored": 20,
+    "not_unique_tests": true,
+    "log_sha256": "d12cc41f14f7caa49741da24bb0e58f2716fb2bf20811e3bc1279133ed682073"
+  },
+  "busybox_shell_tests": {
+    "passed": 72,
+    "log_sha256": "4d79d4b49107274b135684f3e4d1dc4872e972166484599f662bb7f0889885b9"
+  },
+  "foreign_full_client_runtime": "NOT_QUALIFIED: QEMU SO_NETNS_COOKIE EINVAL; strict production guard retained",
+  "physical_router_qualification": "NOT_RUN",
+  "published": false
+}

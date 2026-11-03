@@ -57,6 +57,8 @@ mod imp {
         headers: Vec<libc::mmsghdr>,
         iovecs: Vec<libc::iovec>,
         names: Vec<libc::sockaddr_storage>,
+        controls: Vec<super::super::udp_source::Control>,
+        local: Vec<Option<super::super::udp_source::LocalAddress>>,
     }
 
     impl BatchScratch {
@@ -68,11 +70,21 @@ mod imp {
                 headers: vec![unsafe { std::mem::zeroed() }; batch],
                 iovecs: vec![unsafe { std::mem::zeroed() }; batch],
                 names: vec![unsafe { std::mem::zeroed() }; batch],
+                controls: vec![super::super::udp_source::Control::default(); batch],
+                local: vec![None; batch],
             }
         }
 
         pub(crate) fn capacity(&self) -> usize {
             self.headers.len()
+        }
+
+        #[allow(dead_code)] // Linux server receive context.
+        pub(crate) fn local_address(
+            &self,
+            index: usize,
+        ) -> Option<super::super::udp_source::LocalAddress> {
+            self.local.get(index).copied().flatten()
         }
 
         /// Drop every pointer the last syscall used. Nothing reads these between calls — each
@@ -83,6 +95,8 @@ mod imp {
         fn release_pointers(&mut self, used: usize) {
             for header in self.headers.iter_mut().take(used) {
                 header.msg_hdr.msg_iov = std::ptr::null_mut();
+                header.msg_hdr.msg_control = std::ptr::null_mut();
+                header.msg_hdr.msg_controllen = 0;
                 header.msg_hdr.msg_name = std::ptr::null_mut();
                 header.msg_hdr.msg_namelen = 0;
                 header.msg_hdr.msg_iovlen = 0 as _;
@@ -105,16 +119,44 @@ mod imp {
     ///
     /// Slots must be empty; on return the first `n` have their lengths set. When `addrs` is
     /// given the peer address of each datagram is written to it (unconnected sockets).
+    #[cfg(any(feature = "client", test))]
     pub(crate) fn recv_batch(
         socket: &tokio::net::UdpSocket,
         slots: &mut [BytesMut],
+        addrs: Option<&mut [SocketAddr]>,
+        scratch: &mut BatchScratch,
+    ) -> io::Result<usize> {
+        recv_batch_inner(socket, slots, addrs, false, scratch)
+    }
+
+    #[allow(dead_code)] // Linux server only.
+    pub(crate) fn recv_batch_local(
+        socket: &tokio::net::UdpSocket,
+        slots: &mut [BytesMut],
+        addrs: &mut [SocketAddr],
+        scratch: &mut BatchScratch,
+    ) -> io::Result<usize> {
+        recv_batch_inner(socket, slots, Some(addrs), true, scratch)
+    }
+
+    fn recv_batch_inner(
+        socket: &tokio::net::UdpSocket,
+        slots: &mut [BytesMut],
         mut addrs: Option<&mut [SocketAddr]>,
+        local: bool,
         scratch: &mut BatchScratch,
     ) -> io::Result<usize> {
         let count = slots.len().min(scratch.capacity());
         if count == 0 {
             return Ok(0);
         }
+        if addrs.as_ref().is_some_and(|addrs| addrs.len() < count) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "UDP batch address buffer is too short",
+            ));
+        }
+        scratch.local.fill(None);
         let want_addr = addrs.is_some();
         for (i, slot) in slots.iter_mut().enumerate().take(count) {
             let spare = slot.spare_capacity_mut();
@@ -129,6 +171,9 @@ mod imp {
             header.msg_hdr.msg_iovlen = 1 as _;
             header.msg_hdr.msg_control = std::ptr::null_mut();
             header.msg_hdr.msg_controllen = 0 as _;
+            if local {
+                scratch.controls[i].receive(&mut header.msg_hdr);
+            }
             header.msg_hdr.msg_flags = 0;
             header.msg_len = 0;
             if want_addr {
@@ -159,39 +204,48 @@ mod imp {
             return Err(error);
         }
         let received = (received as usize).min(count);
-        for i in 0..received {
-            // A datagram is never longer than the buffer offered, but a truncating kernel
-            // reports the untruncated size, so clamp rather than trust the number.
-            let written = (scratch.headers[i].msg_len as usize)
-                .min(slots[i].capacity().saturating_sub(slots[i].len()));
-            // SAFETY: the kernel initialised at least `written` bytes of this slot's spare
-            // capacity, and `written` is clamped to that capacity above.
-            unsafe {
-                let len = slots[i].len();
-                slots[i].set_len(len + written);
+        let decoded = (|| -> io::Result<()> {
+            for i in 0..received {
+                if local {
+                    scratch.local[i] =
+                        Some(scratch.controls[i].decode(&scratch.headers[i].msg_hdr)?);
+                }
+                // A datagram is never longer than the buffer offered, but a truncating kernel
+                // reports the untruncated size, so clamp rather than trust the number.
+                let written = (scratch.headers[i].msg_len as usize)
+                    .min(slots[i].capacity().saturating_sub(slots[i].len()));
+                // SAFETY: the kernel initialised at least `written` bytes of this slot's spare
+                // capacity, and `written` is clamped to that capacity above.
+                unsafe {
+                    let len = slots[i].len();
+                    slots[i].set_len(len + written);
+                }
+                if let Some(addrs) = addrs.as_deref_mut() {
+                    addrs[i] =
+                        decode_sockaddr(&scratch.names[i], scratch.headers[i].msg_hdr.msg_namelen)
+                            .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 0)));
+                }
             }
-            if let Some(addrs) = addrs.as_deref_mut() {
-                addrs[i] =
-                    decode_sockaddr(&scratch.names[i], scratch.headers[i].msg_hdr.msg_namelen)
-                        .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 0)));
-            }
-        }
+            Ok(())
+        })();
         scratch.release_pointers(count);
+        decoded?;
         Ok(received)
     }
 
     /// Send up to `datagrams.len()` datagrams. Returns how many the kernel accepted, which may
     /// be fewer: `sendmmsg` stops at the first datagram it cannot queue and reports the prefix
     /// it did send. The caller must retry the remainder rather than assume all-or-nothing.
+    #[cfg(any(feature = "client", test))]
     pub(crate) fn send_batch(
         socket: &tokio::net::UdpSocket,
         datagrams: &[&[u8]],
         scratch: &mut BatchScratch,
     ) -> io::Result<usize> {
-        send_batch_inner(socket, datagrams, None, scratch)
+        send_batch_inner(socket, datagrams, None, None, scratch)
     }
 
-    /// Unconnected counterpart of [`send_batch`]. Every datagram in one call goes to the same
+    /// Unconnected counterpart of the client `send_batch` helper. Every datagram in one call goes to the same
     /// immutable peer snapshot; callers split a batch when roaming publishes a new path.
     #[allow(dead_code)] // server-only in client/FFI feature builds
     pub(crate) fn send_batch_to(
@@ -200,13 +254,25 @@ mod imp {
         peer: SocketAddr,
         scratch: &mut BatchScratch,
     ) -> io::Result<usize> {
-        send_batch_inner(socket, datagrams, Some(peer), scratch)
+        send_batch_inner(socket, datagrams, Some(peer), None, scratch)
+    }
+
+    #[allow(dead_code)] // Linux server source-pinned egress.
+    pub(crate) fn send_batch_from(
+        socket: &tokio::net::UdpSocket,
+        datagrams: &[&[u8]],
+        peer: SocketAddr,
+        source: super::super::udp_source::LocalAddress,
+        scratch: &mut BatchScratch,
+    ) -> io::Result<usize> {
+        send_batch_inner(socket, datagrams, Some(peer), Some(source), scratch)
     }
 
     fn send_batch_inner(
         socket: &tokio::net::UdpSocket,
         datagrams: &[&[u8]],
         peer: Option<SocketAddr>,
+        source: Option<super::super::udp_source::LocalAddress>,
         scratch: &mut BatchScratch,
     ) -> io::Result<usize> {
         let count = datagrams.len().min(scratch.capacity());
@@ -233,6 +299,12 @@ mod imp {
             header.msg_hdr.msg_iovlen = 1 as _;
             header.msg_hdr.msg_control = std::ptr::null_mut();
             header.msg_hdr.msg_controllen = 0 as _;
+            if let Some(source) = source {
+                if let Err(error) = scratch.controls[i].send(source, &mut header.msg_hdr) {
+                    scratch.release_pointers(i + 1);
+                    return Err(error);
+                }
+            }
             header.msg_hdr.msg_flags = 0;
             header.msg_len = 0;
             header.msg_hdr.msg_name = name_ptr;
@@ -333,6 +405,7 @@ mod imp {
         }
     }
 
+    #[cfg(any(feature = "client", test))]
     pub(crate) fn recv_batch(
         socket: &tokio::net::UdpSocket,
         slots: &mut [BytesMut],
@@ -364,6 +437,7 @@ mod imp {
         Ok(filled)
     }
 
+    #[cfg(any(feature = "client", test))]
     pub(crate) fn send_batch(
         socket: &tokio::net::UdpSocket,
         datagrams: &[&[u8]],
@@ -404,7 +478,12 @@ mod imp {
     }
 }
 
-pub(crate) use imp::{recv_batch, send_batch, send_batch_to, BatchScratch};
+#[cfg(any(feature = "client", test))]
+pub(crate) use imp::{recv_batch, send_batch};
+#[cfg(any(target_os = "linux", target_os = "android"))]
+#[allow(unused_imports)] // Linux server builds own source-pinned replies.
+pub(crate) use imp::{recv_batch_local, send_batch_from};
+pub(crate) use imp::{send_batch_to, BatchScratch};
 
 #[cfg(test)]
 mod tests {

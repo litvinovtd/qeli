@@ -1,0 +1,33 @@
+{
+  "status": "EXACT_DOCUMENTATION_DELTA_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_commit": "ea8b90c629412f250fa6de5876b5f618b3cc5376",
+  "source_digest": "032dd59ddf52cb1d3e6d0556a8f0737eb1bbfc191a6fcaca6a1d680f17109bd2",
+  "previous_source_commit": "68cd3d8a4400ccb0bec6fb0ec1f081e2dd6e7c20",
+  "document_files": {
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "ced7c8502496516eb1941261750674fcdf9fbb75aa763b02f80b7bfdaf6ca00a",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md": "4c07def9691bd1bc08240459341851989b81dc7d4d23eae7bbb36c4068d6e004",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "840286b7eac6dfba5051e5c5c8e5f2d20b36bce3fc033bba80295a50bf6067d3",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md": "67ee68cbfa952fc67ccb1494a273dd819b31831f035890932e30d0b2815670ea"
+  },
+  "exact_non_certification_delta": [
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md"
+  ],
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "runtime_qualification_sha256": {
+    "q36-client-qdisc-r3-20261013": "bd4754caced81458417f1d8834d60c350cfc640cfcb094aec5b01a3fe6fe0ba6"
+  },
+  "current_Q36_sessions": 3,
+  "current_Q36_windows": 12,
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "new_certification_matrix_execution": false,
+  "scope": "Exact four-Markdown-only delta plus two excluded evidence files. All native/helper/INI/Cargo/product inputs and native digest unchanged. Fresh3sessions12windows TCPrawP1 unlimited up/bidir with originalfq_codeloptions vsfq; no originalrefusal baseline pooling. Pairedmedianupload-15.46%,bidirsum-7.71%; native/qdisc drops0 butTUNTXlosses persist, no default switch. Twoinitialcontroller refusals preserved; distinct1/2handles/prepayloadsmoke corrected collision, earlierautoloadcausewithdrawn. Introducedstockfqmodule safelyunloadedrefs0; originalglobalqdisc/default/module-set/providerSHA and fullhost/source/archivecleanupPASS. Original20Linux certification facts and21physical statuses preserved; no new certification executions/kernelpatch/publicrelease/hostedCI/Q29orQ36closure claim.",
+  "no_push_deploy_release": true,
+  "driver_sha256": "674d650bbd12438ec8767e395558cca6ceea68e6076d338557a52839bbf3fb70"
+}

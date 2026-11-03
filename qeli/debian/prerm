@@ -3,7 +3,12 @@ set -e
 
 case "$1" in
     remove|purge)
-        systemctl stop qeli 2>/dev/null || true
+        if ! systemctl stop qeli 2>/dev/null; then
+            if [ -d /run/systemd/system ]; then
+                echo 'qeli: service stop failed; refusing to remove the running package' >&2
+                exit 1
+            fi
+        fi
         systemctl disable qeli 2>/dev/null || true
         # NB: qeli installs and removes its own NAT/MASQUERADE rules at profile
         # start/stop, scoped to each profile's configured pool CIDR and the

@@ -1,0 +1,88 @@
+{
+  "status": "Q36_F031_RETIRED_PRODUCTION_SCENARIOS_AND_F032_PER_PHASE_INDEPENDENCE_FIXED_WINDOWS_LINUX_22_METHODS_EACH_PASS",
+  "qualification": {
+    "status": "Q36_F031_RETIRED_PRODUCTION_SCENARIOS_AND_F032_PER_PHASE_INDEPENDENCE_FIXED_WINDOWS_LINUX_22_METHODS_EACH_PASS",
+    "base_commit": "3d7123f70854e603bacb7cc7397d31721ad21227",
+    "changed_product_files": [
+      "scripts/perf_allmodes_prod.py",
+      "scripts/perf_ab_p3b1.py",
+      "scripts/perf_netns_cpu.py",
+      "scripts/perf_modes_test.py",
+      "scripts/perf_prod_live_monitor.py",
+      "scripts/perf_facts.py",
+      "scripts/test_benchmark_legacy_guards.py",
+      "scripts/benchmark_report.py",
+      "scripts/test_benchmark_report.py"
+    ],
+    "source_sha256": {
+      "scripts/perf_allmodes_prod.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/perf_ab_p3b1.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/perf_netns_cpu.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/perf_modes_test.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/perf_prod_live_monitor.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/perf_facts.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/test_benchmark_legacy_guards.py": "13d1e5d939f1e65f4d0912abc33adcc4457582b4724312dd49ff2aa9bdc5eedb",
+      "scripts/benchmark_report.py": "c092a8304c893d6f301a16e4019a5ff0916403fe6ea098413ba285f27cc631d9",
+      "scripts/test_benchmark_report.py": "fee2e1d5d23295f55369871d8b13fee8262c6a1e72128a259c6a4ab590a38004"
+    },
+    "all_test_inputs": {
+      "scripts/perf_allmodes_prod.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/perf_ab_p3b1.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/perf_netns_cpu.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/perf_modes_test.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/perf_prod_live_monitor.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/perf_facts.py": "827027bcba60cb2e4180ad90af027908f4f44b74f943f668fa1f418ed3bcb57e",
+      "scripts/test_benchmark_legacy_guards.py": "13d1e5d939f1e65f4d0912abc33adcc4457582b4724312dd49ff2aa9bdc5eedb",
+      "scripts/benchmark.py": "d3661232801bad67486c680b7243d6f94ccf65f328dc8e41cb4c5f816b5ad2be",
+      "scripts/bench_bonding.py": "9ebdc848a224828910853c1d416c2ec64486467e386eafa37860986e9a88ee17",
+      "scripts/ssh_hostkey.py": "c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39",
+      "scripts/test_benchmark_report.py": "fee2e1d5d23295f55369871d8b13fee8262c6a1e72128a259c6a4ab590a38004",
+      "scripts/benchmark_report.py": "c092a8304c893d6f301a16e4019a5ff0916403fe6ea098413ba285f27cc631d9",
+      "scripts/benchmark_evidence.py": "c95649f15a6b5508d3a144e70d7bb5ce1ab877618a9dbda3e36258e630c32ace",
+      "scripts/benchmark_host_state.py": "0d4aa43a9af84d85be4f9efd65160f9138cbb32978c4ebc09f723eff1c1ac913",
+      "scripts/native_repro.py": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+    },
+    "retired_scenarios": 6,
+    "removed_implementation_lines": 718,
+    "Windows_methods": 22,
+    "Linux_methods": 22,
+    "refusal_probes_each_OS": {
+      "script_invocations": 14,
+      "imports": 6
+    },
+    "baseline_SSH_attempts_blocked": 6,
+    "baseline_partial_duplicate_false_admission_reproduced": true,
+    "retained_actual_raws_unique_by_phase": 18,
+    "retained_actual_conditions": 2,
+    "unchanged_runtime_imported_report_functions": {
+      "population": "bbd497a097f8e52741d07249b5ede9a213d4958a11b8677ee95abd0d370d3bb8",
+      "sample_policy": "cf0e8f102ba59d186bb616ed3e4bb1f38eb91287ac18cb40485eaf787cedcc5e"
+    },
+    "no_new_benchmark_execution": true,
+    "no_performance_acceptance_claim": true,
+    "host_preserved": true,
+    "own_roots_archives_removed": true,
+    "proof_sha256": {
+      "q36-retired-perf-scenarios-20261014/baseline-review.json": "825d88ac6bca5c1c29191d717e3d337e2fbe62954c7f85267af5df6d8ca4fe4d",
+      "q36-retired-perf-scenarios-20261014/partial-duplicate-baseline.json": "0e8a23fb7b9ba027c937c27f5c8dd5933b55e08d2824873a9e8c604111f659bb",
+      "q36-retired-perf-scenarios-20261014/windows-proof.json": "b00574d03daf2168566bc758ff29ced10d5bc2e0520c4b5b4422e747686ff6a1",
+      "q36-retired-perf-scenarios-20261014/windows-tests.log": "437858102c35a7dfa2ed801f9e6ca333af1fa4ed516c247e8cbd251d778dd15a",
+      "q36-retired-perf-scenarios-20261014/result.json": "c8d3d0fe1fec9523201edaa53363a73cb933595f855885b44ede71c3c1994959",
+      "q36-retired-perf-scenarios-20261014/tests.log": "e184f52784564ed39b358ee0aba590b85ad759ea1c7c1482a11c8a310b81e97c",
+      "q36-retired-perf-scenarios-20261014/lab-completion.json": "0b58c512d68db72fc76be834ca5f75db13fb833ceb1790fc184987be553afe67",
+      "q36-retired-perf-scenarios-20261014/lab-cleanup.json": "6a180e4f0d7765f6a8a24bf36e4cbfea4a587c8d12137448fa580047b40e4984",
+      "q36-benchmark-phase-independence-20261014/windows-proof.json": "b07180d18763e9c79c26897caadc06446ac31b792387600a12848d37c9a94815",
+      "q36-benchmark-phase-independence-20261014/retained-raw-admission.json": "cbeed9dbcae9adec05f4229cd5855e0ff5e9f61da1186ec049aa569d376f92d1",
+      "q36-benchmark-phase-independence-20261014/result.json": "dbbfae20652b4774f01b231901ddf2b6a134e89470e7679779f4bb4f3e22efca",
+      "q36-benchmark-phase-independence-20261014/tests.log": "fac9d1a939846dc52fd30400d04638edda494adc6d0c2e9700d41096321dc0e4",
+      "q36-benchmark-phase-independence-20261014/lab-completion.json": "05d4b0d3e9725ec725d1c1b450bd9e4488f12c02a2f800dec600144330de250b",
+      "q36-benchmark-phase-independence-20261014/lab-cleanup.json": "6a180e4f0d7765f6a8a24bf36e4cbfea4a587c8d12137448fa580047b40e4984"
+    },
+    "scope": "Six dormant production/lab perf scripts replaced by explicit retirement; active isolated runner untouched. Report rejects any repeated raw iperf phase within a comparable cohort rather than only whole-population copies. Offline tests and exact new fragment on retained actual SHA identities, no Rust/native/VPN rebuild or throughput replay.",
+    "no_push_deploy_release": true
+  },
+  "qualification_sha256": "1801011d8055b9f6572b789ecbb2e7ac52d171023534857b80a761afbc236a3c",
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q36-retired-perf-scenarios-20261014",
+  "scope": "Nine benchmark/refusal/test files plus six Markdown reports/plans. Six dormant scripts have no executable callers; retirement and per-phase duplicate admission verified on Windows/Linux. Actual18 current retained raw identities remain unique in two comparable cohorts; old runtime-imported population/sample_policy functions unchanged. Rust/native build digest and all50 actual Linux runtime harness dependencies unchanged. Original20 Linux and physical21 execution facts preserved; no fresh VPN/performance/Apple/hosted CI claim.",
+  "no_push_deploy_release": true
+}

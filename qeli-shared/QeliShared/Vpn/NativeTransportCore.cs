@@ -10,7 +10,7 @@ internal static unsafe class NativeTransportCore
 {
     private const string Library = "qeli";
 
-    internal const uint CompatibilityAbiVersion = 0x0001_000b;
+    internal const uint CompatibilityAbiVersion = 0x0001_0010;
     internal const int Ok = 0;
     internal const int NoEvent = 1;
     internal const int BufferTooSmall = -6;

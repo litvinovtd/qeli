@@ -4,8 +4,7 @@
 //!
 //! The format is deliberately PHP-`parse_ini_file`-like: line oriented,
 //! comment friendly, and order independent (no "all scalars must precede every
-//! table" rule that TOML imposes — see the comments in `config/server.rs` about
-//! the fragile serialization ordering this replaces).
+//! table" rule that TOML imposes).
 //!
 //! Grammar:
 //! ```ini
@@ -13,8 +12,10 @@
 //!
 //! [section]            singleton section
 //! key = value
-//! key = "quoted value" ; surrounding double-quotes are stripped
-//! list = a, b, c       ; comma-separated; read back with Section::list()
+//! ; Surrounding double-quotes are stripped. Inline comments are not supported.
+//! key = "quoted value"
+//! ; Comma-separated values are read back with Section::list().
+//! list = a, b, c
 //!
 //! [profile:tcp]        repeatable section: kind "profile", instance "tcp"
 //! bind = 0.0.0.0:443
@@ -124,8 +125,8 @@ impl Section {
             .collect()
     }
 
-    /// Entries whose key starts with `prefix`, as `(suffix, value)`, marking each
-    /// one read.
+    /// Unique entries whose key starts with `prefix`, marking each one read.
+    /// Empty suffixes and duplicate map keys are reported as invalid values.
     ///
     /// For dynamic key families — `pool.reservation.<user>`, `metadata.<key>` —
     /// where the full key is not known ahead of time, so `get()` cannot be used.
@@ -134,9 +135,26 @@ impl Section {
     /// through here instead.
     pub fn entries_with_prefix<'a>(&'a self, prefix: &str) -> Vec<(&'a str, &'a str)> {
         let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for (k, v) in &self.entries {
             if let Some(suffix) = k.strip_prefix(prefix) {
                 self.mark_read(k);
+                if suffix.is_empty() {
+                    self.record_bad_value(format!(
+                        "{} key '{k}' requires a non-empty suffix",
+                        self.header()
+                    ));
+                    continue;
+                }
+                if !seen.insert(k) {
+                    if self.note_duplicate(k) {
+                        self.record_bad_value(format!(
+                            "{} map key '{k}' appears more than once — keep one",
+                            self.header()
+                        ));
+                    }
+                    continue;
+                }
                 out.push((suffix, v.as_str()));
             }
         }
@@ -194,6 +212,12 @@ impl Section {
     /// round-trip where an empty field must survive.
     pub fn str_or<'a>(&'a self, key: &str, default: &'a str) -> &'a str {
         self.get(key).unwrap_or(default)
+    }
+
+    /// Test presence without treating a repeatable key as a scalar. This does not
+    /// mark the key read; its consumer must still call `list` or `all`.
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.entries.iter().any(|(k, _)| k == key)
     }
 
     /// Every value recorded for `key` (in source order), honouring duplicate
@@ -344,6 +368,12 @@ impl IniDoc {
 
         for (idx, raw) in input.lines().enumerate() {
             let lineno = idx + 1;
+            if raw.chars().any(|c| c.is_control() && c != '\t') {
+                return Err(ParseError {
+                    line: lineno,
+                    msg: "unsupported control character in INI line".into(),
+                });
+            }
             let line = raw.trim();
             if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
                 continue;
@@ -362,6 +392,16 @@ impl IniDoc {
                     Some((k, i)) => (k.trim().to_string(), Some(i.trim().to_string())),
                     None => (header.trim().to_string(), None),
                 };
+                if kind.chars().any(char::is_control)
+                    || instance
+                        .as_deref()
+                        .is_some_and(|name| name.chars().any(char::is_control))
+                {
+                    return Err(ParseError {
+                        line: lineno,
+                        msg: "control character in section name".into(),
+                    });
+                }
                 if kind.is_empty() {
                     return Err(ParseError {
                         line: lineno,
@@ -382,6 +422,12 @@ impl IniDoc {
                 return Err(ParseError {
                     line: lineno,
                     msg: "empty key".into(),
+                });
+            }
+            if key.chars().any(char::is_control) {
+                return Err(ParseError {
+                    line: lineno,
+                    msg: "control character in key name".into(),
                 });
             }
             let value = unquote(value.trim());
@@ -500,8 +546,8 @@ pub(crate) fn quote_if_needed(s: &str) -> String {
         s
     };
     let needs = s.is_empty()
-        || s.starts_with(' ')
-        || s.ends_with(' ')
+        || s.starts_with(char::is_whitespace)
+        || s.ends_with(char::is_whitespace)
         || s.contains(';')
         || s.contains('#')
         || s.contains('"');
@@ -515,6 +561,46 @@ pub(crate) fn quote_if_needed(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_rejects_controls_before_trimming_without_echoing_values() {
+        for source in [
+            "[qeli]\npass = private\u{7}value\n",
+            "[qeli]\npass = private\u{85}\n",
+            "[qeli]\npass = private\u{b}\n",
+            "[qeli]\ngatewa\ty = false\n",
+            "[log\tging]\nlevel = info\n",
+        ] {
+            let error = IniDoc::parse(source).unwrap_err().to_string();
+            assert!(error.contains("control character"));
+            assert!(!error.contains("private"));
+        }
+        let valid = IniDoc::parse("\t[qeli]\r\n\tpass\t=\t\"\tsecret\t\"\r\n").unwrap();
+        assert_eq!(
+            valid.section("qeli").unwrap().get("pass"),
+            Some("\tsecret\t")
+        );
+    }
+
+    #[test]
+    fn significant_whitespace_and_quotes_round_trip_as_values() {
+        for value in [
+            "\tpassword\t",
+            "\u{a0}password\u{a0}",
+            "\u{2003}password\u{2003}",
+            "\"password\"",
+            "a\\b\"c",
+            " #;= ",
+        ] {
+            let mut doc = IniDoc::new();
+            let mut section = Section::new("qeli", None);
+            section.set("pass", value);
+            doc.push(section);
+            let raw = doc.to_string();
+            let parsed = IniDoc::parse(&raw).unwrap();
+            assert_eq!(parsed.section("qeli").unwrap().get("pass"), Some(value));
+        }
+    }
 
     #[test]
     fn parses_singletons_and_instances() {

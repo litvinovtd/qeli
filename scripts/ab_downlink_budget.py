@@ -27,7 +27,7 @@ VARIANTS = [("4MiB", "/opt/qeli-exp/qeli-4mb"), ("16MiB", "/opt/qeli-exp/qeli-16
 # The modes where the regression was largest, plus reality-tls as the sensitive one.
 MODE_NAMES = ["tcp-plain-raw", "tcp-faketls", "tcp-obfs", "tcp-reality-tls"]
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
-                   "release", "ab_downlink_budget.json")
+                   "docs", "data", "benchmarks", "ab_downlink_budget.json")
 
 
 def install(s, cl, path):

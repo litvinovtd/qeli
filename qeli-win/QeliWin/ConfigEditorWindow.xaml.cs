@@ -27,7 +27,7 @@ public partial class ConfigEditorWindow : Window
         Owner = owner;
         Icon = owner.Icon;
         _base = existing;
-        Loaded += (_, _) => FitToWorkArea();
+        EditorGeometry.Attach(this, "form");
 
         if (existing == null)
         {
@@ -77,6 +77,8 @@ public partial class ConfigEditorWindow : Window
             MtuBox.Text = existing.Mtu.ToString();  // 0 = auto
             DnsBox.Text = string.Join(", ", existing.DnsServers);
             LocalBox.IsChecked = existing.RouteLocalNetworks;
+            PullRoutesBox.IsChecked = existing.PullRoutes;
+            DisableSharingBox.IsChecked = existing.WindowsDisableSharing;
             TimeoutBox.Text = existing.ConnectionTimeoutSecs.ToString();
             ReconnectBox.IsChecked = existing.ReconnectEnabled;
             PersistTunBox.IsChecked = existing.PersistTun;
@@ -144,6 +146,7 @@ public partial class ConfigEditorWindow : Window
         AppsPickBtn.IsEnabled = enabled;
         AppsPickBtn.Opacity = enabled ? 1.0 : 0.45;
         AppsCountText.Text = enabled ? Loc.F("AppsPicked", _apps.Count) : "";
+        if (DisableSharingBox != null) DisableSharingBox.IsEnabled = !enabled;
     }
 
     private void OnPickApps(object sender, RoutedEventArgs e)
@@ -162,12 +165,12 @@ public partial class ConfigEditorWindow : Window
     private void UpdateConditionalFields()
     {
         if (ObfsKeyPanel == null) return; // during InitializeComponent
-        var (_, mode, _, _) = PresetParams(TagOf(ModeBox));
-        SetPanel(ObfsKeyPanel, mode == "obfs");       // obfs PSK
-        SetPanel(RealityIdPanel, mode == "reality-tls"); // REALITY short_id (hex)
-        // SNI only matters where a ClientHello reaches the wire: fake-tls (visible
-        // mimicry) and reality-tls (cover domain). obfs masks it; plain has none.
-        SetPanel(SniPanel, mode is "fake-tls" or "reality-tls");
+        var (proto, mode, front, _) = PresetParams(TagOf(ModeBox));
+        SetPanel(ObfsKeyPanel, mode == "obfs");
+        SetPanel(RealityIdPanel, mode == "reality-tls");
+        bool webSocketHost = proto == "tcp" && mode == "obfs" && front == "websocket";
+        SetPanel(SniPanel, mode is "fake-tls" or "reality-tls" || webSocketHost);
+        SniLabel.Text = Loc.T(webSocketHost ? "FieldHttpHost" : "FieldSni");
     }
 
     private static void SetPanel(UIElement panel, bool on)
@@ -271,6 +274,8 @@ public partial class ConfigEditorWindow : Window
             routingMode: routing,
             addDefaultGateway: routing == "full-tunnel",
             routeLocalNetworks: LocalBox.IsChecked == true,
+            pullRoutes: PullRoutesBox.IsChecked == true,
+            windowsDisableSharing: DisableSharingBox.IsChecked == true,
             mtu: mtu,
             dnsServers: dns,
             paddingEnabled: padEnabled,
@@ -298,13 +303,13 @@ public partial class ConfigEditorWindow : Window
     private void OnManualEdit(object sender, RoutedEventArgs e)
     {
         var text = BuildFromForm().ToIni();
-        var edited = InputDialog.Show(this, Loc.T("ManualEdit"), Loc.T("ManualEditPrompt"), text, multiline: true);
+        var edited = InputDialog.Show(this, Loc.T("ManualEdit"), Loc.T("ManualEditPrompt"), text, multiline: true, geometryKey: "ini");
         if (string.IsNullOrWhiteSpace(edited)) return;
 
         VpnConfig parsed;
         try
         {
-            parsed = VpnConfig.Parse(edited.Trim());
+            parsed = VpnConfig.Parse(edited);
         }
         catch (Exception ex)
         {
@@ -341,6 +346,8 @@ public partial class ConfigEditorWindow : Window
         MtuBox.Text = parsed.Mtu.ToString();  // 0 = auto
         DnsBox.Text = string.Join(", ", parsed.DnsServers);
         LocalBox.IsChecked = parsed.RouteLocalNetworks;
+        PullRoutesBox.IsChecked = parsed.PullRoutes;
+        DisableSharingBox.IsChecked = parsed.WindowsDisableSharing;
         TimeoutBox.Text = parsed.ConnectionTimeoutSecs.ToString();
         ReconnectBox.IsChecked = parsed.ReconnectEnabled;
         PersistTunBox.IsChecked = parsed.PersistTun;
@@ -386,16 +393,6 @@ public partial class ConfigEditorWindow : Window
                 Tag = tag,
             });
         SelectByTag(ReconnectRetriesBox, tag);
-    }
-
-    private void FitToWorkArea()
-    {
-        var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        var screen = System.Windows.Forms.Screen.FromHandle(handle);
-        double scale = System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleY;
-        double available = Math.Max(MinHeight, screen.WorkingArea.Height / scale - 32);
-        MaxHeight = available;
-        Height = Math.Min(Height, available);
     }
 
     /// <summary>Keep only hex digits, lower-cased; null when empty (REALITY short_id).</summary>

@@ -28,7 +28,7 @@ public static class KillSwitch
     private const string OperationMutexName = @"Global\Qeli.KillSwitch.Operation.v1";
     private static readonly object StrictGateLock = new();
     private static readonly object OwnerLock = new();
-    private static WinDivertKillSwitchGate? _strictGate;
+    private static readonly RetainedDriverGates StrictGates = new();
     private static EventWaitHandle? _ownerMarker;
     private static string? _strictTunAlias;
     private static string[] _strictServers = Array.Empty<string>();
@@ -134,9 +134,7 @@ public static class KillSwitch
             {
                 if (prior != null && firewallTouched)
                     RestoreFirewall(prior);
-                DeleteState();
-                CloseStrictGate();
-                ReleaseOwnership();
+                CompleteRecovery(CloseStrictGate, DeleteState, ReleaseOwnership);
             }
             catch (Exception restoreError)
             {
@@ -236,9 +234,7 @@ public static class KillSwitch
         RestoreFirewall(prior);
         // Restore firewall policy first. Until that is done the kernel gate remains
         // active, so stopping the tunnel cannot create a transient egress window.
-        DeleteState();
-        CloseStrictGate();
-        ReleaseOwnership();
+        CompleteRecovery(CloseStrictGate, DeleteState, ReleaseOwnership);
         log?.Invoke("Kill-switch disengaged (egress restored)");
     }
 
@@ -332,21 +328,14 @@ public static class KillSwitch
             // Open the complete immutable filter before publishing it or closing the current
             // handle. A failed Open leaves the old gate and its metadata untouched. While both
             // filters coexist they can briefly block a carrier, but cannot create a leak.
-            var nextGate = WinDivertKillSwitchGate.Open(tunAlias, nextServers, nextDns);
-            var oldGate = _strictGate;
-            try
-            {
-                _strictGate = nextGate;
-                _strictTunAlias = tunAlias;
-                _strictServers = nextServers;
-                _strictDns = nextDns;
-            }
-            catch
-            {
-                nextGate.Dispose();
-                throw;
-            }
-            oldGate?.Dispose();
+            StrictGates.Replace(
+                () => WinDivertKillSwitchGate.Open(tunAlias, nextServers, nextDns),
+                () =>
+                {
+                    _strictTunAlias = tunAlias;
+                    _strictServers = nextServers;
+                    _strictDns = nextDns;
+                });
         }
     }
 
@@ -354,12 +343,18 @@ public static class KillSwitch
     {
         lock (StrictGateLock)
         {
-            _strictGate?.Dispose();
-            _strictGate = null;
+            StrictGates.Close();
             _strictTunAlias = null;
             _strictServers = Array.Empty<string>();
             _strictDns = Array.Empty<string>();
         }
+    }
+
+    internal static void CompleteRecovery(Action closeGates, Action deleteJournal, Action releaseOwner)
+    {
+        closeGates();
+        deleteJournal();
+        releaseOwner();
     }
 
     private static void AcquireOwnership()
@@ -689,15 +684,8 @@ public static class KillSwitch
     /// reachable regardless, and counting it as "we have a resolver" hides that the real
     /// upstreams are unknown. IPv4 link-local (169.254/16, APIPA) is the same class of
     /// phantom as fec0::.</summary>
-    private static bool UsableResolver(System.Net.IPAddress a)
-    {
-        if (System.Net.IPAddress.IsLoopback(a)) return false;
-        if (a.Equals(System.Net.IPAddress.Any) || a.Equals(System.Net.IPAddress.IPv6Any)) return false;
-        if (a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
-            return !a.IsIPv6LinkLocal && !a.IsIPv6SiteLocal && !a.IsIPv6Multicast;
-        var b = a.GetAddressBytes();
-        return !(b[0] == 169 && b[1] == 254);   // APIPA
-    }
+    private static bool UsableResolver(System.Net.IPAddress address) =>
+        Qeli.Shared.Vpn.PhysicalDnsPolicy.IsUsableResolver(address);
 
     private static List<string> ResolveDnsServers()
     {

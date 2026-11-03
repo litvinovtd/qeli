@@ -2,38 +2,6 @@ import CryptoKit
 import Foundation
 
 enum KeyDerivation {
-    static func handshakeTranscript(_ records: [Data]) -> Data {
-        var hash = SHA256()
-        for record in records { hash.update(data: record) }
-        return Data(hash.finalize())
-    }
-
-    static func serverAuthenticationProof(
-        staticShared: Data,
-        ephemeralShared: Data,
-        transcriptHash: Data
-    ) -> Data {
-        let prk = hmac(key: staticShared, data: ephemeralShared)
-        return expand(
-            pseudorandomKey: prk,
-            info: Data("vpn-server-auth-proof-v2".utf8) + transcriptHash,
-            length: 32
-        )
-    }
-
-    static func clientKeyProof(
-        staticShared: Data,
-        ephemeralShared: Data,
-        transcriptHash: Data
-    ) -> Data {
-        let prk = hmac(key: staticShared, data: ephemeralShared)
-        return expand(
-            pseudorandomKey: prk,
-            info: Data("vpn-client-key-proof-v1".utf8) + transcriptHash,
-            length: 32
-        )
-    }
-
     static func classicKeys(sharedSecret: Data) -> (serverToClient: Data, clientToServer: Data) {
         directionalKeys(salt: "qeli-key-derivation-v1", inputKeyMaterial: sharedSecret)
     }

@@ -61,10 +61,15 @@ app configuration, not a configuration profile. Qeli's standalone
 `ManagedConfigurationReader` reads it from
 `UserDefaults.standard["com.apple.configuration.managed"]` and accepts:
 
-- `configurationVersion` — integer schema version.
+- `configurationVersion` — exact, representable integer schema version (Boolean,
+  fractions and overflow are rejected).
 - `activeProfileID` — UUID string referring to an existing encrypted profile.
 - `onDemandEnabled` — Boolean policy value.
 - `widgetControlsEnabled` — Boolean policy value.
+
+Actual Boolean policies and legacy exact numeric 0/1 are accepted; fractional,
+nonfinite and wrong-type policy values are ignored rather than truncated. A numeric
+1.0 remains an exact integer value.
 
 The reader itself is side-effect free. `AppModel` gives these managed values
 precedence at launch and whenever the app becomes active: it selects the managed

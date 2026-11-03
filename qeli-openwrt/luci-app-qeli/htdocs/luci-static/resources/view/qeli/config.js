@@ -22,6 +22,13 @@ var callQeliServiceAction = rpc.declare({
 	expect: { result: false }
 });
 
+// Fresh init-visible intent without unloading the shared form's staged UCI cache.
+var callQeliServiceStatus = rpc.declare({
+	object: 'luci.qeli',
+	method: 'service_status',
+	expect: { '': {} }
+});
+
 var callQeliSecretStatus = rpc.declare({
 	object: 'luci.qeli',
 	method: 'secret_status',
@@ -59,8 +66,24 @@ function svc(action) {
 	});
 }
 
+// Validate before JSON/ubus: C-string transports can discard a NUL suffix.
+function validateSecretValue(value) {
+	if (value == null || value === '') return true; // leave the existing secret
+	if (typeof value !== 'string') return _('The secret must be text.');
+	if (/[\x00-\x1f\x7f]/.test(value)) return _('The secret must not contain ASCII control characters.');
+	if (value.length > 4096) return _('The secret must contain at most 4096 UTF-8 bytes.');
+	try {
+		// Each percent triplet represents one UTF-8 byte; reject lone surrogates.
+		if (encodeURIComponent(value).replace(/%[0-9A-F]{2}|./g, 'x').length > 4096)
+			return _('The secret must contain at most 4096 UTF-8 bytes.');
+	} catch (e) { return _('The secret must contain valid Unicode.'); }
+	return true;
+}
+
 function setSecret(name, value) {
-	if (!value) return Promise.resolve(); // empty means "leave the existing volatile secret"
+	var validation = validateSecretValue(value);
+	if (validation !== true) return Promise.reject(new Error(validation));
+	if (value == null || value === '') return Promise.resolve(); // leave the existing volatile secret
 	return callQeliSetSecret(name, value).then(function (ok) {
 		if (!ok) throw new Error(_('Failed to store the volatile %s secret.').format(name));
 		ui.addNotification(null, E('p', _('Volatile %s secret updated. Restart qeli to apply it.').format(name)), 'info');
@@ -74,18 +97,41 @@ function clearSecret(name) {
 	});
 }
 
+// Save stages session-local UCI changes; apply resolves only after commit/confirmation.
+// Serialize all three controls so an overlapping Disconnect cannot be followed by
+// the remainder of an older Connect. Failure does not poison the next request.
+var serviceControlTail = Promise.resolve();
+
+function controlService(action) {
+	if (action !== 'connect' && action !== 'disconnect' && action !== 'restart')
+		return Promise.reject(new Error(_('Unknown qeli service action.')));
+	function operation() {
+		if (action === 'restart') return svc('restart');
+		var enabled = action === 'connect';
+		uci.set('qeli', 'main', 'enabled', enabled ? '1' : '0');
+		return uci.save()
+			.then(function () { return uci.apply(); })
+			.then(function () { return svc(enabled ? 'enable' : 'stop'); })
+			.then(function () { return svc(enabled ? 'start' : 'disable'); });
+	}
+	var result = serviceControlTail.then(operation);
+	serviceControlTail = result.catch(function () {});
+	return result;
+}
+
 // Autostart intent, as the init script actually reads it. `start_service` refuses to run
 // unless `qeli.main.enabled` is 1, so the rc.d symlink alone decides nothing here — the
 // UCI flag is the real switch, and the status line has to show it or a "stopped" tunnel
 // that will silently come back on the next boot looks identical to one that will not. (C-21)
 function getEnabled() {
-	return uci.load('qeli').then(function () {
-		return uci.get('qeli', 'main', 'enabled') == '1';
-	}).catch(function () { return false; });
+	return callQeliServiceStatus().then(function (status) {
+		return status && typeof status.enabled === 'boolean' ? status.enabled : null;
+	}).catch(function () { return null; });
 }
 
 function statusText(running, enabled) {
 	if (running) return _('● connected / running');
+	if (enabled === null) return _('○ stopped (autostart state unavailable)');
 	return enabled ? _('○ stopped (autostart ON — starts again on boot)') : _('○ stopped');
 }
 
@@ -127,11 +173,7 @@ return view.extend({
 					// and the button appeared broken. (C-21)
 					E('button', { class: 'btn cbi-button-positive',
 						click: ui.createHandlerFn(this, function () {
-							uci.set('qeli', 'main', 'enabled', '1');
-							return uci.save()
-								.then(function () { return svc('enable'); })
-								.then(function () { return svc('start'); })
-								.then(L.bind(L.ui.changes.apply, L.ui.changes));
+							return controlService('connect');
 						}) }, _('Connect')),
 					' ',
 					// Disconnect clears the autostart intent as well. `stop` alone left
@@ -139,15 +181,11 @@ return view.extend({
 					// next boot while the UI had shown it as disconnected. (C-21)
 					E('button', { class: 'btn cbi-button-negative',
 						click: ui.createHandlerFn(this, function () {
-							uci.set('qeli', 'main', 'enabled', '0');
-							return uci.save()
-								.then(function () { return svc('stop'); })
-								.then(function () { return svc('disable'); })
-								.then(L.bind(L.ui.changes.apply, L.ui.changes));
+							return controlService('disconnect');
 						}) }, _('Disconnect')),
 					' ',
 					E('button', { class: 'btn',
-						click: ui.createHandlerFn(this, function () { return svc('restart'); }) }, _('Restart')),
+						click: ui.createHandlerFn(this, function () { return controlService('restart'); }) }, _('Restart')),
 				])
 			]);
 			// live status refresh
@@ -190,6 +228,7 @@ return view.extend({
 		o.password = true;
 		o.rmempty = true;
 		o.cfgvalue = function () { return ''; };
+		o.validate = function (sectionId, value) { return validateSecretValue(value); };
 		o.write = function (sectionId, value) { return setSecret('pass', value); };
 		o.remove = function () { return Promise.resolve(); };
 
@@ -234,6 +273,7 @@ return view.extend({
 		o.password = true;
 		o.rmempty = true;
 		o.cfgvalue = function () { return ''; };
+		o.validate = function (sectionId, value) { return validateSecretValue(value); };
 		o.write = function (sectionId, value) { return setSecret('obfs_key', value); };
 		o.remove = function () { return Promise.resolve(); };
 

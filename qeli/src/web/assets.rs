@@ -79,6 +79,30 @@ pub async fn asset(Path(path): Path<String>) -> Response {
 mod tests {
     use super::{ALPINE_JS, APP_CSS, I18N_JS};
 
+    // Property order is a minifier detail. Require the declarations together in
+    // the exact selector's rule, so removing a required property still fails.
+    fn has_declarations(css: &str, selector: &str, required: &[(&str, &str)]) -> bool {
+        css.match_indices(selector).any(|(start, _)| {
+            if start > 0 && !matches!(css.as_bytes()[start - 1], b'{' | b'}' | b',' | b' ' | b'\n')
+            {
+                return false;
+            }
+            let Some(body) = css[start + selector.len()..]
+                .strip_prefix('{')
+                .and_then(|rest| rest.split_once('}').map(|(body, _)| body))
+            else {
+                return false;
+            };
+            required.iter().all(|&(property, value)| {
+                body.split(';').any(|declaration| {
+                    declaration.split_once(':').is_some_and(|(name, actual)| {
+                        name.trim() == property && actual.trim() == value
+                    })
+                })
+            })
+        })
+    }
+
     #[test]
     fn vendored_alpine_is_the_csp_build() {
         assert!(ALPINE_JS.contains("3.15.12"));
@@ -88,11 +112,25 @@ mod tests {
 
     #[test]
     fn panel_grid_controls_and_localized_options_are_embedded() {
-        assert!(APP_CSS.contains(".profile-grid{display:grid"));
+        assert!(has_declarations(
+            APP_CSS,
+            ".profile-grid",
+            &[("display", "grid")]
+        ));
         assert!(APP_CSS.contains("repeat(6,minmax(0,1fr))"));
-        assert!(APP_CSS.contains(".config-profile-list{display:flex;flex-wrap:wrap"));
-        assert!(APP_CSS.contains(
-            ".config-profile-tab-name{min-width:0;white-space:normal;overflow-wrap:anywhere"
+        assert!(has_declarations(
+            APP_CSS,
+            ".config-profile-list",
+            &[("display", "flex"), ("flex-wrap", "wrap")]
+        ));
+        assert!(has_declarations(
+            APP_CSS,
+            ".config-profile-tab-name",
+            &[
+                ("min-width", "0"),
+                ("white-space", "normal"),
+                ("overflow-wrap", "anywhere")
+            ]
         ));
         assert!(APP_CSS.contains(".transport-kind-udp{"));
         assert!(APP_CSS.contains("select.inp{"));

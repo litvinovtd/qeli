@@ -1,7 +1,9 @@
 use crate::server::notify::{self, ChannelEvents, NotifyConfig};
 use crate::server::web::auth::{self, AuthError};
+use axum::extract::State;
 use axum::Json;
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 /// Mask a secret for display: keep the last 4 chars, hide the rest.
 fn mask(s: &str) -> String {
@@ -33,9 +35,18 @@ fn public_config(c: &NotifyConfig) -> Value {
 /// Current notify config. The Telegram token is never sent back in clear — only a
 /// "set" flag and a masked hint — so the panel shows it's configured without
 /// leaking it to the browser. Telegram and the webhook are independent.
-pub async fn get_notify(_guard: auth::AuthGuard) -> Result<Json<Value>, AuthError> {
-    Ok(Json(match notify::load_checked() {
-        Ok(config) => json!({ "ok": true, "config": public_config(&config) }),
+pub async fn get_notify(
+    State(state): State<Arc<crate::server::ServerState>>,
+    _guard: auth::AuthGuard,
+) -> Result<Json<Value>, AuthError> {
+    // Serialize the INI read with backup/restore so the panel sees one stable tree.
+    let _write_guard = state.config_write_lock.lock().await;
+    Ok(Json(match notify::load_checked_with_raw() {
+        Ok((config, raw)) => json!({
+            "ok": true,
+            "config": public_config(&config),
+            "revision": super::config::config_revision(&raw),
+        }),
         Err(error) => json!({ "ok": false, "error": error }),
     }))
 }
@@ -74,8 +85,7 @@ fn merge_events(ev: &mut ChannelEvents, v: Option<&Value>) {
 /// Build an updated config from the request body, layered over the saved one. An
 /// empty `telegram_token` means "keep the existing one" (write-only field), so
 /// saving other settings never wipes a configured token.
-fn merge(body: &Value) -> Result<NotifyConfig, String> {
-    let mut c = notify::load_checked()?;
+fn merge(body: &Value, mut c: NotifyConfig) -> NotifyConfig {
     if let Some(v) = body.get("server_name").and_then(Value::as_str) {
         c.server_name = v.trim().to_string();
     }
@@ -90,7 +100,7 @@ fn merge(body: &Value) -> Result<NotifyConfig, String> {
     // "Empty means keep" (above) is deliberate — the panel always posts an empty token
     // after load, so without it every unrelated save would wipe a configured token.
     // But that left NO way to remove the secret: it survived even switching Telegram
-    // off, sitting in notify.json in the clear. An explicit flag is the way out.
+    // off, sitting in notify.ini in the clear. An explicit flag is the way out.
     if body
         .get("clear_token")
         .and_then(Value::as_bool)
@@ -109,18 +119,25 @@ fn merge(body: &Value) -> Result<NotifyConfig, String> {
         c.webhook_url = v.trim().to_string();
     }
     merge_events(&mut c.webhook_events, body.get("webhook_events"));
-    Ok(c)
+    c
 }
 
 /// Persist the notify config.
 pub async fn put_notify(
+    State(state): State<Arc<crate::server::ServerState>>,
     _guard: auth::AuthGuard,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AuthError> {
-    let mut c = match merge(&body) {
+    // Keep the read/merge/write transaction on one revision, including restore.
+    let _write_guard = state.config_write_lock.lock().await;
+    let (base, checked_raw) = match notify::load_checked_with_raw() {
         Ok(config) => config,
         Err(error) => return Ok(Json(json!({ "ok": false, "error": error }))),
     };
+    if let Some(conflict) = super::config::revision_conflict(&body, &checked_raw) {
+        return Ok(Json(conflict));
+    }
+    let mut c = merge(&body, base);
     // Disabling the channel also drops the secret — leaving a live bot token on disk
     // for a channel the operator believes is off is a needless exposure. Done HERE and
     // not in `merge`, because `merge` is shared with the test endpoint (where clearing
@@ -131,9 +148,22 @@ pub async fn put_notify(
     if let Err(error) = notify::validate_enabled(&c) {
         return Ok(Json(json!({ "ok": false, "error": error })));
     }
-    Ok(Json(match notify::save(&c) {
-        Ok(_) => json!({ "ok": true, "config": public_config(&c) }),
-        Err(e) => json!({ "ok": false, "error": e.to_string() }),
+    Ok(Json(match notify::save_if_unchanged(&c, &checked_raw) {
+        Ok(notify::ConditionalSave::Saved(raw)) => json!({
+            "ok": true,
+            "config": public_config(&c),
+            "revision": super::config::config_revision(&raw),
+        }),
+        Ok(notify::ConditionalSave::Conflict(raw)) => super::config::revision_conflict(&body, &raw)
+            .unwrap_or_else(|| {
+                json!({
+                    "ok": false,
+                    "kind": "config_conflict",
+                    "error": "Notification settings changed while saving; reload and retry",
+                    "current_revision": super::config::config_revision(&raw),
+                })
+            }),
+        Err(error) => json!({ "ok": false, "error": error.to_string() }),
     }))
 }
 
@@ -141,12 +171,17 @@ pub async fn put_notify(
 /// merging the request body over the saved config so edits can be tested before
 /// saving. Returns the channel result (status code or error).
 pub async fn test_notify(
+    State(state): State<Arc<crate::server::ServerState>>,
     _guard: auth::AuthGuard,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AuthError> {
-    let c = match merge(&body) {
-        Ok(config) => config,
-        Err(error) => return Ok(Json(json!({ "ok": false, "error": error }))),
+    let c = {
+        let _write_guard = state.config_write_lock.lock().await;
+        let base = match notify::load_checked() {
+            Ok(config) => config,
+            Err(error) => return Ok(Json(json!({ "ok": false, "error": error }))),
+        };
+        merge(&body, base)
     };
     let result = match body.get("channel").and_then(Value::as_str).unwrap_or("") {
         "telegram" => notify::test_telegram(&c).await,

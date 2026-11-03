@@ -1,0 +1,221 @@
+{
+  "rows": [
+    {
+      "git_blob": "8e82c70d1081e2857ada1b73395d4f42c2e8adc9",
+      "names": [
+        {
+          "encoding": 1,
+          "id": 0,
+          "language": 1033,
+          "platform": 3,
+          "text": "Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)"
+        },
+        {
+          "encoding": 1,
+          "id": 5,
+          "language": 1033,
+          "platform": 3,
+          "text": "Version 3.019;git-0a5106e0b"
+        },
+        {
+          "encoding": 1,
+          "id": 13,
+          "language": 1033,
+          "platform": 3,
+          "text": "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+        },
+        {
+          "encoding": 1,
+          "id": 14,
+          "language": 1033,
+          "platform": 3,
+          "text": "http://scripts.sil.org/OFL"
+        }
+      ],
+      "path": "src/Avalonia.Fonts.Inter/Assets/Inter-Bold.ttf",
+      "sha256": "790c108befe859dac2ddbd20af3fbb6917c601b3d544c8a05761519f3b5508fe",
+      "url": "https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-Bold.ttf"
+    },
+    {
+      "git_blob": "9e265d8905dd0ab93e4830a461453e1dbdadaa56",
+      "names": [
+        {
+          "encoding": 1,
+          "id": 0,
+          "language": 1033,
+          "platform": 3,
+          "text": "Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)"
+        },
+        {
+          "encoding": 1,
+          "id": 5,
+          "language": 1033,
+          "platform": 3,
+          "text": "Version 3.019;git-0a5106e0b"
+        },
+        {
+          "encoding": 1,
+          "id": 13,
+          "language": 1033,
+          "platform": 3,
+          "text": "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+        },
+        {
+          "encoding": 1,
+          "id": 14,
+          "language": 1033,
+          "platform": 3,
+          "text": "http://scripts.sil.org/OFL"
+        }
+      ],
+      "path": "src/Avalonia.Fonts.Inter/Assets/Inter-Light.ttf",
+      "sha256": "c44ff7a5fde4816f94fc1e5e232b021a812a411339ddd08b0a475ca6e21db810",
+      "url": "https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-Light.ttf"
+    },
+    {
+      "git_blob": "b53fb1c4acbe100c7a91f07564b7f1fa2d5bab12",
+      "names": [
+        {
+          "encoding": 1,
+          "id": 0,
+          "language": 1033,
+          "platform": 3,
+          "text": "Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)"
+        },
+        {
+          "encoding": 1,
+          "id": 5,
+          "language": 1033,
+          "platform": 3,
+          "text": "Version 3.019;git-0a5106e0b"
+        },
+        {
+          "encoding": 1,
+          "id": 13,
+          "language": 1033,
+          "platform": 3,
+          "text": "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+        },
+        {
+          "encoding": 1,
+          "id": 14,
+          "language": 1033,
+          "platform": 3,
+          "text": "http://scripts.sil.org/OFL"
+        }
+      ],
+      "path": "src/Avalonia.Fonts.Inter/Assets/Inter-Medium.ttf",
+      "sha256": "10d48331f5b3c7362ca357b00c17ac4863ad35199b13b0eceb0962c8c1ad7dc9",
+      "url": "https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-Medium.ttf"
+    },
+    {
+      "git_blob": "8d4eebf20665d5ae746c622a2bd42274b54d2bf1",
+      "names": [
+        {
+          "encoding": 1,
+          "id": 0,
+          "language": 1033,
+          "platform": 3,
+          "text": "Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)"
+        },
+        {
+          "encoding": 1,
+          "id": 5,
+          "language": 1033,
+          "platform": 3,
+          "text": "Version 3.019;git-0a5106e0b"
+        },
+        {
+          "encoding": 1,
+          "id": 13,
+          "language": 1033,
+          "platform": 3,
+          "text": "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+        },
+        {
+          "encoding": 1,
+          "id": 14,
+          "language": 1033,
+          "platform": 3,
+          "text": "http://scripts.sil.org/OFL"
+        }
+      ],
+      "path": "src/Avalonia.Fonts.Inter/Assets/Inter-Regular.ttf",
+      "sha256": "41ab0f707a2bfab8133ccdfcdab52282f5f79e5751f43a264805451c7bb95fb8",
+      "url": "https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-Regular.ttf"
+    },
+    {
+      "git_blob": "c6aeeb16a6d7f754258bc7f3f2101d287976e6e6",
+      "names": [
+        {
+          "encoding": 1,
+          "id": 0,
+          "language": 1033,
+          "platform": 3,
+          "text": "Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)"
+        },
+        {
+          "encoding": 1,
+          "id": 5,
+          "language": 1033,
+          "platform": 3,
+          "text": "Version 3.019;git-0a5106e0b"
+        },
+        {
+          "encoding": 1,
+          "id": 13,
+          "language": 1033,
+          "platform": 3,
+          "text": "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+        },
+        {
+          "encoding": 1,
+          "id": 14,
+          "language": 1033,
+          "platform": 3,
+          "text": "http://scripts.sil.org/OFL"
+        }
+      ],
+      "path": "src/Avalonia.Fonts.Inter/Assets/Inter-SemiBold.ttf",
+      "sha256": "e8cbc2b88bc4268237ff5e251776d3c54edcb14e015a9e66e4883bde4b55f13f",
+      "url": "https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-SemiBold.ttf"
+    },
+    {
+      "git_blob": "7aed55d560065b7a5a1975121e0b13ac25e798c8",
+      "names": [
+        {
+          "encoding": 1,
+          "id": 0,
+          "language": 1033,
+          "platform": 3,
+          "text": "Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)"
+        },
+        {
+          "encoding": 1,
+          "id": 5,
+          "language": 1033,
+          "platform": 3,
+          "text": "Version 3.019;git-0a5106e0b"
+        },
+        {
+          "encoding": 1,
+          "id": 13,
+          "language": 1033,
+          "platform": 3,
+          "text": "This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL"
+        },
+        {
+          "encoding": 1,
+          "id": 14,
+          "language": 1033,
+          "platform": 3,
+          "text": "http://scripts.sil.org/OFL"
+        }
+      ],
+      "path": "src/Avalonia.Fonts.Inter/Assets/Inter-Thin.ttf",
+      "sha256": "b778a52b84f39ba1d3b08553a246643573b33453b5481b4d09c604bccced930d",
+      "url": "https://raw.githubusercontent.com/AvaloniaUI/Avalonia/984c3b833f29806eb159fb7f12a6132e936b75df/src/Avalonia.Fonts.Inter/Assets/Inter-Thin.ttf"
+    }
+  ],
+  "schema": 1
+}

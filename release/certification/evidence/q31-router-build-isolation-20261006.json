@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F335_F337_ROUTER_SOURCE_ELF_LOCKFILE_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T17:26:43.413365+00:00",
+  "base_commit": "69eb657a1676ec89097460aea7fe700f69ce2352",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-router-build-isolation-20261006",
+  "raw_seal_sha256": "b8d241c2ef676df3b517583a0ecef99ca507c740a52571b713f7c0f630c228f9",
+  "checks": [
+    {
+      "id": "router-build-local",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_router_build.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "router-build-local.log"
+    },
+    {
+      "id": "router-artifact-local",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_router_artifact.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "router-artifact-local.log"
+    },
+    {
+      "id": "recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "recipes.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    },
+    {
+      "id": "docs-final",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs-final.log"
+    },
+    {
+      "id": "diff-staged",
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff-staged.log"
+    },
+    {
+      "id": "router-tests",
+      "command": "cd /var/tmp/qeli-q31-router-build-isolation-20261006 && python3 -m unittest discover -s scripts -p 'test_router*.py' -v",
+      "exit_code": 1,
+      "log": "router-tests.log"
+    },
+    {
+      "id": "original-current",
+      "command": "cd /var/tmp/qeli-q31-router-build-isolation-20261006 && QELI_ROUTER_BASELINE=/var/tmp/qeli-q31-router-build-isolation-20261006/baseline PYTHONPATH=scripts python3 reproduce.py",
+      "exit_code": 1,
+      "log": "original-current.log"
+    },
+    {
+      "id": "static-elf-build",
+      "command": "LC_ALL=C cc -static -Wl,--build-id=none -o /var/tmp/qeli-q31-router-build-isolation-20261006/elf-x86_64 /var/tmp/qeli-q31-router-build-isolation-20261006/elf-fixture.c",
+      "exit_code": 0,
+      "log": "static-elf-build.log"
+    },
+    {
+      "id": "router-tests-final",
+      "command": "cd /var/tmp/qeli-q31-router-build-isolation-20261006 && python3 -m unittest discover -s scripts -p 'test_router*.py' -v",
+      "exit_code": 0,
+      "log": "router-tests-final.log"
+    },
+    {
+      "id": "original-current-final",
+      "command": "cd /var/tmp/qeli-q31-router-build-isolation-20261006 && QELI_ROUTER_BASELINE=/var/tmp/qeli-q31-router-build-isolation-20261006/baseline PYTHONPATH=scripts python3 reproduce.py",
+      "exit_code": 1,
+      "log": "original-current-final.log"
+    },
+    {
+      "id": "actual-elf-inspection",
+      "command": "saved actual-elf-inspection.py on supplied router_artifact.py",
+      "exit_code": 0,
+      "log": "actual-elf-inspection.log"
+    },
+    {
+      "id": "original-current-qualified",
+      "command": "cd /var/tmp/qeli-q31-router-build-isolation-20261006 && QELI_ROUTER_BASELINE=/var/tmp/qeli-q31-router-build-isolation-20261006/baseline PYTHONPATH=scripts python3 reproduce.py",
+      "exit_code": 0,
+      "log": "original-current-qualified.log"
+    },
+    {
+      "id": "cargo-install-contract-initial",
+      "exit_code": 1,
+      "log": "cargo-install-contract.log",
+      "note": "incorrect test assumption about cargo install missing lockfile; investigate actual command before accepting"
+    },
+    {
+      "id": "cargo-install-contract-second",
+      "exit_code": 1,
+      "log": "cargo-install-contract-final.log",
+      "note": "actual path-dependency stale lock admitted by cargo install --locked; requires metadata guard"
+    },
+    {
+      "id": "cargo-install-contract-qualified",
+      "command": "cd /var/tmp/qeli-q31-router-build-isolation-20261006 && PATH=/root/.cargo/bin:$PATH python3 cargo-install-contract.py",
+      "exit_code": 0,
+      "log": "cargo-install-contract-qualified.log"
+    },
+    {
+      "id": "router-tests-canonical",
+      "command": "cd /var/tmp/qeli-q31-router-build-isolation-20261006 && python3 -m unittest discover -s scripts -p 'test_router*.py' -v",
+      "exit_code": 0,
+      "log": "router-tests-canonical.log"
+    },
+    {
+      "id": "original-current-canonical",
+      "command": "cd /var/tmp/qeli-q31-router-build-isolation-20261006 && QELI_ROUTER_BASELINE=/var/tmp/qeli-q31-router-build-isolation-20261006/baseline PYTHONPATH=scripts python3 reproduce.py",
+      "exit_code": 0,
+      "log": "original-current-canonical.log"
+    },
+    {
+      "id": "actual-elf-canonical",
+      "command": "cd /var/tmp/qeli-q31-router-build-isolation-20261006 && PYTHONPATH=scripts python3 -c 'import json,hashlib\nfrom pathlib import Path\nfrom router_artifact import validate_router_elf\nrows=[]\nfor name,path,accepted in [('\"'\"'tiny-static'\"'\"',Path('\"'\"'elf-x86_64'\"'\"'),True),('\"'\"'prior-debug-qeli'\"'\"',Path('\"'\"'/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client'\"'\"'),False)]:\n data=path.read_bytes()\n try:\n  metadata=validate_router_elf(data,'\"'\"'x86_64-unknown-linux-musl'\"'\"');ok=True\n except RuntimeError as error:metadata={'\"'\"'rejected'\"'\"':str(error)};ok=False\n assert ok==accepted,(name,metadata)\n rows.append({'\"'\"'sample'\"'\"':name,'\"'\"'sha256'\"'\"':hashlib.sha256(data).hexdigest(),'\"'\"'size'\"'\"':len(data),'\"'\"'accepted'\"'\"':ok,'\"'\"'metadata'\"'\"':metadata,'\"'\"'scope'\"'\"':'\"'\"'ELF metadata only; tiny glibc static fixture and prior dynamic debug Qeli, not a Qeli musl/cross/runtime build'\"'\"'})\nprint(json.dumps(rows,indent=2))\n'",
+      "exit_code": 0,
+      "log": "actual-elf-canonical.log"
+    }
+  ],
+  "findings": {
+    "F335": "Fresh private0700 per-run source/target; always upload; rlib restriction in own copy, no shared backup/restore; Qeli jobs1/no incremental.",
+    "F336": "Validate exact SHA-bound SFTP snapshot ELF target/header/segments/static/ARM EABI5 hard-float before existing atomic owner; prior local binary preserved on failure/cached hash.",
+    "F337": "SDK requires lockfile and metadata --locked before install --locked --jobs1; real missing/stale/valid offline tiny-crate cases."
+  },
+  "qualification": {
+    "linux_router_tests": 45,
+    "router_breakdown": {
+      "helper": 15,
+      "artifact": 16,
+      "private_checkout": 7,
+      "source_sync": 7
+    },
+    "windows_helper_tests": 15,
+    "windows_artifact_tests": 16,
+    "recipes": 37,
+    "docs_bindings_diff": "PASS",
+    "old_current_records": 20,
+    "actual_offline_make_cargo_cases": 5,
+    "actual_elf_metadata_samples": [
+      {
+        "sample": "tiny-static",
+        "sha256": "df3750200db236170ac6ec608935a4397d07f65013440ad18caa85a7ad91012b",
+        "size": 754152,
+        "accepted": true,
+        "metadata": {
+          "class": 2,
+          "machine": 62,
+          "type": 2,
+          "endianness": "little",
+          "external_interpreter": false,
+          "needed_libraries": false
+        },
+        "scope": "ELF metadata only; tiny glibc static fixture and prior dynamic debug Qeli, not a Qeli musl/cross/runtime build"
+      },
+      {
+        "sample": "prior-debug-qeli",
+        "sha256": "afa69da1d5bbcc64599f593856984d203cfec50dd81acbf6a248190ff0ce1b38",
+        "size": 35089136,
+        "accepted": false,
+        "metadata": {
+          "rejected": "router ELF requires an external interpreter"
+        },
+        "scope": "ELF metadata only; tiny glibc static fixture and prior dynamic debug Qeli, not a Qeli musl/cross/runtime build"
+      }
+    ],
+    "lab_tools": [
+      "Python 3.13.5",
+      "cc (Debian 14.2.0-19) 14.2.0",
+      "cargo 1.96.0 (30a34c682 2026-05-25)",
+      "rustc 1.96.0 (ac68faa20 2026-05-25)",
+      "GNU Make 4.4.1"
+    ],
+    "supplied_exact_git_inputs": 13,
+    "scoped_unchanged_git_inputs": 1203,
+    "core_native_compile_inputs_artifacts_router_binaries_unchanged": true,
+    "fresh_qeli_ffi_release_cross_build": "NOT_RUN; build recipe/model admission changed, compiled implementations/artifacts unchanged",
+    "failed_attempts": "initial Paramiko/custom loader errors and install-lock fixture assumptions retained; only final canonical/qualified checks admit this packet"
+  },
+  "limitations": {
+    "runtime": "Real router USER_EXCLUDED; helper SSH/compiler mocked, POSIX owned operations actual; SDK includes stubbed, tiny actual Cargo fixture not Qeli/SDK build",
+    "metadata": "No proof of musl/full ISA/MIPS float ABI/kernel/firmware/full ELF validity; strict gate rejects unsupported program headers",
+    "source": "Toolchain install/download cache shared; default stable/nightly/Zig not fully pinned, no reproducibility or immutable source upload guarantee; retained own directories require reviewed cleanup",
+    "generation_install": "Core/config generation,ABA,last-check replacement,firmware ordering,whole-bundle rollback OPEN",
+    "historical": "All41 prior case dates/artifacts/evidence/status/acceptance_basis and acceptance unchanged; Q29 FAIL/ENONET,Q30 exclusions/drainOPEN,D06 retained",
+    "progress": "28/37 (75.7%),9remain;Q31 IN_PROGRESS,no whole checklist row closed",
+    "operations": "No .10/service/firewall/sysctl/VPN/deploy/push changes"
+  }
+}

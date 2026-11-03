@@ -18,6 +18,14 @@ object TrustedWifiPolicy {
     fun canPause(configKillSwitch: Boolean, systemLockdown: Boolean): Boolean =
         !configKillSwitch && !systemLockdown
 
+    /** A trusted name may suppress carrier roaming only if this connection can really pause. */
+    fun shouldPause(
+        networkKind: NetworkKind,
+        configKillSwitch: Boolean,
+        systemLockdown: Boolean,
+    ): Boolean = networkKind == NetworkKind.TRUSTED_WIFI &&
+        canPause(configKillSwitch, systemLockdown)
+
     /**
      * Decide what to do after the live TUN has finished shutting down for a trusted network.
      * Keeping this transition side-effect free makes the two teardown races testable without an

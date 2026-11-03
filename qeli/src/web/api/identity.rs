@@ -11,14 +11,6 @@ use axum::Json;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// Re-read the on-disk config so newly-applied profiles are reflected (the
-/// supervisor's in-memory config is its startup snapshot).
-async fn current_config(state: &Arc<ServerState>) -> Option<crate::config::server::ServerConfig> {
-    let path = state.config_path.lock().await.clone()?;
-    let s = std::fs::read_to_string(path).ok()?;
-    crate::config::parse_server_config(&s).ok()
-}
-
 fn hex_public(kp: &crate::crypto::StaticKeypair) -> String {
     kp.public
         .as_bytes()
@@ -44,9 +36,9 @@ pub async fn list_identity(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    let cfg = match current_config(&state).await {
-        Some(c) => c,
-        None => return Ok(Json(super::err_json("cannot read server config"))),
+    let cfg = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
     };
     let mut profiles = Vec::new();
     for p in &cfg.profiles {
@@ -71,9 +63,9 @@ pub async fn rotate_identity(
     _guard: auth::AuthGuard,
     Path(profile): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
-    let cfg = match current_config(&state).await {
-        Some(c) => c,
-        None => return Ok(Json(super::err_json("cannot read server config"))),
+    let cfg = match super::current_server_config(&state).await {
+        Ok(config) => config,
+        Err(error) => return Ok(Json(super::err_json(error))),
     };
     let p = match cfg.profiles.iter().find(|p| p.name == profile) {
         Some(p) => p,
@@ -103,6 +95,57 @@ pub async fn rotate_identity(
 #[cfg(test)]
 mod tests {
     use super::format_bind_endpoint;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn identity_endpoints_reject_untrusted_config_before_creating_a_key() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-panel-identity-trust-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let key = dir.join("profile.key");
+        let config_path = dir.join("server.conf");
+        let raw = format!("[profile:p]\nidentity_key = {}\n", key.display());
+        std::fs::write(&config_path, &raw).unwrap();
+        std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let config = crate::config::parse_server_config(&raw).unwrap();
+        let state = crate::server::test_api_state(config, &config_path);
+
+        let listed = super::list_identity(
+            axum::extract::State(state.clone()),
+            crate::server::web::auth::AuthGuard,
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(listed["ok"], false);
+        assert!(listed["error"].as_str().unwrap().contains("identity_key"));
+        let rotated = super::rotate_identity(
+            axum::extract::State(state.clone()),
+            crate::server::web::auth::AuthGuard,
+            axum::extract::Path("p".into()),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(rotated["ok"], false);
+        assert!(!key.exists());
+
+        std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let listed = super::list_identity(
+            axum::extract::State(state),
+            crate::server::web::auth::AuthGuard,
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(listed["ok"], true, "{listed}");
+        assert!(key.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn formats_ipv4_and_hostnames_without_brackets() {

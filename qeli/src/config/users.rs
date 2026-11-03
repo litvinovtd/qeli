@@ -7,6 +7,13 @@ use std::path::Path;
 /// config from serially blocking every authentication for minutes.
 pub const MAX_CLIENT_SUBNETS_PER_USER: usize = 16;
 
+/// Preserve parser/IO causes when a users-load error crosses a string boundary
+/// (CLI, panel response, reload log or control reply). Normal Display shows only
+/// the outer context, hiding the key or limit that actually needs fixing.
+pub fn users_error_message(error: &anyhow::Error) -> String {
+    format!("{error:#}")
+}
+
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct UsersDb {
     #[serde(default)]
@@ -164,8 +171,12 @@ fn reject_unread_keys(doc: &crate::config::format::IniDoc, path: &Path) -> anyho
 
 fn validate_users_instance_names(doc: &crate::config::format::IniDoc) -> anyhow::Result<()> {
     for kind in ["user", "group"] {
+        let mut seen = std::collections::HashSet::new();
         for section in doc.sections_of(kind) {
             let name = section.instance.as_deref().unwrap_or("");
+            if !seen.insert(name) {
+                anyhow::bail!("users database: duplicate [{kind}:{name}] section");
+            }
             if !crate::util::is_valid_ident(name) {
                 anyhow::bail!(
                     "users database: invalid [{kind}:<name>] instance {name:?} (must be 1..=128 bytes, without edge whitespace or control characters)"
@@ -281,7 +292,11 @@ impl UsersDb {
         change: impl FnOnce(&mut UsersDb) -> anyhow::Result<R>,
     ) -> anyhow::Result<(Self, R)> {
         let path = path.as_ref();
-        let _lock = crate::util::FileLock::acquire(path)?;
+        // Bound cross-process contention so a stalled CLI writer cannot strand
+        // the panel/control handler indefinitely. Timeout occurs before reading
+        // or publishing a candidate and preserves the existing INI.
+        let _lock =
+            crate::util::FileLock::acquire_timeout(path, std::time::Duration::from_secs(5))?;
         // A MISSING file = first write (e.g. `add-client` on a fresh install) → start
         // empty. But a CORRUPT / unreadable / unparseable file must NOT collapse to an
         // empty DB, because the `save()` below would then persist that empty DB over the
@@ -401,6 +416,11 @@ impl UsersDb {
         for user in &self.users {
             if !crate::util::is_valid_ident(&user.username) {
                 anyhow::bail!("username {:?} is invalid", user.username);
+            }
+            for profile in &user.profiles {
+                if !crate::util::is_valid_profile_name(profile) {
+                    anyhow::bail!("user {:?}: invalid profile name {:?}; commas and path separators are not allowed in profile names", user.username, profile);
+                }
             }
             if !usernames.insert(user.username.as_str()) {
                 anyhow::bail!("duplicate username {:?}", user.username);
@@ -579,6 +599,39 @@ impl UserEntry {
 #[cfg(test)]
 mod load_tests {
     use super::*;
+
+    #[test]
+    fn users_error_message_preserves_nested_parser_cause() {
+        let error = anyhow::anyhow!("client_subnet has 17 entries; maximum is 16")
+            .context("users database")
+            .context("users file exists but could not be loaded");
+        let message = users_error_message(&error);
+        assert!(message.contains("users file exists"), "{message}");
+        assert!(message.contains("users database"), "{message}");
+        assert!(
+            message.contains("client_subnet has 17 entries; maximum is 16"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn users_error_message_preserves_io_cause_and_error_type() {
+        let error = anyhow::Error::new(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "users file permission denied",
+        ))
+        .context("cannot load users file");
+        let message = users_error_message(&error);
+        assert!(message.contains("cannot load users file"), "{message}");
+        assert!(
+            message.contains("users file permission denied"),
+            "{message}"
+        );
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+    }
 
     #[test]
     fn ipv4_and_ipv6_user_network_policy_validates_together() {

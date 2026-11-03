@@ -1,0 +1,240 @@
+{
+  "sha256": "1d94d4c412f6c1fd231765b760196b0b4f518c20135bf0ccd1b52b192710cf76",
+  "rows": [
+    {
+      "rep": 1,
+      "mbps": 936.3202883875864,
+      "loss_percent": 1.3330362504005235,
+      "full_ring": 35520,
+      "overlap": {
+        "runnable_wait": 0,
+        "sleep": 71,
+        "both": 0,
+        "neither": 35449
+      },
+      "left_censored": 0,
+      "reader_cpu_ms": 4184.307905,
+      "reader_runqueue_ms": 3516.977604,
+      "reader_slices": 485727,
+      "reader_syscall_samples": {
+        "7/None": 14,
+        "202/9": 3,
+        "running/None": 2
+      },
+      "seconds": 17.982081747002667,
+      "consumer_cpu_ms": 13289.394787,
+      "consumer_runqueue_ms": 3960.755205,
+      "neighbor_before_after_mbps": [
+        949.1228572170056,
+        949.3245600572166
+      ],
+      "relative_to_neighbor_mean_percent": -1.3593655670538718,
+      "metadata": {
+        "server": {
+          "elapsed": 18.787123835994862,
+          "tun_tx_drops": 0,
+          "tun_tx_packets": 15,
+          "outer_tx_packets": 9,
+          "outer_rx_packets": 1802709,
+          "outer_tx_bytes": 2328,
+          "fq_drops": 0,
+          "fq_flow_limit": 0,
+          "qeli_udp_socket_drops": 0,
+          "udp_rcvbuf_errors": 0,
+          "udp_in_errors": 0,
+          "cpu_vm_percent": 70.36535859269283,
+          "cpu_qeli_one_core_percent": 109.48988349450951,
+          "outer_packets_per_tun_tx": 0.6
+        },
+        "client": {
+          "elapsed": 18.78581608599052,
+          "tun_tx_drops": 35520,
+          "tun_tx_packets": 1747135,
+          "outer_tx_packets": 1802709,
+          "outer_rx_packets": 9,
+          "outer_tx_bytes": 2392411446,
+          "fq_drops": 0,
+          "fq_flow_limit": 0,
+          "qeli_udp_socket_drops": 0,
+          "udp_rcvbuf_errors": 0,
+          "udp_in_errors": 0,
+          "cpu_vm_percent": 72.79309384572542,
+          "cpu_qeli_one_core_percent": 112.37201462726306,
+          "outer_packets_per_tun_tx": 1.0318086467273564
+        }
+      }
+    },
+    {
+      "rep": 2,
+      "mbps": 937.7016446262312,
+      "loss_percent": 1.3643893635654392,
+      "full_ring": 32748,
+      "overlap": {
+        "runnable_wait": 0,
+        "sleep": 0,
+        "both": 0,
+        "neither": 32748
+      },
+      "left_censored": 1,
+      "reader_cpu_ms": 5154.832811,
+      "reader_runqueue_ms": 3918.100054,
+      "reader_slices": 536950,
+      "reader_syscall_samples": {
+        "7/None": 9,
+        "running/None": 7,
+        "202/9": 3
+      },
+      "seconds": 17.981812192010693,
+      "consumer_cpu_ms": 12802.058336,
+      "consumer_runqueue_ms": 3554.271777,
+      "neighbor_before_after_mbps": [
+        891.6114022365148,
+        939.5841296781152
+      ],
+      "relative_to_neighbor_mean_percent": 2.414147291611757,
+      "metadata": {
+        "server": {
+          "elapsed": 18.768780860002153,
+          "tun_tx_drops": 0,
+          "tun_tx_packets": 14,
+          "outer_tx_packets": 10,
+          "outer_rx_packets": 1805905,
+          "outer_tx_bytes": 2380,
+          "fq_drops": 0,
+          "fq_flow_limit": 0,
+          "qeli_udp_socket_drops": 0,
+          "udp_rcvbuf_errors": 0,
+          "udp_in_errors": 0,
+          "cpu_vm_percent": 68.50136239782016,
+          "cpu_qeli_one_core_percent": 108.69112997890083,
+          "outer_packets_per_tun_tx": 0.7142857142857143
+        },
+        "client": {
+          "elapsed": 18.770130830991548,
+          "tun_tx_drops": 32748,
+          "tun_tx_packets": 1749773,
+          "outer_tx_packets": 1805905,
+          "outer_rx_packets": 10,
+          "outer_tx_bytes": 2396033023,
+          "fq_drops": 34,
+          "fq_flow_limit": 34,
+          "qeli_udp_socket_drops": 0,
+          "udp_rcvbuf_errors": 0,
+          "udp_in_errors": 0,
+          "cpu_vm_percent": 76.20490223079041,
+          "cpu_qeli_one_core_percent": 112.14626147008063,
+          "outer_packets_per_tun_tx": 1.0320795897524992
+        }
+      }
+    },
+    {
+      "rep": 3,
+      "mbps": 913.7038348289819,
+      "loss_percent": 3.812677961994386,
+      "full_ring": 84037,
+      "overlap": {
+        "runnable_wait": 72,
+        "sleep": 0,
+        "both": 0,
+        "neither": 83965
+      },
+      "left_censored": 1,
+      "reader_cpu_ms": 4754.323036,
+      "reader_runqueue_ms": 4207.908758,
+      "reader_slices": 719714,
+      "reader_syscall_samples": {
+        "7/None": 12,
+        "202/9": 5,
+        "running/None": 2
+      },
+      "seconds": 17.982140598003753,
+      "consumer_cpu_ms": 12862.20534,
+      "consumer_runqueue_ms": 4424.537028,
+      "neighbor_before_after_mbps": [
+        935.4209550111931,
+        916.0302489905765
+      ],
+      "relative_to_neighbor_mean_percent": -1.2986318133493047,
+      "metadata": {
+        "server": {
+          "elapsed": 18.894082741026068,
+          "tun_tx_drops": 0,
+          "tun_tx_packets": 14,
+          "outer_tx_packets": 9,
+          "outer_rx_packets": 1753820,
+          "outer_tx_bytes": 2412,
+          "fq_drops": 0,
+          "fq_flow_limit": 0,
+          "qeli_udp_socket_drops": 0,
+          "udp_rcvbuf_errors": 0,
+          "udp_in_errors": 0,
+          "cpu_vm_percent": 64.45701967124764,
+          "cpu_qeli_one_core_percent": 102.36008947926157,
+          "outer_packets_per_tun_tx": 0.6428571428571429
+        },
+        "client": {
+          "elapsed": 18.90063292000559,
+          "tun_tx_drops": 84037,
+          "tun_tx_packets": 1698549,
+          "outer_tx_packets": 1753820,
+          "outer_rx_packets": 9,
+          "outer_tx_bytes": 2325945882,
+          "fq_drops": 61,
+          "fq_flow_limit": 61,
+          "qeli_udp_socket_drops": 0,
+          "udp_rcvbuf_errors": 0,
+          "udp_in_errors": 0,
+          "cpu_vm_percent": 71.30674002751032,
+          "cpu_qeli_one_core_percent": 108.62070115265709,
+          "outer_packets_per_tun_tx": 1.0325401268965453
+        }
+      }
+    }
+  ],
+  "control600": {
+    "mbps": 599.835477690864,
+    "loss": 0,
+    "full_ring": 0,
+    "reader": {
+      "comm": "qeli-tun-reader",
+      "cpu_ms": 3140.768785,
+      "runqueue_wait_ms": 782.360139,
+      "slices": 224614,
+      "wchan_samples": {
+        "0": 3,
+        "do_sys_poll": 16
+      },
+      "syscall_samples": {
+        "7/None": 16,
+        "running/None": 3
+      }
+    },
+    "seconds": 17.98166997198132
+  },
+  "total_drops": 152305,
+  "long_cpu_wait_overlap": 72,
+  "long_sleep_overlap": 71,
+  "seals": {
+    "server": {
+      "role": "server",
+      "sha256": "1d94d4c412f6c1fd231765b760196b0b4f518c20135bf0ccd1b52b192710cf76",
+      "manifest_sha256": "411c06755fe78f9d1e7f6c7603212460ccf4a6e8208a5e90ac57ad28d51b6e67",
+      "files": 44,
+      "no_trace": true,
+      "no_tun": true,
+      "no_lock": true,
+      "scheduler_stats_restored": true
+    },
+    "client": {
+      "role": "client",
+      "sha256": "1d94d4c412f6c1fd231765b760196b0b4f518c20135bf0ccd1b52b192710cf76",
+      "manifest_sha256": "a4dc7b2fe52bcbeba751af9e5462bcf731c400321d000e152f7e68c348bec613",
+      "files": 109,
+      "no_trace": true,
+      "no_tun": true,
+      "no_lock": true,
+      "scheduler_stats_restored": true
+    }
+  },
+  "scope": "Diagnostic observations, not release-throughput qualification. Scheduler accounting was temporarily enabled only for instrumented VM301 windows and restored to 0. Snapshot frequencies are not time fractions. Temporal overlap is not a proof of causation."
+}

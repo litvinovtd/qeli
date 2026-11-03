@@ -1,0 +1,35 @@
+{
+  "status": "EXACT_DOCUMENTATION_DELTA_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_commit": "cbad421b729f768b81c1f823c2d4d5d2daebb56f",
+  "source_digest": "1e3c5655ef99e0df7dcc7f8cbe4f432c17a3ee1538655b3d02a0c1d367c1d516",
+  "previous_source_commit": "a869a8dca10c0327cc46dcbdd8d16ca294ccfd37",
+  "document_files": {
+    "docs/eng/index.md": "879eb94b500c319eeb925555e572c19e423f638ade066661b4be7a040ebb6689",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "7acf2e3ee46f3ea03e1080f37d5fc829de49524b6bc0d0f3794af8f27d1bc5ba",
+    "docs/eng/reports/AUDIT-Q36-CURRENT-STATISTICS.md": "bda270c4269eedeeb317eacfa34aa112527b4efe3126a8fed23849e2312f2970",
+    "docs/ru/index.md": "182c819cefa3fda51ff805ed5b1d542e18769ae496cad152d83515e5c96d1571",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "cfcfe7f2bac2721bb87806278bba4f2acafee2a3a75c843381a81d01ba04a9ea",
+    "docs/ru/reports/AUDIT-Q36-CURRENT-STATISTICS.md": "9349887770a7d0ee2df8deca4ce019980758f08b0407434104f05d087a42ec98"
+  },
+  "exact_non_certification_delta": [
+    "docs/eng/index.md",
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q36-CURRENT-STATISTICS.md",
+    "docs/ru/index.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q36-CURRENT-STATISTICS.md"
+  ],
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "current_Q36_evidence_sha256": "a8e1ca137435b2b946b71b710c9992404141c04ed6b42423cd2e7cf79fe88375",
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "new_certification_matrix_execution": false,
+  "current_Q36_sessions": 36,
+  "current_Q36_windows": 144,
+  "scope": "Exact6Markdown-only change after sourceHEADa869a8dc plus excluded current Q36 population evidence. No code/INI/Cargo/recipe/native binary change; native digest/copies remain qualified. Fresh36sessions144eight-second windows have separate actual runtime provenance and three samples per condition. Original20Linux certification executions and21physical statuses unchanged. Source applicability only; no maximum capacity, TCP/ACK cause, Q36 whole-module closure, hostedCI/public release or platform limitation acceptance.",
+  "no_push_deploy_release": true,
+  "driver_sha256": "a641f2a75fb88e1e330a08114459c57807cbedbc8a1bbc3d84938ab6ffdcb364"
+}

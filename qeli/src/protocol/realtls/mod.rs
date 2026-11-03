@@ -12,6 +12,7 @@
 //! [`crate::crypto::reality::seal_session_id`] is placed in the TLS
 //! `legacy_session_id`, and the ephemeral X25519 public key is the `key_share`.
 
+mod application;
 pub mod client;
 pub mod clienthello;
 // The FFI hands `registry` handles to the caller as pointers, so its packed u64 only

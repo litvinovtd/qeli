@@ -100,3 +100,84 @@ pub enum CryptoError {
     #[error("decryption failed")]
     DecryptFailed,
 }
+
+#[cfg(test)]
+mod known_answer_tests {
+    use super::*;
+    use chacha20poly1305::aead::Payload;
+
+    #[test]
+    fn rfc8439_and_independent_empty_aad_wrapper_vectors() {
+        let data: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../conformance/chacha20poly1305-rfc8439.json"
+        ))
+        .unwrap();
+        let bytes = |name: &str| -> Vec<u8> {
+            data[name]
+                .as_str()
+                .unwrap()
+                .as_bytes()
+                .chunks_exact(2)
+                .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+                .collect()
+        };
+        let key = bytes("key").try_into().unwrap();
+        let nonce: [u8; NONCE_SIZE] = bytes("nonce").try_into().unwrap();
+        let plaintext = bytes("plaintext");
+        let aad = bytes("aad");
+        let cipher = Cipher::new(&key);
+        let expected = bytes("rfc_ciphertext_tag");
+        assert_eq!(
+            cipher
+                .cipher
+                .encrypt(
+                    &Nonce::from(nonce),
+                    Payload {
+                        msg: &plaintext,
+                        aad: &aad
+                    }
+                )
+                .unwrap(),
+            expected
+        );
+        let empty_aad = bytes("empty_aad_ciphertext_tag");
+        assert_eq!(cipher.encrypt(&nonce, &plaintext).unwrap(), empty_aad);
+        assert_eq!(cipher.decrypt(&nonce, &empty_aad).unwrap(), plaintext);
+        let mut buffer = plaintext.clone();
+        let tag = cipher
+            .encrypt_in_place_detached(&nonce, &mut buffer)
+            .unwrap();
+        assert_eq!(buffer, empty_aad[..plaintext.len()]);
+        assert_eq!(tag, empty_aad[plaintext.len()..]);
+        // Each ciphertext/tag byte must authenticate. Failed detached open leaves no plaintext.
+        for index in 0..empty_aad.len() {
+            let mut altered = empty_aad.clone();
+            altered[index] ^= 1;
+            assert!(cipher.decrypt(&nonce, &altered).is_err());
+            let split = altered.len() - TAG_SIZE;
+            let tag = altered[split..].try_into().unwrap();
+            let mut body = altered[..split].to_vec();
+            let before = body.clone();
+            assert!(cipher
+                .decrypt_in_place_detached(&nonce, &mut body, &tag)
+                .is_err());
+            assert_eq!(body, before);
+        }
+        let mut wrong_nonce = nonce;
+        wrong_nonce[0] ^= 1;
+        assert!(cipher.decrypt(&wrong_nonce, &empty_aad).is_err());
+        assert!(cipher
+            .cipher
+            .decrypt(
+                &Nonce::from(nonce),
+                Payload {
+                    msg: &expected,
+                    aad: b"wrong aad"
+                }
+            )
+            .is_err());
+        for length in 0..TAG_SIZE {
+            assert!(cipher.decrypt(&nonce, &empty_aad[..length]).is_err());
+        }
+    }
+}

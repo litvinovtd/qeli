@@ -1,0 +1,13 @@
+{
+  "status": "MAC_NATIVE_PACKAGE_INPUT_SELECTED_BY_BYTES_HOSTED_QUALIFICATION_PENDING",
+  "previous_commit": "34745e8e16ffefc1e7b6bc0ca122b02f536014fa",
+  "original_CI_run": 38773319195,
+  "failure_log_sha256": "a26bdfa2456ecfff84072872e8ec16cc0d4406b37571f0f6cc9df27757880a29",
+  "observed": "Offline icon and PNG CI gate passed; ARM64 package codesign completed and archive created; subsequent architecture gate exited1. No strict final signature verification was reached.",
+  "cause_addressed": "Publish PreserveNewest can keep newer host-only libqeli.dylib over selected universal input. Explicit copy and byte compare choose effective QeliNativeCorePath before app assembly/signing; missing explicit input fails before publish.",
+  "controlled_regressions": "Ten fixture methods pass including both RIDs, default and override native byte checks, missing input refusal, real TAR legal bytes and sign failure preservation; prior script fails the new regressions.",
+  "actual_macOS_signature_architecture_qualification_pending": true,
+  "original_failure_preserved": true,
+  "no_product_runtime_or_native_recipe_change": true,
+  "new_Linux_runtime_runs": 0
+}

@@ -1,0 +1,452 @@
+{
+  "schema_version": 1,
+  "kind": "q35-pinned-old-cli-abba-order-diagnostic",
+  "execution_fixture_source_commit": "103737495ca9623abcea59deb4f053e6757d05b7",
+  "binary_sha256": "35da83fd0a727a31a93c4527f8c814777aabcc7ef48dd92e0a0de65f5cbc7050",
+  "qualification": {
+    "status": "FOUR_ABBA_EXECUTIONS_INDEPENDENTLY_QUALIFIED",
+    "checks": [
+      {
+        "label": "off-first",
+        "policy": "off",
+        "medians": {
+          "upload": 511.0,
+          "download": 633.0,
+          "cpu": 159.86149999999998
+        },
+        "raw_samples": [
+          [
+            "upload",
+            "1",
+            "511",
+            "151.374"
+          ],
+          [
+            "download",
+            "1",
+            "633",
+            "168.349"
+          ],
+          [
+            "upload",
+            "2",
+            "533",
+            "155.118"
+          ],
+          [
+            "download",
+            "2",
+            "643",
+            "168.703"
+          ],
+          [
+            "upload",
+            "3",
+            "490",
+            "145.051"
+          ],
+          [
+            "download",
+            "3",
+            "632",
+            "167.353"
+          ]
+        ],
+        "checks_passed": 11,
+        "log_sha256": "3021bea3c92839b5d08e2807cf2aab02079f4875d2f41cb877fd18a5fd3e081a",
+        "observer_samples": 28,
+        "private_process_observations": 81,
+        "elapsed_seconds": 140.135718514,
+        "host_cpu_steal_percent": 0.0037527676661537885,
+        "memory_available_min_kib": 1578960,
+        "cgroup_first": {},
+        "cgroup_last": {},
+        "cgroup_counter_deltas": {}
+      },
+      {
+        "label": "required-second",
+        "policy": "required",
+        "medians": {
+          "upload": 513.0,
+          "download": 635.0,
+          "cpu": 159.5195
+        },
+        "raw_samples": [
+          [
+            "upload",
+            "1",
+            "509",
+            "150.711"
+          ],
+          [
+            "download",
+            "1",
+            "635",
+            "168.328"
+          ],
+          [
+            "upload",
+            "2",
+            "513",
+            "150.962"
+          ],
+          [
+            "download",
+            "2",
+            "636",
+            "167.502"
+          ],
+          [
+            "upload",
+            "3",
+            "531",
+            "155.847"
+          ],
+          [
+            "download",
+            "3",
+            "634",
+            "168.254"
+          ]
+        ],
+        "checks_passed": 11,
+        "log_sha256": "65c4b000e4d46c3454a77505f9b638d7776929dc289ccf65fd39e5becbf702ff",
+        "observer_samples": 28,
+        "private_process_observations": 81,
+        "elapsed_seconds": 140.140574315,
+        "host_cpu_steal_percent": 0.007524454477050414,
+        "memory_available_min_kib": 1576916,
+        "cgroup_first": {},
+        "cgroup_last": {},
+        "cgroup_counter_deltas": {}
+      },
+      {
+        "label": "required-third",
+        "policy": "required",
+        "medians": {
+          "upload": 527.0,
+          "download": 630.0,
+          "cpu": 161.8505
+        },
+        "raw_samples": [
+          [
+            "upload",
+            "1",
+            "527",
+            "156.791"
+          ],
+          [
+            "download",
+            "1",
+            "638",
+            "166.910"
+          ],
+          [
+            "upload",
+            "2",
+            "517",
+            "153.933"
+          ],
+          [
+            "download",
+            "2",
+            "620",
+            "166.338"
+          ],
+          [
+            "upload",
+            "3",
+            "531",
+            "157.051"
+          ],
+          [
+            "download",
+            "3",
+            "630",
+            "168.076"
+          ]
+        ],
+        "checks_passed": 11,
+        "log_sha256": "954941925e98f956d7b051a97da6d2d839cd207889f9aa1da1b54a9fa258f51c",
+        "observer_samples": 28,
+        "private_process_observations": 81,
+        "elapsed_seconds": 140.149125091,
+        "host_cpu_steal_percent": 0.007519079664649047,
+        "memory_available_min_kib": 1577548,
+        "cgroup_first": {},
+        "cgroup_last": {},
+        "cgroup_counter_deltas": {}
+      },
+      {
+        "label": "off-last",
+        "policy": "off",
+        "medians": {
+          "upload": 524.0,
+          "download": 632.0,
+          "cpu": 161.84949999999998
+        },
+        "raw_samples": [
+          [
+            "upload",
+            "1",
+            "517",
+            "154.547"
+          ],
+          [
+            "download",
+            "1",
+            "632",
+            "167.004"
+          ],
+          [
+            "upload",
+            "2",
+            "527",
+            "158.339"
+          ],
+          [
+            "download",
+            "2",
+            "633",
+            "167.424"
+          ],
+          [
+            "upload",
+            "3",
+            "524",
+            "155.593"
+          ],
+          [
+            "download",
+            "3",
+            "621",
+            "168.106"
+          ]
+        ],
+        "checks_passed": 11,
+        "log_sha256": "e9110b5f27e1a280fc9cbb648293ca8d36d0d32c573fb75716ce78418c4ff1a8",
+        "observer_samples": 28,
+        "private_process_observations": 81,
+        "elapsed_seconds": 140.155627251,
+        "host_cpu_steal_percent": 0.0037613781689611074,
+        "memory_available_min_kib": 1578004,
+        "cgroup_first": {},
+        "cgroup_last": {},
+        "cgroup_counter_deltas": {}
+      }
+    ],
+    "comparisons": [
+      {
+        "off": "off-first",
+        "required": "required-second",
+        "gates": {
+          "upload": true,
+          "download": true,
+          "cpu": true
+        },
+        "regression_percent": {
+          "upload": -0.391389432485334,
+          "download": -0.3159557661927437
+        },
+        "passed": true
+      },
+      {
+        "off": "off-last",
+        "required": "required-third",
+        "gates": {
+          "upload": true,
+          "download": true,
+          "cpu": true
+        },
+        "regression_percent": {
+          "upload": -0.5725190839694694,
+          "download": 0.31645569620253333
+        },
+        "passed": true
+      }
+    ],
+    "within_policy_drift_percent": {
+      "off": {
+        "upload": 2.544031311154593,
+        "download": -0.15797788309637184,
+        "cpu": 1.2435764708826014
+      },
+      "required": {
+        "upload": 2.729044834308003,
+        "download": -0.7874015748031482,
+        "cpu": 1.4612633565175503
+      }
+    },
+    "budget_percent": 5,
+    "original_failure_sha256": "ab521024d479324f684ad65c0db1c3bac1cb0a63d21aaeb0d790a1f2cd0d9693",
+    "original_failure_reclassified": false,
+    "old_resource_soaks_repeated": false,
+    "post_endurance_same_process_hypothesis": "Original performance starts fresh processes; no evidence of same-process long-session degradation.",
+    "root_cause": "NOT_ESTABLISHED",
+    "not_a_release_gate": true,
+    "full_endurance_pass": false,
+    "archive_sha256": "f99e7567359e010789161cc8525c301c85172ecfc7513bf7af21c1c572609fdb",
+    "host_differences": []
+  },
+  "historical_analysis": {
+    "original_archive_sha256": "345563be2b7a59452ce9b64ea36fe31aa0f055d45aec466e9a4aada7326d9dd6",
+    "original_qualification_sha256": "ab521024d479324f684ad65c0db1c3bac1cb0a63d21aaeb0d790a1f2cd0d9693",
+    "original_result": "FAIL",
+    "original_upload_regression_percent": 6.8627450980392135,
+    "original_performance_samples": [
+      [
+        "off",
+        "upload",
+        "1",
+        "510",
+        "155.635"
+      ],
+      [
+        "off",
+        "download",
+        "1",
+        "576",
+        "169.859"
+      ],
+      [
+        "off",
+        "upload",
+        "2",
+        "513",
+        "162.348"
+      ],
+      [
+        "off",
+        "download",
+        "2",
+        "624",
+        "169.350"
+      ],
+      [
+        "off",
+        "upload",
+        "3",
+        "445",
+        "146.613"
+      ],
+      [
+        "off",
+        "download",
+        "3",
+        "587",
+        "168.222"
+      ],
+      [
+        "required",
+        "upload",
+        "1",
+        "475",
+        "153.291"
+      ],
+      [
+        "required",
+        "download",
+        "1",
+        "554",
+        "166.633"
+      ],
+      [
+        "required",
+        "upload",
+        "2",
+        "487",
+        "154.851"
+      ],
+      [
+        "required",
+        "download",
+        "2",
+        "619",
+        "168.099"
+      ],
+      [
+        "required",
+        "upload",
+        "3",
+        "409",
+        "150.368"
+      ],
+      [
+        "required",
+        "download",
+        "3",
+        "597",
+        "167.196"
+      ]
+    ],
+    "original_performance_processes": [
+      {
+        "policy": "off",
+        "config_folder": "runtime/qeli-roaming-netns-9P2fIw",
+        "process_identities": [
+          [
+            1397725,
+            90525774,
+            "_worker"
+          ],
+          [
+            1397823,
+            90525794,
+            "client"
+          ]
+        ],
+        "observer_count": 54
+      },
+      {
+        "policy": "required",
+        "config_folder": "runtime/qeli-roaming-netns-JORgFT",
+        "process_identities": [
+          [
+            1398343,
+            90539622,
+            "_worker"
+          ],
+          [
+            1398441,
+            90539643,
+            "client"
+          ]
+        ],
+        "observer_count": 54
+      }
+    ],
+    "perf_processes_distinct_from_resource_prefix": true,
+    "original_observer_fields": [
+      "gate_log_bytes",
+      "monotonic_ns",
+      "processes",
+      "transient_read_errors",
+      "unix"
+    ],
+    "original_observer_retained_host_cpu_steal_psi_cgroup": false,
+    "performance_helper_sha256": {
+      "scripts/roaming_tcp_perf_netns_gate.sh": "e91a29d0d247159ec9d1634f20923a46cc6ffc7fbb14dd40d6020974db0443f9",
+      "scripts/roaming_tcp_netns_perf_case.sh": "2a80fe5ee9acf7f11797f91e5781da173eb209dbdf354bea2c83a2da37dc85d5",
+      "scripts/roaming_netns_e2e.sh": "fca54d80506cec70e82f2a59ffb1f163eca81b0748b62ab66175c0c0e14bc731"
+    },
+    "fresh_short_previous_and_current_both_pass": true,
+    "resource_prefix_not_replayed": true,
+    "root_cause": "NOT_ESTABLISHED"
+  },
+  "packet_seal_sha256": "bd56807f590bc7feae2a1182550df4cc8f2ad303867143c484db4450fe8167c5",
+  "history_sha256": "aae9fcd9943d773adab8f5d7a3e1ab37d3bb8b3d7f6270af7d85c3eec63b5438",
+  "host_integrity_gate": "PASS",
+  "cleanup_gate": "PASS",
+  "original_production_and_staged_preserved": true,
+  "original_failure_reclassified": false,
+  "whole_audit_complete": false,
+  "full_endurance_pass": false,
+  "push_deploy_release": false,
+  "telemetry_availability": {
+    "host_cpu_steal": true,
+    "psi": true,
+    "meminfo": true,
+    "cgroup_counters": false,
+    "reason": "Private sysfs mount does not expose the cgroup filesystem; empty observations retained, no cgroup throttling conclusion."
+  }
+}

@@ -1,0 +1,313 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F328_F329_HOST_GATE_FIXTURES_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T15:57:28.838297+00:00",
+  "base_commit": "78016d4fa0183b0754cf8bb2f2ed1bc9cd85032d",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-keenetic-verification-gate-20261006",
+  "raw_seal_sha256": "bf07c137e63f14c31e3e50495a73a97dbee38329119eefb4c5a19ed5cd0b3fb7",
+  "checks": [
+    {
+      "id": "verify-tests-final",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_keenetic_verify.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "windows-verify-tests-final.log"
+    },
+    {
+      "id": "native-recipes-final",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "native-recipes-final.log"
+    },
+    {
+      "id": "docs-final",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs-final.log"
+    },
+    {
+      "id": "diff-final",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff-final.log"
+    },
+    {
+      "id": "router-build",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_router_build.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "router-build.log"
+    },
+    {
+      "id": "native-lab",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_lab.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "native-lab.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "verify-tests",
+      "command": "cd /var/tmp/qeli-q31-keenetic-verification-gate-20261006 && python3 -m unittest discover -s scripts -p test_keenetic_verify.py -v",
+      "exit_code": 0,
+      "log": "verify-tests.log"
+    },
+    {
+      "id": "shared-sync-tests",
+      "command": "cd /var/tmp/qeli-q31-keenetic-verification-gate-20261006 && python3 -m unittest discover -s scripts -p test_router_source.py -v",
+      "exit_code": 0,
+      "log": "shared-sync-tests.log"
+    },
+    {
+      "id": "baseline-comparison",
+      "command": "cd /var/tmp/qeli-q31-keenetic-verification-gate-20261006 && python3 reproduce.py",
+      "exit_code": 0,
+      "log": "baseline-comparison.log"
+    },
+    {
+      "id": "actual-cargo-graph",
+      "command": "cd /var/tmp/qeli-q31-keenetic-verification-gate-20261006 && python3 cargo-graph-fixture.py",
+      "exit_code": 0,
+      "log": "actual-cargo-graph.log"
+    },
+    {
+      "id": "verify-tests-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-verification-gate-20261006 && python3 -m unittest discover -s scripts -p test_keenetic_verify.py -v",
+      "exit_code": 0,
+      "log": "verify-tests-final.log"
+    }
+  ],
+  "source_review": {
+    "findings": [
+      "F328 per-run private source/target, no service stop/kill/restart, delegated shared checked source sync",
+      "F329 checked locked single-job gate, forward normal/build dependency graph, mandatory ELF/hash and real main exit/SSH finally"
+    ],
+    "new_gate_cases": 19,
+    "gate_platforms": [
+      "Windows",
+      "Linux"
+    ],
+    "shared_sync_cases_Linux": 7,
+    "native_recipe_cases": 37,
+    "router_build_helper_cases": 14,
+    "native_lab_cases": 12,
+    "source_proof": {
+      "path": "source-proof.json",
+      "sha256": "79823eca83692fd95b91a4da3f998cc0a98ca525e66015b9568ba46167480c76",
+      "unchanged_implementation_git_inputs": 1206,
+      "scope": "Canonical staged helper/test inputs match final executed Linux inputs; actual Cargo fixture unchanged after final helper target-dir strengthening. Rust/native/managed/router templates and shared source/SSH/recipe helpers unchanged. No Qeli artifact rebuild or actual service/network mutation."
+    }
+  },
+  "baseline_reproduction": [
+    {
+      "source": "baseline",
+      "scenario": "failed-build",
+      "return_value": null,
+      "closed": true,
+      "exception": null,
+      "service_commands_attempted_in_model": true,
+      "summary": "Connected to fixture.invalid\nSynced 2 files to /opt/qeli-src in 0s\n\n=== [1] SERVER build: cargo build --release --features jemalloc ===\ninjected compiler failure\nserver build rc: 17\n\n=== [1b] unit tests (default features): cargo test --lib ===\nmodel success\ntest rc: 0\n\n=== [2] CLIENT-ONLY build: --no-default-features --features client-bin ===\nmodel success\nclient-bin build rc: 0\n\n=== [3] CLIENT-ONLY clippy ===\nmodel success\nclient-bin clippy rc: 0\n\n=== [4] ring absent from client graph? (cargo tree -i ring) ===\nerror: package ID specification ring did not match any packages\nring ABSENT from client build: True\n\nqeli-client binary: cannot open binary\n\n===== SUMMARY =====\nserver_build=FAIL  unit_tests=OK  client_build=OK  client_clippy=OK  ring_absent=OK\nKEENETIC_PHASE1: FAIL\n",
+      "commands_MODELS_ONLY": [
+        "systemctl stop qeli-server.service 2>/dev/null; pkill -9 -x qeli 2>/dev/null; true",
+        "rm -rf /opt/qeli-src/src/bin",
+        "cd /opt/qeli-src && cargo build --release --features jemalloc --bin qeli 2>&1",
+        "cd /opt/qeli-src && cargo test --lib 2>&1",
+        "cd /opt/qeli-src && cargo build --release --bin qeli-client --no-default-features --features client-bin 2>&1",
+        "cd /opt/qeli-src && cargo clippy --bin qeli-client --no-default-features --features client-bin -- -D warnings 2>&1",
+        "cd /opt/qeli-src && cargo tree --no-default-features --features client-bin -i ring 2>&1",
+        "file /opt/qeli-src/target/release/qeli-client 2>&1",
+        "systemctl start qeli-server.service 2>/dev/null; true"
+      ]
+    },
+    {
+      "source": "baseline",
+      "scenario": "false-dependency-artifact-success",
+      "return_value": null,
+      "closed": true,
+      "exception": null,
+      "service_commands_attempted_in_model": true,
+      "summary": "Connected to fixture.invalid\nSynced 2 files to /opt/qeli-src in 0s\n\n=== [1] SERVER build: cargo build --release --features jemalloc ===\nmodel success\nserver build rc: 0\n\n=== [1b] unit tests (default features): cargo test --lib ===\nmodel success\ntest rc: 0\n\n=== [2] CLIENT-ONLY build: --no-default-features --features client-bin ===\nmodel success\nclient-bin build rc: 0\n\n=== [3] CLIENT-ONLY clippy ===\nmodel success\nclient-bin clippy rc: 0\n\n=== [4] ring absent from client graph? (cargo tree -i ring) ===\nerror: package ID specification ring did not match any packages\nring ABSENT from client build: True\n\nqeli-client binary: cannot open binary\n\n===== SUMMARY =====\nserver_build=OK  unit_tests=OK  client_build=OK  client_clippy=OK  ring_absent=OK\nKEENETIC_PHASE1: PASS\n",
+      "commands_MODELS_ONLY": [
+        "systemctl stop qeli-server.service 2>/dev/null; pkill -9 -x qeli 2>/dev/null; true",
+        "rm -rf /opt/qeli-src/src/bin",
+        "cd /opt/qeli-src && cargo build --release --features jemalloc --bin qeli 2>&1",
+        "cd /opt/qeli-src && cargo test --lib 2>&1",
+        "cd /opt/qeli-src && cargo build --release --bin qeli-client --no-default-features --features client-bin 2>&1",
+        "cd /opt/qeli-src && cargo clippy --bin qeli-client --no-default-features --features client-bin -- -D warnings 2>&1",
+        "cd /opt/qeli-src && cargo tree --no-default-features --features client-bin -i ring 2>&1",
+        "file /opt/qeli-src/target/release/qeli-client 2>&1",
+        "systemctl start qeli-server.service 2>/dev/null; true"
+      ]
+    },
+    {
+      "source": "baseline",
+      "scenario": "sync-exception",
+      "return_value": null,
+      "closed": false,
+      "exception": "injected upload failure",
+      "service_commands_attempted_in_model": true,
+      "summary": "Connected to fixture.invalid\n",
+      "commands_MODELS_ONLY": [
+        "systemctl stop qeli-server.service 2>/dev/null; pkill -9 -x qeli 2>/dev/null; true",
+        "rm -rf /opt/qeli-src/src/bin"
+      ]
+    },
+    {
+      "source": "baseline",
+      "scenario": "stale-sources-and-cargo-config",
+      "count": 3,
+      "stale_module_retained": true,
+      "stale_cargo_config_retained": true,
+      "scope": "real file adapter in owned temporary directory only"
+    }
+  ],
+  "actual_Cargo_fixture": {
+    "scope": "actual installed Cargo, offline local crates, no compilation or Qeli dependency graph",
+    "records": [
+      {
+        "command": [
+          "cargo",
+          "--version"
+        ],
+        "exit_code": 0,
+        "stdout": "cargo 1.96.0 (30a34c682 2026-05-25)\n",
+        "stderr": ""
+      },
+      {
+        "command": [
+          "cargo",
+          "generate-lockfile",
+          "--offline"
+        ],
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "     Locking 2 packages to latest compatible versions\n"
+      },
+      {
+        "command": [
+          "cargo",
+          "tree",
+          "--offline",
+          "--locked",
+          "--no-default-features",
+          "--edges",
+          "normal,build",
+          "--prefix",
+          "none",
+          "--format",
+          "{p}",
+          "--features",
+          "client-bin"
+        ],
+        "exit_code": 0,
+        "stdout": "qeli v0.0.0 (/var/tmp/qeli-cargo-graph-0pxnacgy/qeli)\nbuild-helper v0.0.0 (/var/tmp/qeli-cargo-graph-0pxnacgy/build-helper)\n",
+        "stderr": ""
+      },
+      {
+        "command": [
+          "cargo",
+          "tree",
+          "--offline",
+          "--locked",
+          "--no-default-features",
+          "--edges",
+          "normal,build",
+          "--prefix",
+          "none",
+          "--format",
+          "{p}",
+          "--features",
+          "server"
+        ],
+        "exit_code": 0,
+        "stdout": "qeli v0.0.0 (/var/tmp/qeli-cargo-graph-0pxnacgy/qeli)\nring v0.0.0 (/var/tmp/qeli-cargo-graph-0pxnacgy/ring)\nbuild-helper v0.0.0 (/var/tmp/qeli-cargo-graph-0pxnacgy/build-helper)\n",
+        "stderr": ""
+      }
+    ],
+    "client_graph_without_ring": "PASS",
+    "positive_ring_rejected": "PASS"
+  },
+  "retained_diagnostics": [
+    "Initial native recipe FAIL: old literal server_build= source assertion obsolete after dynamic stage output; named locked command plus observed success output asserted; final37PASS",
+    "Final Windows/Lab log collision corrected before seal; unchanged Windows19 rerun recorded in separate file"
+  ],
+  "qualification_scope": {
+    "verifier_compiler_SSH_service_stages": "CONTROLLED_MODELS_ONLY",
+    "shared_sync": "Actual POSIX files/shell under owned temporary roots, local SFTP adapter",
+    "Cargo_dependency_graph": "Actual installed Cargo on offline local crates, no compilation/download or Qeli graph",
+    "actual_Qeli_host_or_cross_build": "NOT_RUN",
+    "actual_Qeli_ELF_SHA_artifact": "NOT_RUN",
+    "actual_router_runtime": "USER_EXCLUDED",
+    "toolchain_pin_ABI_artifact_provenance": "OPEN"
+  },
+  "remaining": [
+    "INI/core gateway semantic parity",
+    "OpkgTun generation/concurrent wan.d/service/plan ownership",
+    "broader packaging/source/toolchain/build ABI/provenance"
+  ],
+  "retained_observations": [
+    "Q29 SIGKILL recovery FAIL",
+    "Q29 auto/null DnsResolver ENONET",
+    "Q30 OS callback drain OPEN; Apple runtime excluded",
+    "D06 ACCEPTED_LIMITATION"
+  ],
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "q31": "IN_PROGRESS"
+  }
+}

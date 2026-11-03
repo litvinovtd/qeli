@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F300_F302_SOURCE_FIXES_Q30_IN_PROGRESS",
+  "executed_at": "2026-10-06T12:20:14.999866+00:00",
+  "base_commit": "9236515c4dcdea1c2c2b4e126069640d772926fb",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q30-ios-messages-backup-20261006",
+  "raw_seal_sha256": "e6987904bd688ef4d1335285e95db4dc2d16a15931beafae1790464c164e74be",
+  "checks": [
+    {
+      "id": "ipa-verifier",
+      "status": "PASS",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_verify_ios_ipa.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "ipa-verifier.log"
+    },
+    {
+      "id": "docs",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "status": "PASS",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "status": "PASS",
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    }
+  ],
+  "source_review": {
+    "status": "SOURCE_AND_STRUCTURE_ONLY",
+    "new_xctest": {
+      "ProviderMessageRequestTests.swift": 7,
+      "ProviderSnapshotResponseGateTests.swift": 4
+    },
+    "xctest": "NOT_RUN",
+    "swift_build": "NOT_RUN",
+    "local_toolchain": {
+      "swift": null,
+      "xcodebuild": null,
+      "xcrun": null
+    },
+    "apple_runtime": "USER_EXCLUDED",
+    "xml_inputs": [
+      "qeli-ios/Config/App-Info.plist",
+      "qeli-ios/Config/PacketTunnel-Info.plist",
+      "qeli-ios/Config/PrivacyInfo.xcprivacy",
+      "qeli-ios/Config/QeliIOS.entitlements",
+      "qeli-ios/Config/QeliPacketTunnel.entitlements",
+      "qeli-ios/Config/QeliWidgets.entitlements",
+      "qeli-ios/Config/Widget-Info.plist",
+      "qeli-ios/MDM/Apple-IKEv2-AlwaysOn.mobileconfig",
+      "qeli-ios/MDM/Qeli-Managed-App-Configuration.plist",
+      "qeli-ios/MDM/Qeli-PerApp-VPN.mobileconfig"
+    ],
+    "unchanged_git_inputs": 786,
+    "changed_paths": [
+      "docs/eng/index.md",
+      "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/eng/reports/AUDIT-Q30-IOS-MESSAGES-BACKUP.md",
+      "docs/ru/index.md",
+      "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+      "docs/ru/reports/AUDIT-Q30-IOS-MESSAGES-BACKUP.md",
+      "qeli-ios/PARITY.md",
+      "qeli-ios/QeliCore/Crypto/KeyDerivation.swift",
+      "qeli-ios/QeliCore/Crypto/KeyExchange.swift",
+      "qeli-ios/QeliCore/Support/ProviderSnapshotResponseGate.swift",
+      "qeli-ios/QeliCore/VPN/ProviderMessageRequest.swift",
+      "qeli-ios/QeliCore/VPN/TunnelManager.swift",
+      "qeli-ios/QeliIOS/Views/SettingsView.swift",
+      "qeli-ios/QeliIOSTests/ProviderMessageRequestTests.swift",
+      "qeli-ios/QeliIOSTests/ProviderSnapshotResponseGateTests.swift",
+      "qeli-ios/project.yml"
+    ],
+    "request_wait_seconds": 20,
+    "provider_budget_seconds": 15,
+    "ipc_margin_seconds": 5,
+    "request_ownership": "connection generation + session identity + status epoch, on success and error",
+    "snapshot_poll": "one unfinished poll per epoch;old/duplicate callback cannot release newer poll;nil/invalid/senderror release its slot",
+    "no_reply": "snapshot polling pauses in that epoch;already-issued OS message/apply not cancelled or rolled back;real callback drainage OPEN",
+    "backup": "passphrases captured before Task/file-read;filename from byte envelope;one restore preparation/confirmation owner",
+    "crypto_membership": "app excludes Crypto and Protocol;test target includes both;PacketTunnel already excludes both",
+    "crypto_symbol_inputs": [
+      "qeli-ios/QeliIOSTests/CryptoConformanceTests.swift",
+      "qeli-ios/QeliIOSTests/ProtocolPrimitiveTests.swift",
+      "qeli-ios/QeliIOSTests/UDPDataPlaneTests.swift",
+      "qeli-ios/QeliIOSTests/WireConformanceTests.swift",
+      "qeli-ios/QeliCore/Crypto/KeyDerivation.swift",
+      "qeli-ios/QeliCore/Crypto/PacketCipher.swift",
+      "qeli-ios/QeliCore/Protocol/PacketCodec.swift"
+    ],
+    "removed_dead_symbols": [
+      "X25519KeyPair",
+      "KeyDerivation.handshakeTranscript",
+      "KeyDerivation.serverAuthenticationProof",
+      "KeyDerivation.clientKeyProof"
+    ],
+    "actual_generated_xcode_project": "NOT_RUN;no XcodeGen/yaml compiler qualification",
+    "remaining": "whole-section memory/dead-code/source inventory reconciliation",
+    "historical_runtime": "unchanged Git blobs only;original evidence status/date/artifact retained"
+  },
+  "findings": {
+    "F300": "Bounded cancellable settings-message wait;success/error generation/session/status-epoch ownership;one outstanding snapshot poll per epoch;duplicate/old callbacks cannot release a newer poll.",
+    "F301": "Backup operation passphrases captured before suspension;filename derives from actual bytes;restore preparation/confirmation ownership prevents parallel replacement.",
+    "F302": "Swift wire-crypto excluded from app and included in XCTest;unreferenced key-pair and three auth helpers removed;Rust native crypto and backup CryptoKit unchanged."
+  },
+  "qualification": "Source/structure only;11 new XCTest/Swift build/Xcode project generation/Apple IPC and backup UI NOT_RUN,Apple runtime user-excluded",
+  "historical_runtime": "786 unchanged implementation Git inputs;original runtime status/artifact/date/acceptance_basis retained;no Linux/Android rerun",
+  "plan": {
+    "done": 28,
+    "total": 37,
+    "percent": 75.7,
+    "Q29": "IN_PROGRESS;SIGKILL FAIL/auto-null ENONET retained",
+    "Q30": "IN_PROGRESS;final memory/dead-code/source inventory review remaining"
+  },
+  "D06": "UNCHANGED_ACCEPTED_LIMITATION",
+  "platform_skips": "UNCHANGED_USER_EXCLUDED",
+  "push": "NOT_RUN",
+  "source_digest": "3fb5c55a2539026af69fe422775979c59576e78a706de3f6f9a29efd21b01257"
+}

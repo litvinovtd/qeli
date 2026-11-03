@@ -8,11 +8,13 @@ pub mod ip;
 pub mod obfs;
 pub mod obfuscate;
 pub mod packet;
+pub(crate) mod pmtu;
 pub mod quic;
 pub mod realtls;
 pub mod recordizer;
 pub mod roaming;
 pub mod shaper;
+pub(crate) mod stream_io;
 pub mod tls;
 pub mod udp_frag;
 

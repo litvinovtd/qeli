@@ -34,7 +34,7 @@ COMBOS = [("S14/C14", BIN14, BIN14), ("S14/C15", BIN14, BIN15),
           ("S15/C14", BIN15, BIN14), ("S15/C15", BIN15, BIN15)]
 MODE_NAMES = ["tcp-plain-raw", "tcp-faketls"]
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
-                   "release", "ab_crossver_downlink.json")
+                   "docs", "data", "benchmarks", "ab_crossver_downlink.json")
 
 
 def install_pair(s, cl, server_bin, client_bin):

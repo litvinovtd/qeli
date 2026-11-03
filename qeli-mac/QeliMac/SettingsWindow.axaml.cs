@@ -126,7 +126,7 @@ public partial class SettingsWindow : Window
 
     private async void OnSave(object? sender, RoutedEventArgs e)
     {
-        var s = AppSettings.Current;
+        var s = AppSettings.Snapshot(AppSettings.Current);
         s.Language = TagOf(LanguageBox);
         s.Theme = TagOf(ThemeBox);
         // Not TagOf(): its no-selection fallback is the language default "en",
@@ -144,7 +144,12 @@ public partial class SettingsWindow : Window
         s.AutoConnect = AutoConnectBox.IsChecked == true;
         s.AutoConnectProfile = (AutoProfileBox.SelectedItem as ComboBoxItem)?.Tag as string;
         s.StartMinimized = StartMinBox.IsChecked == true;
-        s.Save();
+        try { s.Save(); }
+        catch (Exception error)
+        {
+            await Dialogs.InfoAsync(this, error.Message, Loc.T("Settings"));
+            return;
+        }
 
         Loc.SetLanguage(s.Language);  // live switch (updates all {l:Loc} bindings)
         ThemeManager.Apply();         // live theme switch (updates DynamicResource brushes)

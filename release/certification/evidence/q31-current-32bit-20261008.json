@@ -1,0 +1,518 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q31_V011_CURRENT_32BIT_WITH_DOCUMENTED_SCOPE",
+  "source_digest": "f823fa378b1b6ea40034d39275aaa44acd51e0cf4a5c9876c83dc92ef7cf53d5",
+  "qualification_source_commit": "4d7d207e7ca6b1c9bb6207ccba5fb934b5082b92",
+  "actual_build_source_commit": "6c2225cd3b924d2bb8a47bd3b993adf6594a67bd",
+  "base_dev_commit": "82acf791f249ebc1fc887670fb0ed9575264b503",
+  "scenario": "Q31-V011",
+  "product_changes": false,
+  "reason": "Q31-V009 predates F395; qualify current production publication lock on 32-bit ISA",
+  "verification": {
+    "release_gate": {
+      "source_commit": "6c2225cd3b924d2bb8a47bd3b993adf6594a67bd",
+      "archive_sha256": "8fc0b9d9d0b4f68de2125c948bd4cb448ea1412c694c12210cd2a372ca9fd1c8",
+      "remote_root": "/var/tmp/qeli-router-openwrt-pvzg5L",
+      "source_files": 315,
+      "results": [
+        {
+          "arch": "armv7",
+          "target": "armv7-unknown-linux-musleabihf",
+          "command": "export PATH=/root/.cargo/bin:$PATH; cd /var/tmp/qeli-router-openwrt-pvzg5L && QELI_ROUTER_RUSTC=\"$(rustup which --toolchain 1.97.0 rustc)\" && test -x \"$QELI_ROUTER_RUSTC\" && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC=\"$QELI_ROUTER_RUSTC\" RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=true CARGO_PROFILE_RELEASE_PANIC=abort RUSTFLAGS=--remap-path-prefix=/var/tmp/qeli-router-openwrt-pvzg5L=/usr/src/qeli CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-pvzg5L/target CARGO_BUILD_BUILD_DIR=/var/tmp/qeli-router-openwrt-pvzg5L/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target armv7-unknown-linux-musleabihf 2>&1",
+          "status": "PASS",
+          "artifact_sha256": "0d7f0d75b2e3bc99ebbef8d5fd89d4cabc56fdbf2d4412686efc7bfd183f9fea",
+          "size": 4996156,
+          "elf": {
+            "class": 1,
+            "machine": 40,
+            "type": 2,
+            "endianness": "little",
+            "external_interpreter": false,
+            "needed_libraries": false
+          }
+        },
+        {
+          "arch": "mipsel",
+          "target": "mipsel-unknown-linux-musl",
+          "command": "export PATH=/root/.cargo/bin:$PATH; cd /var/tmp/qeli-router-openwrt-pvzg5L && QELI_ROUTER_RUSTC=\"$(rustup which --toolchain nightly-2026-06-10 rustc)\" && test -x \"$QELI_ROUTER_RUSTC\" && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC=\"$QELI_ROUTER_RUSTC\" RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=true CARGO_PROFILE_RELEASE_PANIC=abort RUSTFLAGS='-C link-arg=-msoft-float --remap-path-prefix=/var/tmp/qeli-router-openwrt-pvzg5L=/usr/src/qeli' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-pvzg5L/target CARGO_BUILD_BUILD_DIR=/var/tmp/qeli-router-openwrt-pvzg5L/target CARGO_INCREMENTAL=0 cargo +nightly-2026-06-10 zigbuild -Z build-std=std,panic_abort --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target mipsel-unknown-linux-musl 2>&1",
+          "status": "PASS",
+          "artifact_sha256": "943a484ad428e34c5256f2deff75281d19670d2f8ab13bb6bc95417e5f9e0905",
+          "size": 6865260,
+          "elf": {
+            "class": 1,
+            "machine": 8,
+            "type": 3,
+            "endianness": "little",
+            "external_interpreter": false,
+            "needed_libraries": false
+          }
+        }
+      ]
+    },
+    "exact_transfer_matches": 318,
+    "outside_managed_transfer_contract": 47,
+    "all_src_and_required_cargo_config_inputs": "MATCH",
+    "module_compile": {
+      "remote_root": "/var/tmp/qeli-router-openwrt-CxtlAF",
+      "production_inputs": [
+        {
+          "path": "qeli/src/client/plan_publication.rs",
+          "sha256": "221359c842d5c397282a1217c6afc712adef09d9a25954d9e6f2cad64a38a5e6"
+        },
+        {
+          "path": "qeli/src/operation_budget.rs",
+          "sha256": "b07fb92f948ead359bf276857e6923a9d5798e466b87de951f433666d18d55d8"
+        }
+      ],
+      "cfg_test": false,
+      "budget_and_publication": "exact committed modules, no mocked imports",
+      "results": [
+        {
+          "arch": "armv7",
+          "target": "armv7-unknown-linux-musleabihf",
+          "command": "export PATH=/root/.cargo/bin:$PATH; cd /var/tmp/qeli-router-openwrt-CxtlAF && QELI_ROUTER_RUSTC=\"$(rustup which --toolchain 1.97.0 rustc)\" && test -x \"$QELI_ROUTER_RUSTC\" && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC=\"$QELI_ROUTER_RUSTC\" RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=true CARGO_PROFILE_RELEASE_PANIC=abort RUSTFLAGS=--remap-path-prefix=/var/tmp/qeli-router-openwrt-CxtlAF=/usr/src/qeli CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-CxtlAF/target CARGO_BUILD_BUILD_DIR=/var/tmp/qeli-router-openwrt-CxtlAF/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target armv7-unknown-linux-musleabihf 2>&1",
+          "rc": 0,
+          "size": 411052,
+          "sha256": "2caab70a82f9c60f4573821ecbc0ff2f974b03a5ae763b417408cac8d306ef97",
+          "elf": {
+            "class": 1,
+            "machine": 40,
+            "type": 2,
+            "endianness": "little",
+            "external_interpreter": false,
+            "needed_libraries": false
+          }
+        },
+        {
+          "arch": "mipsel",
+          "target": "mipsel-unknown-linux-musl",
+          "command": "export PATH=/root/.cargo/bin:$PATH; cd /var/tmp/qeli-router-openwrt-CxtlAF && QELI_ROUTER_RUSTC=\"$(rustup which --toolchain nightly-2026-06-10 rustc)\" && test -x \"$QELI_ROUTER_RUSTC\" && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC=\"$QELI_ROUTER_RUSTC\" RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_STRIP=true CARGO_PROFILE_RELEASE_PANIC=abort RUSTFLAGS='-C link-arg=-msoft-float --remap-path-prefix=/var/tmp/qeli-router-openwrt-CxtlAF=/usr/src/qeli' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-CxtlAF/target CARGO_BUILD_BUILD_DIR=/var/tmp/qeli-router-openwrt-CxtlAF/target CARGO_INCREMENTAL=0 cargo +nightly-2026-06-10 zigbuild -Z build-std=std,panic_abort --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target mipsel-unknown-linux-musl 2>&1",
+          "rc": 0,
+          "size": 593544,
+          "sha256": "f3627d9bbe55e7fe7eff4f4b4c20e6b52510ae1afc05c56469c14b712b60c23e",
+          "elf": {
+            "class": 1,
+            "machine": 8,
+            "type": 3,
+            "endianness": "little",
+            "external_interpreter": false,
+            "needed_libraries": false
+          }
+        }
+      ]
+    },
+    "module_execution": {
+      "results": [
+        {
+          "arch": "armv7",
+          "cpu": "cortex-a7",
+          "uid": 65534,
+          "rc": 0,
+          "stdout": "private_mode_and_release PASS\nlive_owner_wait_and_release PASS\nstale_lock_timeout_preserves_canary PASS\nexpired_parent_refuses_before_create PASS\nforeign_file_retained PASS\nnonempty_release_preserves_state PASS\ncleanup_scope_restores_parent_thread_local PASS\nproduction_publication_budget 7 PASS\n",
+          "stderr": "",
+          "binary_sha256": "2caab70a82f9c60f4573821ecbc0ff2f974b03a5ae763b417408cac8d306ef97"
+        },
+        {
+          "arch": "mipsel",
+          "cpu": "24Kc",
+          "uid": 65534,
+          "rc": 0,
+          "stdout": "private_mode_and_release PASS\nlive_owner_wait_and_release PASS\nstale_lock_timeout_preserves_canary PASS\nexpired_parent_refuses_before_create PASS\nforeign_file_retained PASS\nnonempty_release_preserves_state PASS\ncleanup_scope_restores_parent_thread_local PASS\nproduction_publication_budget 7 PASS\n",
+          "stderr": "",
+          "binary_sha256": "f3627d9bbe55e7fe7eff4f4b4c20e6b52510ae1afc05c56469c14b712b60c23e"
+        }
+      ],
+      "actual_behavior_checks": 14,
+      "exact_production_modules": true,
+      "cfg_test": false,
+      "scope": "actual release abort policy; no unwind/SIGKILL/firmware qualification"
+    },
+    "client_qemu": {
+      "cases": [
+        {
+          "arch": "armv7",
+          "case": "version",
+          "cpu": "cortex-a7",
+          "rc": 0,
+          "stdout": "qeli-client 0.8.2\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "help",
+          "cpu": "cortex-a7",
+          "rc": 0,
+          "stdout": "Obfuscated VPN client (router/headless build)\n\nUsage: armv7-qeli-client [OPTIONS]\n\nOptions:\n  -c, --config <CONFIG>\n          Client config (flat-INI, `[qeli]` section). Default suits Entware layout [default: /opt/etc/qeli/client.conf]\n      --print-gateway-owner\n          Validate INI and print core/legacy gateway ownership, then exit without connecting\n      --expect-router-device <EXPECT_ROUTER_DEVICE>\n          Require the configured TUN name to match the router wrapper before launch\n      --expect-router-attach <EXPECT_ROUTER_ATTACH>\n          Require the wrapper's owned/attached TUN lifecycle and gateway ownership [possible values: true, false]\n  -h, --help\n          Print help\n  -V, --version\n          Print version\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "legacy",
+          "cpu": "cortex-a7",
+          "rc": 0,
+          "stdout": "legacy\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "quoted-BOM",
+          "cpu": "cortex-a7",
+          "rc": 0,
+          "stdout": "legacy\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "core-forward",
+          "cpu": "cortex-a7",
+          "rc": 0,
+          "stdout": "core\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "attached",
+          "cpu": "cortex-a7",
+          "rc": 0,
+          "stdout": "legacy\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "wrong-device",
+          "cpu": "cortex-a7",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: router template TUN does not match configured dev\n",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "wrong-attach",
+          "cpu": "cortex-a7",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: router template attachment mode does not match configured dev_attach\n",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "tap",
+          "cpu": "cortex-a7",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: router template requires device_type=tun\n",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "malformed",
+          "cpu": "cortex-a7",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: qeli.gateway_nat: invalid field value\n",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "duplicate",
+          "cpu": "cortex-a7",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: qeli.gateway_nat: duplicate scalar field\n",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "unknown",
+          "cpu": "cortex-a7",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: qeli.unknown_option: unknown configuration field\n",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "hooks-not-executed",
+          "cpu": "cortex-a7",
+          "rc": 0,
+          "stdout": "legacy\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "missing",
+          "cpu": "cortex-a7",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: No such file or directory (os error 2)\n",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "nonregular",
+          "cpu": "cortex-a7",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: configuration must be a regular file\n",
+          "uid": 65534
+        },
+        {
+          "arch": "armv7",
+          "case": "cli-expectation-pair",
+          "cpu": "cortex-a7",
+          "rc": 2,
+          "stdout": "",
+          "stderr": "error: the following required arguments were not provided:\n  --expect-router-attach <EXPECT_ROUTER_ATTACH>\n\nUsage: armv7-qeli-client --print-gateway-owner --expect-router-device <EXPECT_ROUTER_DEVICE> --expect-router-attach <EXPECT_ROUTER_ATTACH>\n\nFor more information, try '--help'.\n",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "version",
+          "cpu": "24Kc",
+          "rc": 0,
+          "stdout": "qeli-client 0.8.2\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "help",
+          "cpu": "24Kc",
+          "rc": 0,
+          "stdout": "Obfuscated VPN client (router/headless build)\n\nUsage: mipsel-qeli-client [OPTIONS]\n\nOptions:\n  -c, --config <CONFIG>\n          Client config (flat-INI, `[qeli]` section). Default suits Entware layout [default: /opt/etc/qeli/client.conf]\n      --print-gateway-owner\n          Validate INI and print core/legacy gateway ownership, then exit without connecting\n      --expect-router-device <EXPECT_ROUTER_DEVICE>\n          Require the configured TUN name to match the router wrapper before launch\n      --expect-router-attach <EXPECT_ROUTER_ATTACH>\n          Require the wrapper's owned/attached TUN lifecycle and gateway ownership [possible values: true, false]\n  -h, --help\n          Print help\n  -V, --version\n          Print version\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "legacy",
+          "cpu": "24Kc",
+          "rc": 0,
+          "stdout": "legacy\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "quoted-BOM",
+          "cpu": "24Kc",
+          "rc": 0,
+          "stdout": "legacy\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "core-forward",
+          "cpu": "24Kc",
+          "rc": 0,
+          "stdout": "core\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "attached",
+          "cpu": "24Kc",
+          "rc": 0,
+          "stdout": "legacy\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "wrong-device",
+          "cpu": "24Kc",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: router template TUN does not match configured dev\n",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "wrong-attach",
+          "cpu": "24Kc",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: router template attachment mode does not match configured dev_attach\n",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "tap",
+          "cpu": "24Kc",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: router template requires device_type=tun\n",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "malformed",
+          "cpu": "24Kc",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: qeli.gateway_nat: invalid field value\n",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "duplicate",
+          "cpu": "24Kc",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: qeli.gateway_nat: duplicate scalar field\n",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "unknown",
+          "cpu": "24Kc",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: qeli.unknown_option: unknown configuration field\n",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "hooks-not-executed",
+          "cpu": "24Kc",
+          "rc": 0,
+          "stdout": "legacy\n",
+          "stderr": "",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "missing",
+          "cpu": "24Kc",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: No such file or directory (os error 2)\n",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "nonregular",
+          "cpu": "24Kc",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Error: configuration must be a regular file\n",
+          "uid": 65534
+        },
+        {
+          "arch": "mipsel",
+          "case": "cli-expectation-pair",
+          "cpu": "24Kc",
+          "rc": 2,
+          "stdout": "",
+          "stderr": "error: the following required arguments were not provided:\n  --expect-router-attach <EXPECT_ROUTER_ATTACH>\n\nUsage: mipsel-qeli-client --print-gateway-owner --expect-router-device <EXPECT_ROUTER_DEVICE> --expect-router-attach <EXPECT_ROUTER_ATTACH>\n\nFor more information, try '--help'.\n",
+          "uid": 65534
+        }
+      ],
+      "count": 32,
+      "expected": 32,
+      "all_pass": true,
+      "no_vpn_tun_firewall_or_host_binfmt_test": true
+    },
+    "qemu": {
+      "root": "/var/tmp/qeli-q31-current-emulation-20261008",
+      "emulators": [
+        {
+          "path": "qemu-arm",
+          "size": 14674352,
+          "sha256": "94f4d938a299230026c759b348a5c8f8eaf05969ee5d7a6819598de8c6d342bb",
+          "version": "qemu-arm version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)"
+        },
+        {
+          "path": "qemu-mipsel",
+          "size": 14451824,
+          "sha256": "40be2a933d47494134ddc8947ce09c41af6ea29056a4e552da8e8cd8375f2229",
+          "version": "qemu-mipsel version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)"
+        }
+      ],
+      "uid": 65534,
+      "private_only_no_binfmt_changes": true
+    },
+    "tools_preparation": {
+      "preparation": "rustup component list on absent named pin unexpectedly auto-installed it; not a read-only result; missing Zig/target makes .11 unsuitable for probe compile",
+      "removed_only_own_new_named_toolchain": "/root/.rustup/toolchains/nightly-2026-06-10-x86_64-unknown-linux-gnu",
+      "guards": "exact resolved path/no links/no process refs PASS",
+      "default_settings_bytes": "UNCHANGED",
+      "remaining_toolchains": "stable-x86_64-unknown-linux-gnu (active, default)\n1.96.0-x86_64-unknown-linux-gnu\n1.97.0-x86_64-unknown-linux-gnu\n",
+      "uninstall_output": "info: uninstalling toolchain nightly-2026-06-10-x86_64-unknown-linux-gnu\ninfo: toolchain nightly-2026-06-10-x86_64-unknown-linux-gnu uninstalled\n"
+    },
+    "input_integrity": {
+      "frozen_git_archive": "PASS_EXACT",
+      "transferred_input_rows": "318_MATCH_ALL_SRC_AND_REQUIRED_CARGO_CONFIG",
+      "production_module_inputs": "PASS_EXACT_COMMIT",
+      "backup_sha": "PASS",
+      "credential_scan": "PASS",
+      "old_QEMU_bytes": "SHA_IDENTICAL_TO_SEALED_Q31_V009",
+      "new_client_artifacts": "SHA_PASS",
+      "prep": "Only unexpected own named nightly addition on .11 was removed; original default settings and three pins remain; no second heavy compiler per VM"
+    },
+    "cleanup": [
+      {
+        "host": "10.66.116.10",
+        "removed_owned_roots": [
+          "/var/tmp/qeli-router-openwrt-pvzg5L",
+          "/var/tmp/qeli-router-openwrt-CxtlAF"
+        ],
+        "guards": "SHA/process/mount/resolved-path PASS",
+        "backup": "verified local exact sources/logs/binaries; original QEMU retained sealed packet; no intermediate cache backup"
+      },
+      {
+        "host": "10.66.116.11",
+        "removed_owned_roots": [
+          "/var/tmp/qeli-q31-current-emulation-20261008"
+        ],
+        "guards": "SHA/process/mount/resolved-path PASS",
+        "backup": "verified local exact sources/logs/binaries; original QEMU retained sealed packet; no intermediate cache backup"
+      }
+    ],
+    "native": "14SHA/provenance PASS; production code/ABI/core artifacts unchanged",
+    "docs": "9 checks PASS;both normative languages and manuals synchronized",
+    "ci_readonly": {
+      "databaseId": 37598403060,
+      "headSha": "83c07f5c31178c67a005f20f59975e14528ab73a",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/litvinovtd/qeli/actions/runs/37598403060",
+      "read_only": true,
+      "current_dev_qualified": false
+    }
+  },
+  "raw_packet": {
+    "path": "audit-debt-20260924/q31-current-32bit-20261008",
+    "status": "SEALED",
+    "files": 60,
+    "bytes": 29393294,
+    "manifest_sha256": "8f735eea2580fa5fc5d5a62ff93f387877c9ad05466627d0d3a0223e6358d9d2"
+  },
+  "limits": [
+    "production-module release executions with real dependencies; not crate cfg(test) suite",
+    "panic=abort; unwind/SIGKILL recovery not qualified",
+    "no actual VPN/TUN/fw/binfmt or physical firmware run",
+    "not new four-target independent clean A/B; previous A/B retains original source/date",
+    "SDK upstream Rust bootstrap/release source-cut/current Actions/whole preflight OPEN",
+    "Q29 SIGKILL FAIL/auto-null ENONET,Q30Apple/callback scope,D06 accepted unchanged"
+  ],
+  "progress": {
+    "Q31": "3/5 IN_PROGRESS",
+    "full_audit": "29/37 DONE 78.4%;8remain",
+    "old_debt": "14DONE + D06 ACCEPTED_LIMITATION",
+    "user_exclusions": "retained"
+  },
+  "historical_policy": "41cases/acceptance and54prior supplements preserved modulo source_digest; doc-only applicability rebind, no new matrix/benchmark/soak/native execution",
+  "actions": "local docs/evidence commit; NO_PUSH_DEPLOY_RELEASE"
+}

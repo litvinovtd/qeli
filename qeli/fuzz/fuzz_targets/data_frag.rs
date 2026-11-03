@@ -1,61 +1,103 @@
 #![no_main]
-//! Fuzz the authenticated UDP data-record fragment parser and bounded reassembler.
-//! Arbitrary bytes exercise the reject path; derived, correctly authenticated fragments
-//! drive reorder, duplicate, completion, and conflicting-record state transitions.
-
+//! Arbitrary datagrams plus authenticated state transitions with exact-result oracles.
 use libfuzzer_sys::fuzz_target;
-use qeli_core::protocol::data_frag::{fragment_record, is_data_fragment, DataReassembler};
+use qeli_core::protocol::data_frag::{
+    fragment_record, is_data_fragment, DataFragError, DataReassembler, MAX_REASSEMBLY_RECORDS,
+};
 
 const MAX_GENERATED_RECORD: usize = 16 * 1024;
 
+fn complete(
+    r: &mut DataReassembler,
+    fragments: &[Vec<u8>],
+    key: &[u8; 32],
+    record: &[u8],
+    reverse: bool,
+) {
+    for position in 0..fragments.len() {
+        let index = if reverse {
+            fragments.len() - 1 - position
+        } else {
+            position
+        };
+        let result = r.push(&fragments[index], key).unwrap();
+        if position + 1 == fragments.len() {
+            assert_eq!(result.as_deref(), Some(record));
+        } else {
+            assert_eq!(result, None);
+            assert_eq!(r.push(&fragments[index], key).unwrap(), None);
+        }
+    }
+}
+
 fuzz_target!(|data: &[u8]| {
     let key = [0x42u8; 32];
-
-    // Fully attacker-controlled datagrams must be rejected without allocation blow-up,
-    // panic, or a state transition that makes a duplicate unsafe.
     let _ = is_data_fragment(data);
     let mut raw = DataReassembler::new();
     let _ = raw.push(data, &key);
     let _ = raw.push(data, &key);
-
     if data.len() < 3 {
         return;
     }
     let selector = usize::from(data[0]);
     let record = &data[1..data.len().min(MAX_GENERATED_RECORD + 1)];
-    if record.len() < 2 {
-        return;
-    }
-
-    // Always choose a payload size that yields 2..=64 fragments, so valid stateful paths
-    // receive sustained coverage instead of almost every generated case failing at HMAC.
     let minimum_payload = record.len().div_ceil(64).max(1);
-    let payload_span = record.len() - minimum_payload;
-    let max_payload = minimum_payload + selector % payload_span;
-    let Ok(fragments) = fragment_record(record, &key, 7, max_payload) else {
-        return;
-    };
-
+    let max_payload = minimum_payload + selector % (record.len() - minimum_payload);
+    let fragments = fragment_record(record, &key, 7, max_payload).unwrap();
     let mut reordered = DataReassembler::new();
-    if selector & 1 == 0 {
-        for fragment in fragments.iter().rev() {
-            let _ = reordered.push(fragment, &key);
-        }
-    } else {
-        for fragment in &fragments {
-            let _ = reordered.push(fragment, &key);
-            let _ = reordered.push(fragment, &key);
-        }
-    }
+    complete(&mut reordered, &fragments, &key, record, selector & 1 == 0);
+    // Completion must release the record ID and accounting for another full record.
+    complete(&mut reordered, &fragments, &key, record, selector & 1 != 0);
 
-    // Same authenticated metadata with different bytes must enter the conflict path and
-    // discard the partial record rather than combine two records under one record id.
+    // Mutate a byte IN the first fragment, then authenticate it correctly.
     let mut changed = record.to_vec();
-    let changed_index = selector % changed.len();
-    changed[changed_index] ^= 0x80;
-    if let Ok(conflicting) = fragment_record(&changed, &key, 7, max_payload) {
-        let mut conflict = DataReassembler::new();
-        let _ = conflict.push(&fragments[0], &key);
-        let _ = conflict.push(&conflicting[0], &key);
+    changed[selector % max_payload] ^= 0x80;
+    let conflicting = fragment_record(&changed, &key, 7, max_payload).unwrap();
+    let mut conflict = DataReassembler::new();
+    assert_eq!(conflict.push(&fragments[0], &key).unwrap(), None);
+    assert_eq!(
+        conflict.push(&conflicting[0], &key),
+        Err(DataFragError::Conflict)
+    );
+    complete(&mut conflict, &conflicting, &key, &changed, false);
+
+    // A forged payload must be rejected without poisoning an authenticated partial.
+    let mut corrupt = fragments[0].clone();
+    *corrupt.last_mut().unwrap() ^= 1;
+    let mut authenticated = DataReassembler::new();
+    assert_eq!(authenticated.push(&fragments[0], &key).unwrap(), None);
+    assert_eq!(
+        authenticated.push(&corrupt, &key),
+        Err(DataFragError::Authentication)
+    );
+    complete(&mut authenticated, &fragments, &key, record, false);
+
+    if selector & 31 == 0 {
+        // Fill both public limits: 32 partials * 16 KiB = 512 KiB.
+        let pressure = vec![data[1]; 16 * 1024 + 1];
+        let mut limited = DataReassembler::new();
+        let pending: Vec<_> = (0..MAX_REASSEMBLY_RECORDS as u64)
+            .map(|id| fragment_record(&pressure, &key, id, 16 * 1024).unwrap())
+            .collect();
+        for parts in &pending {
+            assert_eq!(limited.push(&parts[0], &key).unwrap(), None);
+        }
+        let excess = fragment_record(&pressure, &key, u64::MAX, 16 * 1024).unwrap();
+        assert_eq!(
+            limited.push(&excess[0], &key),
+            Err(DataFragError::ResourceLimit)
+        );
+        // Exceeding the byte cap drops this partial, releasing one slot and its bytes.
+        assert_eq!(
+            limited.push(&pending[0][1], &key),
+            Err(DataFragError::ResourceLimit)
+        );
+        for parts in pending.iter().skip(1) {
+            assert_eq!(
+                limited.push(&parts[1], &key).unwrap().as_deref(),
+                Some(pressure.as_slice())
+            );
+        }
+        complete(&mut limited, &excess, &key, &pressure, false);
     }
 });

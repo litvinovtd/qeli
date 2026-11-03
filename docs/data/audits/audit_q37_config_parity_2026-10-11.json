@@ -1,0 +1,539 @@
+{
+  "schema_version": 1,
+  "finding": "Q37-F004",
+  "status": "CLIENT_CONFIG_DOCUMENTATION_PARITY_VERIFIED",
+  "scope": "84 schema defaults, generated key surface, 16 client INI fences and seven standalone shipped templates with actual users.conf loading; not full Q37 or runtime connectivity",
+  "source_baseline_commit": "71ca35647a44036fee600761e403039dc5b34db8",
+  "factory_cli_sha256": "35da83fd0a727a31a93c4527f8c814777aabcc7ef48dd92e0a0de65f5cbc7050",
+  "native_input_digest": "7d42e38ff1b3727970c87eed1903d29abb6fc1eccac4cc67f0a908bbb3d21e35",
+  "inputs": {
+    "scripts/test_native_config_keys.py": "0c20876b16dbc4a12f031d396cd3a35b8cfa7fe1faab77f6969d23d68fe3db2b",
+    "qeli/src/config/editor/schema.rs": "953e6f7fcefba10ee6f323524f4ddcb988a2aaff189310f373676d7b0e90315b",
+    "docs/ru/manuals/CONFIG.md": "6f85c65d85c441ce8bf44950f0fbed39b6b2be1b1e0bc690fd33795bc127f935",
+    "docs/eng/manuals/CONFIG.md": "9dab2667bddf10b313bf941cd333cbe79d869b3121f2fe161a8f19f2f6f05399",
+    "qeli/config/client-maxobf.conf": "51eda85bf860e73b413b5b05aa416736081b0c525ec69d610462b2efd57911c6",
+    "qeli/config/client-reality.conf": "35cffd365cd28659f6f2b4e316ce0c338216a72c92019c640890953ce8c9d804",
+    "qeli/config/client.conf": "e4e6f6c43f22ed544a4b300a1a0207c01c586db54f0420d25add0506ab501f97",
+    "qeli/config/server-ipv6.conf": "9a6b4af0d2c03f9cd46a3949e46f37d2ca929b18a8930063ede5bd25018870ed",
+    "qeli/config/server-maxobf.conf": "6c8412ecb9f404da20e88e1f450151aad3a3127d22c47da39809d2f17a0ca475",
+    "qeli/config/server-multiprofile.conf": "f973798025115b507a19e90fdb0a9e95b147018ddc436a4c3d55ac2175fc2160",
+    "qeli/config/server.conf": "30758562baede2b06056e4c01125ec99ff370571875fa6f663281ddcf9d8f72c",
+    "qeli/config/users.conf": "8f7e2481cbd17d2aa52e9639483bc4771b61406e04915c410d41d4b65cd3351f"
+  },
+  "findings": [
+    "missing reality_compact/reality_split/reality_split_delay in dedicated client tables",
+    "incomplete AWG and shaping defaults",
+    "stale gateway/TOFU/Android exclude and QUIC descriptions",
+    "invalid inline comments in exit-node example"
+  ],
+  "local_tests": {
+    "key_contract_methods": 8,
+    "original_document_negative_methods": 4,
+    "docs_checks": 9,
+    "versions": "PASS",
+    "generated_projections": "PASS",
+    "diff_check": "PASS"
+  },
+  "actual_parser_cases": {
+    "total": 39,
+    "accepted": 37,
+    "original_exit_examples_refused": 2,
+    "all_expected_outcomes": true,
+    "results": [
+      {
+        "name": "ru-before-fence-1",
+        "client": true,
+        "changes": [],
+        "sha256": "4d4a4fba83de63d00fbfae266612a0917e3e753310111aeae128c6349b8de63e",
+        "uploaded_sha256": "4d4a4fba83de63d00fbfae266612a0917e3e753310111aeae128c6349b8de63e",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-before-fence-2",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "uploaded_sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-before-fence-7",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "1af84150eeb77edae2587a1580f30f2e257bd97c425fd0006cc11696cbba30c5",
+        "uploaded_sha256": "1af84150eeb77edae2587a1580f30f2e257bd97c425fd0006cc11696cbba30c5",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-before-fence-30",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "sha256": "d7d15a6fbb0c123f039054ee7e4b9ace3037e18c7e5e663642d3c5e523d931ea",
+        "uploaded_sha256": "d7d15a6fbb0c123f039054ee7e4b9ace3037e18c7e5e663642d3c5e523d931ea",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-before-fence-33",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "sha256": "4d35fa66378588c00ba5a8ac743b4f07eb8fc048271123854a30bb8455decb74",
+        "uploaded_sha256": "4d35fa66378588c00ba5a8ac743b4f07eb8fc048271123854a30bb8455decb74",
+        "expected_exit": 1,
+        "exit": 1,
+        "pass_": true
+      },
+      {
+        "name": "ru-before-fence-35",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "uploaded_sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-before-fence-39",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "sha256": "c112ab11ab55fbf1dff9ce072d303c21df694a49b2acadefa84fa3fac9fceb25",
+        "uploaded_sha256": "c112ab11ab55fbf1dff9ce072d303c21df694a49b2acadefa84fa3fac9fceb25",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-before-fence-41",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "uploaded_sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-after-fence-1",
+        "client": true,
+        "changes": [],
+        "sha256": "4d4a4fba83de63d00fbfae266612a0917e3e753310111aeae128c6349b8de63e",
+        "uploaded_sha256": "4d4a4fba83de63d00fbfae266612a0917e3e753310111aeae128c6349b8de63e",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-after-fence-2",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "uploaded_sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-after-fence-7",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "1af84150eeb77edae2587a1580f30f2e257bd97c425fd0006cc11696cbba30c5",
+        "uploaded_sha256": "1af84150eeb77edae2587a1580f30f2e257bd97c425fd0006cc11696cbba30c5",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-after-fence-30",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "sha256": "d7d15a6fbb0c123f039054ee7e4b9ace3037e18c7e5e663642d3c5e523d931ea",
+        "uploaded_sha256": "d7d15a6fbb0c123f039054ee7e4b9ace3037e18c7e5e663642d3c5e523d931ea",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-after-fence-33",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "sha256": "829fb45d3fd6df4aa58212f4d4a15254a8af515487c9c616e679ee671222e60e",
+        "uploaded_sha256": "829fb45d3fd6df4aa58212f4d4a15254a8af515487c9c616e679ee671222e60e",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-after-fence-35",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "uploaded_sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-after-fence-39",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "sha256": "c112ab11ab55fbf1dff9ce072d303c21df694a49b2acadefa84fa3fac9fceb25",
+        "uploaded_sha256": "c112ab11ab55fbf1dff9ce072d303c21df694a49b2acadefa84fa3fac9fceb25",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "ru-after-fence-41",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "uploaded_sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-before-fence-1",
+        "client": true,
+        "changes": [],
+        "sha256": "1255c4d29eaed4a074aa4b151b41d0238a617bea6cec7494ab035a6dc18913c7",
+        "uploaded_sha256": "1255c4d29eaed4a074aa4b151b41d0238a617bea6cec7494ab035a6dc18913c7",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-before-fence-2",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "uploaded_sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-before-fence-7",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "3d02de926517644a3bec7a92a64cf909c9baa6a3271225476a0127ceb465211e",
+        "uploaded_sha256": "3d02de926517644a3bec7a92a64cf909c9baa6a3271225476a0127ceb465211e",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-before-fence-30",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "sha256": "631d5991f4fa0f34e6bf499f0f22f07cdc4bbb4221c145a480da0924f6c8c209",
+        "uploaded_sha256": "631d5991f4fa0f34e6bf499f0f22f07cdc4bbb4221c145a480da0924f6c8c209",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-before-fence-33",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "sha256": "b76f838b26bfaf13f702a73a777a4bbc0d5e82096f89cb8011f442cb9abfe4d0",
+        "uploaded_sha256": "b76f838b26bfaf13f702a73a777a4bbc0d5e82096f89cb8011f442cb9abfe4d0",
+        "expected_exit": 1,
+        "exit": 1,
+        "pass_": true
+      },
+      {
+        "name": "eng-before-fence-35",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "uploaded_sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-before-fence-39",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "sha256": "fde1bc1a4025718ff6c5a45130eb81d0a07cf45ddcb1df666dc0b0fd6d04d164",
+        "uploaded_sha256": "fde1bc1a4025718ff6c5a45130eb81d0a07cf45ddcb1df666dc0b0fd6d04d164",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-before-fence-41",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "uploaded_sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-after-fence-1",
+        "client": true,
+        "changes": [],
+        "sha256": "1255c4d29eaed4a074aa4b151b41d0238a617bea6cec7494ab035a6dc18913c7",
+        "uploaded_sha256": "1255c4d29eaed4a074aa4b151b41d0238a617bea6cec7494ab035a6dc18913c7",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-after-fence-2",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "uploaded_sha256": "5bb234fb8f56ad010004756e02c1290c505a0270a59eb2606ac930c602864d81",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-after-fence-7",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "3d02de926517644a3bec7a92a64cf909c9baa6a3271225476a0127ceb465211e",
+        "uploaded_sha256": "3d02de926517644a3bec7a92a64cf909c9baa6a3271225476a0127ceb465211e",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-after-fence-30",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "sha256": "631d5991f4fa0f34e6bf499f0f22f07cdc4bbb4221c145a480da0924f6c8c209",
+        "uploaded_sha256": "631d5991f4fa0f34e6bf499f0f22f07cdc4bbb4221c145a480da0924f6c8c209",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-after-fence-33",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "sha256": "29036c5ff15356d62580c79a9ed326fcbd2b8595741ab1eaa4c1b505a488b07f",
+        "uploaded_sha256": "29036c5ff15356d62580c79a9ed326fcbd2b8595741ab1eaa4c1b505a488b07f",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-after-fence-35",
+        "client": true,
+        "changes": [
+          "documented endpoint placeholder"
+        ],
+        "sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "uploaded_sha256": "fab710a8b42e23633c6f162c7ecef44e81a414dccb63fc29055bb4aec8e2ab1b",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-after-fence-39",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder"
+        ],
+        "sha256": "fde1bc1a4025718ff6c5a45130eb81d0a07cf45ddcb1df666dc0b0fd6d04d164",
+        "uploaded_sha256": "fde1bc1a4025718ff6c5a45130eb81d0a07cf45ddcb1df666dc0b0fd6d04d164",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "eng-after-fence-41",
+        "client": true,
+        "changes": [
+          "fragment: added endpoint only"
+        ],
+        "sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "uploaded_sha256": "29c00afbaaa6888db47116a2fc949cfc0f8eb55b9e3c5cafde4303cf256bb149",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "template-client-maxobf.conf",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder replaced with RFC7748 basepoint"
+        ],
+        "sha256": "d52a519480670e10096b7e029e845c94b1c4fbe6de656828fb5c82679427d8be",
+        "uploaded_sha256": "d52a519480670e10096b7e029e845c94b1c4fbe6de656828fb5c82679427d8be",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "template-client-reality.conf",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder replaced with RFC7748 basepoint"
+        ],
+        "sha256": "480c4adb528e90dcbe21235024f748dacf299f949155cef93422b19e90aa026b",
+        "uploaded_sha256": "480c4adb528e90dcbe21235024f748dacf299f949155cef93422b19e90aa026b",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "template-client.conf",
+        "client": true,
+        "changes": [
+          "documented public pin placeholder replaced with RFC7748 basepoint"
+        ],
+        "sha256": "77a149eabd433d8729cd30aba929ca097dcadcf08f8be5e05566f64c0eb27bc9",
+        "uploaded_sha256": "77a149eabd433d8729cd30aba929ca097dcadcf08f8be5e05566f64c0eb27bc9",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "template-server-ipv6.conf",
+        "client": false,
+        "changes": [
+          "external users_file remapped to owned copy"
+        ],
+        "sha256": "9a6b4af0d2c03f9cd46a3949e46f37d2ca929b18a8930063ede5bd25018870ed",
+        "uploaded_sha256": "d1d54898775ec54a411c6971e9d832070376315c70e10ed92851e30ffa827c4b",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "template-server-maxobf.conf",
+        "client": false,
+        "changes": [
+          "external users_file remapped to owned copy"
+        ],
+        "sha256": "6c8412ecb9f404da20e88e1f450151aad3a3127d22c47da39809d2f17a0ca475",
+        "uploaded_sha256": "aa8f1993a018553d743f729c92d3ef7f68cf724b1d0bff937a6ffd99afeb0e8b",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "template-server-multiprofile.conf",
+        "client": false,
+        "changes": [
+          "external users_file remapped to owned copy"
+        ],
+        "sha256": "f973798025115b507a19e90fdb0a9e95b147018ddc436a4c3d55ac2175fc2160",
+        "uploaded_sha256": "00e95ad658b04319b6166c8b87abff11824a97d105687d50d075124581f6d982",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      },
+      {
+        "name": "template-server.conf",
+        "client": false,
+        "changes": [
+          "external users_file remapped to owned copy"
+        ],
+        "sha256": "30758562baede2b06056e4c01125ec99ff370571875fa6f663281ddcf9d8f72c",
+        "uploaded_sha256": "ce815b1a174b6988cca42740f3ce81768f86b67b0cf3cf87571743f5aa10ff06",
+        "expected_exit": 0,
+        "exit": 0,
+        "pass_": true
+      }
+    ]
+  },
+  "harness_attempts": {
+    "attempt_1": "retained: whitespace regex wrongly crossed newline; documented key placeholder not materialized",
+    "attempt_2": "39 expected parser outcomes; full host gate FAIL retained"
+  },
+  "host_gate": {
+    "status": "FAIL",
+    "changed_fields": [
+      "iptables4",
+      "legacy4"
+    ],
+    "delta": "three previously observed legacy FORWARD/MASQUERADE rules appeared in iptables4 and legacy4",
+    "other_structural_fields_unchanged": true,
+    "no_exemption_or_rule_removal": true
+  },
+  "owned_fixture_cleanup": "OWNED_FIXTURE_REMOVED",
+  "raw_receipts": {
+    "runtime.json": "e5f12f91c1c36a00ce70c17ea081cf7c0752774d6823ae9d05458e93f2177ebc",
+    "cases.json": "c399c2b47bce5d4e758658afe57d742c338777f41d64a94207977afd8d6e0943",
+    "run_examples.py": "46e82fda7cfd826c8943dadad68b7807213d4d02ec682a2f0fda3c1bc5a0b676",
+    "attempt-1-runtime.json": "db1a17d1164b7802df030c87dbe538ec67af03181b98a439c8531a9276966e84",
+    "attempt-1-cases.json": "8a036d79ac003dfa5f41af898b4d77c86b2b3d16b80cf549b3bcb41d232dac13",
+    "attempt-1-run_examples.py": "6af3874ac5909e829d8bd2c17dab29c240ee8b3600a1e8eaa5a53a7bfc275a0e",
+    "checks.json": "36d8718fdfc3335011f93fbc8eddaca69b9214732a027687c0060b3cb6069fbd"
+  },
+  "limitations": [
+    "Fragments lacking server receive only an explicit inert endpoint; documented pin/endpoint placeholders are materialized and every change recorded.",
+    "check-config is admission only; no VPN startup, DNS, hooks, data plane, physical platform or sustained capacity claim.",
+    "Full host gate is FAIL; this scoped document/parser result does not qualify lab network invariance.",
+    "Native A/B builds, full Q35 endurance, final release certification and remaining Q37 reviews remain open."
+  ],
+  "global_done": 30,
+  "global_total": 37,
+  "plan_revision": "full-system-audit-v229",
+  "push_deploy_release": false
+}

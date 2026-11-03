@@ -36,6 +36,8 @@
     <application
         android:name=".QeliApp"
         android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/qeli_data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
@@ -81,11 +83,23 @@
             android:stopWithTask="false"
             android:foregroundServiceType="specialUse|location">
             <property
-                android:name="android.foreground_service.foreground_service_type_associated_models"
-                android:value="vpn" />
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="VPN tunnel and trusted Wi-Fi controller" />
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
+        </service>
+
+        <!-- Android restarts this same-process record after process death. It only asks the
+             private VPN service to recover a still-desired, consented connection. -->
+        <service
+            android:name=".VpnRecoveryService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Recovery of a user-requested VPN after process death" />
         </service>
 
         <!-- Quick Settings tile: one-tap connect the default (active) profile / disconnect. -->

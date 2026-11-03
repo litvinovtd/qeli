@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "status": "NATIVE_AB_AND_SDK_SOURCE_PASS",
+  "scope": "Fresh independent A/B native builds after merging Linux client TUN queue support into dev; application and runtime qualifications are separate records.",
+  "integration_commit": "2d6fcfd5bbecfe68d91299bb40cb3a5c53ffd4a8",
+  "included_feature_commit": "aef516689088a8e4c7f22d7fc9743d299dab4f8b",
+  "native_source_digest": "42672aca87de8e95b2e289cad35b576196f88e92874d121e1804e7845152976b",
+  "native_evidence": [
+    "native-libs/reproducibility/android.json",
+    "native-libs/reproducibility/desktop.json"
+  ],
+  "native_artifacts": {
+    "android-arm64": "e379503e5cec05d4bc72bfc61d565d2aaca5e9ba73204f8b9f4440be8d1615b3",
+    "android-x86_64": "aea5cd0f3b671ae9191aa86b898e5c2951c2eb89f250a24cb54f4640b31ffc32",
+    "windows-x64": "bf60de2c1e583f5131e81eabdd8665feceee314406b571d3f17c7891e79bdca8",
+    "macos-universal": "93fd0d24bf24c66848fe7aa7536ba1c941c49b0840de30f42c375ffd1e062db1"
+  },
+  "openwrt": {
+    "source_commit": "b8a5cbd1417b0d3da9dad645d4942c202ba46977",
+    "archive_sha256": "74f2afbc968904133404825024d1479184b89d5a9cece09a2aefae85eb147bf1",
+    "archive_size": 27358709,
+    "prepared_files": 3484,
+    "sdk": "24.10.4",
+    "download_prepare": "PASS",
+    "full_sdk_ipk_build_claimed": false
+  },
+  "additional_permanent_ci_gates_added": false,
+  "physical_checks_executed": false,
+  "public_performance_measurements": false,
+  "published": false,
+  "tag_created": false,
+  "application_qualification_evidence": "release/certification/evidence/integrated-release-assets-20261017.json",
+  "runtime_qualification_evidence": "release/certification/evidence/integrated-tun-queue-release-20261017.json"
+}

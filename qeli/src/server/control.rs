@@ -1,9 +1,9 @@
+use super::control_socket::ControlSocket;
 use crate::config::users::UsersDb;
+use crate::control_io::{self, IO_TIMEOUT, MAX_REQUEST, MAX_RESPONSE, RESPONSE_TIMEOUT};
 use crate::server::{ProfileRuntime, ServerState};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixListener;
 
 /// Default control-socket path. Override with `QELI_CONTROL_SOCKET` — see
 /// [`control_socket_path`].
@@ -14,11 +14,14 @@ pub const CONTROL_SOCKET: &str = "/var/run/qeli/control.sock";
 /// Every CLI subcommand advertises a `--socket` flag, but the SERVER always bound the
 /// constant, so pointing the flag anywhere else could only ever fail to connect: the flag
 /// was, in effect, decoration. That also made two qeli instances on one host impossible
-/// (they fight over the same path) and blocked any non-root run, where `/var/run` is not
+/// in separate network namespaces (they fight over a shared filesystem path) and blocked
+/// any non-root run, where `/var/run` is not
 /// writable. Honouring one environment variable on BOTH sides makes the flag mean
 /// something without inventing a config key that has no natural section to live in — the
 /// systemd unit or a shell can set it, and the CLI inherits the same default.
-/// (Audit 2026-07-27, S3.)
+/// Workers still share a namespace-wide admission lease: a custom control path does not
+/// permit concurrent workers to sweep each other's firewall in the same network namespace.
+/// (Audit 2026-07-27, S3; namespace admission follow-up 2026-09-24.)
 pub fn control_socket_path() -> String {
     std::env::var("QELI_CONTROL_SOCKET")
         .ok()
@@ -44,6 +47,38 @@ fn external_or_inline_user<'a>(
         db.users.push(inline);
     }
     db.users.iter_mut().find(|user| user.username == username)
+}
+
+fn usage_reset_failure(error: &anyhow::Error) -> String {
+    if crate::util::atomic_write_was_published(error) {
+        format!("usage reset was published, but its durability could not be confirmed: {error:#}")
+    } else {
+        format!("usage counter was not reset because it could not be persisted: {error:#}")
+    }
+}
+
+/// Keep live auth aligned with a published INI even if its directory sync failed.
+fn users_write_failure(
+    config: &crate::config::server::ServerConfig,
+    users: &mut UsersDb,
+    error: &anyhow::Error,
+) -> String {
+    let mut message = crate::config::users::users_error_message(error);
+    if crate::util::atomic_write_was_published(error) {
+        match crate::server::load_users_db_for_runtime(config) {
+            Ok(fresh) => {
+                *users = fresh;
+                message.push_str("; published users read back into live auth");
+            }
+            Err(readback) => message.push_str(&format!(
+                "; readback failed: {}",
+                crate::config::users::users_error_message(&readback)
+            )),
+        }
+    } else {
+        message.push_str("; users file change NOT applied");
+    }
+    message
 }
 
 #[derive(Deserialize)]
@@ -119,98 +154,64 @@ pub struct ClientInfo {
 /// Bind and secure the control socket before the data plane starts. A worker without this
 /// socket is not manageable by the supervisor, so bind failures must be startup failures,
 /// not errors hidden in a detached task.
-pub fn bind_control_server() -> anyhow::Result<UnixListener> {
+pub(super) fn bind_control_server() -> anyhow::Result<ControlSocket> {
     let sock = control_socket_path();
-    if let Some(parent) = std::path::Path::new(&sock).parent() {
-        std::fs::create_dir_all(parent)?;
-        // Lock the socket's directory to 0700 BEFORE binding, so that during the
-        // unavoidable window between bind() (which creates the socket with the
-        // process umask, typically world-traversable) and the 0600 chmod below,
-        // the socket is still unreachable by other users — the directory gates
-        // traversal. (L2)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
-        }
-    }
-    match std::fs::remove_file(&sock) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-
-    let listener = UnixListener::bind(&sock)?;
-    #[cfg(unix)]
-    std::fs::set_permissions(&sock, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-
+    let listener = ControlSocket::bind(std::path::Path::new(&sock))?;
     log::info!("Control socket listening on {}", sock);
     Ok(listener)
 }
 
-pub async fn run_control_server(
+pub(super) async fn run_control_server(
     state: Arc<ServerState>,
-    listener: UnixListener,
+    listener: tokio::net::UnixListener,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
-    // Bound concurrent control handlers: acquire a permit BEFORE accepting the
-    // next connection, so a flood of connections queues in the kernel backlog
-    // instead of spawning unbounded tasks/fds (each handler also has a read
-    // timeout below, so a silent peer can't park a slot forever).
-    let sem = Arc::new(tokio::sync::Semaphore::new(16));
     let mut handlers = tokio::task::JoinSet::new();
-    loop {
-        let permit = match sem.clone().acquire_owned().await {
-            Ok(p) => p,
-            Err(_) => break Ok(()), // semaphore closed — shouldn't happen
-        };
-        let accepted = tokio::select! {
-            accepted = listener.accept() => accepted,
+    let result = loop {
+        // Completed handlers count towards the cap until reaped. At capacity the
+        // accept branch is disabled, but shutdown and task completion remain live.
+        tokio::select! {
+            biased;
+            _ = crate::server_supervisor::wait_for_shutdown(&mut shutdown) => break Ok(()),
             joined = handlers.join_next(), if !handlers.is_empty() => {
                 if let Some(Err(error)) = joined {
                     log::warn!("Control handler task panicked: {error}");
                 }
-                // `continue` drops the unused permit before the next accept.
-                continue;
             }
-        };
-        let (stream, _) = match accepted {
-            Ok(value) => value,
-            Err(error) => return Err(anyhow::anyhow!("control accept failed: {error}")),
-        };
-
-        let state = state.clone();
-        handlers.spawn(async move {
-            let _permit = permit; // held for the handler's lifetime
-            if let Err(e) = handle_control(stream, state).await {
-                log::debug!("Control handler error: {}", e);
+            accepted = listener.accept(), if handlers.len() < 16 => {
+                let (stream, _) = match accepted {
+                    Ok(value) => value,
+                    Err(error) => break Err(anyhow::anyhow!("control accept failed: {error}")),
+                };
+                let state = state.clone();
+                handlers.spawn(async move {
+                    if let Err(error) = handle_control(stream, state).await {
+                        log::debug!("Control handler error: {error}");
+                    }
+                });
             }
-        });
+        }
+    };
+    // Close admission. The worker keeps the pathname lease until all handlers
+    // and profiles finish. Do not cancel a disk/runtime update at
+    // an arbitrary await. The worker supervisor retains its process grace limit.
+    drop(listener);
+    while let Some(joined) = handlers.join_next().await {
+        if let Err(error) = joined {
+            log::warn!("Control handler task panicked: {error}");
+        }
     }
+    result
 }
 
 async fn handle_control(
     mut stream: tokio::net::UnixStream,
     state: Arc<ServerState>,
 ) -> anyhow::Result<()> {
-    // Cap the request size: a control command is a single short JSON line.
-    // Without a bound, a client holding the socket open and streaming bytes
-    // without a newline would grow the line buffer unboundedly (OOM). 64 KiB is
-    // far more than any legitimate command needs.
-    const MAX_CONTROL_REQUEST: u64 = 64 * 1024;
-    let (reader, mut writer) = stream.split();
-    let mut lines =
-        BufReader::new(tokio::io::AsyncReadExt::take(reader, MAX_CONTROL_REQUEST)).lines();
-
-    // Read timeout: a peer that connects and never sends a newline must not park
-    // this task + fd indefinitely (the 64 KiB `take` bounds memory, not time).
-    let line =
-        match tokio::time::timeout(std::time::Duration::from_secs(5), lines.next_line()).await {
-            Ok(Ok(Some(l))) => l,
-            Ok(Ok(None)) => return Ok(()), // clean EOF, no command
-            Ok(Err(e)) => return Err(e.into()),
-            Err(_) => return Ok(()), // timed out waiting for a command line
-        };
-
+    let (reader, writer) = stream.split();
+    let Some(line) = control_io::read_line(reader, MAX_REQUEST, IO_TIMEOUT).await? else {
+        return Ok(());
+    };
     let resp = match serde_json::from_str::<Request>(&line) {
         Ok(req) => dispatch(req, &state).await,
         Err(e) => Response {
@@ -220,10 +221,8 @@ async fn handle_control(
             message: None,
         },
     };
-
-    let mut out = serde_json::to_string(&resp)?;
-    out.push('\n');
-    writer.write_all(out.as_bytes()).await?;
+    let out = serde_json::to_string(&resp)?;
+    control_io::write_line(writer, &out, MAX_RESPONSE, IO_TIMEOUT).await?;
     Ok(())
 }
 
@@ -237,6 +236,13 @@ async fn handle_control(
 /// stays connected and can't reconnect". The stuck task's own later cleanup is a
 /// no-op (its `by_ip` guard no longer matches). Returns the number kicked.
 async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> usize {
+    kick_matching_sessions_on_profile(profile, |session| session.username == username).await
+}
+
+async fn kick_matching_sessions_on_profile(
+    profile: &Arc<ProfileRuntime>,
+    mut should_kick: impl FnMut(&crate::server::handler::SessionShared) -> bool,
+) -> usize {
     // Kicking is an authoritative session/lease transition, just like authentication.
     // Hold admission until every removed session has released its device lease so a
     // same-device reconnect cannot reclaim the lease in the removal->release gap.
@@ -246,7 +252,7 @@ async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> 
         let ips: Vec<std::net::IpAddr> = sessions
             .by_ip
             .iter()
-            .filter(|(_, s)| s.username == username)
+            .filter(|(_, s)| should_kick(s))
             .map(|(ip, _)| *ip)
             .collect();
         let mut out = Vec::with_capacity(ips.len());
@@ -288,6 +294,74 @@ async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> 
         crate::server::notify::fire_disconnect(&s.username, &profile.name, s.peer);
     }
     kicked.len()
+}
+
+/// Apply current access policy, per-profile device caps and bandwidth to open sessions.
+/// Compiled packet permissions require reconnect when changed. The existing kick
+/// path owns admission, iroutes, ingress revocation and pool release.
+pub(super) async fn apply_user_policy_to_sessions(state: &Arc<ServerState>) -> usize {
+    let profiles: Vec<_> = state.profiles.read().await.values().cloned().collect();
+    let mut count = 0;
+    for profile in profiles {
+        let denied: std::collections::HashSet<u64> = {
+            // Admission takes the users lock too. Acquire admission FIRST so a
+            // queued users writer cannot deadlock this scan against authentication.
+            let _admission_guard = profile.admission.lock().await;
+            let users = state.users_db.read().await;
+            let sessions = profile.sessions.read().await;
+            let mut denied = std::collections::HashSet::new();
+            let mut by_user: std::collections::HashMap<&str, Vec<_>> =
+                std::collections::HashMap::new();
+            for session in sessions.by_ip.values() {
+                let Some(user) = users
+                    .find_user(&session.username)
+                    .filter(|user| user.allowed_on_profile(&profile.name))
+                else {
+                    denied.insert(session.session_id);
+                    continue;
+                };
+                session.bandwidth_limit_mbps.store(
+                    user.effective_bandwidth_limit(&users.groups),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                if !crate::server::handler::session_access_policy_matches(
+                    &profile.config,
+                    &users,
+                    session,
+                ) {
+                    denied.insert(session.session_id);
+                    continue;
+                }
+                by_user.entry(&session.username).or_default().push(session);
+            }
+            for (username, mut live) in by_user {
+                let cap = users
+                    .find_user(username)
+                    .expect("authorized user above")
+                    .effective_max_sessions(&users.groups);
+                if cap > 0 && live.len() > cap as usize {
+                    // Match admission: newest devices win. IDs break equal-time ties.
+                    live.sort_unstable_by_key(|session| {
+                        std::cmp::Reverse((session.connected_at, session.session_id))
+                    });
+                    denied.extend(
+                        live.into_iter()
+                            .skip(cap as usize)
+                            .map(|session| session.session_id),
+                    );
+                }
+            }
+            denied
+        };
+        if !denied.is_empty() {
+            // The snapshot cannot kick a replacement session admitted in this gap.
+            count += kick_matching_sessions_on_profile(&profile, |session| {
+                denied.contains(&session.session_id)
+            })
+            .await;
+        }
+    }
+    count
 }
 
 /// Snapshot worker-lifetime roaming outcomes without exposing session locators, CIDs or proofs.
@@ -385,7 +459,12 @@ async fn roaming_status(state: &Arc<ServerState>) -> serde_json::Value {
 async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
     // Audit-log every administrative (state-changing) control command. list-clients
     // is read-only and may be polled, so it is excluded to avoid log spam.
-    if req.cmd != "list-clients" && req.cmd != "list-blocked" && req.cmd != "roaming-stats" {
+    if req.cmd != "list-clients"
+        && req.cmd != "list-blocked"
+        && req.cmd != "roaming-stats"
+        && req.cmd != "queue-stats"
+        && req.cmd != "tun-stats"
+    {
         log::info!(
             "CONTROL action='{}' user='{}' profile='{}' mbps={} ip='{}'",
             crate::util::log_sanitize(&req.cmd),
@@ -430,6 +509,48 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 error: None,
                 clients: Some(clients),
                 message: None,
+            }
+        }
+
+        "tun-stats" => {
+            let profiles = state.profiles.read().await;
+            let counters: std::collections::BTreeMap<_, _> = profiles
+                .iter()
+                .map(|(name, p)| (name.clone(), p.tun_metrics.snapshot()))
+                .collect();
+            Response {
+                ok: true,
+                error: None,
+                clients: None,
+                message: Some(
+                    serde_json::json!({"scope":"server_tun_pipeline","profiles":counters})
+                        .to_string(),
+                ),
+            }
+        }
+        "queue-stats" => {
+            let profiles = state.profiles.read().await;
+            let fragmentation: std::collections::BTreeMap<_, _> = profiles.iter().map(|(name, profile)| {
+                let snapshot = profile.udp_buffer_counters.path.snapshot();
+                (name.clone(), serde_json::json!({"fragmented_records":snapshot.fragmented_records,"fragments_created":snapshot.fragments_created}))
+            }).collect();
+            let queues: std::collections::BTreeMap<_, _> = profiles
+                .iter()
+                .map(|(name, profile)| {
+                    (
+                        name.clone(),
+                        profile.udp_buffer_counters.receive_queue.snapshot(),
+                    )
+                })
+                .collect();
+            Response {
+                ok: true,
+                error: None,
+                clients: None,
+                message: Some(
+                    serde_json::json!({"profiles": queues, "scope": "udp_batch_handoff", "data_fragmentation": fragmentation})
+                        .to_string(),
+                ),
             }
         }
 
@@ -504,10 +625,13 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             // Re-read under the lock and apply the change there: this worker's copy may
             // be older than the file (the supervisor/CLI also write it).
             let (disabled, save_err) = {
-                let users_file = state.config.auth.users_file.clone();
+                let auth_config = state.live_auth_config.read().await;
+                let mut config = state.config.clone();
+                config.auth = auth_config.clone();
+                let users_file = config.auth.users_file.clone();
                 let mut users = state.users_db.write().await;
                 match UsersDb::update_locked_checked(&users_file, |db| {
-                    let found = match external_or_inline_user(db, &state.config, &req.username) {
+                    let found = match external_or_inline_user(db, &config, &req.username) {
                         Some(u) => {
                             u.enabled = false;
                             true
@@ -515,7 +639,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                         None => false,
                     };
                     let effective =
-                        crate::server::effective_users_from_external(&state.config, db.clone())?;
+                        crate::server::effective_users_from_external(&config, db.clone())?;
                     Ok((found, effective))
                 }) {
                     Ok((_fresh, (found, effective))) => {
@@ -524,7 +648,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                     }
                     Err(e) => {
                         log::error!("Failed to save users file after disable: {}", e);
-                        (true, Some(e.to_string()))
+                        (true, Some(users_write_failure(&config, &mut users, &e)))
                     }
                 }
             };
@@ -550,8 +674,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 Some(e) => Response {
                     ok: false,
                     error: Some(format!(
-                        "user '{}' was NOT disabled because the users file update failed; {} \
-                         current session(s) were kicked, but reconnect remains possible ({})",
+                        "disable update for '{}' could not be confirmed; {} current session(s) were kicked ({})",
                         req.username, total_kicked, e
                     )),
                     clients: None,
@@ -579,10 +702,13 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 };
             }
             let (found, save_err) = {
-                let users_file = state.config.auth.users_file.clone();
+                let auth_config = state.live_auth_config.read().await;
+                let mut config = state.config.clone();
+                config.auth = auth_config.clone();
+                let users_file = config.auth.users_file.clone();
                 let mut users = state.users_db.write().await;
                 match UsersDb::update_locked_checked(&users_file, |db| {
-                    let found = match external_or_inline_user(db, &state.config, &req.username) {
+                    let found = match external_or_inline_user(db, &config, &req.username) {
                         Some(u) => {
                             u.data_limit_gb = req.data_limit_gb;
                             u.expire_at = req.expire_at;
@@ -591,7 +717,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                         None => false,
                     };
                     let effective =
-                        crate::server::effective_users_from_external(&state.config, db.clone())?;
+                        crate::server::effective_users_from_external(&config, db.clone())?;
                     Ok((found, effective))
                 }) {
                     Ok((_fresh, (found, effective))) => {
@@ -600,7 +726,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                     }
                     Err(e) => {
                         log::error!("Failed to save users file after set-limit: {}", e);
-                        (true, Some(e.to_string()))
+                        (true, Some(users_write_failure(&config, &mut users, &e)))
                     }
                 }
             };
@@ -615,10 +741,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             match save_err {
                 Some(e) => Response {
                     ok: false,
-                    error: Some(format!(
-                        "limit was NOT changed because the users file update failed ({})",
-                        e
-                    )),
+                    error: Some(format!("limit update could not be confirmed ({})", e)),
                     clients: None,
                     message: None,
                 },
@@ -652,9 +775,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 },
                 Err(error) => Response {
                     ok: false,
-                    error: Some(format!(
-                        "usage counter was not reset because it could not be persisted: {error}"
-                    )),
+                    error: Some(usage_reset_failure(&error)),
                     clients: None,
                     message: None,
                 },
@@ -670,18 +791,20 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                     message: None,
                 };
             }
-            let users_file = state.config.auth.users_file.clone();
+            let auth_config = state.live_auth_config.read().await;
+            let mut config = state.config.clone();
+            config.auth = auth_config.clone();
+            let users_file = config.auth.users_file.clone();
             let mut users = state.users_db.write().await;
             let outcome = UsersDb::update_locked_checked(&users_file, |db| {
-                let found = match external_or_inline_user(db, &state.config, &req.username) {
+                let found = match external_or_inline_user(db, &config, &req.username) {
                     Some(u) => {
                         u.enabled = true;
                         true
                     }
                     None => false,
                 };
-                let effective =
-                    crate::server::effective_users_from_external(&state.config, db.clone())?;
+                let effective = crate::server::effective_users_from_external(&config, db.clone())?;
                 Ok((found, effective))
             });
             let found = match &outcome {
@@ -704,8 +827,9 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                         Response {
                             ok: false,
                             error: Some(format!(
-                                "user '{}' was NOT enabled because the users file update failed ({})",
-                                req.username, e
+                                "enable update for '{}' could not be confirmed ({})",
+                                req.username,
+                                users_write_failure(&config, &mut users, &e)
                             )),
                             clients: None,
                             message: None,
@@ -761,10 +885,13 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             drop(profiles);
 
             let (found, save_err) = {
-                let users_file = state.config.auth.users_file.clone();
+                let auth_config = state.live_auth_config.read().await;
+                let mut config = state.config.clone();
+                config.auth = auth_config.clone();
+                let users_file = config.auth.users_file.clone();
                 let mut users = state.users_db.write().await;
                 match UsersDb::update_locked_checked(&users_file, |db| {
-                    let found = match external_or_inline_user(db, &state.config, &req.username) {
+                    let found = match external_or_inline_user(db, &config, &req.username) {
                         Some(user) => {
                             user.bandwidth.limit_mbps = req.mbps;
                             user.bandwidth.burst_mbps = req.mbps.saturating_add(req.mbps / 4);
@@ -773,7 +900,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                         None => false,
                     };
                     let effective =
-                        crate::server::effective_users_from_external(&state.config, db.clone())?;
+                        crate::server::effective_users_from_external(&config, db.clone())?;
                     Ok((found, effective))
                 }) {
                     Ok((_fresh, (found, effective))) => {
@@ -782,7 +909,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                     }
                     Err(e) => {
                         log::error!("Failed to save users file after set-bandwidth: {}", e);
-                        (true, Some(e.to_string()))
+                        (true, Some(users_write_failure(&config, &mut users, &e)))
                     }
                 }
             };
@@ -800,8 +927,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 Some(e) => Response {
                     ok: false,
                     error: Some(format!(
-                        "bandwidth for {} set to {} Mbps on live session(s), but persisting to \
-                         the users file FAILED ({}) — the change will be lost on restart",
+                        "bandwidth for {} set to {} Mbps on live session(s); users file update could not be confirmed ({})",
                         req.username, req.mbps, e
                     )),
                     clients: None,
@@ -940,47 +1066,20 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
 }
 
 pub async fn send_command(socket_path: &str, cmd_json: &str) -> anyhow::Result<String> {
-    use tokio::io::AsyncReadExt;
-    let mut stream = tokio::net::UnixStream::connect(socket_path)
+    let mut stream = tokio::time::timeout(IO_TIMEOUT, tokio::net::UnixStream::connect(socket_path))
         .await
-        .map_err(|e| {
+        .map_err(|_| anyhow::anyhow!("Timed out connecting to control socket {socket_path}"))?
+        .map_err(|error| {
             anyhow::anyhow!(
-                "Cannot connect to control socket {}: {}\nIs the server running?",
-                socket_path,
-                e
+                "Cannot connect to control socket {socket_path}: {error}\nIs the server running?"
             )
         })?;
-
-    let mut msg = cmd_json.to_string();
-    msg.push('\n');
-    stream.write_all(msg.as_bytes()).await?;
-
-    // The server side has bounded its read since the last audit pass; this — the CLIENT —
-    // was still `read_to_string` with neither a deadline nor a cap. `read_to_string` returns
-    // only at EOF, so a server that accepts the connection and then wedges (or simply never
-    // closes its half) hangs the CLI forever with no way out but Ctrl-C, and a runaway
-    // response grows this String without bound. Bound both. (S-16)
-    //
-    // The cap is generous because legitimate replies carry list output (users, sessions,
-    // blocked IPs); the deadline is what actually protects against a stuck server.
-    const MAX_CONTROL_RESPONSE: u64 = 8 * 1024 * 1024;
-    const CONTROL_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
-
-    let mut resp = String::new();
-    // Bind the `Take` adapter to a local: inlining it drops the temporary at the end of
-    // the statement while the read future still borrows it (E0716).
-    let mut limited = tokio::io::AsyncReadExt::take(stream, MAX_CONTROL_RESPONSE);
-    let read = limited.read_to_string(&mut resp);
-    match tokio::time::timeout(CONTROL_READ_TIMEOUT, read).await {
-        Ok(Ok(_)) => Ok(resp.trim().to_string()),
-        Ok(Err(e)) => Err(e.into()),
-        Err(_) => Err(anyhow::anyhow!(
-            "timed out after {:?} waiting for a reply from the control socket {} — \
-             the server accepted the connection but did not answer. Check `journalctl -u qeli -e`.",
-            CONTROL_READ_TIMEOUT,
-            socket_path
-        )),
-    }
+    control_io::write_line(&mut stream, cmd_json, MAX_REQUEST, IO_TIMEOUT).await?;
+    let response = control_io::read_line(&mut stream, MAX_RESPONSE, RESPONSE_TIMEOUT)
+        .await
+        .map_err(|error| anyhow::anyhow!("Cannot read control reply from {socket_path}: {error}"))?
+        .ok_or_else(|| anyhow::anyhow!("Control socket {socket_path} closed without a reply"))?;
+    Ok(response.trim().to_string())
 }
 
 #[cfg(test)]
@@ -990,6 +1089,30 @@ mod tests {
     //! parsing an untrusted command off the socket without panicking on malformed /
     //! unknown / wrong-typed input — is unit-testable and is what these lock in.
     use super::*;
+
+    #[test]
+    fn reset_failure_message_distinguishes_publication_from_rollback() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-reset-message-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("usage.json");
+        let error = crate::util::write_atomic_test_sync_failure(&path, b"{}")
+            .unwrap_err()
+            .context("usage reset");
+        let message = usage_reset_failure(&error);
+        assert!(message.contains("was published"));
+        assert!(message.contains("durability could not be confirmed"));
+        assert!(message.contains("injected directory I/O failure"));
+        assert!(!message.contains("was not reset"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"{}");
+        let before = usage_reset_failure(&anyhow::anyhow!("preparation failed"));
+        assert!(before.contains("was not reset"));
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
 
     fn parse(json: &str) -> Result<Request, serde_json::Error> {
         serde_json::from_str::<Request>(json)
@@ -1018,6 +1141,66 @@ mod tests {
             !effective.users[0].enabled,
             "external override must keep precedence over the inline entry"
         );
+    }
+
+    #[tokio::test]
+    async fn control_mutations_use_accepted_inline_auth_instead_of_startup_users() {
+        use crate::config::users::UserEntry;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-control-live-inline-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let users_file = dir.join("users.conf");
+        std::fs::write(&users_file, "").unwrap();
+        let mut config = crate::config::server::ServerConfig::default();
+        config.auth.users_file = users_file.to_string_lossy().into_owned();
+        config.auth.users.push(UserEntry {
+            username: "removed-inline".into(),
+            password_hash: "x".into(),
+            enabled: true,
+            ..Default::default()
+        });
+        let state = crate::server::test_api_state(config, &dir.join("server.conf"));
+        let new_user = UserEntry {
+            username: "new-inline".into(),
+            password_hash: "y".into(),
+            enabled: true,
+            ..Default::default()
+        };
+        state.live_auth_config.write().await.users = vec![new_user.clone()];
+        state.users_db.write().await.users = vec![new_user];
+        for cmd in ["enable-user", "disable-user", "set-limit", "set-bandwidth"] {
+            let request = parse(&format!(
+                r#"{{"cmd":"{cmd}","username":"removed-inline","mbps":7,"data_limit_gb":9}}"#
+            ))
+            .unwrap();
+            assert!(
+                !dispatch(request, &state).await.ok,
+                "{cmd} resurrected an account"
+            );
+            assert!(!UsersDb::load(&users_file)
+                .unwrap()
+                .users
+                .iter()
+                .any(|u| u.username == "removed-inline"));
+            let request = parse(&format!(
+                r#"{{"cmd":"{cmd}","username":"new-inline","mbps":7,"data_limit_gb":9}}"#
+            ))
+            .unwrap();
+            assert!(
+                dispatch(request, &state).await.ok,
+                "{cmd} ignored the accepted inline account"
+            );
+        }
+        let db = UsersDb::load(&users_file).unwrap();
+        let user = &db.users[0];
+        assert_eq!(user.username, "new-inline");
+        assert!(!user.enabled);
+        assert_eq!(user.data_limit_gb, 9);
+        assert_eq!(user.bandwidth.limit_mbps, 7);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1056,6 +1239,8 @@ mod tests {
             "list-clients",
             "list-blocked",
             "roaming-stats",
+            "queue-stats",
+            "tun-stats",
             "kick",
             "disable-user",
             "set-limit",
@@ -1121,5 +1306,145 @@ mod tests {
             message: None,
         };
         assert_eq!(serde_json::to_string(&r).unwrap(), r#"{"ok":true}"#);
+    }
+
+    struct Fixture(std::path::PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            use std::os::unix::fs::DirBuilderExt;
+            let path = std::env::temp_dir().join(format!(
+                "qeli-ctrl-test-{}-{}",
+                std::process::id(),
+                rand::random::<u64>()
+            ));
+            std::fs::DirBuilder::new()
+                .mode(0o700)
+                .create(&path)
+                .unwrap();
+            Self(path)
+        }
+        fn socket(&self) -> std::path::PathBuf {
+            self.0.join("control.sock")
+        }
+        fn state(&self) -> Arc<ServerState> {
+            crate::server::test_api_state(
+                crate::config::server::ServerConfig::default(),
+                &self.0.join("server.conf"),
+            )
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn control_shutdown_drains_accepted_mutation_and_holds_lease() {
+        let fixture = Fixture::new();
+        let path = fixture.socket();
+        let state = fixture.state();
+        let tracker_guard = state.failed_auth.lock().await;
+        let mut owned = ControlSocket::bind(&path).unwrap();
+        let listener = owned.listener.take().unwrap();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let handler_state = state.clone();
+        let task = tokio::spawn(async move {
+            let result = run_control_server(handler_state, listener, stop_rx).await;
+            drop(owned);
+            result
+        });
+        let mut peer = tokio::net::UnixStream::connect(&path).await.unwrap();
+        control_io::write_line(
+            &mut peer,
+            r#"{"cmd":"unblock-all"}"#,
+            MAX_REQUEST,
+            IO_TIMEOUT,
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(IO_TIMEOUT, async {
+            while Arc::strong_count(&state) < 3 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        stop_tx.send(true).unwrap();
+        // The handler cannot complete while its mutation lock is held.
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        assert!(ControlSocket::bind(&path).is_err());
+        drop(tracker_guard);
+        let response = control_io::read_line(&mut peer, MAX_RESPONSE, IO_TIMEOUT)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&response).unwrap()["ok"],
+            true
+        );
+        tokio::time::timeout(IO_TIMEOUT, task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(Arc::strong_count(&state), 1);
+        assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn control_shutdown_at_capacity_joins_all_handlers() {
+        let fixture = Fixture::new();
+        let path = fixture.socket();
+        let state = fixture.state();
+        let mut owned = ControlSocket::bind(&path).unwrap();
+        let listener = owned.listener.take().unwrap();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let handler_state = state.clone();
+        let task = tokio::spawn(async move {
+            let result = run_control_server(handler_state, listener, stop_rx).await;
+            drop(owned);
+            result
+        });
+        let mut peers = Vec::new();
+        for _ in 0..16 {
+            peers.push(tokio::net::UnixStream::connect(&path).await.unwrap());
+        }
+        tokio::time::timeout(IO_TIMEOUT, async {
+            while Arc::strong_count(&state) < 18 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        stop_tx.send(true).unwrap();
+        drop(peers);
+        tokio::time::timeout(IO_TIMEOUT, task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(Arc::strong_count(&state), 1);
+        assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn control_closed_owner_stops_before_accepting() {
+        let fixture = Fixture::new();
+        let path = fixture.socket();
+        let mut owned = ControlSocket::bind(&path).unwrap();
+        let listener = owned.listener.take().unwrap();
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        drop(stop_tx);
+        tokio::time::timeout(
+            IO_TIMEOUT,
+            run_control_server(fixture.state(), listener, stop_rx),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        drop(owned);
+        assert!(!path.exists());
     }
 }

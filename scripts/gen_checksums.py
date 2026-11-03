@@ -1,60 +1,86 @@
 #!/usr/bin/env python3
-"""Generate a SHA256SUMS file over release assets, for the panel / CLI update command
-and install-qeli-server.sh to verify downloads before installing.
+"""Generate LF-only SHA256SUMS for Qeli release assets.
 
-Usage:
-    python3 scripts/gen_checksums.py [ASSET_DIR]
+Usage: python3 scripts/gen_checksums.py [ASSET_DIR]
 
-ASSET_DIR defaults to the current directory. Every regular file in it (except an
-existing SHA256SUMS) is hashed; the result is written to ASSET_DIR/SHA256SUMS in the
-standard `sha256sum` format (`<hex>  <bare-filename>`, two spaces). **Upload the
-resulting SHA256SUMS file alongside the other assets on the GitHub release** — the
-updater looks for an asset literally named `SHA256SUMS` and matches by bare filename.
-
-Verify locally with:  sha256sum -c SHA256SUMS
+Regular files in ASSET_DIR (default: current directory) are included; nested
+folders and an existing SHA256SUMS are excluded. Asset basenames must use ASCII
+letters, digits, dots, underscores, plus or minus, beginning with a letter or
+digit, matching Qeli's updater/installer format. Symlinks are refused. Validate
+and hash all inputs before atomically replacing SHA256SUMS, so a failed run
+preserves the previous manifest. Upload it alongside the assets and verify with
+sha256sum -c SHA256SUMS.
 """
+from __future__ import annotations
+
+import argparse
 import hashlib
 import os
+from pathlib import Path
+import re
 import sys
+import tempfile
 
 OUT_NAME = "SHA256SUMS"
+ASSET_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*", re.ASCII)
 
 
-def sha256(path: str) -> str:
+def sha256(path: str | Path) -> str:
     h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
 
 
-def main() -> int:
-    d = sys.argv[1] if len(sys.argv) > 1 else "."
-    if not os.path.isdir(d):
-        print(f"not a directory: {d}", file=sys.stderr)
-        return 2
-    entries = []
-    for name in sorted(os.listdir(d)):
-        p = os.path.join(d, name)
-        if not os.path.isfile(p) or name == OUT_NAME:
-            continue
-        entries.append((sha256(p), name))
+def generate(directory: Path) -> int:
+    output = directory / OUT_NAME
+    entries: list[tuple[str, Path]] = []
+    # Inspect the output as well: never replace or follow an output symlink.
+    with os.scandir(directory) as scan:
+        for entry in scan:
+            if entry.is_symlink():
+                raise ValueError(f"symlink is not a release asset: {entry.name!r}")
+            if entry.name == OUT_NAME:
+                if not entry.is_file(follow_symlinks=False):
+                    raise ValueError(f"{OUT_NAME} must be a regular file")
+                continue
+            if entry.is_dir(follow_symlinks=False):
+                continue
+            if not entry.is_file(follow_symlinks=False):
+                raise ValueError(f"non-regular release asset: {entry.name!r}")
+            if ASSET_NAME.fullmatch(entry.name) is None:
+                raise ValueError(f"unsupported release asset name: {entry.name!r}")
+            entries.append((entry.name, Path(entry.path)))
     if not entries:
-        print(f"no files to checksum in {d}", file=sys.stderr)
+        raise ValueError(f"no files to checksum in {directory}")
+    payload = "".join(f"{sha256(path)}  {name}\n" for name, path in sorted(entries)).encode("ascii")
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", dir=directory, prefix=".qeli-checksums-", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(payload)
+        os.replace(temporary, output)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return len(entries)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("asset_dir", nargs="?", type=Path, default=Path("."))
+    args = parser.parse_args(argv)
+    if not args.asset_dir.is_dir():
+        print(f"not a directory: {args.asset_dir}", file=sys.stderr)
+        return 2
+    try:
+        count = generate(args.asset_dir)
+    except (OSError, ValueError) as error:
+        print(f"cannot generate {OUT_NAME}: {error}", file=sys.stderr)
         return 1
-    out_path = os.path.join(d, OUT_NAME)
-    # Write bytes, not platform text.  GitHub release assets are consumed by GNU
-    # sha256sum and POSIX shell scripts; a CRLF file makes the trailing ``\r`` part
-    # of every filename and causes verification to fail on Linux.
-    payload = "".join(f"{digest}  {name}\n" for digest, name in entries).encode("utf-8")
-    with open(out_path, "wb") as f:
-        f.write(payload)
-    if b"\r" in payload:
-        print(f"refusing to write a non-LF {OUT_NAME}", file=sys.stderr)
-        return 1
-    print(f"Wrote {len(entries)} entries to {out_path}")
-    for digest, name in entries:
-        print(f"{digest}  {name}")
+    print(f"Wrote {count} entries to {args.asset_dir / OUT_NAME}")
     return 0
 
 

@@ -1,0 +1,33 @@
+{
+  "status": "EXACT_DOCUMENTATION_DELTA_SOURCE_APPLICABILITY_QUALIFIED",
+  "source_commit": "e1993aba0a54c5967593b0b80708137cca611c26",
+  "source_digest": "f5911f13ea4f573ea099e014d521973f1ecb7d39161021136f6d7557d4a49625",
+  "previous_source_commit": "d522becf711cd406bec831a9eefdf3fa968cb3f6",
+  "document_files": {
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md": "7c18d5bd9c1d4c1bdd6e425fd141540e9164f7ef5b069e1d05d157ecd25bc1fe",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md": "ce3ac15204db6d4ee09b23aeb0ebafc8e1522da969c39cd67bfafff292e052db",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md": "c14956f2c1d965f425a567d9f875d43532840f075c62055ceeff67d04fb38428",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md": "3d63932b298e56ef9103c3c08b53a696d0a17637078a39e37601219fa6c19865"
+  },
+  "exact_non_certification_delta": [
+    "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/eng/reports/AUDIT-Q36-MATCHED-LOAD.md",
+    "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+    "docs/ru/reports/AUDIT-Q36-MATCHED-LOAD.md"
+  ],
+  "native_source_digest": "27b85c8164e85def83c7c08575e5c3ac1b17d638b52f1cb8c8cf83a1fb5ea17e",
+  "runtime_qualification_sha256": {
+    "q36-tun-maxrate-20261013": "fc6f062757845c33f7bb81889830c9bb70e66b919223fc636597b9da8cd70277"
+  },
+  "current_Q36_sessions": 3,
+  "current_Q36_windows": 12,
+  "old_automated_executions_preserved": 20,
+  "physical_original_statuses": {
+    "not_available": 20,
+    "pending": 1
+  },
+  "new_certification_matrix_execution": false,
+  "scope": "Exact four-Markdown-only delta plus two excluded evidence files. Native/helper/INI/Cargo/product inputs and native digest unchanged. Fresh 3 paired sessions /12 windows TCPraw P1 unlimited caller upload/bidir, original fq_codel versus fq maxrate300Mbit per flow; 37500000 bytes/s verified, no aggregate-profile limit. Paired median upload+109.84%, bidir sum+2.19%; capped upload has zero TUN drops/retransmits in3/3, but both TUNs still drop in all3 capped bidir windows. No product/default/kernel changes or native build. Introduced stock fq unloaded refs0; original module/global qdisc/default/provider SHA/full host/source/archive/cleanup PASS. Original20 Linux certification facts and21 physical statuses unchanged, no new certification executions/public release/hosted CI/Q29/Q36 closure.",
+  "no_push_deploy_release": true,
+  "driver_sha256": "3df58b0eaaec9b902ca9c6ad82d9a93a26c0bc3c569a5e6518ec026234d980e5"
+}

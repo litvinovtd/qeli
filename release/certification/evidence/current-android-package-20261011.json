@@ -1,0 +1,428 @@
+{
+  "status": "CURRENT_ANDROID_PACKAGE_BUILD_AND_R8_REPAIR_PASS_RUNTIME_PENDING",
+  "finding": "Q37-F013",
+  "source_before": "4228abd8b93d55c22ec6436114f5c3cd5da6134c",
+  "release_source_digest_after": "46015a6e2a8c84792f6ed1ffe7b383161468fa788ee7fb902a3eb0853d7efb3f",
+  "rule_repair": {
+    "path": "qeli-android/app/instrumentation-abi.pro",
+    "before_sha256": "e783e5cb1a32fec9e42662d45bbc9c258deddc7301694994d155a1012792c133",
+    "after_sha256": "8f5f8d97c88cabb5cb51e6c1ed1769b7431a7f7376375323c4e6f8b4590f5c3e",
+    "before_lines": 433,
+    "after_lines": 505,
+    "ordinary_production_rules_unchanged": true,
+    "type_failure_evidence": "baseline-r8-missing-types.json",
+    "runtime_exception_reproduced": false
+  },
+  "qualification": {
+    "status": "CURRENT_RELEASE_JVM_LINT_TWO_ABI_PACKAGE_R8_ABI_PASS_RUNTIME_PENDING",
+    "source_commit": "4228abd8b93d55c22ec6436114f5c3cd5da6134c",
+    "jvm_tests": 201,
+    "suites": [
+      {
+        "suite": "com.qeli.AndroidKillSwitchPolicyTest",
+        "sha256": "774f70d5a60c21239e4635aaf0d50db62bd446395c6b3ce080c4728b8ebe069a",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.AndroidRoamingPolicyTest",
+        "sha256": "44881474ae281156210578dd5bcc942a268966600650689f6f2c60261f68a33a",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.AndroidSessionContinuityTest",
+        "sha256": "7168f7f1c8b3fe6f716794621f21bba9a20e312656a3ca7db06871e23e8663b1",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.AndroidVpnPublicationTest",
+        "sha256": "6f14620215b9d0d5bfeeafb41573220a679413757d287767e0eab1395ab0e3dd",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.BackupExporterTest",
+        "sha256": "2c281fd6a47e97f5d91ede6f6af10c4583e7484eb2bc9ad277873424c899da78",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.BoundedInputTest",
+        "sha256": "8c0f2c4fdc1e39af903da3cc6dc7bdb55865e9637a865d059a961d5de4cfaa1a",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.ConfigHardeningTest",
+        "sha256": "59e0edabb5c798403c131e678d4d772b8530974c2566b012226183dcdef0257c",
+        "tests": 17,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.ConfigImportRangesTest",
+        "sha256": "407df5d3acbf09d874e8fff4d4e64b5315eaf7cc34dfcfdd01ffe11c03297386",
+        "tests": 35,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.ConfigRoundTripCompletenessTest",
+        "sha256": "eec061d7d69253b9689681b110e03b14a611895b426004b886f243e81aa83c13",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.crypto.BackupCryptoTest",
+        "sha256": "7ed3f44cc8463184ae1cf417f1877ec65a98e5aa1d2e356a3e3b4d4300eb6635",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.DiagnosticLogStoreTest",
+        "sha256": "fa2d2f13a796f13b8ecad072f2167a36470133e8fb86517c28d085598f28516a",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.ProfileAppsEditorTest",
+        "sha256": "5d0c21c53827a414c9f9da7761b18f82e77c9a46791834ab5bba5a021d93c3af",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.ProfileAutoProbePolicyTest",
+        "sha256": "7ed517625fc7554aff35b902fc979efbec992a734ecd17bf1819c29272d10a53",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.ProfileStoreActiveIndexTest",
+        "sha256": "5996fe3f7a5d664fba23b1ce651b7d6ed3343cbd9cfee662d1ae7c935a03ea33",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.ProfileStoreBoundsTest",
+        "sha256": "42b07c11b0fa193dc12637c7f6c7cdb3d83b8429b12e9fd25d91667fdcea0137",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.ProfileStoreUtf8Test",
+        "sha256": "dd4efe580cea3c51a5a1ebacab0456715ba99d6e7f6067526e18d870bd7720d5",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.ProtectionSummaryTest",
+        "sha256": "c3cb18489042ee7e85a66a2fd388b3da4e125bff0155b7671a94adba24cc1089",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.QeliLinkConformanceTest",
+        "sha256": "1c635fe98cd816751f91666dec1edb632e429a06fac3f9f7f8a1f93f5e8095c3",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.ReconnectPolicyTest",
+        "sha256": "d79088257459629c772be35c9e4cba994266ec2b8bf48562989beb52add49cfc",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.RouteComplementsTest",
+        "sha256": "f44479cf98f6ff97ddd6ad519cc932d3e11eb32ce16abc339df54a19b9dbaf85",
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.TransportCoreEventDispatcherTest",
+        "sha256": "ad4dbadeb35e565c9f771b9448f54153b5c14dad4dcd1412d76aa0e27f8d75c6",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.TransportCoreEventTest",
+        "sha256": "374145aab2f6d7ef4f290db40dbbca1f7e8781d4df89f835c8ce2f0299285567",
+        "tests": 18,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.TrustedWifiPolicyTest",
+        "sha256": "4d4a51b343d4901a535ccce650d1d800c0d2edb9b55ef91dc8491f390ddfe3f5",
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.UpdatePrivacyTest",
+        "sha256": "96b5202031c3238f9d2d13b0af99c47612ee654830181c4ef047fb0c71777c0b",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.qeli.VpnConnectRequestTest",
+        "sha256": "e782cfcaf3bfd7a761b4e0f2f12bc44e9e1a5ba602b905d2b6b9281deccecf4a",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "lint": {
+      "Fatal": 0,
+      "Error": 0,
+      "Warning": 55,
+      "Information": 0
+    },
+    "native_libraries": {
+      "arm64-v8a": "8583510c6cbb8aeaacba166fd34bc54ba188971e6a29705d2e2c091da61fb1c4",
+      "x86_64": "7e04ec8b4d5451e059ecada54ab8ab27e97ae347b80c9997d5199d3010b3f0f8"
+    },
+    "apks": {
+      "qeli-android\\app\\build\\outputs\\apk\\release\\app-release.apk": {
+        "sha256": "cd47f861ea46217672557244641d5c4fe9230a8e398eee1a3e54009d45536be9",
+        "bytes": 12207263
+      },
+      "qeli-android\\app\\build\\outputs\\apk\\androidTest\\release\\app-release-androidTest.apk": {
+        "sha256": "4d6f5107a37da728ec74a0a3b1719b9c6daee7a02331d09dc2ee2c6cd3935396",
+        "bytes": 772485
+      }
+    },
+    "non_debuggable": true,
+    "minification": true,
+    "resource_shrinking": true,
+    "instrumented_variant": true,
+    "lab_signing_only": true,
+    "Android_emulator_started": false,
+    "Android_instrumentation_executed": false,
+    "production_release_variant_qualified": false
+  },
+  "production": {
+    "exit_code": 0,
+    "elapsed_seconds": 67.26624345779419,
+    "command": [
+      "C:\\Users\\litvi\\.gradle\\wrapper\\dists\\gradle-9.7.1-bin\\1w1c7tv4s851m17nbqdsro2tv\\gradle-9.7.1\\bin\\gradle.bat",
+      "--offline",
+      "--no-daemon",
+      "--max-workers=1",
+      "--console=plain",
+      "-Dorg.gradle.jvmargs=-Xmx1024m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8",
+      "assembleRelease"
+    ],
+    "source_commit": "4228abd8b93d55c22ec6436114f5c3cd5da6134c",
+    "unchanged_inputs": true,
+    "build_log_sha256": "c6e19b21be9d530b4112e5cd99ed196610d2d5c113a4490698588c8de7559ab0",
+    "production_rules": true,
+    "production_signature": false,
+    "emulator_started": false,
+    "status": "CURRENT_ORDINARY_UNSIGNED_RELEASE_PACKAGE_PASS_RUNTIME_PENDING",
+    "apk_sha256": "fa8e97768d8388affcdc376a64fd86183b1158450319e51ef938a2ad5c9543f6",
+    "apk_bytes": 12099773,
+    "native_libraries": {
+      "arm64-v8a": "8583510c6cbb8aeaacba166fd34bc54ba188971e6a29705d2e2c091da61fb1c4",
+      "x86_64": "7e04ec8b4d5451e059ecada54ab8ab27e97ae347b80c9997d5199d3010b3f0f8"
+    }
+  },
+  "dex_regression": {
+    "status": "STALE_RULES_WITH_NEW_REQUIRED_NAMED_TYPES_MISSING_FROM_ACTUAL_APK",
+    "new_required_types": [
+      "androidx.activity.ComponentActivity",
+      "androidx.activity.result.ActivityResultRegistry",
+      "com.qeli.BoundedInput",
+      "com.qeli.MainActivity",
+      "com.qeli.MainActivity$Companion",
+      "com.qeli.R$string",
+      "com.qeli.StrictUtf8Kt",
+      "com.qeli.TrustedWifiPolicy",
+      "com.qeli.VpnConnectRequest",
+      "com.qeli.VpnConnectRequest$Permission",
+      "com.qeli.crypto.BackupCrypto",
+      "kotlin.collections.CollectionsKt__MutableCollectionsKt",
+      "kotlin.collections.IntIterator",
+      "kotlin.io.FilesKt__FileReadWriteKt",
+      "kotlin.jvm.internal.Ref$BooleanRef",
+      "kotlin.jvm.internal.TypeIntrinsics",
+      "kotlin.ranges.IntRange",
+      "kotlin.ranges.RangesKt",
+      "kotlin.ranges.RangesKt___RangesKt"
+    ],
+    "missing_from_packaged_named_dex": [
+      "androidx.activity.ComponentActivity",
+      "androidx.activity.result.ActivityResultRegistry",
+      "com.qeli.BoundedInput",
+      "com.qeli.MainActivity$Companion",
+      "com.qeli.R$string",
+      "com.qeli.StrictUtf8Kt",
+      "com.qeli.TrustedWifiPolicy",
+      "com.qeli.VpnConnectRequest",
+      "com.qeli.VpnConnectRequest$Permission",
+      "com.qeli.crypto.BackupCrypto",
+      "kotlin.collections.CollectionsKt__MutableCollectionsKt",
+      "kotlin.collections.IntIterator",
+      "kotlin.io.FilesKt__FileReadWriteKt",
+      "kotlin.jvm.internal.Ref$BooleanRef",
+      "kotlin.jvm.internal.TypeIntrinsics",
+      "kotlin.ranges.IntRange",
+      "kotlin.ranges.RangesKt",
+      "kotlin.ranges.RangesKt___RangesKt"
+    ],
+    "not_a_runtime_exception_reproduction": true
+  },
+  "dex_repair": {
+    "status": "ALL_19_NEW_REQUIRED_TYPES_PRESENT_IN_REPAIRED_PACKAGED_DEX",
+    "required_types": [
+      "androidx.activity.ComponentActivity",
+      "androidx.activity.result.ActivityResultRegistry",
+      "com.qeli.BoundedInput",
+      "com.qeli.MainActivity",
+      "com.qeli.MainActivity$Companion",
+      "com.qeli.R$string",
+      "com.qeli.StrictUtf8Kt",
+      "com.qeli.TrustedWifiPolicy",
+      "com.qeli.VpnConnectRequest",
+      "com.qeli.VpnConnectRequest$Permission",
+      "com.qeli.crypto.BackupCrypto",
+      "kotlin.collections.CollectionsKt__MutableCollectionsKt",
+      "kotlin.collections.IntIterator",
+      "kotlin.io.FilesKt__FileReadWriteKt",
+      "kotlin.jvm.internal.Ref$BooleanRef",
+      "kotlin.jvm.internal.TypeIntrinsics",
+      "kotlin.ranges.IntRange",
+      "kotlin.ranges.RangesKt",
+      "kotlin.ranges.RangesKt___RangesKt"
+    ],
+    "missing": [],
+    "runtime_executed": false
+  },
+  "jni_precompile": {
+    "status": "CURRENT_FROZEN_HARNESS_JAVA_DEX_COMPILE_PASS_RUNTIME_NOT_EXECUTED",
+    "unix": 1791745702.6967115,
+    "source_identity": {
+      "source_digest": "c414d270a7fa9f474afbf83ad20848d462b2bc691c773616f0811a6877befb42",
+      "source_commit": "101f05fe147223b9d86ab2473f187ef06171e704",
+      "source_dirty": false,
+      "source_date_epoch": 1791741848
+    },
+    "java_sha256": "4326e879c863986e0b61c4b19e9f4c48f91abc38446371af2f76e8ccf25ddb4e",
+    "dex_sha256": "bbe71adf4088ce649acb57066d1f21a069352ded3ad5279a0c4f3394fc2f6689",
+    "dex_bytes": 8400,
+    "android_jar_sha256": "6cea1df3efb77103ac3e2beb9bf4718964b0e0869ab16d39d29d5cbae1c147ad",
+    "d8_jar_sha256": "4097ff9c46c185c6e7214da7fe9b1befb5adeea5cc9ca349270e0249904f9240",
+    "javac_sha256": "2916b81cee3b9abe80ad48473e6ee35eb9544381c09deb14285059d8d7d97ad3",
+    "java_executable_sha256": "c6ced98e3511559ceb750260088dc44512c42dfccc96bcc8781d919090f1127f",
+    "commands": [
+      {
+        "name": "javac",
+        "command": [
+          "C:\\Program Files\\BellSoft\\LibericaJDK-24\\bin\\javac.exe",
+          "-source",
+          "11",
+          "-target",
+          "11",
+          "-cp",
+          "C:\\Android\\Sdk\\platforms\\android-34\\android.jar",
+          "-d",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q37-current-jni-20261011\\precompiled\\classes",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q37-current-jni-20261011\\audit_android_client_abi.java"
+        ],
+        "exit_code": 0
+      },
+      {
+        "name": "d8",
+        "command": [
+          "C:\\Program Files\\BellSoft\\LibericaJDK-24\\bin\\java.exe",
+          "-cp",
+          "C:\\Android\\Sdk\\build-tools\\36.0.0\\lib\\d8.jar",
+          "com.android.tools.r8.D8",
+          "--lib",
+          "C:\\Android\\Sdk\\platforms\\android-34\\android.jar",
+          "--min-api",
+          "28",
+          "--output",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q37-current-jni-20261011\\precompiled\\dex",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q37-current-jni-20261011\\precompiled\\classes\\com\\qeli\\TransportCore.class"
+        ],
+        "exit_code": 0
+      }
+    ],
+    "android_runtime_qualified": false,
+    "apk_installed": false,
+    "emulator_started": false,
+    "requires_q35_inactive": true
+  },
+  "readiness": {
+    "command": [
+      "C:\\Python314\\python.exe",
+      "-X",
+      "utf8",
+      "-B",
+      "scripts/release_preflight.py",
+      "dev"
+    ],
+    "exit_code": 1,
+    "stdout": "Preflight source commit: 4228abd8b93d55c22ec6436114f5c3cd5da6134c\n=== Gate 1: latest CI run on 'dev' ===\n  83c07f5c  status=completed  conclusion=failure\n    FAILED: macos-build = failure\n    FAILED: native-libs = failure\n    FAILED: ios-build = failure\n\n=== Gate 2: 32-bit lab build — SKIPPED (QELI_LAB_PASS unset) ===\n\n=== Gate 3: OpenWrt package source ===\n\n=== Gate 4: IPv6/roaming release certification ===\n\n===== PREFLIGHT =====\nFAIL:\n  - CI ran on 83c07f5c, not on the commit being released (4228abd8) - push and let CI finish first\n  - CI conclusion=failure\n  - OpenWrt source gate: PKG_SOURCE_VERSION qeli/ tree differs from release source\n",
+    "stderr": ""
+  },
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q37-current-android-package-20261011",
+  "limits": [
+    "Android runtime pending Q35 completion",
+    "55 lint warnings retained",
+    "No production signature",
+    "No hosted CI PASS",
+    "OpenWrt source cut stale"
+  ],
+  "plan_done": 30,
+  "plan_total": 37,
+  "push_deploy_release": false
+}

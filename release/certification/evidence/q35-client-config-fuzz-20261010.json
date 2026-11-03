@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS",
+  "source_digest": "d44618db74a52733db74e826fc03a2a1f49231dd0330a8e5f2500b2fa7dea3e4",
+  "qualification_source_commit": "07001a661bc26b566f4d107c91fc542ea04e7fea",
+  "product_source_commit": "07001a661bc26b566f4d107c91fc542ea04e7fea",
+  "verification_id": "Q35-V005",
+  "findings_closed": [
+    "F511/Q35-F009 client config fuzz oracle gap"
+  ],
+  "verification": {
+    "proof": {
+      "status": "PASS",
+      "target": "client_config",
+      "runs": 18494,
+      "seconds": 61,
+      "asan": true,
+      "binary_sha256": "ada8d0616654d1a2ceb16b9e6900ccb4020c7863c57d87c0bfec6496c2ce664b",
+      "source_sha256": "426b5ea87dfa1803de19fdd30480e0c7c91ad501ce20e51d1f557827bdc702c3",
+      "lock_sha256": "cc451c34452ab43cdf475b7a915c8fbdc16b825d2ee262bd3903eeb6f92355f4",
+      "seed_count": 7,
+      "corpus_count": 701,
+      "crash_artifacts": 0,
+      "final_stats": []
+    },
+    "selected_backup_sha256": "d57df989bb78049dacf9e13d5428ea56df761812e00d23ca0a87c5aeca7554d0",
+    "selected_files": 723,
+    "cleanup": {
+      "status": "PASS",
+      "root": "/var/tmp/qeli-client-config-fuzz.dLPt2IAl",
+      "absent": true,
+      "files": 8936,
+      "dirs": 2347,
+      "symlinks": 0,
+      "free_before": 7988146176,
+      "free_after": 9537015808,
+      "service": "MainPID=777 ActiveState=active"
+    },
+    "host_preserved": true,
+    "initial_collector_failure": {
+      "stage": "local evidence collector syntax check",
+      "status": "FAIL_AFTER_FUZZ_BEFORE_COLLECTION",
+      "reason": "Incorrect indentation after try in first local collector version caused SyntaxError; corrected before any remote collection or cleanup",
+      "product_run_affected": false
+    }
+  },
+  "raw_packet": {
+    "name": "q35-client-config-fuzz-20261010",
+    "files": 27,
+    "bytes": 1363638,
+    "manifest_sha256": "544e2fb944cf3b334c7d38ffed778d1cf917e01eefebcb10f98ad5c327a13a37",
+    "runtime_status": "PASS",
+    "path": "audit-debt-20260924/q35-client-config-fuzz-20261010",
+    "status": "SEALED"
+  },
+  "scope": "F511/Q35-F009 client_config fuzz target now checks canonical strict INI reparse and qeli:// URI fixed point, with structured IPv4/IPv6/TCP/UDP/roaming/percent-encoded credentials. Seven seed replay plus actual pinned nightly-2026-06-10 cargo-fuzz0.13.2 ASan 18,494 runs/61s, no crash artifacts, lock SHA unchanged. All701 final corpus files and723 selected files SHA backed up; initial local collector SyntaxError retained and corrected before collection. Guarded own-root cleanup of8936files/2347dirs; .11 service777/845, CLI SHA and host baseline preserved. Other14 targets inherited, not rerun; no full nightly/DoS/Q35 completion claim. Q35 IN_PROGRESS,30/37 DONE; historical F459/D06/USER_EXCLUDED retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

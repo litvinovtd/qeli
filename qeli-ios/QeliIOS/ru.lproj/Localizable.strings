@@ -54,6 +54,7 @@
 "Disabled" = "Отключено";
 "Auto keeps the authenticated session across network changes when supported, otherwise reconnects. Required refuses unsupported servers or platforms." = "Авто сохраняет авторизованную сессию при смене сети, когда это поддерживается, иначе переподключается. «Обязательно» отклоняет неподдерживаемый сервер или платформу.";
 "Share profile" = "Поделиться профилем";
+"Cannot share profile" = "Не удалось поделиться профилем";
 "The share link contains the profile credentials." = "Ссылка содержит учетные данные профиля.";
 "Done" = "Готово";
 "Connection log" = "Журнал подключения";
@@ -155,6 +156,11 @@
 "Carrier" = "Внешний канал";
 "Packet recordizer" = "Рекордайзер пакетов";
 "Legacy packet-per-record" = "Устаревший пакет на запись";
+"Profile changed" = "Профиль изменился";
+"Profile changed while the dialog was open. Reopen it before deleting." = "Профиль изменился, пока окно было открыто. Откройте его снова перед удалением.";
+"Profile changed while the editor was open. Reopen it before saving." = "Профиль изменился, пока редактор был открыт. Откройте его снова перед сохранением.";
+"Reconnect required" = "Требуется переподключение";
+"The active profile was saved. Disconnect and connect again to apply it to the running tunnel." = "Активный профиль сохранён. Отключитесь и подключитесь снова, чтобы применить его к работающему туннелю.";
 "Reconnect fallback" = "Обычное переподключение";
 "Multipath" = "Multipath";
 "up to %lld streams" = "до %lld потоков";
@@ -174,3 +180,7 @@
 "Heartbeat" = "Heartbeat";
 "Traffic shaping" = "Шейпинг трафика";
 "%1$@ and %2$lld more" = "%1$@ и ещё %2$lld";
+"No saved profiles are available. Open Qeli to create a profile before connecting." = "Нет сохранённых профилей. Откройте Qeli и создайте профиль перед подключением.";
+"The profile encryption key is missing. Restore a backup to recover your profiles." = "Ключ шифрования профилей отсутствует. Восстановите профили из резервной копии.";
+"Clear log after disconnect" = "Очищать лог после отключения";
+"Clear saved history when VPN stops, including after an error. Disable to keep diagnostics. Reconnects do not clear the log." = "Очищать сохранённую историю после остановки VPN, включая завершение с ошибкой. Выключите для сохранения диагностики. Переподключения не очищают журнал.";

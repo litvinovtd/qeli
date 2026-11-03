@@ -18,163 +18,87 @@ full OpenWrt SDK. The proper from-source build is the package `Makefile` (rust f
 
   aarch64-unknown-linux-musl   — ARM routers (Filogic, RPi, x86 ARM)
   x86_64-unknown-linux-musl    — x86_64 routers / VMs / x86 APUs
-  mipsel-unknown-linux-musl    — MT7621 / 7628 (tier-3 → nightly -Zbuild-std)
+  mipsel-unknown-linux-musl    — MT7621 / 7628 (tier-3 → nightly-2026-06-10 -Zbuild-std)
   armv7-unknown-linux-musleabihf — older ARMv7 routers (ipq40xx, mvebu v7)
 
 Client-only (`--no-default-features --features client-bin`) → no `ring`, builds on mips.
 Creds from QELI_LAB_PASS. Run:  python qeli-openwrt/build/build_openwrt.py [--sync] [arch]
 """
+import argparse
 import os
 import sys
-import posixpath
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 # Reuse the lab connection helpers from scripts/.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+from router_artifact import pull_router_artifact
+from ssh_command import run_ssh_command
+from router_toolchain import ARCH_TARGETS, ensure_router_toolchain, router_build_command
+from router_source import (sync_router_source, require_router_source_ready,
+                           create_router_checkout, restrict_router_crate_types as restrict_crate_types)
 from lab_common import connect, LAB_SRV  # noqa: E402
 
-REMOTE_ROOT = "/opt/qeli-src"
-ROUTER_MANIFEST_BACKUP = f"{REMOTE_ROOT}/Cargo.toml.router-backup"
-PINNED_CARGO_ZIGBUILD = "0.23.0"
+REMOTE_ROOT = None
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 LOCAL_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "qeli"))
 LOCAL_OUT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dist"))
-CLIENT_FEATURES = "--no-default-features --features client-bin"
 # The client-only target is `qeli-client` (src/client_main.rs); the default `qeli`
 # bin requires server+client features. Invoked directly: `qeli-client --config <f>`.
 BIN = "qeli-client"
 
-# arch -> (rust target, needs -Zbuild-std nightly)
-TARGETS = {
-    "aarch64": ("aarch64-unknown-linux-musl", False),
-    "x86_64":  ("x86_64-unknown-linux-musl",  False),
-    "mipsel":  ("mipsel-unknown-linux-musl",  True),
-    "armv7":   ("armv7-unknown-linux-musleabihf", False),
-}
+# Architecture aliases use the shared target/toolchain policy.
+TARGETS = dict(ARCH_TARGETS)
 
 
 def run(c, cmd, t=1800):
-    _i, o, e = c.exec_command(cmd, timeout=t)
-    out = o.read().decode("utf-8", "replace") + e.read().decode("utf-8", "replace")
-    return o.channel.recv_exit_status(), out.strip()
+    output, status = run_ssh_command(c, cmd, t)
+    return status, output.strip()
 
 
 def tail(s, n=25):
     return "\n".join(s.splitlines()[-n:])
 
 def restrict_router_crate_types(c):
-    """Build only the rlib dependency needed by qeli-client.
-
-    The persistent checkout is restored in ``finally`` by main. MIPS Zig cannot
-    link the desktop/mobile cdylib and must never be asked to build that unused
-    artifact as a side effect of a client-only binary.
-    """
-    restore_router_manifest(c)
-    command = (
-        f"cp {REMOTE_ROOT}/Cargo.toml {ROUTER_MANIFEST_BACKUP} && "
-        f"sed -i 's/^crate-type = \\[\"rlib\", \"cdylib\", \"staticlib\"\\]$/"
-        f"crate-type = [\"rlib\"]/' {REMOTE_ROOT}/Cargo.toml && "
-        f"grep -qxF 'crate-type = [\"rlib\"]' {REMOTE_ROOT}/Cargo.toml"
-    )
-    rc, output = run(c, command, t=30)
-    if rc != 0:
-        restore_router_manifest(c)
-        raise RuntimeError(f"cannot restrict router crate types:\n{output}")
-
-
-def restore_router_manifest(c):
-    rc, output = run(c, f"test ! -f {ROUTER_MANIFEST_BACKUP} || mv -f {ROUTER_MANIFEST_BACKUP} {REMOTE_ROOT}/Cargo.toml", t=30)
-    if rc != 0:
-        raise RuntimeError(f"cannot restore router Cargo.toml:\n{output}")
-
+    restrict_crate_types(c, REMOTE_ROOT)
 
 
 def sync_tree(c):
-    run(c, "rm -rf /opt/qeli-src/src/bin", t=30)
-    sf = c.open_sftp()
-    made = set()
+    """Replace managed sources/assets/manifests/config; keep marker on failure."""
+    return sync_router_source(c, LOCAL_SRC, REMOTE_ROOT)
 
-    def ensure(d):
-        if d in made or d in ("", "/"):
-            return
-        ensure(posixpath.dirname(d))
-        try:
-            sf.stat(d)
-        except IOError:
-            try:
-                sf.mkdir(d)
-            except IOError:
-                pass
-        made.add(d)
 
-    files = []
-    for dp, _dn, fn in os.walk(os.path.join(LOCAL_SRC, "src")):
-        for f in fn:
-            files.append(os.path.join(dp, f))
-    for extra in ("Cargo.toml", "Cargo.lock"):
-        p = os.path.join(LOCAL_SRC, extra)
-        if os.path.exists(p):
-            files.append(p)
-    n = 0
-    for lp in files:
-        rel = os.path.relpath(lp, LOCAL_SRC).replace("\\", "/")
-        rp = posixpath.join(REMOTE_ROOT, rel)
-        ensure(posixpath.dirname(rp))
-        sf.put(lp, rp)
-        n += 1
-    sf.close()
-    return n
+def check_sync_ready(c):
+    require_router_source_ready(c, REMOTE_ROOT)
 
 
 def ensure_toolchain(c, targets):
-    run(c, "rustup toolchain list | grep -q nightly || "
-           "rustup toolchain install nightly --profile minimal -c rust-src 2>&1 | tail -2", t=900)
-    run(c, "rustup component add rust-src --toolchain nightly 2>/dev/null; true")
-    for _arch, (tgt, build_std) in targets.items():
-        if not build_std:
-            run(c, f"rustup target add {tgt} 2>&1 | tail -1", t=300)
-    _, installed = run(c, "cargo install --list | sed -n '/^cargo-zigbuild v/p'")
-    expected = f"cargo-zigbuild v{PINNED_CARGO_ZIGBUILD}:"
-    if expected not in installed:
-        print(f"installing pinned {expected}")
-        rc, output = run(c, f"cargo install cargo-zigbuild --version {PINNED_CARGO_ZIGBUILD} --locked --force 2>&1", t=1200)
-        print(tail(output, 8))
-        if rc != 0:
-            raise RuntimeError(f"pinned cargo-zigbuild install failed:\n{output}")
-    _, verified = run(c, "cargo install --list | sed -n '/^cargo-zigbuild v/p'")
-    if expected not in verified:
-        raise RuntimeError(f"cargo-zigbuild pin mismatch: {verified}")
+    selected = targets.values()
+    print("router toolchain:", ensure_router_toolchain(c, selected))
 
 
-def build(c, arch, tgt, build_std):
+def build(c, arch, tgt):
     print(f"### {arch} ({tgt})")
-    if build_std:
-        # tier-3 mips: nightly + build std; force soft-float (zig links mips fpxx,
-        # rust emits soft-float → float-ABI clash on link). Same as keenetic.
-        cmd = (f"cd {REMOTE_ROOT} && RUSTFLAGS='-C link-arg=-msoft-float' "
-               f"cargo +nightly zigbuild -Z build-std=std,panic_abort --release "
-               f"--bin {BIN} {CLIENT_FEATURES} --target {tgt} 2>&1")
-    else:
-        cmd = (f"cd {REMOTE_ROOT} && cargo zigbuild --release --bin {BIN} "
-               f"{CLIENT_FEATURES} --target {tgt} 2>&1")
+    cmd = router_build_command(REMOTE_ROOT, tgt, BIN)
     rc, out = run(c, cmd, t=1800)
     print(tail(out, 20))
     print(f"{arch} rc: {rc}")
     if rc == 0:
-        os.makedirs(LOCAL_OUT, exist_ok=True)
-        dst = os.path.join(LOCAL_OUT, f"qeli-client-openwrt-{arch}")
-        sf = c.open_sftp()
-        sf.get(f"{REMOTE_ROOT}/target/{tgt}/release/{BIN}", dst)
-        sf.close()
-        print(f"  pulled -> {dst}")
+        src = f"{REMOTE_ROOT}/target/{tgt}/release/{BIN}"
+        destination = os.path.relpath(
+            os.path.join(LOCAL_OUT, f"qeli-client-openwrt-{arch}"), REPO_ROOT
+        ).replace("\\", "/")
+        size, digest = pull_router_artifact(c, src, tgt, REPO_ROOT, destination)
+        print(f"pulled {arch}: {size} bytes, sha256={digest}")
     return rc
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--sync"]
-    do_sync = "--sync" in sys.argv[1:]
-    sel = args[0] if args else None
-    targets = {sel: TARGETS[sel]} if sel in TARGETS else TARGETS
-
+    global REMOTE_ROOT
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sync", action="store_true", help="compatibility option: every run now uploads this checkout")
+    parser.add_argument("arch", nargs="?", choices=tuple(TARGETS))
+    args = parser.parse_args()
+    targets = {args.arch: TARGETS[args.arch]} if args.arch else TARGETS
     try:
         c = connect(LAB_SRV)
     except Exception as e:
@@ -188,20 +112,29 @@ def main():
             "        (aarch64 / x86_64 / mipsel / armv7 -unknown-linux-musl).\n"
             "See qeli-openwrt/INSTALL.md.\n"
         )
-    print("connected to", LAB_SRV[0])
-    if do_sync:
-        print("synced", sync_tree(c), "files")
-    ensure_toolchain(c, targets)
+    results = {}
     try:
+        REMOTE_ROOT = create_router_checkout(c, "openwrt")
+        print("isolated router checkout:", REMOTE_ROOT)
+        print("synced", sync_tree(c), "source files")
+        check_sync_ready(c)
+        ensure_toolchain(c, targets)
         restrict_router_crate_types(c)
-        results = {a: build(c, a, t, bs) for a, (t, bs) in targets.items()}
+        for arch, target in targets.items():
+            try:
+                results[arch] = build(c, arch, target)
+            except (OSError, RuntimeError) as error:
+                results[arch] = 1
+                print(f"{arch} failed: {error}")
     finally:
-        restore_router_manifest(c)
-        c.close()
+        try:
+            c.close()
+        finally:
+            REMOTE_ROOT = None
     print("\n===== SUMMARY =====")
     for a in targets:
         print(f"  {a}: {'OK' if results[a] == 0 else 'FAIL'}")
-    passed = all(v == 0 for v in results.values())
+    passed = all(results.get(arch) == 0 for arch in targets)
     print("OPENWRT_BUILD:", "PASS" if passed else "PARTIAL/FAIL")
     if not passed:
         raise SystemExit(1)

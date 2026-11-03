@@ -1,0 +1,247 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-06",
+  "source_digest": "d6820357fe14a80d4fba8d735ad4f98948734ba9c00e9f42b98c04f5435b9505",
+  "base_worktree_commit": "92278da453b6506332199346c112f80afd0e5e46",
+  "base_dev_commit": "6f7a0578d6e935b0ad3a441a04726a4ff58cd50f",
+  "status": "SCOPED_PASS",
+  "findings": [
+    "F347",
+    "F348",
+    "F349"
+  ],
+  "raw_packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-openwrt-ucode-runtime-20261006",
+  "raw_seal_sha256": "32206ccd5b9765ce2009e324b6342de0ea5adf94a67c2c5997bd4ff7179fb024",
+  "upstream": {
+    "host": "10.66.116.11",
+    "root": "/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006",
+    "versions": {
+      "24.10": "3f64c8089bf3ea4847c96b91df09fbfcaec19e1d",
+      "25.12": "85922056ef7abeace3cca3ab28bc1ac2d88e31b1"
+    }
+  },
+  "builds": [
+    {
+      "version": "24.10",
+      "revision": "3f64c8089bf3ea4847c96b91df09fbfcaec19e1d",
+      "command": "(git init /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/ucode-24.10 && cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/ucode-24.10 && git remote add origin https://github.com/jow-/ucode.git && git fetch --depth=1 origin 3f64c8089bf3ea4847c96b91df09fbfcaec19e1d && git checkout --detach FETCH_HEAD && test \"$(git rev-parse HEAD)\" = 3f64c8089bf3ea4847c96b91df09fbfcaec19e1d) && LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake -S /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/ucode-24.10 -B /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 -DFS_SUPPORT=ON -DDEBUG_SUPPORT=OFF -DLOG_SUPPORT=OFF -DDIGEST_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DMATH_SUPPORT=OFF -DRESOLV_SUPPORT=OFF -DSTRUCT_SUPPORT=OFF -DSOCKET_SUPPORT=OFF && LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --build /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 --target ucode fs_lib --parallel 1",
+      "rc": 0
+    },
+    {
+      "version": "25.12",
+      "revision": "85922056ef7abeace3cca3ab28bc1ac2d88e31b1",
+      "command": "(git init /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/ucode-25.12 && cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/ucode-25.12 && git remote add origin https://github.com/jow-/ucode.git && git fetch --depth=1 origin 85922056ef7abeace3cca3ab28bc1ac2d88e31b1 && git checkout --detach FETCH_HEAD && test \"$(git rev-parse HEAD)\" = 85922056ef7abeace3cca3ab28bc1ac2d88e31b1) && LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu PKG_CONFIG_SYSROOT_DIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps PKG_CONFIG_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu/pkgconfig /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake -S /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/ucode-25.12 -B /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12 -DFS_SUPPORT=ON -DDEBUG_SUPPORT=OFF -DLOG_SUPPORT=OFF -DDIGEST_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DMATH_SUPPORT=OFF -DRESOLV_SUPPORT=OFF -DSTRUCT_SUPPORT=OFF -DSOCKET_SUPPORT=OFF && LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/bin/cmake --build /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12 --target ucode fs_lib --parallel 1",
+      "rc": 0
+    }
+  ],
+  "artifacts": [
+    {
+      "version": "24.10",
+      "file": "artifacts/24.10/ucode",
+      "size": 27728,
+      "sha256": "76592fb33d5980e4fc9e5d4604c96d0cf211f31ab596906812a128dee923ad18"
+    },
+    {
+      "version": "24.10",
+      "file": "artifacts/24.10/fs.so",
+      "size": 47752,
+      "sha256": "3c80fe9a4249667aedec1334316e3fe0dc6c8e2a7e62a1779d8e4adb809b654f"
+    },
+    {
+      "version": "24.10",
+      "file": "artifacts/24.10/libucode.so.0",
+      "size": 197928,
+      "sha256": "b3cc23547ae7f412eb87ba9f9a2a9114323975366f46e50841f40c2e2275005f"
+    },
+    {
+      "version": "24.10",
+      "file": "ucode-24.10-source.tar",
+      "size": 2467840,
+      "sha256": "f0ce842fe7bb16ec29b5c67d83feb351f79b285863a136044d351366bacb05b1"
+    },
+    {
+      "version": "25.12",
+      "file": "artifacts/25.12/ucode",
+      "size": 27584,
+      "sha256": "de1cbb4b82dc4f248ac7da9956f0b3aeb1192a3b0f40673a1559f161fec2dcb2"
+    },
+    {
+      "version": "25.12",
+      "file": "artifacts/25.12/fs.so",
+      "size": 47960,
+      "sha256": "e35cbe565e321eb4977aae5d6277e1caa265a25809eb931f6fb5d7824c1f7762"
+    },
+    {
+      "version": "25.12",
+      "file": "artifacts/25.12/libucode.so.0",
+      "size": 197792,
+      "sha256": "a3fd634d361ecff2897546c290ee53ba3787e837971f38454e61a18238a666af"
+    },
+    {
+      "version": "25.12",
+      "file": "ucode-25.12-source.tar",
+      "size": 2580480,
+      "sha256": "c86507969bf4113bf6b57d157c92eaa597c57c0a4d777bda9ce48aa3dbca5b41"
+    }
+  ],
+  "checks": {
+    "actual_ucode": [
+      {
+        "version": "24.10",
+        "shell": "/bin/dash",
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/fixed && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 QELI_OPENWRT_TEST_SHELL=/bin/dash python3 -m unittest discover -s scripts -p test_openwrt_ucode.py -v",
+        "rc": 0,
+        "log": "final-24.10-dash.log"
+      },
+      {
+        "version": "24.10",
+        "shell": "/usr/bin/busybox ash",
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/fixed && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p test_openwrt_ucode.py -v",
+        "rc": 0,
+        "log": "final-24.10-busybox.log"
+      },
+      {
+        "version": "25.12",
+        "shell": "/bin/dash",
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/fixed && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12 QELI_OPENWRT_TEST_SHELL=/bin/dash python3 -m unittest discover -s scripts -p test_openwrt_ucode.py -v",
+        "rc": 0,
+        "log": "final-25.12-dash.log"
+      },
+      {
+        "version": "25.12",
+        "shell": "/usr/bin/busybox ash",
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/fixed && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12 QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p test_openwrt_ucode.py -v",
+        "rc": 0,
+        "log": "final-25.12-busybox.log"
+      }
+    ],
+    "full_openwrt": [
+      {
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/fixed && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 QELI_OPENWRT_TEST_SHELL=/bin/dash QELI_OPENWRT_INI_INSPECTOR=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/ini-inspector QELI_OPENWRT_RC_COMMON_FIXTURE=/var/tmp/qeli-q31-secrets-upgrade-20261006/upstream-rc.common python3 -m unittest discover -s scripts -p 'test_openwrt_*.py' -v",
+        "rc": 0,
+        "log": "full-dash.log"
+      },
+      {
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/fixed && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' QELI_OPENWRT_INI_INSPECTOR=/var/tmp/qeli-q31-openwrt-ini-roundtrip-20261006/ini-inspector QELI_OPENWRT_RC_COMMON_FIXTURE=/var/tmp/qeli-q31-secrets-upgrade-20261006/upstream-rc.common python3 -m unittest discover -s scripts -p 'test_openwrt_*.py' -v",
+        "rc": 0,
+        "log": "full-busybox.log"
+      }
+    ],
+    "baseline": [
+      {
+        "id": "24.10-dash",
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/baseline && LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 QELI_OPENWRT_TEST_SHELL=/bin/dash python3 -m unittest discover -s scripts -p 'test_openwrt_ucode.py' -v",
+        "rc": 1
+      },
+      {
+        "id": "24.10-busybox",
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/baseline && LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p 'test_openwrt_ucode.py' -v",
+        "rc": 1
+      },
+      {
+        "id": "25.12-dash",
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/baseline && LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12 QELI_OPENWRT_TEST_SHELL=/bin/dash python3 -m unittest discover -s scripts -p 'test_openwrt_ucode.py' -v",
+        "rc": 1
+      },
+      {
+        "id": "25.12-busybox",
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/baseline && LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12 QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p 'test_openwrt_ucode.py' -v",
+        "rc": 1
+      }
+    ],
+    "filesystem_baseline": [
+      {
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/failure-probe && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-24.10 PYTHONPATH=scripts QELI_OPENWRT_TEST_SHELL=/bin/dash python3 -m unittest test_openwrt_ucode.UcodeRpcTests.test_secret_status_rejects_empty_oversize_and_non_regular_files test_openwrt_ucode.UcodeRpcTests.test_linked_runtime_directory_is_rejected_without_chmod_or_write test_openwrt_ucode.UcodeRpcTests.test_clear_rejects_linked_runtime_directory_and_preserves_external_files -v",
+        "rc": 1,
+        "log": "failure-probe-24.10.log"
+      },
+      {
+        "command": "cd /var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/failure-probe && env LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/deps/usr/lib/x86_64-linux-gnu QELI_UCODE_EXECUTABLE=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12/ucode QELI_UCODE_LIBDIR=/var/tmp/qeli-q31-openwrt-ucode-runtime-20261006/build-25.12 PYTHONPATH=scripts QELI_OPENWRT_TEST_SHELL=/bin/dash python3 -m unittest test_openwrt_ucode.UcodeRpcTests.test_secret_status_rejects_empty_oversize_and_non_regular_files test_openwrt_ucode.UcodeRpcTests.test_linked_runtime_directory_is_rejected_without_chmod_or_write test_openwrt_ucode.UcodeRpcTests.test_clear_rejects_linked_runtime_directory_and_preserves_external_files -v",
+        "rc": 1,
+        "log": "failure-probe-25.12.log"
+      }
+    ],
+    "local": [
+      {
+        "id": "luci",
+        "command": [
+          "node",
+          "scripts/test_openwrt_luci.js"
+        ],
+        "rc": 0,
+        "log": "luci.log"
+      },
+      {
+        "id": "recipes",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_native_recipes.py",
+          "-v"
+        ],
+        "rc": 0,
+        "log": "recipes.log"
+      },
+      {
+        "id": "bindings",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/gen_config_bindings.py",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "bindings.log"
+      },
+      {
+        "id": "docs",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/check_docs.py"
+        ],
+        "rc": 0,
+        "log": "docs.log"
+      },
+      {
+        "id": "diff",
+        "command": [
+          "git",
+          "diff",
+          "--cached",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "diff.log"
+      }
+    ]
+  },
+  "input_proof": {
+    "git_lab_inputs_verified": 9,
+    "source_proof": "source-proof.json",
+    "baseline_qualified_inputs": "baseline-qualified-inputs.json",
+    "human_content_sha256": {
+      "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+      "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+    }
+  },
+  "scope": "Q31 F347-F349 actual pinned OpenWrt24.10/25.12 GNU ucode/fs: original regex failure and array-popen EINVAL reproduced; literal init commands with secret stdin and strict write/close status, byte C0/DEL/1..4096 validation. Stable nonregular secret/linked runtime write/delete/status admission fixed.14 new actual-ucode methods PASS without skips in all4 version/shell combinations; full55 OpenWrt tests PASS each ash/dash with24.10, saved rc.common and reused exact-source GNU INI inspector. Original11-method baseline40 assertion failures each combination; regex-only array failure, first-fixed directory false success, final3 old status/runtime-link methods7 independent failures per version retained. Initial loader/subtest-cleanup/private dependency failures are harness/setup exclusions, not product findings.11Node/37recipes/docs/bindings/diff PASS;9 exact Git lab inputs verified. Private0700 extracted CMake3.31.6/json-c0.18 dependencies/single-job ucode/fs builds, pinned source archives and executable/shared-library/config/runtime identities saved. No system installs,service/firewall/network changes or .10 mutations; Rust/native/router recipes/artifacts unchanged, no new Qeli/FFI/cross/SDK/firmware/A-B build or daemon qualification. ucode/fs scoped PASS; rpcd/UCI/procd/SDK,config preflight generation/core ABA,root-admin replacement races and clean A/B remain OPEN,firmware USER_EXCLUDED.41 historic cases/dates/artifacts/acceptance preserved except source digest;Q29SIGKILLFAIL/ENONET,Q30drainOPEN/Appleexclusions,D06ACCEPTED;Q31IN_PROGRESS28/37(75.7%),9remain.",
+  "remaining": [
+    "rpcd/ubus/UCI/procd and package SDK",
+    "preflight-to-launch config generation/core ABA",
+    "root-admin path replacement races",
+    "SIGKILL/powerloss manual recovery",
+    "firmware USER_EXCLUDED",
+    "clean A/B/hermetic caches/config/PATH",
+    "new Qeli/FFI/native release artifact refresh NOT_RUN"
+  ]
+}

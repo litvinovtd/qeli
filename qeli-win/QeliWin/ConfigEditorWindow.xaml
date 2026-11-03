@@ -137,7 +137,7 @@
                         </StackPanel>
                         <TextBlock Text="{l:Loc SectionTransport}" Style="{StaticResource SectionHeader}" Margin="0,28,0,14"/>
                         <StackPanel x:Name="SniPanel" Style="{StaticResource Field}">
-                            <TextBlock Text="{l:Loc FieldSni}" Style="{StaticResource Label}"/>
+                            <TextBlock x:Name="SniLabel" Text="{l:Loc FieldSni}" Style="{StaticResource Label}"/>
                             <ComboBox x:Name="SniBox" IsEditable="True" TextSearch.TextPath="Content">
                                 <ComboBoxItem Content="www.microsoft.com"/>
                                 <ComboBoxItem Content="www.cloudflare.com"/>
@@ -209,7 +209,7 @@
                             </StackPanel>
                             <StackPanel Grid.Column="2">
                                 <TextBlock Text="{l:Loc FieldMtu}" Style="{StaticResource Label}"/>
-                                <ComboBox x:Name="MtuBox" IsEditable="True" TextSearch.TextPath="Content">
+                                <ComboBox x:Name="MtuBox" IsEditable="True" TextSearch.TextPath="Content" ToolTip="{l:Loc MtuPolicyHint}">
                                     <ComboBoxItem Content="0"/>
                                     <ComboBoxItem Content="1500"/>
                                     <ComboBoxItem Content="1400"/>
@@ -256,6 +256,8 @@
                         <TextBlock Text="{l:Loc DnsPushHint}" TextWrapping="Wrap"
                                    Foreground="{DynamicResource FgDim}" FontSize="11.5" Margin="0,0,0,16"/>
 
+                        <CheckBox x:Name="PullRoutesBox" Content="{l:Loc PullRoutes}" IsChecked="True" Margin="0,0,0,8"/>
+                        <CheckBox x:Name="DisableSharingBox" Content="{l:Loc DisableSharing}" ToolTip="{l:Loc DisableSharingHint}" Margin="0,0,0,8"/>
                         <CheckBox x:Name="LocalBox" Content="{l:Loc RouteLocal}" Margin="0,0,0,12"/>
                         <CheckBox x:Name="KillSwitchBox" Content="{l:Loc KillSwitch}" Margin="0,0,0,18"/>
                         <StackPanel x:Name="FamilyLeakPanel" Margin="0,0,0,18">

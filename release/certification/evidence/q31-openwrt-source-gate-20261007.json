@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "PASS_SCOPED_OPENWRT_SOURCE_ADMISSION",
+  "source_digest": "fd1e2c09f7c8c46e482902c57126b23641f3207f0f678ae0b211a491bfeeabb4",
+  "base_worktree_commit": "2940d7fa0b64e4940eb2838658e40f94612a8aa6",
+  "base_dev_commit": "b0f2073513fd97744f10d26ab18eb888b0c069d6",
+  "findings": [
+    "F376",
+    "F377",
+    "F378"
+  ],
+  "counts": {
+    "linux_source_methods": 25,
+    "linux_source_skipped": 0,
+    "linux_ci_admission": 18,
+    "linux_router_release": 15,
+    "exact_ci_source_passed": 24,
+    "exact_ci_baseline_opt_in_skipped": 1,
+    "windows_source_passed": 23,
+    "windows_posix_skipped": 2,
+    "baseline_false_admissions_reproduced": 4,
+    "final_input_files": 20,
+    "docs_checks": 9
+  },
+  "final_inputs": [
+    {
+      "path": "scripts/openwrt_source_gate.py",
+      "size": 5818,
+      "sha256": "c601802d8d8392792b3905514b5dace961615116517fdcacab0d950759123b28"
+    },
+    {
+      "path": "scripts/test_openwrt_source_gate.py",
+      "size": 11973,
+      "sha256": "08a21a180d2ec7208d4d862472478851dba5704a6c06e11ada4175aca72c016d"
+    },
+    {
+      "path": "scripts/release_preflight.py",
+      "size": 6645,
+      "sha256": "726e0b9b88ca503db08cc512e964feea9e7d7f666f1e7a382fadc1e068435e5c"
+    },
+    {
+      "path": "scripts/release_ci_gate.py",
+      "size": 3850,
+      "sha256": "f9c9a9f9fe88cca52c8cf82835a1d4aa001a363940b22d0ef90432dc75374a3a"
+    },
+    {
+      "path": "scripts/test_release_ci_gate.py",
+      "size": 10198,
+      "sha256": "bd0335c2c97ece6eeee8f8b2891396a57aa433549a56fe331a6aee3d9af1329f"
+    },
+    {
+      "path": "scripts/router_release_gate.py",
+      "size": 4256,
+      "sha256": "33edcf1aff24c28c04a03a97f781073b3af4ad00f93ac5913d8a78d7c11b0fe7"
+    },
+    {
+      "path": "scripts/test_router_release_gate.py",
+      "size": 11104,
+      "sha256": "3c3303317af9d4018384d8b9f92b57a8fe6fa15ffd09d75295596d0a4a4a939f"
+    },
+    {
+      "path": "scripts/test_router_artifact.py",
+      "size": 7893,
+      "sha256": "eb256a79a99b120e21c8f98bbd3da21b50b040574a46a0add3412ae9c42ca7ed"
+    },
+    {
+      "path": "scripts/router_artifact.py",
+      "size": 4743,
+      "sha256": "076002a68ddfdf397af567982735434be1ca3d9c4584a2e9dee0034b69033c1a"
+    },
+    {
+      "path": "scripts/router_source.py",
+      "size": 3208,
+      "sha256": "a0f34491d0474f98ea5a8f47e8a77a1ab0a88acd68aae73035285b307e422ed2"
+    },
+    {
+      "path": "scripts/router_toolchain.py",
+      "size": 7622,
+      "sha256": "5a07dc41385d405224f91b47cdce47f7987f05e013ca025ce6c19929d641df12"
+    },
+    {
+      "path": "scripts/native_lab.py",
+      "size": 9894,
+      "sha256": "da52f1b2c94628074b56e002c6e2e0b8c09ebab207128c5dea780928469c61b0"
+    },
+    {
+      "path": "scripts/native_repro.py",
+      "size": 16523,
+      "sha256": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c"
+    },
+    {
+      "path": "scripts/ssh_hostkey.py",
+      "size": 1882,
+      "sha256": "c82e9149d94b066f306f5eea265e726e72281eeb1cf9f8f084260a9ab9a00a39"
+    },
+    {
+      "path": "scripts/ssh_command.py",
+      "size": 953,
+      "sha256": "ea3800d9b7f8fa4abc7027166a0a6889c59c0e8dd683549a6e006c060da05b6b"
+    },
+    {
+      "path": "scripts/lab_common.py",
+      "size": 3065,
+      "sha256": "479f689c6fe754887e07cfdf803e7c8d740b911c1708403de650b10a9e5bc59f"
+    },
+    {
+      "path": "scripts/macho_repro.py",
+      "size": 11910,
+      "sha256": "869a2cd943b6c0d40f8fdf7fa21f988b18ee6ce0e0412afed140eef14eacc432"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "size": 44057,
+      "sha256": "0845ea4566f870b43b1b1b90b6b4d937885b414088a8e384743671335db42971"
+    },
+    {
+      "path": "qeli-openwrt/Makefile",
+      "size": 5528,
+      "sha256": "95e67a7d3ab9d987a3a16af26e3e01e62862e74264b0578706826f1c6d773fcb"
+    },
+    {
+      "path": "qeli/Cargo.toml",
+      "size": 10585,
+      "sha256": "582a332da1bb181c5c27c7c5b178bb1708084a19d4dc14461e6f3fc905c59c2a"
+    }
+  ],
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-openwrt-source-gate-20261007",
+  "raw_seal_sha256": "db91278ee0448a7f8c313e6061834a41d6cfa1821ca46f41fef016afe39ec685",
+  "raw_sealed_files": 23,
+  "native_source_digest": "c2ac10e0f41c826129a7b10918db88e84a77e55109eb4537783b34f99abd2a8b",
+  "native_provenance": "PASS_UNCHANGED_INPUTS",
+  "scope": "Q31 F376-F378 local OpenWrt source admission replaces embedded Gate3: committed participating inputs, unique literal metadata incl direct duplicate eval/define/undefine, full commit SHA and object type, identical candidate/pin qeli tree, committed TOML package version and bounded30sGit. Older same-tree commit accepted;mutable refs/tagobjects/unknown source/missing-invalid-inherited version/dirty inputs refuse. Mandatory QELI_OPENWRT_SOURCE_ARCHIVE real regular nonempty file SHA256 matches PKG_MIRROR_HASH;POSIXnonblock/nofollow/fstat refuse FIFO/link/device and observed midhash changes. No download/extraction/SDK generation or privileged postcheck guarantee/arbitrary Make hermeticity. Exact old Gate3 four fail-open paths accepted then new refuses. Final25real-Git/files/Linux methods uid65534 PASS0skips,related18CI+15router release PASS0skips;normal exactCI24PASS1explicit opt-in baseline skip. FinalWindows23PASS2POSIXskips;initial24Win1symlinkprivilegeerror1POSIXskip retained. Eval/undefine finalfix only source25 rerun,20inputSHA unchanged. CI/manual wired,no GHA dispatch. Tiny binary mirror fixtures are not actual SDK source archives;development pin/hash unchanged,actual candidate stale pin remains expectedrefusal. Rust/native sources/recipes/binaries unchanged,provenancecurrentPASS. .11qeli.serviceactivePID777preserved,.10unused;no services/network/firewall/tools changes. Q31IN_PROGRESS3/5,whole28/37(75.7%),9remain;SDKbootstrap/releasecut/configuredGate2/Actions/writerlock/atomicndm/firmware integration OPEN. USER_EXCLUDEDfirmware/Apple/WindowsVM,Q29SIGKILL/ENONET,Q30callbackdrain,D06ACCEPTED unchanged;currentdebt14/15DONE+D06ACCEPTED.41historiccases/acceptance and44prior supplements preserved modulo source_digest. ConfigsINIonly,internalJSONretained. No push/deploy/release."
+}

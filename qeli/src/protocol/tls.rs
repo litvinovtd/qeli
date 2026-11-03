@@ -235,51 +235,94 @@ impl FakeTlsHandshake {
         Self::wrap_in_record(0x16, &body)
     }
 
-    pub fn parse_client_hello(data: &[u8]) -> Option<Vec<u8>> {
-        if data.len() < TLS_HEADER_SIZE + 38 {
-            return None;
-        }
-        if data[0] != 0x16 {
+    /// Validate the complete Qeli ClientHello before extracting any share. The
+    /// bounded REALITY peek parser below intentionally has a different contract.
+    fn client_hello_extensions(data: &[u8]) -> Option<&[u8]> {
+        if data.len() < TLS_HEADER_SIZE + 39
+            || data[0] != 0x16
+            || !matches!(&data[1..3], [0x03, 0x01] | [0x03, 0x03])
+        {
             return None;
         }
         let record_len = u16::from_be_bytes([data[3], data[4]]) as usize;
-        if record_len > MAX_HANDSHAKE_SIZE {
+        if record_len > MAX_HANDSHAKE_SIZE || data.len() != TLS_HEADER_SIZE + record_len {
             return None;
         }
-        if data.len() != TLS_HEADER_SIZE + record_len {
+        let inner = &data[TLS_HEADER_SIZE..];
+        let handshake_len =
+            ((inner[1] as usize) << 16) | ((inner[2] as usize) << 8) | inner[3] as usize;
+        if inner[0] != 0x01 || handshake_len != inner.len() - 4 || inner[4..6] != [0x03, 0x03] {
             return None;
         }
-        let inner = &data[TLS_HEADER_SIZE..TLS_HEADER_SIZE + record_len];
-        if inner.len() < 38 || inner[0] != 0x01 {
+        let sid_len = inner[38] as usize;
+        if sid_len > 32 {
             return None;
         }
-
-        let mut offset = 38;
-        if offset + 1 > inner.len() {
+        let mut offset = 39 + sid_len;
+        let cs_header = inner.get(offset..offset + 2)?;
+        let cs_len = u16::from_be_bytes([cs_header[0], cs_header[1]]) as usize;
+        if cs_len < 2 || !cs_len.is_multiple_of(2) {
             return None;
         }
-        let sid_len = inner[offset] as usize;
-        offset += 1 + sid_len;
-        if offset + 2 > inner.len() {
-            return None;
-        }
-        let cs_len = u16::from_be_bytes([inner[offset], inner[offset + 1]]) as usize;
         offset += 2 + cs_len;
-        if offset + 1 > inner.len() {
+        // TLS 1.3 ClientHello uses exactly one null compression method.
+        if inner.get(offset..offset + 2)? != [1, 0] {
             return None;
         }
-        let comp_len = inner[offset] as usize;
-        offset += 1 + comp_len;
-        if offset + 2 > inner.len() {
-            return None;
-        }
-        let ext_len = u16::from_be_bytes([inner[offset], inner[offset + 1]]) as usize;
         offset += 2;
-        if offset + ext_len > inner.len() {
+        let ext_header = inner.get(offset..offset + 2)?;
+        let ext_len = u16::from_be_bytes([ext_header[0], ext_header[1]]) as usize;
+        offset += 2;
+        if offset + ext_len != inner.len() {
             return None;
         }
+        let extensions = &inner[offset..];
+        let mut seen = std::collections::HashSet::new();
+        let mut pos = 0;
+        while pos < extensions.len() {
+            let header = extensions.get(pos..pos + 4)?;
+            let kind = u16::from_be_bytes([header[0], header[1]]);
+            let len = u16::from_be_bytes([header[2], header[3]]) as usize;
+            pos += 4;
+            let value = extensions.get(pos..pos + len)?;
+            // Older builders independently choose two GREASE IDs, which may
+            // coincide. Preserve this harmless compatibility case.
+            let grease = kind & 0x0f0f == 0x0a0a && kind >> 8 == kind & 0xff;
+            if !grease && !seen.insert(kind) {
+                return None;
+            }
+            if kind == 0x0033 {
+                let shares_header = value.get(..2)?;
+                let shares_len = u16::from_be_bytes([shares_header[0], shares_header[1]]) as usize;
+                if shares_len != value.len() - 2 || shares_len == 0 {
+                    return None;
+                }
+                let mut groups = std::collections::HashSet::new();
+                let mut q = 2;
+                while q < value.len() {
+                    let header = value.get(q..q + 4)?;
+                    let group = u16::from_be_bytes([header[0], header[1]]);
+                    let len = u16::from_be_bytes([header[2], header[3]]) as usize;
+                    q += 4;
+                    value.get(q..q + len)?;
+                    if !groups.insert(group)
+                        || len == 0
+                        || (group == 0x001d && len != 32)
+                        || (group == crate::crypto::mlkem::X25519MLKEM768
+                            && len != crate::crypto::mlkem::MLKEM768_EK_LEN + 32)
+                    {
+                        return None;
+                    }
+                    q += len;
+                }
+            }
+            pos += len;
+        }
+        Some(extensions)
+    }
 
-        Self::extract_key_share(&inner[offset..offset + ext_len])
+    pub fn parse_client_hello(data: &[u8]) -> Option<Vec<u8>> {
+        Self::extract_key_share(Self::client_hello_extensions(data)?)
     }
 
     /// Like [`parse_client_hello`] but also returns the 32-byte legacy_session_id
@@ -798,47 +841,12 @@ impl FakeTlsHandshake {
     /// from a (fake-TLS) ClientHello, so the server can encapsulate against it for the
     /// hybrid handshake. Mirrors [`parse_client_hello`]'s navigation exactly.
     pub fn extract_client_mlkem_ek(data: &[u8]) -> Option<Vec<u8>> {
-        if data.len() < TLS_HEADER_SIZE + 38 || data[0] != 0x16 {
-            return None;
-        }
-        let record_len = u16::from_be_bytes([data[3], data[4]]) as usize;
-        if record_len > MAX_HANDSHAKE_SIZE || data.len() != TLS_HEADER_SIZE + record_len {
-            return None;
-        }
-        let inner = &data[TLS_HEADER_SIZE..TLS_HEADER_SIZE + record_len];
-        if inner.len() < 38 || inner[0] != 0x01 {
-            return None;
-        }
-        let mut offset = 38;
-        if offset + 1 > inner.len() {
-            return None;
-        }
-        let sid_len = inner[offset] as usize;
-        offset += 1 + sid_len;
-        if offset + 2 > inner.len() {
-            return None;
-        }
-        let cs_len = u16::from_be_bytes([inner[offset], inner[offset + 1]]) as usize;
-        offset += 2 + cs_len;
-        if offset + 1 > inner.len() {
-            return None;
-        }
-        let comp_len = inner[offset] as usize;
-        offset += 1 + comp_len;
-        if offset + 2 > inner.len() {
-            return None;
-        }
-        let ext_len = u16::from_be_bytes([inner[offset], inner[offset + 1]]) as usize;
-        offset += 2;
-        if offset + ext_len > inner.len() {
-            return None;
-        }
         let value = Self::extract_key_share_group(
-            &inner[offset..offset + ext_len],
+            Self::client_hello_extensions(data)?,
             crate::crypto::mlkem::X25519MLKEM768,
         )?;
-        // value = ek(1184) ‖ x25519(32); return the ek half.
-        if value.len() < crate::crypto::mlkem::MLKEM768_EK_LEN {
+        // value = ek(1184) ‖ x25519(32); require the entire hybrid share.
+        if value.len() != crate::crypto::mlkem::MLKEM768_EK_LEN + 32 {
             return None;
         }
         Some(value[..crate::crypto::mlkem::MLKEM768_EK_LEN].to_vec())
@@ -1185,5 +1193,171 @@ mod tests {
             0,
             None,
         );
+    }
+}
+
+#[cfg(test)]
+mod complete_client_hello_tests {
+    use super::*;
+    use crate::crypto::{mlkem::MLKEM768_EK_LEN, Keypair};
+
+    fn hello() -> Vec<u8> {
+        let kp = Keypair::generate();
+        FakeTlsHandshake::build_client_hello_inner(
+            kp.public(),
+            "example.com",
+            0,
+            Some(&[0x62; 32]),
+            &[0x71; MLKEM768_EK_LEN],
+        )
+    }
+
+    fn ext_offset(h: &[u8]) -> usize {
+        let mut pos = 5 + 39 + h[5 + 38] as usize;
+        pos += 2 + u16::from_be_bytes([h[pos], h[pos + 1]]) as usize;
+        pos += 1 + h[pos] as usize;
+        pos + 2
+    }
+
+    fn with_extensions(h: &[u8], extensions: &[u8]) -> Vec<u8> {
+        let offset = ext_offset(h);
+        let mut out = h[..offset].to_vec();
+        out[offset - 2..offset].copy_from_slice(&(extensions.len() as u16).to_be_bytes());
+        out.extend_from_slice(extensions);
+        let record_len = out.len() - 5;
+        out[3..5].copy_from_slice(&(record_len as u16).to_be_bytes());
+        let handshake_len = record_len - 4;
+        out[6..9].copy_from_slice(&[
+            (handshake_len >> 16) as u8,
+            (handshake_len >> 8) as u8,
+            handshake_len as u8,
+        ]);
+        out
+    }
+
+    fn reject(h: &[u8]) {
+        assert!(FakeTlsHandshake::parse_client_hello(h).is_none());
+        assert!(FakeTlsHandshake::extract_client_mlkem_ek(h).is_none());
+    }
+
+    #[test]
+    fn full_client_hello_requires_consistent_lengths_and_vectors() {
+        let h = hello();
+        assert!(FakeTlsHandshake::parse_client_hello(&h).is_some());
+        assert_eq!(
+            FakeTlsHandshake::extract_client_mlkem_ek(&h).unwrap(),
+            vec![0x71; MLKEM768_EK_LEN]
+        );
+        for end in 0..h.len() {
+            reject(&h[..end]);
+        }
+        for (offset, value) in [
+            (0, 0x17),
+            (1, 0x02),
+            (5, 0x02),
+            (6, 0x01),
+            (8, h[8].wrapping_add(1)),
+            (9, 0x02),
+            (43, 33),
+        ] {
+            let mut bad = h.clone();
+            bad[offset] = value;
+            reject(&bad);
+        }
+        let mut legacy_record = h.clone();
+        legacy_record[2] = 1;
+        assert!(FakeTlsHandshake::parse_client_hello(&legacy_record).is_some());
+        let offset = ext_offset(&h);
+        let mut tail = with_extensions(&h, &h[offset..]);
+        tail.push(0);
+        let record_len = tail.len() - 5;
+        tail[3..5].copy_from_slice(&(record_len as u16).to_be_bytes());
+        tail[8] = tail[8].wrapping_add(1);
+        reject(&tail);
+        let cs_offset = 5 + 39 + 32;
+        for len in [0u16, 1, 3, u16::MAX] {
+            let mut bad = h.clone();
+            bad[cs_offset..cs_offset + 2].copy_from_slice(&len.to_be_bytes());
+            reject(&bad);
+        }
+        let comp_offset = offset - 4;
+        for (at, value) in [(comp_offset, 0), (comp_offset, 2), (comp_offset + 1, 1)] {
+            let mut bad = h.clone();
+            bad[at] = value;
+            reject(&bad);
+        }
+    }
+
+    #[test]
+    fn full_client_hello_validates_all_extensions_and_share_entries() {
+        let h = hello();
+        let offset = ext_offset(&h);
+        let extensions = &h[offset..];
+        let mut pos = 0;
+        let mut share = None;
+        while pos < extensions.len() {
+            let len = u16::from_be_bytes([extensions[pos + 2], extensions[pos + 3]]) as usize;
+            if extensions[pos..pos + 2] == [0, 0x33] {
+                share = Some(extensions[pos..pos + 4 + len].to_vec());
+            }
+            pos += 4 + len;
+        }
+        let share = share.unwrap();
+        // Target share appears first: even malformed trailing extensions must fail.
+        for tail in [&[0u8][..], &[0, 1, 0][..], &[0, 1, 0, 2, 0][..]] {
+            let mut ext = share.clone();
+            ext.extend_from_slice(tail);
+            reject(&with_extensions(&h, &ext));
+        }
+        let mut duplicate = share.clone();
+        duplicate.extend_from_slice(&share);
+        reject(&with_extensions(&h, &duplicate));
+        for len in [0u16, 1, u16::MAX] {
+            let mut ext = share.clone();
+            ext[4..6].copy_from_slice(&len.to_be_bytes());
+            reject(&with_extensions(&h, &ext));
+        }
+        // Valid vector lengths with a hybrid share lacking its X25519 component.
+        let pq_at = share
+            .windows(4)
+            .position(|w| w == [0x11, 0xec, 0x04, 0xc0])
+            .unwrap();
+        let mut ext = share.clone();
+        ext.drain(pq_at + 4 + MLKEM768_EK_LEN..pq_at + 4 + MLKEM768_EK_LEN + 32);
+        ext[pq_at + 2..pq_at + 4].copy_from_slice(&(MLKEM768_EK_LEN as u16).to_be_bytes());
+        let len = ext.len() - 4;
+        ext[2..4].copy_from_slice(&(len as u16).to_be_bytes());
+        ext[4..6].copy_from_slice(&((len - 2) as u16).to_be_bytes());
+        reject(&with_extensions(&h, &ext));
+        // Unknown/GREASE extensions remain compatible, including old duplicate GREASE IDs.
+        let mut ext = share.clone();
+        ext.extend_from_slice(&[0x0a, 0x0a, 0, 0, 0x0a, 0x0a, 0, 0, 0x12, 0x34, 0, 1, 7]);
+        let valid = with_extensions(&h, &ext);
+        assert!(FakeTlsHandshake::parse_client_hello(&valid).is_some());
+        assert!(FakeTlsHandshake::extract_client_mlkem_ek(&valid).is_some());
+        let token = FakeTlsHandshake::parse_client_hello_full(&valid[..valid.len() - 1])
+            .unwrap()
+            .0;
+        assert_eq!(token, [0x62; 32]);
+    }
+
+    #[test]
+    fn client_hello_seeded_mutation_smoke_has_no_panics() {
+        use rand::{rngs::StdRng, SeedableRng};
+        let h = hello();
+        let mut rng = StdRng::seed_from_u64(0x0903_2026);
+        for _ in 0..20_000 {
+            let mut input = h.clone();
+            for _ in 0..rng.random_range(1..8) {
+                let at = rng.random_range(0..input.len());
+                input[at] = rng.random();
+            }
+            if rng.random::<bool>() {
+                input.truncate(rng.random_range(0..=input.len()));
+            }
+            let _ = FakeTlsHandshake::parse_client_hello(&input);
+            let _ = FakeTlsHandshake::extract_client_mlkem_ek(&input);
+            let _ = FakeTlsHandshake::parse_client_hello_full(&input);
+        }
     }
 }

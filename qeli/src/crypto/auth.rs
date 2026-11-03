@@ -85,7 +85,9 @@ pub fn verify_server_proof_only(
         anyhow::bail!("server proof too short");
     }
     let server_pub = PublicKey::from_bytes(pinned_server_pub);
-    let static_shared = client_kp.derive_shared(&server_pub);
+    let static_shared = client_kp
+        .derive_shared_checked(&server_pub)
+        .ok_or_else(|| anyhow::anyhow!("rejected low-order server identity key"))?;
     let expected = compute_auth_proof(&static_shared.0, ephemeral_shared, transcript_hash);
     if !ct_eq(&proof[..32], &expected[..]) {
         anyhow::bail!("server auth proof verification failed");
@@ -113,7 +115,9 @@ pub fn verify_server_auth_message(
     let received = &msg[32..64];
 
     let server_static_pub = PublicKey::from_bytes(&static_pub);
-    let static_shared = client_kp.derive_shared(&server_static_pub);
+    let static_shared = client_kp
+        .derive_shared_checked(&server_static_pub)
+        .ok_or_else(|| anyhow::anyhow!("rejected low-order server identity key"))?;
     let expected = compute_auth_proof(&static_shared.0, ephemeral_shared, transcript_hash);
 
     if !ct_eq(received, expected.as_slice()) {
@@ -222,6 +226,39 @@ mod tests {
             client_tx,
             auth_msg,
         )
+    }
+
+    #[test]
+    fn attacker_computable_proofs_for_low_order_identities_are_refused() {
+        let client = Keypair::generate();
+        let ephemeral = [4; 32];
+        let transcript = [5; 32];
+        for first in [0u8, 1] {
+            let mut public = [0; 32];
+            public[0] = first;
+            assert_eq!(client.derive_shared(&PublicKey(public)).0, [0; 32]);
+            let proof = compute_auth_proof(&[0; 32], &ephemeral, &transcript);
+            let mut message = public.to_vec();
+            message.extend_from_slice(&proof);
+            assert!(
+                verify_server_auth_message(&message, &client, &ephemeral, &transcript)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("low-order")
+            );
+            assert!(
+                verify_server_proof_only(&proof, &client, &public, &ephemeral, &transcript)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("low-order")
+            );
+        }
+        let server = StaticKeypair::generate();
+        let message = build_server_auth_message(&server, client.public(), &ephemeral, &transcript);
+        assert_eq!(
+            verify_server_auth_message(&message, &client, &ephemeral, &transcript).unwrap(),
+            server.public.0
+        );
     }
 
     #[test]

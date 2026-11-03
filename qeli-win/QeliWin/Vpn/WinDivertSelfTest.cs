@@ -15,6 +15,7 @@ internal static class WinDivertSelfTest
 {
     public static int RunUnit(Action<string, bool> check)
     {
+        QeliWin.Service.ServiceSecuritySelfTest.Run(check);
         // Destination policy: RFC1918 is NOT unconditionally direct.
         var defaultPol = new WinDivertDestinationPolicy(false, null, null, null,
             physicalLocalRoutes: new[] { "192.168.1.0/24" });

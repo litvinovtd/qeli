@@ -16,6 +16,7 @@ import os
 import paramiko
 
 import ssh_hostkey
+from ssh_command import run_ssh_command
 
 # Lab VMs (internal) and the production server, as (host, user) tuples. Pass any of
 # these straight to connect(); the password comes from QELI_LAB_PASS.
@@ -70,7 +71,5 @@ def run(ssh, cmd, timeout=60, label=None):
     """Run ``cmd`` over an open client; return combined stdout+stderr (utf-8, rstripped)."""
     if label:
         print(f"  {label}...")
-    _stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
-    out = stdout.read().decode("utf-8", "replace")
-    err = stderr.read().decode("utf-8", "replace")
-    return (out + err).rstrip()
+    output, _status = run_ssh_command(ssh, cmd, timeout)
+    return output.rstrip()

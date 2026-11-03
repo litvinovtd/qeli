@@ -20,14 +20,18 @@ if [ ! -x "$BIN" ]; then
   echo "qeli binary is missing or not executable: $BIN" >&2
   exit 2
 fi
-for value in "$REPRESENTATIVE_ITERATIONS" "$ADAPTER_ITERATIONS" "$SAMPLE_EVERY"; do
-  case "$value" in
-    ''|*[!0-9]*|0)
-      echo "UDP resource soak iteration and sample counts must be positive integers" >&2
-      exit 2
-      ;;
-  esac
-done
+if [ ! -r "$SCRIPT_DIR/roaming_soak_parameters.sh" ]; then
+  echo "required roaming soak parameter helper is missing" >&2
+  exit 2
+fi
+source "$SCRIPT_DIR/roaming_soak_parameters.sh" || exit 2
+roaming_soak_counts "$REPRESENTATIVE_ITERATIONS" "$SAMPLE_EVERY" || exit 2
+roaming_soak_counts "$ADAPTER_ITERATIONS" "$SAMPLE_EVERY" || exit 2
+QUALIFICATION=SMOKE
+if [ "$REPRESENTATIVE_ITERATIONS" -ge 10000 ] && [ "$ADAPTER_ITERATIONS" -ge 1000 ]; then
+  QUALIFICATION=PASS
+fi
+echo "qualification=$QUALIFICATION representative_iterations=$REPRESENTATIVE_ITERATIONS adapter_iterations=$ADAPTER_ITERATIONS sample_every=$SAMPLE_EVERY"
 
 run_mode() {
   local mode=$1 iterations=$2 marker=$3
@@ -39,8 +43,8 @@ run_mode() {
   echo "$marker"
 }
 
-run_mode quic "$REPRESENTATIVE_ITERATIONS" ROAMING_UDP_QUIC_REPRESENTATIVE_SOAK_PASS
-run_mode fake-tls "$ADAPTER_ITERATIONS" ROAMING_UDP_FAKE_TLS_ADAPTER_SOAK_PASS
-run_mode obfs "$ADAPTER_ITERATIONS" ROAMING_UDP_OBFS_ADAPTER_SOAK_PASS
-run_mode obfs-awg "$ADAPTER_ITERATIONS" ROAMING_UDP_OBFS_AWG_ADAPTER_SOAK_PASS
-echo ROAMING_UDP_RESOURCE_SOAK_MATRIX_PASS
+run_mode quic "$REPRESENTATIVE_ITERATIONS" "ROAMING_UDP_QUIC_REPRESENTATIVE_SOAK_$QUALIFICATION"
+run_mode fake-tls "$ADAPTER_ITERATIONS" "ROAMING_UDP_FAKE_TLS_ADAPTER_SOAK_$QUALIFICATION"
+run_mode obfs "$ADAPTER_ITERATIONS" "ROAMING_UDP_OBFS_ADAPTER_SOAK_$QUALIFICATION"
+run_mode obfs-awg "$ADAPTER_ITERATIONS" "ROAMING_UDP_OBFS_AWG_ADAPTER_SOAK_$QUALIFICATION"
+echo "ROAMING_UDP_RESOURCE_SOAK_MATRIX_$QUALIFICATION"

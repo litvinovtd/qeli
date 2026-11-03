@@ -1,0 +1,151 @@
+{
+  "status": "DOC_COMMENT_APPLICABILITY_NATIVE_AB_PASS_HOSTED_CI_REQUIRED",
+  "source_commit": "2407207a9bb953f4647516c40624d908a187a0a9",
+  "source_digest": "ab3f155b9b03427a348c9dfeb257f768506cbc6e1f53ca1ba04b968f369022e6",
+  "baseline_commit": "a5fb28340f335028e60141b81ca6f44ef6c552e2",
+  "corrected_comment_source_commit": "81269a0fd31b74e73174c5aa8fef4d675a1420b6",
+  "scope": "Documentation relocation/corrections and validation guards; exactly three standalone DNS comments changed, with executable lines and source line numbers unchanged. Cargo/build inputs, generated configuration contracts, conformance and platform product sources are unchanged. Fresh pinned native A/B builds on the corrected source produce exactly the same four canonical binaries as the previously executed dependency-qualified baseline. Actual stock-SDK export/prepare is independently repeated and its exact source pin/hash updated. Existing CLI/Linux/Android runtime identities, times, raw results and original failures are retained; this is source-applicability reconciliation, not a new runtime, benchmark, endurance or device qualification. Hosted final CI is still required; release publication is forbidden.",
+  "comment_only_proofs": [
+    {
+      "path": "qeli/src/config/client.rs",
+      "before_blob": "0ac6e812d888680f0c8ef6a788ae1c29f3989bad",
+      "after_blob": "4eaa0cc14d3734bba586432e565edf2d58c859af",
+      "changed_line_numbers": [
+        777,
+        778,
+        779
+      ],
+      "only_standalone_comments_changed": true,
+      "total_lines_unchanged": true
+    },
+    {
+      "path": "qeli/src/config/server.rs",
+      "before_blob": "2f9206ec6895903569a77d18ca69a64da488226e",
+      "after_blob": "2c356643eba29ec9e708aa7d1a3b4f16c7c212b6",
+      "changed_line_numbers": [
+        1282,
+        1283,
+        1284,
+        1285,
+        1286,
+        1287
+      ],
+      "only_standalone_comments_changed": true,
+      "total_lines_unchanged": true
+    },
+    {
+      "path": "qeli/src/server/handler.rs",
+      "before_blob": "68f29d724fb371096b138571960de56c7378c73f",
+      "after_blob": "33a8ea5b7c13afee307c6829d254b09646f8a8cb",
+      "changed_line_numbers": [
+        3998,
+        3999,
+        4000,
+        4001,
+        4002,
+        4003
+      ],
+      "only_standalone_comments_changed": true,
+      "total_lines_unchanged": true
+    }
+  ],
+  "unchanged_build_inputs": [
+    "qeli/Cargo.toml",
+    "qeli/Cargo.lock",
+    "qeli/.cargo/config.toml",
+    "scripts/build_native_libs_p4.py",
+    "scripts/build_android_so_11.py",
+    "scripts/native_lab.py",
+    "scripts/ssh_command.py",
+    "scripts/native_repro.py",
+    "scripts/macho_repro.py"
+  ],
+  "unchanged_native_artifacts": [
+    {
+      "path": "native-libs/windows-x64/qeli.dll",
+      "sha256": "171bc4f749d664db545448147aedefa30aaaf7b5a3adc93275393520f3f1de12",
+      "byte_identical_to_pre_comment_qualified_binary": true
+    },
+    {
+      "path": "native-libs/macos-universal/libqeli.dylib",
+      "sha256": "741313397b63e038cbc40921edc38733fa4bdcf20228939843eb2bf5d100ccb2",
+      "byte_identical_to_pre_comment_qualified_binary": true
+    },
+    {
+      "path": "native-libs/android/arm64-v8a/libqeli.so",
+      "sha256": "b79237a129e0196e9fee2a9fe4c1b3ba40cd4dbc0a589d8d8ab35e0e54ea074a",
+      "byte_identical_to_pre_comment_qualified_binary": true
+    },
+    {
+      "path": "native-libs/android/x86_64/libqeli.so",
+      "sha256": "9da76b1059c3de5d7762984d9422f4d222059926c0d4e2f1c7833a2dafb87a45",
+      "byte_identical_to_pre_comment_qualified_binary": true
+    }
+  ],
+  "native_source_digest": "1c9df80ebd95f6bd1d2c827b42d4fdd85aa02e1060209a180863a260a6dbffe3",
+  "native_AB_evidence": [
+    "native-libs/reproducibility/desktop.json",
+    "native-libs/reproducibility/android.json"
+  ],
+  "openwrt": {
+    "status": "PASS_EXACT_CURRENT_COMMIT_TWO_SDK_DOWNLOADS_PREPARE",
+    "source_commit": "81269a0fd31b74e73174c5aa8fef4d675a1420b6",
+    "source_tree": "81037b86bd59221088e3853c6785d8cd1f2045b9",
+    "qeli_tree": "fee075f774f9a690ac25adc274ff19c03f5b3d3b",
+    "archive": {
+      "sha256": "afcd57ea32c6743198c7f51e92baadbaf686c54a7886fe2d4f1ca5ba0def1a08",
+      "bytes": 27231668
+    },
+    "prepared_count": 3447,
+    "all_prepared_blobs_verified_against_canonical_git": true,
+    "unaltered_sdk_git_export": true,
+    "private_recipe_only_url_pin_hash_changes": true,
+    "SDK": "24.10.4",
+    "two_empty_download_caches_identical": true,
+    "host_preserved": true,
+    "production_recipe_not_yet_updated": true,
+    "no_compiler_bootstrap_or_full_build": true,
+    "no_publication_or_hosted_ci": true
+  },
+  "openwrt_gate": {
+    "status": "PASS",
+    "head": "2407207a9bb953f4647516c40624d908a187a0a9",
+    "exact_committed_recipe": true,
+    "actual_stock_sdk_archive": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\documentation-audit-20261016\\source-cut\\qeli-0.8.2.tar.zst"
+  },
+  "local_docs_checks": {
+    "markdown_files": 757,
+    "checks": 9,
+    "unit_methods": 30,
+    "workflows": 4
+  },
+  "previous_manifest": {
+    "commit": "2407207a9bb953f4647516c40624d908a187a0a9",
+    "blob": "711ace91bc41f2dcf90dda2122de0d20303f91c1",
+    "sha256": "ed7cd69d1af77591dcb6836bc591e30ba5718d62e98b46e3e7118495d17464a1"
+  },
+  "original_execution_applicability": {
+    "linux.outer4.inner4.tcp.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer4.inner6.tcp.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer6.inner4.tcp.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer6.inner6.tcp.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer4.inner4.udp-fake-tls.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer4.inner6.udp-fake-tls.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer6.inner4.udp-fake-tls.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer6.inner6.udp-fake-tls.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer4.inner4.udp-quic.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer4.inner6.udp-quic.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer6.inner4.udp-quic.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.outer6.inner6.udp-quic.full": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.dual.tcp.split": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.dual.udp.split": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.tap.ndp-ra": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.dns.ipv4-ipv6": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.mtu.1280-pmtu-ptb": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.legacy-peer": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.roaming-flap-soak": "release/certification/evidence/dependabot-integration-20261016.json",
+    "linux.leak.ipv4-ipv6": "release/certification/evidence/dependabot-integration-20261016.json"
+  },
+  "accepted_API34_ENONET_original_FAIL_and_physical_exclusions_unchanged": true,
+  "release_published": false
+}

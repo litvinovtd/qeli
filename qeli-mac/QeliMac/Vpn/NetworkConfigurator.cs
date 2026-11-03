@@ -77,7 +77,12 @@ public sealed partial class NetworkConfigurator : IDisposable
         _log($"WARNING: {what}");
     }
 
-    public NetworkConfigurator(Action<string> log) => _log = log;
+    private readonly Func<string, string, (string stdout, string stderr, int code)> _execute;
+    private readonly Func<string, bool> _interfaceExists;
+    public NetworkConfigurator(Action<string> log) : this(log, Exec, InterfaceExists) { }
+    internal NetworkConfigurator(Action<string> log,
+        Func<string, string, (string stdout, string stderr, int code)> execute, Func<string, bool> interfaceExists)
+    { _log = log; _execute = execute; _interfaceExists = interfaceExists; }
 
     /// <summary>
     /// Restore a DNS override left by a crashed prior process. Safe to call on every app
@@ -114,7 +119,11 @@ public sealed partial class NetworkConfigurator : IDisposable
         WriteSystemDns,
         DnsJournal.IsOwnerAlive,
         DnsJournal.CurrentOwner(),
-        log);
+        log,
+        () => ServiceState.ReadProtected("dns-override.json", 64 * 1024),
+        bytes => ServiceState.WriteProtected("dns-override.json", bytes, replace: false),
+        () => ServiceState.DeleteProtected("dns-override.json"),
+        () => ServiceState.EnterOperation("dns-override.lock"));
 
     /// <summary>The physical path used to reach <paramref name="serverIp"/>: (interface, gateway).</summary>
     public (string? iface, IPAddress? gateway) PathToServer(IPAddress serverIp)
@@ -167,18 +176,11 @@ public sealed partial class NetworkConfigurator : IDisposable
 
     private ExistingRoute? ExistingExactRouteFor(IPAddress address, int prefix)
     {
-        try
-        {
-            bool v6 = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
-            var (outp, code) = RunOut(
-                "/sbin/route", $"-n get {(v6 ? "-inet6" : "-inet")} {address}");
-            return code == 0 ? ParseExactRoute(outp, address, prefix) : null;
-        }
-        catch (Exception e)
-        {
-            _log($"could not read the existing route {address}/{prefix}: {e.Message}");
-            return null;
-        }
+        bool v6 = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
+        var (output, error, code) = _execute("/sbin/route", $"-n get {(v6 ? "-inet6" : "-inet")} {address}");
+        if (code != 0 || !output.Contains("destination:", StringComparison.Ordinal) || !output.Contains("interface:", StringComparison.Ordinal))
+            throw new InvalidOperationException($"Cannot inspect route {address}/{prefix}; absence was not established: {error}");
+        return ParseExactRoute(output, address, prefix);
     }
 
     private static ExistingRoute? ParseExactRoute(
@@ -404,6 +406,13 @@ public sealed partial class NetworkConfigurator : IDisposable
         _undo.Add(() =>
         {
             if (!state.Owned) return;
+            var current = ExistingHostRouteFor(state.Address);
+            if (current is not null && !RouteMatches(current, state.CurrentGateway, state.CurrentInterface))
+            {
+                state.Owned = false;
+                _log($"Carrier route {state.Address} changed outside Qeli; preserving that decision");
+                return;
+            }
             if (!RemovePinnedServerRoute(state))
                 throw new InvalidOperationException(
                     $"could not remove Qeli-owned server route {state.Address}");
@@ -419,6 +428,8 @@ public sealed partial class NetworkConfigurator : IDisposable
     private bool RemoveExactServerRoute(IPAddress address, string family,
         string nextHop, IPAddress? gateway, string? interfaceName)
     {
+        ExistingRoute? before = ExistingHostRouteFor(address);
+        if (before is null || !RouteMatches(before, gateway, interfaceName)) return true;
         if (Run("/sbin/route", OrdinaryHostRouteArguments(
                 "delete", address, nextHop), optional: true))
             return true;
@@ -471,26 +482,50 @@ public sealed partial class NetworkConfigurator : IDisposable
     /// using the server-pushed subnet prefix.</summary>
     public void SetAddress(string dev, string clientIp, int prefix = 24)
     {
+        if (!UtunDevice.ValidName(dev)) throw new InvalidOperationException("Invalid utun interface name");
         if (!IPAddress.TryParse(clientIp, out var address))
             throw new InvalidOperationException($"invalid tunnel address {clientIp}");
         if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
         {
             if (prefix is < 1 or > 128)
                 throw new InvalidOperationException($"invalid IPv6 tunnel prefix {prefix}");
+            _undo.Add(() => RemoveAddress(dev, address)); // Record partial command effects too.
             Run("/sbin/ifconfig", $"{dev} inet6 {clientIp} prefixlen {prefix} alias up");
-            _undo.Add(() => Run("/sbin/ifconfig", AddressRemovalArguments(dev, address), optional: true));
             _log($"Set {dev} address {clientIp}/{prefix}");
             return;
         }
         // utun is point-to-point: local == dest, server-pushed mask for the tunnel subnet.
-        int p = (prefix is >= 1 and <= 32) ? prefix : 24;
+        if (prefix is < 1 or > 32) throw new InvalidOperationException("Invalid IPv4 tunnel prefix");
+        int p = prefix;
         string mask = PrefixToMask(p);
+        _undo.Add(() => RemoveAddress(dev, address)); // Register before potentially partial apply.
         Run("/sbin/ifconfig", $"{dev} inet {clientIp} {clientIp} netmask {mask} up");
         // A retained per-app utun outlives this transaction. Without an IPv4 undo action,
         // reconnecting from dual/IPv4 to IPv6-only leaves the old primary address and its
         // connected route on the live interface.
-        _undo.Add(() => Run("/sbin/ifconfig", AddressRemovalArguments(dev, address), optional: true));
         _log($"Set {dev} address {clientIp}/{p}");
+    }
+
+    private void RemoveAddress(string dev, IPAddress address)
+    {
+        if (Run("/sbin/ifconfig", AddressRemovalArguments(dev, address), optional: true) || !_interfaceExists(dev)) return;
+        var (output, _, code) = _execute("/sbin/ifconfig", dev);
+        if (code == 0 && AddressAbsent(output, dev, address)) return;
+        throw new InvalidOperationException($"Could not remove address {address} from retained interface {dev}");
+    }
+
+    internal static bool AddressAbsent(string output, string dev, IPAddress address)
+    {
+        var lines = output.Split('\n').Select(line => line.Trim()).Where(line => line.Length != 0).ToArray();
+        if (lines.Length == 0 || !lines[0].StartsWith(dev + ": flags=", StringComparison.Ordinal)) return false;
+        foreach (string line in lines.Skip(1))
+        {
+            var fields = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length == 0 || fields[0] is not ("inet" or "inet6")) continue;
+            if (fields.Length < 2 || !IPAddress.TryParse(fields[1], out var current)) return false;
+            if (current.GetAddressBytes().SequenceEqual(address.GetAddressBytes())) return false;
+        }
+        return true;
     }
 
     internal static string AddressRemovalArguments(string dev, IPAddress address) =>
@@ -523,7 +558,7 @@ public sealed partial class NetworkConfigurator : IDisposable
     /// </summary>
     private bool DeleteTunnelRoute(string family, string net, string dev) =>
         Run("/sbin/route", $"-n delete {family} -net {net} -interface {dev}", optional: true)
-        || !InterfaceExists(dev);
+        || !_interfaceExists(dev);
 
     /// <summary>An unreadable interface list returns true so ownership is retained and the
     /// route is retried, rather than being silently declared clean.</summary>
@@ -577,6 +612,7 @@ public sealed partial class NetworkConfigurator : IDisposable
     public void CaptureIPv6(string dev)
     {
         bool nativeIpv6Present = HasUsableNativeIpv6(dev);
+        _undo.Add(() => RemoveAddress(dev, IPAddress.Parse("fd71:e1::1")));
         bool addrOk = Run("/sbin/ifconfig", $"{dev} inet6 fd71:e1::1 prefixlen 64 up", optional: true);
         string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
         var failed = new List<string>();
@@ -592,8 +628,6 @@ public sealed partial class NetworkConfigurator : IDisposable
                     () => DeleteTunnelRoute("-inet6", captured, dev));
             }
         }
-        _undo.Add(() => Run("/sbin/ifconfig", $"{dev} inet6 fd71:e1::1 -alias", optional: true));
-
         // A partial route set is never safe: longest-prefix routing can still send the
         // uncovered classes to a physical interface. A total failure is harmless only on
         // a host that genuinely has no usable native IPv6 address at apply time.
@@ -872,13 +906,18 @@ public sealed partial class NetworkConfigurator : IDisposable
             return new(false, Array.Empty<string>(),
                 $"exit {code}: {(stdout + stderr).Trim()}");
 
-        // With DHCP/no explicit resolver networksetup prints a sentence rather than an IP;
-        // an empty list is the exact state restored with the special `empty` argument.
-        var servers = stdout.Split('\n')
-            .Select(line => line.Trim())
-            .Where(line => IPAddress.TryParse(line, out _))
-            .ToList();
-        return new(true, servers, "");
+        return ParseSystemDns(service, stdout);
+    }
+
+    internal static DnsJournal.ReadResult ParseSystemDns(string service, string stdout)
+    {
+        string text = stdout.Trim();
+        if (text == $"There aren't any DNS Servers set on {service}.")
+            return new(true, Array.Empty<string>(), "");
+        var lines = text.Split('\n').Select(line => line.Trim()).ToArray();
+        if (lines.Length is 0 or > 16 || lines.Any(line => !IPAddress.TryParse(line, out _)))
+            return new(false, Array.Empty<string>(), "Unrecognized networksetup DNS output; refusing to invent DHCP state");
+        return new(true, lines.Select(line => IPAddress.Parse(line).ToString()).Distinct().ToArray(), "");
     }
 
     private static DnsJournal.WriteResult WriteSystemDns(
@@ -896,13 +935,15 @@ public sealed partial class NetworkConfigurator : IDisposable
 
     // ── helpers ───────────────────────────────────────────────────────────────
     /// <summary>The macOS network service (e.g. "Wi-Fi") bound to the default-route device.</summary>
-    private string? PrimaryNetworkService()
+    internal string? PrimaryNetworkService()
     {
         try
         {
             // device behind the default route (e.g. en0)
             string? defDev = null;
-            var (rt, _) = RunOut("/sbin/route", "-n get default");
+            var (rt, routeCode) = RunOut("/sbin/route", "-n get default");
+            if (routeCode != 0) (rt, routeCode) = RunOut("/sbin/route", "-n get -inet6 default");
+            if (routeCode != 0) return null;
             foreach (var raw in rt.Split('\n'))
             {
                 var line = raw.Trim();
@@ -911,7 +952,8 @@ public sealed partial class NetworkConfigurator : IDisposable
             }
 
             // map device → service name via the service order listing
-            var (order, _) = RunOut("/usr/sbin/networksetup", "-listnetworkserviceorder");
+            var (order, orderCode) = RunOut("/usr/sbin/networksetup", "-listnetworkserviceorder");
+            if (orderCode != 0) return null;
             // Blocks look like: "(1) Wi-Fi\n(Hardware Port: Wi-Fi, Device: en0)"
             var blocks = Regex.Split(order, @"\n(?=\(\d+\))");
             foreach (var block in blocks)
@@ -921,18 +963,16 @@ public sealed partial class NetworkConfigurator : IDisposable
                     return m.Groups[1].Value.Trim();
             }
 
-            // Fallback: first enabled service.
-            var first = Regex.Match(order, @"\(\d+\)\s*(.+)");
-            return first.Success ? first.Groups[1].Value.Trim() : "Wi-Fi";
+            return null;
         }
-        catch { return "Wi-Fi"; }
+        catch { return null; }
     }
 
     /// <summary>Run a tool, bounded. Returns true iff it exited 0, so callers can report
     /// what actually happened instead of assuming success.</summary>
     private bool Run(string exe, string args, bool optional = false)
     {
-        var (stdout, stderr, code) = Exec(exe, args);
+        var (stdout, stderr, code) = _execute(exe, args);
         if (code != 0 && !optional)
             throw new InvalidOperationException($"{exe} {args} -> exit {code}: {stdout}{stderr}".Trim());
         return code == 0;
@@ -941,7 +981,7 @@ public sealed partial class NetworkConfigurator : IDisposable
     /// <summary>Run a tool and return (stdout, exitCode); stderr is folded into the log on failure.</summary>
     private (string stdout, int code) RunOut(string exe, string args)
     {
-        var (stdout, _, code) = Exec(exe, args);
+        var (stdout, _, code) = _execute(exe, args);
         return (stdout, code);
     }
 
@@ -959,56 +999,15 @@ public sealed partial class NetworkConfigurator : IDisposable
     /// non-zero code rather than hanging the caller forever.</summary>
     private static (string stdout, string stderr, int code) Exec(string exe, string args)
     {
-        var psi = new ProcessStartInfo(exe, args)
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using var p = Process.Start(psi)!;
-        var outTask = p.StandardOutput.ReadToEndAsync();
-        var errTask = p.StandardError.ReadToEndAsync();
-        if (!p.WaitForExit(CommandTimeoutMs))
-        {
-            try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
-            return ("", $"{exe} {args} -> timed out after {CommandTimeoutMs} ms", -1);
-        }
-        return (Drain(outTask), Drain(errTask), p.ExitCode);
+        var result = ToolProcess.Run(new ProcessStartInfo(exe, args), CommandTimeoutMs);
+        return (result.Output, result.Error, result.ExitCode);
     }
-
-    /// <summary>ArgumentList overload for network service names and resolver arrays. Unlike
-    /// a preformatted argument string it cannot reinterpret quotes/spaces in a user-renamed
-    /// macOS network service as additional networksetup arguments.</summary>
-    private static (string stdout, string stderr, int code) Exec(
-        string exe,
-        IReadOnlyList<string> args)
+    private static (string stdout, string stderr, int code) Exec(string exe, IReadOnlyList<string> args)
     {
-        var psi = new ProcessStartInfo(exe)
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        foreach (var arg in args) psi.ArgumentList.Add(arg);
-        using var p = Process.Start(psi)!;
-        var outTask = p.StandardOutput.ReadToEndAsync();
-        var errTask = p.StandardError.ReadToEndAsync();
-        if (!p.WaitForExit(CommandTimeoutMs))
-        {
-            try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
-            return ("", $"{exe} -> timed out after {CommandTimeoutMs} ms", -1);
-        }
-        return (Drain(outTask), Drain(errTask), p.ExitCode);
-    }
-
-    /// <summary>Collect an already-exited child's pipe text without ever blocking
-    /// indefinitely (the process is gone, so EOF is imminent; the bound is paranoia).</summary>
-    private static string Drain(Task<string> t)
-    {
-        try { return t.Wait(5_000) ? t.Result : ""; }
-        catch { return ""; }
+        var start = new ProcessStartInfo(exe);
+        foreach (string arg in args) start.ArgumentList.Add(arg);
+        var result = ToolProcess.Run(start, CommandTimeoutMs);
+        return (result.Output, result.Error, result.ExitCode);
     }
 
     private static (string? addr, int prefix) ParseCidr(string cidr)

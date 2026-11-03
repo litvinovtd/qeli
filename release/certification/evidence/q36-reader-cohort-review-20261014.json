@@ -1,0 +1,202 @@
+{
+  "status": "SOURCE_READER_REVIEW_AND_RETAINED_COHORT_RECONCILIATION_COMPLETE",
+  "review": {
+    "status": "SOURCE_READER_REVIEW_AND_RETAINED_COHORT_RECONCILIATION_COMPLETE",
+    "source_commit": "3da1d7ccfdab5c0ce01c29f4e200fc6e0e4af00d",
+    "qeli_tree": "8c50631e7c253ab6cacd0056098ecad83f393487",
+    "reviewed_at_unix": 1791950318.4547017,
+    "source_sha256": {
+      "qeli/src/transport_core/linux_tun.rs": "259919b71a0273fe799b5b00cc70b23664d1a57b1ace9d203818fb7038608f58",
+      "qeli/src/transport_core/buffer_pool.rs": "e56a56c49ac17519e6f6919bdae57c6996ead1c1a4fd800e1d8b51158662b82f",
+      "qeli/src/client/mod.rs": "02690ef6b1666f87a3e70a4a2965bee0d9ebe154a0ed5cd4c7bd32124f922dc5",
+      "qeli/src/server/mod.rs": "a5fdc60b1ca70b5b3ceb873ba886ff07a5d16cdc69a1e419716e9cc848b8c5d3",
+      "qeli/src/server/handler.rs": "5ddfdde2ab16e28313bba4f0aa6f1552ae57da669480d150bb73d462c11bcbc0",
+      "qeli/src/protocol/recordizer.rs": "5b98f0ca6772b5120448f146eb223109c6aaf1f3e75c931f53b5ba74d7f567cb"
+    },
+    "working_source_sha256": {
+      "qeli/src/transport_core/linux_tun.rs": "259919b71a0273fe799b5b00cc70b23664d1a57b1ace9d203818fb7038608f58",
+      "qeli/src/transport_core/buffer_pool.rs": "e56a56c49ac17519e6f6919bdae57c6996ead1c1a4fd800e1d8b51158662b82f",
+      "qeli/src/client/mod.rs": "02690ef6b1666f87a3e70a4a2965bee0d9ebe154a0ed5cd4c7bd32124f922dc5",
+      "qeli/src/server/mod.rs": "a5fdc60b1ca70b5b3ceb873ba886ff07a5d16cdc69a1e419716e9cc848b8c5d3",
+      "qeli/src/server/handler.rs": "5ddfdde2ab16e28313bba4f0aa6f1552ae57da669480d150bb73d462c11bcbc0",
+      "qeli/src/protocol/recordizer.rs": "5b98f0ca6772b5120448f146eb223109c6aaf1f3e75c931f53b5ba74d7f567cb"
+    },
+    "receipt_sha256": {
+      "q36-current-slot-statistics-r2-20261014/qualified.json": "80b6941be47a5dcc1a0da9555b24c1ff32b877718d2d0fa70d9f797c2207fdb8",
+      "q36-current-slot-statistics-r2-20261014/execution.json": "bdf4b04cc9c480d33b8280b98f42e79d601c65757688aeee5207156a97a93ad5",
+      "q36-current-slot-statistics-r2-20261014/acceptance-map.json": "65811d8a087ec13f7ce90a3988fab67b80cd0eca2982a718fcb56429211c3d2e",
+      "q36-tun-drop-reason-current-20261014/qualification.json": "0fbd7f35a2f4d58b9b53bab713208914e5d1661ed1b6767dccf56f82185e9351",
+      "q36-tun-drop-reason-current-20261014/execution.json": "c3bb2d579e01c464904dd3c5271c3f85d0101dceadfd93f211291ddddb87d917"
+    },
+    "retained_cohorts": [
+      {
+        "sessions": 36,
+        "windows": 144,
+        "negotiated_mode": "legacy_packet_per_record",
+        "stream_width": 1
+      },
+      {
+        "sessions": 9,
+        "windows": 27,
+        "negotiated_mode": "packet_mux_v1",
+        "stream_width": 2
+      }
+    ],
+    "untraced_control_statistics": {
+      "a": {
+        "tcp_up": {
+          "mbps": {
+            "n": 3,
+            "median": 1326.37541779514,
+            "min": 1269.3692747248137,
+            "max": 1328.8535732712464
+          }
+        },
+        "tcp_down": {
+          "mbps": {
+            "n": 3,
+            "median": 1403.0726787109195,
+            "min": 1371.5467552254738,
+            "max": 1507.1434148933154
+          }
+        },
+        "tcp_bidir": {
+          "up_mbps": {
+            "n": 3,
+            "median": 414.5228058817789,
+            "min": 401.97424295683413,
+            "max": 420.482784417503
+          },
+          "down_mbps": {
+            "n": 3,
+            "median": 1147.5268332017679,
+            "min": 1061.2381886531402,
+            "max": 1260.6633822797319
+          }
+        }
+      },
+      "b": {
+        "tcp_up": {
+          "mbps": {
+            "n": 3,
+            "median": 1250.316910074491,
+            "min": 1232.669218758562,
+            "max": 1254.1404360093459
+          }
+        },
+        "tcp_down": {
+          "mbps": {
+            "n": 3,
+            "median": 1532.3585933541367,
+            "min": 1529.2828463146043,
+            "max": 1538.0641197926666
+          }
+        },
+        "tcp_bidir": {
+          "up_mbps": {
+            "n": 3,
+            "median": 439.9969656965402,
+            "min": 412.6160196089199,
+            "max": 495.470736226533
+          },
+          "down_mbps": {
+            "n": 3,
+            "median": 1177.5609309472648,
+            "min": 1139.8304886754493,
+            "max": 1195.8858320850625
+          }
+        }
+      }
+    },
+    "findings": [
+      {
+        "result": "SOURCE_CONFIRMED_WAIT_BOUNDARIES_NOT_RUNTIME_ATTRIBUTION",
+        "detail": "Client TUN reader waits for recycled buffers, then device readiness and bounded from_tun handoff. Single-carrier Tun retains up to64 reader buffers until writer encryption; bonded path snapshots into its separately bounded pool and releases Tun before queueing."
+      },
+      {
+        "result": "SOURCE_CONFIRMED_SERVER_WAIT_BOUNDARIES",
+        "detail": "Server reader waits for a shared32MiB pool, blocking device read and4096-slot handoff. Ordinary async forwarder waits for SessionMap read lock; selected stream pool/queue admission uses try_acquire/try_send rather than async capacity waits."
+      },
+      {
+        "result": "NOT_A_PAIRED_COMPARISON",
+        "detail": "All-mode matrix has legacy/one carrier; stock trace experiment has mux/two carriers. Two factors differ. Do not attribute a throughput ratio to recordizer alone or F030, pool these populations, or infer ACK timings from source waits."
+      },
+      {
+        "result": "NO_NEW_CONFIRMED_PRODUCT_DEFECT",
+        "detail": "Finite pool/queue backpressure and scheduling may explain delays, but do not establish the original asymmetry mechanism. No queue enlargement, timer priority or default change justified by this source review."
+      }
+    ],
+    "new_runtime_tests": 0,
+    "new_benchmark_windows": 0,
+    "new_builds": 0,
+    "product_code_changes": [],
+    "formal_done": 33,
+    "formal_total": 37,
+    "no_push_deploy_release": true
+  },
+  "review_sha256": "299b861ced256fd883a347b767b6b765ded0cbea2561ed93ec61bd1a87f8df33",
+  "acceptance_map": {
+    "status": "BOUNDED_Q36_ACCEPTANCE_UPDATED_AFTER_OBSERVED_FULL_RING",
+    "source_commit": "3da1d7ccfdab5c0ce01c29f4e200fc6e0e4af00d",
+    "prepared_at_unix": 1791943656.9173048,
+    "evidence_sha256": {
+      "release/certification/evidence/q36-bidir-role-harness-20261013.json": "fe576cd0dc3cd533c94e65b13e2c4f886d4ac6b92754aa822b648586bd6fe1e3",
+      "release/certification/evidence/q36-perf-methodology-20261014.json": "809f38207358e15a470237aefb833c90304fca3a5a722424717aac786393434e",
+      "release/certification/evidence/q36-legacy-contract-20261014.json": "976014716ae0cd37b3b9528e274b63707e3445ccaa3b3259f9418b5652ae265d",
+      "release/certification/evidence/current-slot-linux-matrix-20261014.json": "016c924f5aa5824223fc2e029ee1d052dd896a9b65711c16c0ef758dbd30158e",
+      "release/certification/evidence/q36-current-legacy-mux-20261014.json": "cfb48ae316efc4e3bc9b70193bde9b781e588e62260244830498a272d59f2022",
+      "release/certification/evidence/q36-current-statistics-20261013.json": "a8e1ca137435b2b946b71b710c9992404141c04ed6b42423cd2e7cf79fe88375"
+    },
+    "criteria": [
+      {
+        "id": "review_dead_code",
+        "coverage": "Methodology fixes F001-F032, retired scenario perimeter, source review of post-dequeue loss interpretation and packet-codec microbenchmark; this is Q36 benchmark scope, not whole-project review"
+      },
+      {
+        "id": "normal_boundary_negative",
+        "coverage": "Receiver admissions, missing/truncated/nonfinite data, P1/P4 and IPv4/IPv6 historic cohorts, phase duplication negatives, current pool bounds and restores",
+        "remaining": "Current outer4/inner4 cohort now qualified; historical IPv6 cohorts retain original binary/source identity"
+      },
+      {
+        "id": "failures_concurrency",
+        "coverage": "Fixture guards, interrupted/failed run retention, raw endpoint roles, process/generation ownership, pinned queue policy, full host and owned archive cleanup",
+        "remaining": "Current R2 met original gates; pre-measurement failure and unchanged phase-order limitation retained separately"
+      },
+      {
+        "id": "integration_platform",
+        "coverage": "Fresh current core Linux20 and native/ABI/JNI consumers; current6-session legacy/mux cohort",
+        "remaining": "Stock-kernel FULL_RING classified in nine observed windows; exact original ACK/read-delay stage remains unqualified. Historical IPv6 cohorts keep original source/binary identity."
+      },
+      {
+        "id": "fixes_retest_evidence",
+        "coverage": "F030 native adoption and functional validation; F031 retirement and F032 phase independence tests qualified on both OS",
+        "remaining": "Retained legacy queue policy and bidirectional asymmetry have no general performance fix; zero-loss is not added as a universal acceptance requirement."
+      }
+    ],
+    "formal_done": 33,
+    "formal_total": 37,
+    "Q36_closed": false,
+    "new_runtime_PASS_claimed": false,
+    "historical_results_not_relabelled": true,
+    "no_push_deploy_release": true,
+    "prepared_map_sha256": "1960174e31d9cbdc4637bf5fee07a103acfa7d9b62ce7698647717abf6be1d03",
+    "current_cohort_qualification_sha256": "80b6941be47a5dcc1a0da9555b24c1ff32b877718d2d0fa70d9f797c2207fdb8",
+    "current_cohort": {
+      "sessions": 36,
+      "windows": 144,
+      "groups": 48,
+      "repeats": 3,
+      "outer_family": 4,
+      "inner_family": 4,
+      "source_commit": "eacd0da0833a1539832b251469ee81bc62356889",
+      "cli_sha256": "6f617bdcab5aecf3068ffa9bd6a11006aecbfead09cbb657d60671f0340b7363",
+      "host_and_cleanup_qualified": true
+    },
+    "current_cohort_pending": false,
+    "general_performance_or_capacity_PASS_claimed": false
+  },
+  "acceptance_map_sha256": "832f933a3a67520330cc0da177be23dd8854c08a6e3857a1f185c7188f58191a",
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q36-reader-cohort-review-20261014",
+  "scope": "Six-source TUN wait-boundary review and retained45session/171window revalidation. Four Markdown files clarify legacy/one versus mux/two carriers and original untraced groups. No new runtime, compiler, timing attribution or product fix. Rust/native and50Linux runtime inputs unchanged; original20Linux/21physical facts retained.",
+  "no_push_deploy_release": true
+}

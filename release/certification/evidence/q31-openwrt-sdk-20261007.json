@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "source_digest": "502ad1cbed7a9e0186bafe74c9f2471d5fd45ea7c3f6b2a0901172d107b8f35b",
+  "base_worktree_commit": "027626c8f55fef1444a4ba0dc911bf8a20b6cca1",
+  "base_dev_commit": "83c07f5c31178c67a005f20f59975e14528ab73a",
+  "status": "SCOPED_PASS_Q31_IN_PROGRESS",
+  "findings": [
+    "F353",
+    "F354"
+  ],
+  "raw_packet": "C:/Users/litvi/OneDrive/Documents/qeli/audit-debt-20260924/q31-openwrt-sdk-20261007",
+  "raw_seal_sha256": "e2d90b12a206509acc22f54f49232eafa19623588b004f6498ba0e2e14a98481",
+  "upstream": [
+    {
+      "path": "sdk.tar.zst",
+      "size": 257559594,
+      "sha256": "229e871f734a2cee5ce3ad6a3e98d3836b0899bfdeaea4d9c2c5cc7b1fce1407"
+    },
+    {
+      "path": "luci-source.tar.gz",
+      "size": 12769404,
+      "sha256": "526b06bea0d3d819a6d5a822a3ebcb92255d0ca04d5a9daa8dac9f89dcaa2483"
+    },
+    {
+      "path": "base-source.tar.gz",
+      "size": 10996191,
+      "sha256": "cf466b5c1d14bbf011056f72c212894fc7891303a4a1279d99bb0819c37a177a"
+    }
+  ],
+  "artifacts": {
+    "luci_ipk": {
+      "path": "sdk/bin/packages/x86_64/base/luci-app-qeli_0.8.2-r1_all.ipk",
+      "size": 6573,
+      "sha256": "ca64037fadcc6f1d218400db8a3223b7c6f265a7e0285a62664e6d25e0a64e95"
+    },
+    "baseline_ipk_sha256": "69a4aaceac7fd925b520bd885c0b62c239d4c4236c3d5117515032d1f9928d5b",
+    "new_qeli_core_native_build": "NOT_RUN_UNCHANGED_INPUTS"
+  },
+  "checks": {
+    "sdk_and_build": [
+      {
+        "id": "sdk-integration",
+        "command": "export LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-sdk-20261007/deps/usr/lib/x86_64-linux-gnu; export PATH=/var/tmp/qeli-q31-openwrt-sdk-20261007/sdk/staging_dir/host/bin:/var/tmp/qeli-q31-openwrt-sdk-20261007/sdk/staging_dir/toolchain-x86_64_gcc-13.3.0_musl/bin:/var/tmp/qeli-q31-openwrt-sdk-20261007/deps/usr/bin:$PATH; export LC_ALL=C; cd /var/tmp/qeli-q31-openwrt-sdk-20261007/source && QELI_OPENWRT_SDK=/var/tmp/qeli-q31-openwrt-sdk-20261007/sdk PYTHONPATH=scripts python3 -m unittest test_openwrt_sdk.SdkTests -v",
+        "rc": 0,
+        "log": "sdk-integration-final.log"
+      },
+      {
+        "id": "luci-package",
+        "command": "export LD_LIBRARY_PATH=/var/tmp/qeli-q31-openwrt-sdk-20261007/deps/usr/lib/x86_64-linux-gnu; export PATH=/var/tmp/qeli-q31-openwrt-sdk-20261007/sdk/staging_dir/host/bin:/var/tmp/qeli-q31-openwrt-sdk-20261007/sdk/staging_dir/toolchain-x86_64_gcc-13.3.0_musl/bin:/var/tmp/qeli-q31-openwrt-sdk-20261007/deps/usr/bin:$PATH; export LC_ALL=C; cd /var/tmp/qeli-q31-openwrt-sdk-20261007/sdk && make -C package/luci-app-qeli TOPDIR=$PWD clean V=s -j1 && make -C package/luci-app-qeli TOPDIR=$PWD compile V=s -j1",
+        "rc": 0,
+        "log": "luci-package-final.log"
+      }
+    ],
+    "local": [
+      {
+        "id": "luci",
+        "command": [
+          "node",
+          "scripts/test_openwrt_luci.js"
+        ],
+        "rc": 0,
+        "log": "luci-local.log"
+      },
+      {
+        "id": "recipes",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_native_recipes.py",
+          "-v"
+        ],
+        "rc": 0,
+        "log": "recipes-local.log"
+      },
+      {
+        "id": "bindings",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/gen_config_bindings.py",
+          "--check"
+        ],
+        "rc": 0,
+        "log": "bindings-local.log"
+      },
+      {
+        "id": "docs",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/check_docs.py"
+        ],
+        "rc": 0,
+        "log": "docs-local.log"
+      },
+      {
+        "id": "ipk",
+        "command": [
+          "python",
+          "-X",
+          "utf8",
+          "scripts/test_openwrt_sdk.py",
+          "IpkTests",
+          "-v"
+        ],
+        "rc": 0,
+        "log": "ipk-local.log"
+      }
+    ],
+    "offline_install": {
+      "returncode": 1,
+      "cleanup_pass": false
+    },
+    "cleanup": "final-remote-inventory.json",
+    "baseline": "variants/baseline-ipv6-on/defconfig.log and ipk-baseline.log",
+    "actual_counts": {
+      "sdk_methods": 3,
+      "ipk_methods": 3,
+      "packaged_luci_scenarios": 14,
+      "recipe_methods": 37,
+      "source_luci_scenarios": 14
+    }
+  },
+  "input_proof": {
+    "base_worktree": "027626c8f55fef1444a4ba0dc911bf8a20b6cca1",
+    "base_dev": "83c07f5c31178c67a005f20f59975e14528ab73a",
+    "source_stage_tree_before_certification": "1f259e2e1a743d4941a634b435c2bb6ef47724a7",
+    "source_digest": "502ad1cbed7a9e0186bafe74c9f2471d5fd45ea7c3f6b2a0901172d107b8f35b",
+    "staged_inputs": [
+      {
+        "path": "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "b5c19da737c8afe9754e636538fc901712f709f9c5bda7d282a891d79cbb86f1",
+        "size": 200250
+      },
+      {
+        "path": "docs/eng/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "a11c8eb05bcf618c74d5a6f403609253b876f774be076fcdb9d49569e58b47ae",
+        "size": 91054
+      },
+      {
+        "path": "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "sha256": "66bd8d3c225412fa21e55303b47455cf2590ee55385fa84b0f870d1e5ae6a410",
+        "size": 277374
+      },
+      {
+        "path": "docs/ru/reports/AUDIT-Q31-OPENWRT-CONTROLS.md",
+        "sha256": "ff8a2a4e680dcb2a64ef629aabc24b4320c6478510d36c7388793188d709221f",
+        "size": 128183
+      },
+      {
+        "path": "qeli-openwrt/INSTALL.md",
+        "sha256": "d35114f7512443861fddbcd112dfd00da613ee4587a366b2f83dc25b4f278bf8",
+        "size": 17412
+      },
+      {
+        "path": "qeli-openwrt/Makefile",
+        "sha256": "13ae4c39ad5c423da650c0a17c19fcee3a2544d83a34286cb4d50b9c815902b5",
+        "size": 5137
+      },
+      {
+        "path": "qeli-openwrt/README.md",
+        "sha256": "99931424a4b8174a68e74241180475388e9719e0cf95f916cc744a9d36fd0d2f",
+        "size": 16843
+      },
+      {
+        "path": "qeli-openwrt/luci-app-qeli/Makefile",
+        "sha256": "347dc2d0df5e15aba84aaac326d1c5e37ea8ab873de62bfe718a717b2944d035",
+        "size": 484
+      },
+      {
+        "path": "scripts/test_openwrt_sdk.py",
+        "sha256": "249dc2c853578573c4007dc96cb8440569801367ef08ac2c2bb3c4e685d10a1f",
+        "size": 7666
+      }
+    ],
+    "git_lab_inputs_verified": 10,
+    "human_content_sha256": {
+      "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+      "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+    }
+  },
+  "scope": "Q31 F353/F354: actual official SHA-verified x86/64 SDK24.10.4 reproduced recursive ip6tables virtual-provider Kconfig dependency despite make exit0; +IPV6:ip6tables fixes it while retaining backend choice. Actual baseline LuCI IPK reproduced wrong Maintainer/URL; LUCI_MAINTAINER/LUCI_URL fix control metadata. Source-hash instructions use actual SDK Source archive extension. 3 SDK methods PASS no skips: actual metadata, stock IPV6=y, private default-n Kconfig branch (not firmware IPv4-only). 3 actual IPK methods PASS no skips; exact4files0644/non-JS Git bytes, real jsmin and14 existing minified-JS scenarios.37recipes/14sourceLuCI/docs9/bindings/diff PASS. Initial missing awk/feed env/jsmin/private-profile expectation and pre-stage docs failures retained as harness failures. Offline opkg install into empty owned root FAIL unresolved dependencies despite force flags; no fake status entries, all temporary roots removed. Full runtime dependency resolution/install and Qeli SDK Rust bootstrap/build NOT_QUALIFIED. Pinned feed Rust1.89.0; project has no declared MSRV, no inferred incompatibility. Official SDK and pinned feed archives/IPKs/input hashes retained;10 exact Git/lab inputs. Only own completed Keenetic compiler cache recoverably archived after zstd/tar compare and binary SHA verification. No remaining owned processes/install roots; host services/network/firewall and .10 untouched. Rust/core/native/ABI/published binaries unchanged, no fresh FFI/cross build.41historic case fields/acceptance preserved except source_digest; supplement only. Q31 IN_PROGRESS28/37(75.7%),9remain;Q29SIGKILLFAIL/auto-nullENONET,Q30drainOPEN/Appleexclusions,D06ACCEPTED retained. Source pin/mirror release-cut, SDK compiler compatibility, full install, HTTP, config/core generation/ABA, admin replacement races and clean A/B OPEN; firmware USER_EXCLUDED. No push/deploy.",
+  "remaining": [
+    "Qeli SDK Rust/bootstrap/build and compiler compatibility OPEN",
+    "full dependency resolver/install OPEN",
+    "source pin/date/mirror release-cut OPEN",
+    "physical OpenWrt PID1 boot/reboot firmware USER_EXCLUDED",
+    "real VPN cleanup/connectivity NOT_RUN in this batch",
+    "HTTP authentication bridge OPEN",
+    "preflight/config/core generation/ABA OPEN",
+    "administrator replacement races OPEN",
+    "full SIGKILL/powerloss install transaction OPEN",
+    "clean A/B/hermetic caches/config/PATH OPEN"
+  ]
+}

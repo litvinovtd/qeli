@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_PASS_Q31_V004_F358_Q31_IN_PROGRESS",
+  "source_digest": "4d82ec8e73b9fffee74c790d90bfac3de88e7b9a79016f7d39f310c743a7025e",
+  "base_worktree_commit": "48de6a110a79b7f2ea3cd0f2a087f3e61d187b02",
+  "base_dev_commit": "4f6dbf87865372e02afba7195a9f170eac3fb248",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-openwrt-compiler-20261007",
+  "raw_seal_sha256": "0b9dd06314ff2a8d0370ab605cf24db0ee999a96696186a092ed2043a650bad1",
+  "raw_sealed_files": 91,
+  "scope": "Q31-V004/F358: current client-bin passes GNU check and x86_64-unknown-linux-musl compile/link with stock upstream Rust1.89.0/prebuilt standard libraries, actual SHA-bound SDK24.10.4 GCC13.3/host runtime and GNU-make-exported Build/Compile macro/profile. Explicit owned host path substitutions retained; no fabricated SDK bootstrap/dependency records. Baseline unnecessarily builds cdylib/staticlib alongside rlib. Recipe projects only private SDK Cargo.toml to rlib with locked metadata/install and fail-closed unknown declarations; repository manifest/Rust/core/schema/native ABI and published binaries unchanged. Baseline tiny actual-Cargo macro case reproduces FFI outputs with1 expected FAIL; fixed5methods PASS no skips, including existing rlib and missing lock/manifest/unknown declaration refusals before Cargo. Full current client then built using fixed macro (not copy overlay); only rlib/rmeta, manifest restored; dependency cache reused, not independent clean A/B. 364 exact Git crate inputs verified before/after and against staged tree;3228 tool file/link inventory. SDK3 actual Kconfig/metadata methods PASS. Baseline/fixed ELF each9 genuine CLI/INI rootfs executions PASS,18total; ELF64/x86-64 PIE,musl loader,libc/libgcc,RELRO/BIND_NOW/NX stack verified. Official rootfs959regular/215links archive-bound. Owned mount/network/PID namespaces; no VPN,TUN,module loading or host proc/dev mounts. Global toolchain inventory unchanged; private toolchain/cache/build/rootfs cleaned, owned processes/mounts/case dirs absent on .10/.11. Initial missing GCC host runtime diagnostics retained then proper runtime transferred. Locked der0.8.0 warning traced to primary RustCrypto minimal-versions CI yank note; dependency review Q34, no lock upgrade or vulnerability claim.37 recipes/14LuCI/docs9/bindings/diff PASS.41 historic case/acceptance records preserved except source_digest; scoped supplement only. Q31 remains IN_PROGRESS28/37(75.7%),9remain; Q29SIGKILL FAIL/auto-null ENONET,Q30callback-drain OPEN/Apple exclusions,D06ACCEPTED preserved. Full SDK Rust bootstrap/source download/release cut/other SDK targets,global all-feature/platform MSRV,core generation/ABA/admin replacement,full hermetic Qeli A/B and power-loss transaction OPEN; firmware USER_EXCLUDED. No host service/network/firewall changes; no push/deploy.",
+  "checks": {
+    "baseline_macro_methods": 1,
+    "baseline_expected_failures": 1,
+    "fixed_macro_methods": 5,
+    "fixed_macro_skips": 0,
+    "sdk_methods": 3,
+    "native_cli_ini_executions": 18,
+    "source_inputs": 364,
+    "tool_files_links": 3228,
+    "rootfs_regular_files": 959,
+    "rootfs_links": 215,
+    "recipes": 37,
+    "luci": 14,
+    "docs": 9,
+    "bindings": "PASS",
+    "diff": "PASS"
+  },
+  "tools": {
+    "rust": "1.89.0 (29483883e 2025-08-04)",
+    "sdk_gcc": "OpenWrt GCC13.3.0 r28959-29397011cc",
+    "stdlib": "upstream prebuilt x86_64-unknown-linux-musl",
+    "sdk_rust_bootstrap": "NOT_RUN"
+  },
+  "artifacts": [
+    {
+      "path": "artifacts/qeli-client-baseline",
+      "size": 5022584,
+      "sha256": "c8e676035955dead0223cb5cc232c3f81df9d4e2b1e80220a649a9205cf73009"
+    },
+    {
+      "path": "artifacts/qeli-client-fixed",
+      "size": 5026680,
+      "sha256": "979b0656ceaff6476ef6eed3f44bf9b9e907fb7fc9cef83e4fc526ea11cceced"
+    }
+  ],
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "q31": "IN_PROGRESS"
+  },
+  "remaining": [
+    "SDK Rust bootstrap and complete source/release-cut pipeline",
+    "Other SDK targets and all-feature/platform MSRV",
+    "Core generation/ABA/admin replacement",
+    "Full hermetic Qeli clean A/B and power-loss transaction",
+    "Physical router USER_EXCLUDED"
+  ]
+}

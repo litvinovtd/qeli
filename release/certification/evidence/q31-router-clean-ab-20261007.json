@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_PASS_F365_X86_AB_Q31_IN_PROGRESS",
+  "source_digest": "565563b6d00ea1aca6da4e89ca3e59f4c18c106fcbba147e805d604a39f6e3da",
+  "scope": "Q31 F365/Q31-V005: full actual Qeli x86_64-musl independent offline A/B with Rust1.97.0,cargo-zigbuild0.23.0,Zig0.13.0. Separate private source/HOME/Cargo homes,fresh target/Zig/XDG caches,identical existing registry copies;one job/sequential. All364 crate inputs identical and unchanged. Baseline both build/ELF/CLI PASS but A/B FAIL:5582856bytes each,96458bytes differ,227private root occurrences each;string substitution did not resolve mismatch. Shared router/host helper remaps owned source root to /usr/src/qeli while preserving MIPS soft-float. Same new actual-Cargo method3baseline subtest failures;fixed9actual-Cargo/72Linux helper-model methods,no skips. Fixed full A/B byte-identical5577864bytes SHA5132852d8b56ec588a503d52b4cc6cc4aa959d2c537e6ed47a2daa4518c2427b;private roots absent. Five release flags,no unused FFI/Fresh target artifacts checked;actual static ELF admission/help/version and24INI metadata cases per pair(48total)PASS,no connection. Warnings retained;no strict full-cross Clippy claim.748fixed input identities checked against exact Git/3edited Python files;initial verifier incorrectly normalized binary font CRLF,corrected error retained. Registry/tool hashes unchanged;29owned roots checked absent,no owned process/mount;no global tools/cache/defaults/services/network/firewall changes,.11unused.37recipe/docs9/bindings/diff PASS. Rust/core/canonical manifests/lock/FFI/SDK/CI recipes and published artifacts unchanged. Clean x86 standalone A/B qualified using verified existing offline registry seed;other-ISA A/B/full hermetic Cargo/config/linker/PATH/cache policy/SDKbootstrap/source release-cut remain OPEN;firmware USER_EXCLUDED. Q31 IN_PROGRESS28/37(75.7%),9remain;Q29SIGKILL FAIL/auto-null ENONET,Q30callback-drain OPEN/Apple exclusions,D06ACCEPTED retained.41historic cases/acceptance and36prior supplements preserved except source_digest. No push/deploy.",
+  "checks": {
+    "full_qeli_baseline_builds": 2,
+    "baseline_ab": "FAIL",
+    "full_qeli_fixed_builds": 2,
+    "fixed_ab": "BYTE_IDENTICAL",
+    "fixed_binary_size": 5577864,
+    "fixed_binary_sha256": "5132852d8b56ec588a503d52b4cc6cc4aa959d2c537e6ed47a2daa4518c2427b",
+    "actual_cargo_methods": 9,
+    "new_actual_cargo_methods": 1,
+    "new_baseline_subtest_failures": 3,
+    "linux_helper_model_methods": 72,
+    "skips": 0,
+    "actual_ini_metadata_cases": 48,
+    "actual_help_version_cases": 8,
+    "crate_inputs_unchanged": 364,
+    "fixed_inputs": 748,
+    "owned_roots_verified_absent": 29,
+    "recipes": 37,
+    "docs": 9,
+    "bindings": "PASS",
+    "diff": "PASS"
+  },
+  "primary_reference": "https://doc.rust-lang.org/rustc/command-line-arguments.html#--remap-path-prefix-remap-source-names-in-output",
+  "base_worktree_commit": "0ba32397389141372b8eb363f8f05c7e91a11c8e",
+  "base_dev_commit": "51e958570bfa91c64ecd00b9b633014535f365be",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-router-clean-ab-20261007",
+  "raw_seal_sha256": "4f7699a259c2356a0a8a41e8c91bc8a29cda1dfc5c41871d21ae3d8ca06edf89",
+  "raw_sealed_files": 74,
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "q31": "IN_PROGRESS"
+  }
+}

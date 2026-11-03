@@ -20,4 +20,7 @@ bash "$CASE_SCRIPT" "$BIN" 4 dual tcp fake-tls full dns4
 echo "=== dual DNS via IPv6 upstream ==="
 bash "$CASE_SCRIPT" "$BIN" 4 dual tcp fake-tls full dns6
 
+echo "=== dual DNS via forced TCP IPv6 upstream ==="
+QELI_DNS_UPSTREAM_PROTOCOL=tcp bash "$CASE_SCRIPT" "$BIN" 4 dual tcp fake-tls full dns6
+
 echo "=== RESULT dual-stack DNS: both upstream families passed ==="

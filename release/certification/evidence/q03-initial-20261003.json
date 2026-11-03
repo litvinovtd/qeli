@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "kind": "q03-panel-initial-static-and-state-checks",
+  "captured_at": "2026-10-02T23:59:22.059589+00:00",
+  "status": "IN_PROGRESS",
+  "source_commit": "eabb4bc6e11d0b44306e5685ad7ea9258b586142",
+  "checks": [
+    {
+      "command": [
+        "python",
+        "scripts/check_panel.py"
+      ],
+      "exit_code": 0,
+      "output_sha256": "87d4ec386af12e374adab8c918f26f6a2553161b7381e1e84e05fdd85c4232dc"
+    },
+    {
+      "command": [
+        "node",
+        "scripts/test_panel_editors.cjs"
+      ],
+      "exit_code": 0,
+      "output_sha256": "e79b4fff5144c8767372e448a81264394f71b5a4c2e44637317d5fbcbbc70b93"
+    }
+  ],
+  "templates": 11,
+  "ru_strings": 1153,
+  "editor_groups": 25,
+  "browser_test_execution": false,
+  "remaining": [
+    "All-page UI/caller review",
+    "Real browser RU/EN, keyboard/mobile and error/retry scenarios"
+  ],
+  "scope": "Static template/i18n/CSP and actual JS component logic; Node is not browser E2E",
+  "follow_up": "release/certification/evidence/q03-panel-load-20261003.json"
+}

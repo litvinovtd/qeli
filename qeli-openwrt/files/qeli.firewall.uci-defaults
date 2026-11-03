@@ -1,48 +1,71 @@
 #!/bin/sh
-# Runs ONCE on package install (/etc/uci-defaults/*). Creates an OpenWrt firewall
-# zone for the qeli tunnel so `gateway = 1` (full-tunnel for the LAN) works the
-# fw4-native way: masquerade out the tun + allow lan → qeli forwarding. This
-# survives `/etc/init.d/firewall reload`, unlike raw iptables (which fw4 flushes).
-#
-# Idempotent: if a `qeli` zone already exists, do nothing.
-
+# Package-owned creation is retryable. Existing administrator zones are preserved.
 . /lib/functions.sh
+
+RUNDIR=/var/run/qeli
+FIREWALL_INIT=/etc/init.d/firewall
+PENDING="$RUNDIR/firewall-install-pending"
+ZONE=qeli_package_zone
+FORWARD=qeli_package_lan
 
 DEV="$(uci -q get qeli.main.dev || echo qeli0)"
 case "$DEV" in
 	qeli*) ;;
-	*)
-		logger -t qeli "refusing firewall defaults: qeli.main.dev='$DEV' is outside the reserved qeli* namespace"
-		exit 1
-		;;
+	*) logger -t qeli "refusing firewall defaults: dev must use qeli*"; exit 1 ;;
 esac
 case "$DEV" in *[!A-Za-z0-9._-]*|"") exit 1 ;; esac
 [ "${#DEV}" -le 15 ] || exit 1
 
-zone_exists=0
-check_zone() { [ "$(uci -q get firewall.$1.name)" = "qeli" ] && zone_exists=1; }
-config_load firewall
+zone=""
+count=0
+check_zone() {
+	if [ "$(uci -q get firewall.$1.name)" = qeli ]; then
+		zone="$1"
+		count=$((count + 1))
+	fi
+}
+config_load firewall || exit 1
 config_foreach check_zone zone
-
-if [ "$zone_exists" = 0 ]; then
-	z="$(uci add firewall zone)"
-	uci set firewall."$z".name='qeli'
-	uci set firewall."$z".input='REJECT'
-	uci set firewall."$z".output='ACCEPT'
-	uci set firewall."$z".forward='REJECT'
-	uci set firewall."$z".masq='1'            # NAT the LAN out the tunnel
-	uci set firewall."$z".masq6='1'           # NAT66 when the tunnel carries IPv6
-	uci set firewall."$z".mtu_fix='1'         # clamp MSS — important for the tunnel MTU
-	uci add_list firewall."$z".device="$DEV"  # match the tun by device name
-
-	f="$(uci add firewall forwarding)"
-	uci set firewall."$f".src='lan'
-	uci set firewall."$f".dest='qeli'
-
-	uci commit firewall
-	logger -t qeli "created firewall zone 'qeli' (device $DEV, masq) + lan→qeli forwarding"
-	# Reload only if fw4/fw3 is already running (not during image build).
-	[ -x /etc/init.d/firewall ] && /etc/init.d/firewall reload >/dev/null 2>&1
+[ "$count" -le 1 ] || { logger -t qeli "ERROR: multiple qeli firewall zones"; exit 1; }
+if [ ! -f "$PENDING" ]; then
+	# Do not change an existing admin zone, including a previous completed install.
+	[ -z "$zone" ] || exit 0
+	# Named sections make retry deterministic; never overwrite a name collision.
+	if uci -q get firewall."$ZONE" >/dev/null || uci -q get firewall."$FORWARD" >/dev/null; then
+		logger -t qeli "ERROR: reserved qeli package firewall section already exists"
+		exit 1
+	fi
+	mkdir -p "$RUNDIR" && chmod 700 "$RUNDIR" || exit 1
+	(umask 077; : > "$PENDING") || exit 1
+else
+	# Only repair the sections this pending installation owns.
+	[ -z "$zone" ] || [ "$zone" = "$ZONE" ] || exit 1
+	for entry in "$ZONE:zone" "$FORWARD:forwarding"; do
+		name="${entry%:*}"
+		kind="$(uci -q get firewall.$name)"
+		[ -z "$kind" ] || [ "$kind" = "${entry#*:}" ] || exit 1
+	done
 fi
 
+uci set firewall."$ZONE"=zone || exit 1
+uci set firewall."$ZONE".name=qeli || exit 1
+uci set firewall."$ZONE".input=REJECT || exit 1
+uci set firewall."$ZONE".output=ACCEPT || exit 1
+uci set firewall."$ZONE".forward=REJECT || exit 1
+uci set firewall."$ZONE".masq=1 || exit 1
+uci set firewall."$ZONE".masq6=1 || exit 1
+uci set firewall."$ZONE".mtu_fix=1 || exit 1
+# Repeating add_list alone would duplicate the device after a failed commit/reload.
+if uci -q get firewall."$ZONE".device >/dev/null; then
+	uci -q delete firewall."$ZONE".device || exit 1
+fi
+uci add_list firewall."$ZONE".device="$DEV" || exit 1
+uci set firewall."$FORWARD"=forwarding || exit 1
+uci set firewall."$FORWARD".src=lan || exit 1
+uci set firewall."$FORWARD".dest=qeli || exit 1
+uci commit firewall || exit 1
+# In image preparation the service may be absent; on a live installation errors matter.
+[ ! -x "$FIREWALL_INIT" ] || "$FIREWALL_INIT" reload >/dev/null 2>&1 || exit 1
+rm -f "$PENDING" || exit 1
+logger -t qeli "created firewall zone qeli (device $DEV, IPv4/IPv6 NAT) + lan forwarding"
 exit 0

@@ -31,25 +31,52 @@
      NB: never write a placeholder name in a comment — the Rust side substitutes with
      str::replace, which rewrites EVERY occurrence, including ones inside comments. -->
 <script>
+// One request cycle at a time; failed reads double the delay up to one minute.
+// Callers return their read outcome because their UI already handles errors.
+// Manual refresh is independent, and hidden tabs make no background requests.
+function qeliPoll(read, interval) {
+  let stopped = false, timer = null, delay = interval;
+  const schedule = () => { if (!stopped) timer = setTimeout(tick, delay); };
+  const tick = async () => {
+    if (stopped) return;
+    if (!document.hidden) {
+      let ok = false;
+      try { ok = (await read()) !== false; } catch {}
+      delay = ok ? interval : Math.min(60000, delay * 2);
+    }
+    schedule();
+  };
+  schedule();
+  return { stop() { stopped = true; clearTimeout(timer); } };
+}
+function qeliStopPoll(poll) { if (poll) poll.stop(); }
+
 async function apiFetch(url, opts = {}) {
   let resp;
-  try { resp = await fetch(url, opts); }
-  catch { return { ok: false, error: 'Network error — the server may be restarting' }; }
-  const text = await resp.text().catch(() => '');
-  try { return JSON.parse(text); }
-  catch {
+  const boundedRead = (!opts.method || opts.method.toUpperCase() === 'GET') && !opts.signal;
+  const controller = boundedRead ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 15000) : null;
+  try {
+    resp = await fetch(url, controller ? { ...opts, signal: controller.signal } : opts);
+    const text = await resp.text();
+    try { return JSON.parse(text); } catch {}
     return {
       ok: false,
       error: resp.status === 401
         ? 'Session expired — please reload the page'
         : `Server error (${resp.status})`,
     };
+  } catch {
+    return { ok: false, error: 'Network error — the server may be restarting' };
+  } finally {
+    clearTimeout(timer);
   }
 }
 </script>
 </head>
 <body class="flex h-screen overflow-hidden" x-data="app" @notify.window="notify($event.detail.msg, $event.detail.type, $event.detail.timeout)"
   @qeli-confirm.window="onConfirmRequest($event.detail)"
+  @focusin.window="confirmFocusIn($event)"
       @keydown.escape.window="sidebarOpen = false">
 
 <div class="bg-grid"></div>
@@ -81,7 +108,7 @@ async function apiFetch(url, opts = {}) {
   </div>
 
   <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
-    <a href="." class="nav-link" :class="{ active: page === 'dashboard' }">
+    <a href="{{baseroot}}" class="nav-link" :class="{ active: page === 'dashboard' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/></svg>
       Dashboard
     </a>
@@ -135,8 +162,8 @@ async function apiFetch(url, opts = {}) {
       </select>
     </div>
     <div class="flex items-center gap-2 px-2 py-1.5">
-      <div class="w-2 h-2 rounded-full flex-shrink-0" :style="serverOk ? 'background:#00e676;box-shadow:0 0 8px #00e676' : 'background:#ff5d6c'"></div>
-      <span class="text-xs" style="color:var(--txt-dim)" x-text="serverOk ? 'Server online' : 'Server offline'"></span>
+      <div class="w-2 h-2 rounded-full flex-shrink-0" :style="!statusLoaded ? 'background:var(--txt-dim)' : serverOk ? 'background:#00e676;box-shadow:0 0 8px #00e676' : 'background:#ff5d6c'"></div>
+      <span class="text-xs" style="color:var(--txt-dim)" x-text="!statusLoaded ? 'Loading…' : statusError ? 'Unavailable' : serverOk ? 'Server online' : 'Server offline'"></span>
     </div>
     <button @click="logout()" class="nav-link w-full" style="cursor:pointer;background:none;border:none;font:inherit">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
@@ -146,6 +173,7 @@ async function apiFetch(url, opts = {}) {
 </aside>
 
 <!-- Main -->
+
 <div class="flex-1 flex flex-col overflow-hidden relative z-10">
   <!-- Topbar — same height as the sidebar brand band (their dividers align). -->
   <header class="flex items-center justify-between px-4 md:px-6 flex-shrink-0 gap-3" style="height:var(--topbar-h);background:var(--chrome-bg);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)">
@@ -176,7 +204,7 @@ async function apiFetch(url, opts = {}) {
       <span>Inbound sessions: <strong class="text-white" x-text="activeInboundSessions">0</strong></span>
       <span class="flex items-center gap-1.5">
         <span class="w-1.5 h-1.5 rounded-full" style="background:#16c8b6"></span>
-        Auto-refresh <strong class="text-white">10s</strong>
+        Auto-refresh <strong class="text-white">10s · ≤60s on error</strong>
       </span>
     </div>
   </header>
@@ -212,7 +240,10 @@ async function apiFetch(url, opts = {}) {
        sticky in-page bar can pin flush under the topbar with no gap above it,
        while pages still get their top spacing. -->
   <main class="flex-1 overflow-auto px-4 md:px-6 pb-6">
-    <div id="page-content" class="pt-6">{{content}}</div>
+    <div id="page-content" class="pt-6">
+      <div x-show="statusError" role="alert" class="card p-3 mb-4 text-xs text-red-400" x-text="statusError"></div>
+      {{content}}
+    </div>
   </main>
 </div>
 
@@ -244,9 +275,9 @@ async function apiFetch(url, opts = {}) {
        buttons floated against the body with nothing dividing them.
        Borders use var(--line) rather than the hard-coded #21314e the older modals carry —
        that literal is a dark-theme navy and is simply wrong under data-theme=light. -->
-  <div class="modal" @click.stop style="max-width:440px">
+  <div class="modal" id="qeli-confirm-dialog" @click.stop @keydown.tab="confirmTab($event)" style="max-width:440px" role="dialog" aria-modal="true" aria-labelledby="qeli-confirm-title" tabindex="-1">
     <div class="flex items-start justify-between gap-4 px-6 pt-5 pb-4" style="border-bottom:1px solid var(--line)">
-      <h3 class="text-base font-semibold text-white leading-snug" x-text="confirmModal.title"></h3>
+      <h3 id="qeli-confirm-title" class="text-base font-semibold text-white leading-snug" x-text="confirmModal.title"></h3>
       <button class="flex-shrink-0 -mr-1 -mt-0.5 text-slate-500 hover:text-white" @click="confirmResolve(false)" aria-label="Close">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
@@ -260,7 +291,7 @@ async function apiFetch(url, opts = {}) {
       </template>
     </div>
     <div class="flex gap-2 justify-end px-6 pt-4 pb-5" style="border-top:1px solid var(--line)">
-      <button class="btn btn-ghost" @click="confirmResolve(false)" x-text="confirmModal.cancelLabel"></button>
+      <button id="qeli-confirm-cancel" class="btn btn-ghost" @click="confirmResolve(false)" x-text="confirmModal.cancelLabel"></button>
       <button class="btn" :class="confirmModal.danger ? 'btn-danger' : 'btn-primary'"
               @click="confirmResolve(true)" x-text="confirmModal.label"></button>
     </div>
@@ -297,14 +328,20 @@ function app() {
     version: '—',
     hostname: '',
     page: '{{page}}',
-    serverOk: true,
+    serverOk: false, statusLoaded: false, statusError: '',
+    destroyed: false, statusSequence: 0, statusPending: 0, statusTimer: null,
     activeInboundSessions: 0,
     toast: { show: false, msg: '', type: 'success', _t: null },
     confirmModal: { show: false, title: '', message: '', paragraphs: [], danger: false, label: 'Confirm', cancelLabel: 'Cancel', _resolve: null },
     sidebarOpen: false,   // drawer state; only meaningful below the md breakpoint
     update: { show: false, tag: '', url: '', cmd: '' },
     installKind: 'other',
+    confirmSequence: 0, confirmOrigin: null,
     _updChecked: false,
+
+    // CSP Alpine resolves helpers through the component scope, not window globals.
+    qeliT(text) { return window.qeliT(text); },
+    qeliTf(text, ...values) { return window.qeliTf(text, ...values); },
 
     get pageTitle() {
       return { dashboard: 'Dashboard', transport: 'Transport health', quickstart: 'Quick start', users: 'Users', config: 'Configuration', client: 'Client connections', logs: 'Logs', blocked: 'Blocked IPs', notifications: 'Notifications' }[this.page] || 'Qeli';
@@ -312,13 +349,24 @@ function app() {
 
     init() {
       this.fetchStatus();
-      setInterval(() => this.fetchStatus(), 10000);
+      this.statusTimer = qeliPoll(async () => { await this.fetchStatus(true); return !this.statusError; }, 10000);
     },
 
-    async fetchStatus() {
+    destroy() {
+      this.destroyed = true; this.statusSequence++; this.confirmSequence++;
+      qeliStopPoll(this.statusTimer); clearTimeout(this.toast._t);
+      this.statusTimer = null;
+      this.confirmResolve(false);
+    },
+    async fetchStatus(background = false) {
+      if (this.destroyed || (background && this.statusPending)) return;
+      const sequence = ++this.statusSequence;
+      this.statusPending++;
       try {
         const d = await apiFetch('api/status');
-        this.serverOk = d.ok;
+        if (this.destroyed || sequence !== this.statusSequence) return;
+        if (!d.ok) throw new Error(d.error || qeliT('Request failed'));
+        this.serverOk = true; this.statusError = ''; this.statusLoaded = true;
         this.activeInboundSessions = d.client_count || 0;
         this.version = d.version || '—';
         if (typeof d.hostname === 'string' && d.hostname) {
@@ -327,7 +375,11 @@ function app() {
         }
         this.installKind = d.install_kind || 'other';
         if (d.update_check) this.checkUpdate(); // opt-in; browser-side; runs once
-      } catch { this.serverOk = false; }
+      } catch (e) {
+        if (!this.destroyed && sequence === this.statusSequence) {
+          this.serverOk = false; this.statusLoaded = true; this.statusError = e.message;
+        }
+      } finally { this.statusPending--; }
     },
 
     // Opt-in, browser-side "check for updates" (default OFF; gated by web.update_check).
@@ -354,6 +406,7 @@ function app() {
           rel = { tag: r.tag_name, url: r.html_url || 'https://github.com/litvinovtd/qeli/releases', deb, sha };
           try { localStorage.setItem(KEY, JSON.stringify({ t: Date.now(), rel })); } catch {}
         }
+        if (this.destroyed) return;
         if (verNewer(rel.tag, this.version)) {
           this.update = {
             show: true, tag: normVer(rel.tag), url: rel.url,
@@ -421,6 +474,7 @@ function app() {
     },
 
     notify(msg, type = 'success', timeout) {
+      if (this.destroyed) return;
       clearTimeout(this.toast._t);
       // Errors linger longer (5s); an explicit timeout (e.g. a message carrying a command
       // to copy) wins. Success/info stay at 3.5s.
@@ -430,27 +484,49 @@ function app() {
 
     // Driven by the global qeliConfirm() above via the `qeli-confirm` window event.
     onConfirmRequest(d) {
-      // A dialog already open means a second request arrived before the first was answered.
-      // Reject the older one rather than dropping its resolver on the floor: an awaiting
-      // caller that never settles would hang its handler (and any cleanup in a finally).
+      if (this.destroyed) { d.resolve(false); return; }
+      const wasOpen = this.confirmModal.show;
+      const origin = document.activeElement;
       if (this.confirmModal._resolve) this.confirmModal._resolve(false);
-      // Split on blank lines into paragraphs; the template spaces them evenly. Falls back
-      // to the whole message so a caller that passes no blank line still renders.
-      const paragraphs = String(d.message || '')
-        .split(/\n\s*\n/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      this.confirmModal = {
-        show: true, title: d.title, message: d.message,
-        paragraphs: paragraphs.length ? paragraphs : [String(d.message || '')],
-        danger: d.danger, label: d.label, cancelLabel: d.cancelLabel, _resolve: d.resolve,
-      };
+      if (!wasOpen) this.confirmOrigin = origin;
+      const sequence = ++this.confirmSequence;
+      const paragraphs = String(d.message || '').split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+      this.confirmModal = { show:true,title:d.title,message:d.message,
+        paragraphs:paragraphs.length?paragraphs:[String(d.message || '')],
+        danger:d.danger,label:d.label,cancelLabel:d.cancelLabel,_resolve:d.resolve };
+      const focus = () => { if (!this.destroyed && sequence === this.confirmSequence && this.confirmModal.show) this.focusConfirm(); };
+      if (typeof this.$nextTick === 'function') this.$nextTick(focus);
+      else if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focus);
+    },
+    focusConfirm() {
+      const dialog = document.getElementById('qeli-confirm-dialog');
+      const cancel = document.getElementById('qeli-confirm-cancel');
+      if (dialog && this.confirmModal.show) (cancel || dialog).focus();
+    },
+    confirmFocusIn(event) {
+      const dialog = document.getElementById('qeli-confirm-dialog');
+      if (this.confirmModal.show && dialog && !dialog.contains(event.target)) this.focusConfirm();
+    },
+    confirmTab(event) {
+      if (!this.confirmModal.show) return;
+      const dialog = document.getElementById('qeli-confirm-dialog');
+      if (!dialog) return;
+      const controls = Array.from(dialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]'))
+        .filter(el => !el.disabled && el.getAttribute('tabindex') !== '-1' && el.getClientRects().length);
+      event.preventDefault();
+      if (!controls.length) { dialog.focus(); return; }
+      const index = controls.indexOf(document.activeElement);
+      const next = event.shiftKey ? (index <= 0 ? controls.length-1 : index-1) : (index+1)%controls.length;
+      controls[next].focus();
     },
     confirmResolve(ok) {
-      const r = this.confirmModal._resolve;
-      this.confirmModal.show = false;
-      this.confirmModal._resolve = null;
-      if (r) r(ok);
+      const resolve = this.confirmModal._resolve, origin = this.confirmOrigin, sequence = this.confirmSequence;
+      this.confirmModal.show = false; this.confirmModal._resolve = null; this.confirmOrigin = null;
+      if (resolve) resolve(ok);
+      // The caller clears its busy state in a microtask; restore focus afterwards.
+      if (!this.destroyed && origin && typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
+        if (!this.destroyed && sequence === this.confirmSequence && !this.confirmModal.show && origin.isConnected && !origin.disabled && origin.getClientRects().length) origin.focus();
+      });
     },
 
     async logout() {
@@ -602,9 +678,10 @@ async function fullRestartServer(maxWaitMs = 40000) {
   const syncChecked = (el) => el.setAttribute('aria-checked', isOn(el) ? 'true' : 'false');
 
   function upgrade(root) {
-    (root instanceof Element ? root : document)
-      .querySelectorAll('.toggle-wrap:not([data-a11y])')
-      .forEach((el) => {
+    const scope = root instanceof Element ? root : document;
+    const switches = Array.from(scope.querySelectorAll('.toggle-wrap:not([data-a11y])'));
+    if (root instanceof Element && root.matches('.toggle-wrap:not([data-a11y])')) switches.unshift(root);
+    switches.forEach((el) => {
         el.setAttribute('data-a11y', '1');
         el.setAttribute('role', 'switch');
         if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
@@ -622,13 +699,18 @@ async function fullRestartServer(maxWaitMs = 40000) {
 
   const start = () => {
     upgrade(document);
-    // Only new nodes need upgrading; aria-checked is re-synced by the click handler
-    // above (watching every class mutation would fire constantly under Alpine).
+    // Initial API loads and programmatic edits also repaint toggles. Watch only
+    // class mutations on their .toggle child; aria updates cannot retrigger this observer.
     new MutationObserver((muts) => {
       for (const m of muts) {
-        m.addedNodes.forEach((n) => { if (n.nodeType === 1) upgrade(n); });
+        if (m.type === 'attributes' && m.target.matches('.toggle')) {
+          const el = m.target.closest('.toggle-wrap');
+          if (el) syncChecked(el);
+        } else if (m.type === 'childList') {
+          m.addedNodes.forEach((n) => { if (n.nodeType === 1) upgrade(n); });
+        }
       }
-    }).observe(document.body, { childList: true, subtree: true });
+    }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();

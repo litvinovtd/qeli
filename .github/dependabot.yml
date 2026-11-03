@@ -43,7 +43,7 @@ updates:
     ignore:
       # The Android Gradle Plugin is the toolchain that builds the RELEASE apk, and the
       # lab that signs it runs a specific AGP/Gradle/compileSdk combination (currently
-      # AGP 9.2.x + Gradle 9.6.1 + compileSdk 37). An AGP minor can demand a newer Gradle,
+      # AGP 9.2.x + Gradle 9.8.1 + compileSdk 37). An AGP minor can demand a newer Gradle,
       # which breaks that machine rather than the code — and CI compiling is not proof the
       # signing host still works. Take AGP deliberately, after a build on the lab.
       - dependency-name: "com.android.application"
@@ -60,9 +60,9 @@ updates:
       prefix: "deps(win)"
     ignore:
       # BouncyCastle is the data-plane AEAD (ChaCha20-Poly1305 in PacketCipher) for the
-      # desktop clients. There are no C# unit tests, so CI only proves it COMPILES — a
-      # behavioural change would surface as decrypt failures against a live server, not as
-      # a red build. Minor/major bumps need an actual tunnel test first.
+      # desktop clients. Managed fixtures do not replace a live tunnel check against the
+      # server: a behavioural change can affect the data plane despite a green build.
+      # Minor/major bumps need an actual tunnel test first.
       - dependency-name: "BouncyCastle.Cryptography"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
 

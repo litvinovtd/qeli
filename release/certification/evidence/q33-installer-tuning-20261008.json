@@ -1,0 +1,2411 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q33_FULL_INSTALLER_AND_PARTIAL_KERNEL_RECOVERY_SCOPED",
+  "source_digest": "aec5ef9583f916717c165d1dbae30da063b8a67dcc3792c4e58c01db91ad66a6",
+  "qualification_source_commit": "d5e8f085568f3422c416f8ad06b59b6e4b8807c6",
+  "baseline_worktree_commit": "08897da170c091edc289af649f481760ae9db130",
+  "baseline_dev_commit": "45e0b9e668cd010fd3f135519eacb3b56200130e",
+  "findings": [
+    "F445 / Q33-F048"
+  ],
+  "product_changes": [
+    "install-qeli-server.sh: confirmed tuning status, readable runtime baseline and prior-file recovery, guarded atomic tuning publication"
+  ],
+  "verification": {
+    "final_installer_gates": {
+      "q33-installer-manager-binary-final-20261008": {
+        "runtime": {
+          "status": "PASS",
+          "checks": [
+            {
+              "name": "installer runs in exactly its owned service NET namespace",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "installer NET namespace differs from host PID1",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "complete installer exits successfully and reports Done",
+              "status": "PASS",
+              "detail": "= Applying OS tuning (outer MSS clamp + sysctl) for mobile/LTE\u001b[0m\n  + IPv4 server-to-client MSS clamp 1240 on :443\n  + IPv4 client-to-server MSS clamp 1240 on :443\n  (netfilter-persistent is unavailable \u2014 rules.v4/rules.v6 will not be\n   restored automatically; install iptables-persistent or use your firewall manager)\n  kernel tuning incomplete (8/10 values effective; 5 writes unavailable/failed)\n  Previous runtime values/files and restore commands: /etc/qeli/client-links/kernel-tuning-20261008-094806-i1cICJ\n\n\u001b[1;36m== Enabling the web admin panel (HTTPS, generated password)\u001b[0m\n\n\u001b[1;36m== Validating the final server and users configuration\u001b[0m\n/etc/qeli/server.conf.qeli-FjvQux: OK\n\n\u001b[1;36m== Configuring the service user: qeli\u001b[0m\nNo root override present \u2014 qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\n\n\u001b[1;36m== Starting the service\u001b[0m\n\n\u001b[1;36m== Done\u001b[0m\nServer:        fake-tls (TCP) on 10.88.0.1:443   (full-tunnel NAT enabled)\nIdentity key:  91c79259a12179414ba981dbf762d201d002d6c460f4b26e52600a1edc5b591a\nUsers:         5  (phone1 \u2026 phone5)\nWeb panel:     https://127.0.0.1:8080  (loopback only \u2014 tunnel in: ssh -L 8080:127.0.0.1:8080 root@10.88.0.1)  \u2192  login: admin  /  DbtBnA3B4itvbIc53XRR\n               \u26a0 SAVE THIS PASSWORD NOW \u2014 shown once, only the hash is stored.\nPerf tuning:   kernel tuning incomplete (8/10 values effective; 5 writes unavailable/failed)\n               Details and restore instructions: /etc/qeli/client-links/kernel-tuning-20261008-094806-i1cICJ/restore.txt\nMobile/LTE:    IPv4 server-to-client MSS 1240 + IPv4 client-to-server MSS 1240\n               Revert installer-added rules: iptables -t mangle -D PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 ; iptables -t mangle -D OUTPUT -p tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\n\nConnection strings (qeli:// \u2014 paste or scan into the app):\n  /etc/qeli/client-links/<user>.qeli           one file per user\n  /etc/qeli/client-links/CONNECTION-STRINGS.txt                          all of them (with passwords)\n\nNEXT STEPS:\n  \u2022 Open inbound TCP 443 in your cloud firewall / security group.\n  \u2022 Add a connection string to the app \u2014 that's all. To print one:\n      cat /etc/qeli/client-links/phone1.qeli\n\n  \u2022 The panel listens on LOOPBACK only. Reach it with an SSH tunnel:\n      ssh -L 8080:127.0.0.1:8080 root@10.88.0.1   then open https://127.0.0.1:8080\n    To publish it instead, set web.bind = 0.0.0.0 AND web.allowed_ips in /etc/qeli/server.conf.\n\u001b[1;33mWARNING: no usable public IPv6 default-route + ip6tables NAT path; installed an IPv4-only active profile.\u001b[0m\n2026-10-08 09:48:06.510 INFO  qeli_core::server: Profile 'fake-tls': generated new identity key at /etc/qeli/identity/fake-tls.key\n\u001b[1;33mWARNING: kernel tuning incomplete (8/10 values effective; 5 writes unavailable/failed); inspect /etc/qeli/client-links/kernel-tuning-20261008-094806-i1cICJ/apply.log. Persistent requests remain in /etc/sysctl.d/99-qeli-perf.conf.\u001b[0m\n2026-10-08 09:48:06.884 WARN  qeli_core::server: profile 'fake-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nCreated symlink '/run/systemd/system/multi-user.target.wants/qeli-q33-pkg-20261008094729014028.service' -> '/var/tmp/qeli-q33-pkg-20261008094729014028/unit-map/qeli-q33-pkg-20261008094729014028.service'.\n"
+            },
+            {
+              "name": "installed exact qualified production ELF",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "only selected profile and private service-owned INI",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "panel enabled only over loopback HTTPS",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "all five users persisted by real Argon2 CLI",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "credential directory and six files are root private",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "successful install retires pending credential journal",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "real manager starts default service user",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "actual installer adds both IPv4 MSS directions",
+              "status": "PASS",
+              "detail": "# Generated by iptables-save v1.8.11 (nf_tables) on Thu Oct  8 12:48:09 2026\n*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A PREROUTING -p tcp -m tcp --dport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\n-A FORWARD -o vpn2 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:fake-tls\" -j TCPMSS --set-mss 1360\n-A FORWARD -i vpn2 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:fake-tls\" -j TCPMSS --set-mss 1360\n-A OUTPUT -p tcp -m tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\nCOMMIT\n# Completed on Thu Oct  8 12:48:09 2026\n"
+            },
+            {
+              "name": "generated link pins actual key and chosen transport",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "packaged systemd service carries authenticated VPN traffic installer-binary",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "inner destination uses actual client TUN installer-binary",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "client clean stop removes TUN installer-binary",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "unforced reentry refuses before state or running process changes",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "restricted proc really refuses sysctl rather than a stub",
+              "status": "PASS",
+              "detail": "net.ipv4.tcp_mtu_probing = 1\nsysctl: cannot stat /proc/sys/net/core/default_qdisc: No such file or directory\nsysctl: permission denied on key \"net.ipv4.tcp_congestion_control\"\nsysctl: setting key \"net.core.rmem_max\": Operation not permitted\nsysctl: setting key \"net.core.wmem_max\": Operation not permitted\nsysctl: permission denied on key \"net.ipv4.tcp_rmem\"\nsysctl: permission denied on key \"net.ipv4.tcp_wmem\"\nsysctl: setting key \"net.core.rmem_default\": Operation not permitted\nsysctl: setting key \"net.core.wmem_default\": Operation not permitted\nsysctl: cannot stat /proc/sys/net/core/netdev_max_backlog: No such file or directory\n"
+            },
+            {
+              "name": "installer never claims unqualified kernel tuning applied",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "real namespaced MTU probing changed from 0 to 1",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "per-run root recovery receipt retains actual MTU baseline",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "restore reports other readonly kernel writes unavailable",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "actual MTU runtime value is restored to 0",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "prior persistent file bytes and mode restored etc/sysctl.d/99-qeli-perf.conf",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "prior persistent file bytes and mode restored etc/modules-load.d/qeli-bbr.conf",
+              "status": "PASS",
+              "detail": null
+            }
+          ],
+          "commands": [
+            {
+              "label": "private mount propagation",
+              "argv": [
+                "mount",
+                "--make-rprivate",
+                "/"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "real manager socket",
+              "argv": [
+                "mount",
+                "--bind",
+                "/run/systemd/private",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root/run/systemd/private"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned manager paths",
+              "argv": [
+                "mount",
+                "--bind",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/unit-map",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root/run/qeli-audit-unit"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned manager paths",
+              "argv": [
+                "mount",
+                "--bind",
+                "/run/systemd/system/qeli-q33-pkg-20261008094729014028.service.d",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root/run/qeli-audit-dropin"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "read-only process inspection",
+              "argv": [
+                "mount",
+                "--bind",
+                "/proc",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root/proc"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "protect proc",
+              "argv": [
+                "mount",
+                "-o",
+                "remount,bind,ro",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root/proc"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "seed only owned NET MTU value",
+              "argv": [
+                "sysctl",
+                "-w",
+                "net.ipv4.tcp_mtu_probing=0"
+              ],
+              "rc": 0,
+              "output": "net.ipv4.tcp_mtu_probing = 0\n"
+            },
+            {
+              "label": "allow one per-NET kernel key",
+              "argv": [
+                "mount",
+                "--bind",
+                "/proc/sys/net/ipv4/tcp_mtu_probing",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root/proc/sys/net/ipv4/tcp_mtu_probing"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "complete actual one-shot binary",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "env",
+                "QELI_PROFILE=fake-tls",
+                "QELI_BIN=/fixtures/new-qeli",
+                "QELI_SRC=/source",
+                "bash",
+                "/installer.sh",
+                "10.88.0.1"
+              ],
+              "rc": 0,
+              "output": "Profile (from QELI_PROFILE): fake-tls\nNo terminal for a prompt and no QELI_PORT set \u2014 using default port 443.\nSelected port: 443\n\n\u001b[1;36m== OS dependencies already available; skipping apt dependency setup\u001b[0m\n\n\u001b[1;36m== Installing from binary /fixtures/new-qeli (reproducing the .deb layout)\u001b[0m\n  from-binary install complete: binary, user, dirs, examples, unit, polkit rule.\n\n\u001b[1;36m== Configuring the fake-tls profile on :443\u001b[0m\n\n\u001b[1;36m== Generating the server identity key\u001b[0m\nPROFILE        BIND                   SERVER PUBLIC KEY (pin on client)\nfake-tls       tcp://0.0.0.0:443      91c79259a12179414ba981dbf762d201d002d6c460f4b26e52600a1edc5b591a\n\n\u001b[1;36m== Creating 5 users + connection strings\u001b[0m\n  pending credentials on failure \u2192 /etc/qeli/client-links/INSTALL-PENDING-20261008-094806-CVUdsM\n  + phone1\n  + phone2\n  + phone3\n  + phone4\n  + phone5\n\n\u001b[1;36m== Applying OS tuning (outer MSS clamp + sysctl) for mobile/LTE\u001b[0m\n  + IPv4 server-to-client MSS clamp 1240 on :443\n  + IPv4 client-to-server MSS clamp 1240 on :443\n  (netfilter-persistent is unavailable \u2014 rules.v4/rules.v6 will not be\n   restored automatically; install iptables-persistent or use your firewall manager)\n  kernel tuning incomplete (8/10 values effective; 5 writes unavailable/failed)\n  Previous runtime values/files and restore commands: /etc/qeli/client-links/kernel-tuning-20261008-094806-i1cICJ\n\n\u001b[1;36m== Enabling the web admin panel (HTTPS, generated password)\u001b[0m\n\n\u001b[1;36m== Validating the final server and users configuration\u001b[0m\n/etc/qeli/server.conf.qeli-FjvQux: OK\n\n\u001b[1;36m== Configuring the service user: qeli\u001b[0m\nNo root override present \u2014 qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\n\n\u001b[1;36m== Starting the service\u001b[0m\n\n\u001b[1;36m== Done\u001b[0m\nServer:        fake-tls (TCP) on 10.88.0.1:443   (full-tunnel NAT enabled)\nIdentity key:  91c79259a12179414ba981dbf762d201d002d6c460f4b26e52600a1edc5b591a\nUsers:         5  (phone1 \u2026 phone5)\nWeb panel:     https://127.0.0.1:8080  (loopback only \u2014 tunnel in: ssh -L 8080:127.0.0.1:8080 root@10.88.0.1)  \u2192  login: admin  /  DbtBnA3B4itvbIc53XRR\n               \u26a0 SAVE THIS PASSWORD NOW \u2014 shown once, only the hash is stored.\nPerf tuning:   kernel tuning incomplete (8/10 values effective; 5 writes unavailable/failed)\n               Details and restore instructions: /etc/qeli/client-links/kernel-tuning-20261008-094806-i1cICJ/restore.txt\nMobile/LTE:    IPv4 server-to-client MSS 1240 + IPv4 client-to-server MSS 1240\n               Revert installer-added rules: iptables -t mangle -D PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 ; iptables -t mangle -D OUTPUT -p tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\n\nConnection strings (qeli:// \u2014 paste or scan into the app):\n  /etc/qeli/client-links/<user>.qeli           one file per user\n  /etc/qeli/client-links/CONNECTION-STRINGS.txt                          all of them (with passwords)\n\nNEXT STEPS:\n  \u2022 Open inbound TCP 443 in your cloud firewall / security group.\n  \u2022 Add a connection string to the app \u2014 that's all. To print one:\n      cat /etc/qeli/client-links/phone1.qeli\n\n  \u2022 The panel listens on LOOPBACK only. Reach it with an SSH tunnel:\n      ssh -L 8080:127.0.0.1:8080 root@10.88.0.1   then open https://127.0.0.1:8080\n    To publish it instead, set web.bind = 0.0.0.0 AND web.allowed_ips in /etc/qeli/server.conf.\n\u001b[1;33mWARNING: no usable public IPv6 default-route + ip6tables NAT path; installed an IPv4-only active profile.\u001b[0m\n2026-10-08 09:48:06.510 INFO  qeli_core::server: Profile 'fake-tls': generated new identity key at /etc/qeli/identity/fake-tls.key\n\u001b[1;33mWARNING: kernel tuning incomplete (8/10 values effective; 5 writes unavailable/failed); inspect /etc/qeli/client-links/kernel-tuning-20261008-094806-i1cICJ/apply.log. Persistent requests remain in /etc/sysctl.d/99-qeli-perf.conf.\u001b[0m\n2026-10-08 09:48:06.884 WARN  qeli_core::server: profile 'fake-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nCreated symlink '/run/systemd/system/multi-user.target.wants/qeli-q33-pkg-20261008094729014028.service' -> '/var/tmp/qeli-q33-pkg-20261008094729014028/unit-map/qeli-q33-pkg-20261008094729014028.service'.\n"
+            },
+            {
+              "label": "MainPID",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli-q33-pkg-20261008094729014028.service",
+                "-p",
+                "MainPID",
+                "--value"
+              ],
+              "rc": 0,
+              "output": "2947710\n"
+            },
+            {
+              "label": "real unit listeners",
+              "argv": [
+                "nsenter",
+                "-t",
+                "2947710",
+                "-n",
+                "--",
+                "ss",
+                "-lnt"
+              ],
+              "rc": 0,
+              "output": "State  Recv-Q Send-Q Local Address:Port Peer Address:Port\nLISTEN 0      128          0.0.0.0:443       0.0.0.0:*   \nLISTEN 0      128         10.9.2.1:53        0.0.0.0:*   \nLISTEN 0      128        127.0.0.1:8080      0.0.0.0:*   \n"
+            },
+            {
+              "label": "User",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli-q33-pkg-20261008094729014028.service",
+                "-p",
+                "User",
+                "--value"
+              ],
+              "rc": 0,
+              "output": "qeli\n"
+            },
+            {
+              "label": "actual owned NET MSS rules",
+              "argv": [
+                "iptables-save",
+                "-t",
+                "mangle"
+              ],
+              "rc": 0,
+              "output": "# Generated by iptables-save v1.8.11 (nf_tables) on Thu Oct  8 12:48:09 2026\n*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A PREROUTING -p tcp -m tcp --dport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\n-A FORWARD -o vpn2 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:fake-tls\" -j TCPMSS --set-mss 1360\n-A FORWARD -i vpn2 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:fake-tls\" -j TCPMSS --set-mss 1360\n-A OUTPUT -p tcp -m tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\nCOMMIT\n# Completed on Thu Oct  8 12:48:09 2026\n"
+            },
+            {
+              "label": "owned installer client namespace",
+              "argv": [
+                "ip",
+                "netns",
+                "add",
+                "qeli-q33-pkg-20261008094729014028-client"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028",
+                "link",
+                "add",
+                "q33pv",
+                "type",
+                "veth",
+                "peer",
+                "name",
+                "q33pc"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028",
+                "link",
+                "set",
+                "q33pc",
+                "netns",
+                "qeli-q33-pkg-20261008094729014028-client"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028",
+                "addr",
+                "add",
+                "10.88.0.1/24",
+                "dev",
+                "q33pv"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028",
+                "link",
+                "set",
+                "q33pv",
+                "up"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028-client",
+                "link",
+                "set",
+                "lo",
+                "up"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028-client",
+                "addr",
+                "add",
+                "10.88.0.2/24",
+                "dev",
+                "q33pc"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028-client",
+                "link",
+                "set",
+                "q33pc",
+                "up"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028-client",
+                "route",
+                "add",
+                "default",
+                "via",
+                "10.88.0.1"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "actual client TUN installer-binary",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028-client",
+                "link",
+                "show",
+                "q33pcvpn"
+              ],
+              "rc": 1,
+              "output": "Device \"q33pcvpn\" does not exist.\n"
+            },
+            {
+              "label": "actual client TUN installer-binary",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028-client",
+                "link",
+                "show",
+                "q33pcvpn"
+              ],
+              "rc": 0,
+              "output": "2: q33pcvpn: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 1400 qdisc fq state UNKNOWN mode DEFAULT group default qlen 500\n    link/none \n"
+            },
+            {
+              "label": "real inner tunnel roundtrip installer-binary",
+              "argv": [
+                "ip",
+                "netns",
+                "exec",
+                "qeli-q33-pkg-20261008094729014028-client",
+                "ping",
+                "-c",
+                "3",
+                "-W",
+                "2",
+                "10.9.2.1"
+              ],
+              "rc": 0,
+              "output": "PING 10.9.2.1 (10.9.2.1) 56(84) bytes of data.\n64 bytes from 10.9.2.1: icmp_seq=1 ttl=64 time=12.9 ms\n64 bytes from 10.9.2.1: icmp_seq=2 ttl=64 time=14.2 ms\n64 bytes from 10.9.2.1: icmp_seq=3 ttl=64 time=10.0 ms\n\n--- 10.9.2.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2004ms\nrtt min/avg/max/mdev = 10.014/12.370/14.240/1.759 ms\n"
+            },
+            {
+              "label": "inner route proof installer-binary",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028-client",
+                "route",
+                "get",
+                "10.9.2.1"
+              ],
+              "rc": 0,
+              "output": "10.9.2.1 dev q33pcvpn src 10.9.2.2 uid 0 \n    cache \n"
+            },
+            {
+              "label": "owned client PID inventory",
+              "argv": [
+                "ip",
+                "netns",
+                "pids",
+                "qeli-q33-pkg-20261008094729014028-client"
+              ],
+              "rc": 0,
+              "output": "2947894\n2947898\n"
+            },
+            {
+              "label": "client clean stop installer-binary",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028-client",
+                "link",
+                "show",
+                "q33pcvpn"
+              ],
+              "rc": 1,
+              "output": "Device \"q33pcvpn\" does not exist.\n"
+            },
+            {
+              "label": "real installer refuses unforced reentry",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "env",
+                "QELI_PROFILE=fake-tls",
+                "QELI_BIN=/fixtures/new-qeli",
+                "QELI_SRC=/source",
+                "bash",
+                "/installer.sh",
+                "10.88.0.1"
+              ],
+              "rc": 1,
+              "output": "\u001b[1;31mERROR: /etc/qeli/server.conf already exists \u2014 this server is already configured, and re-running\n  the installer would rewrite it: a new REALITY short_id (every qeli:// link already\n  issued stops working) and the loss of every hand-made edit.\n    \u2022 upgrade the binary, keeping the config:  ./update-qeli-server.sh\n    \u2022 add a user:                              qeli add-client <name> --link --host <host:port>\n    \u2022 show the panel/link data again:          cat /etc/qeli/client-links/CONNECTION-STRINGS.txt\n    \u2022 really reconfigure from scratch (a timestamped backup is kept):\n        QELI_FORCE_RECONFIG=1 /installer.sh 10.88.0.1\u001b[0m\n"
+            },
+            {
+              "label": "MainPID",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli-q33-pkg-20261008094729014028.service",
+                "-p",
+                "MainPID",
+                "--value"
+              ],
+              "rc": 0,
+              "output": "2947710\n"
+            },
+            {
+              "label": "actual restricted proc rejects tuning",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "sysctl",
+                "-p",
+                "/etc/sysctl.d/99-qeli-perf.conf"
+              ],
+              "rc": 1,
+              "output": "net.ipv4.tcp_mtu_probing = 1\nsysctl: cannot stat /proc/sys/net/core/default_qdisc: No such file or directory\nsysctl: permission denied on key \"net.ipv4.tcp_congestion_control\"\nsysctl: setting key \"net.core.rmem_max\": Operation not permitted\nsysctl: setting key \"net.core.wmem_max\": Operation not permitted\nsysctl: permission denied on key \"net.ipv4.tcp_rmem\"\nsysctl: permission denied on key \"net.ipv4.tcp_wmem\"\nsysctl: setting key \"net.core.rmem_default\": Operation not permitted\nsysctl: setting key \"net.core.wmem_default\": Operation not permitted\nsysctl: cannot stat /proc/sys/net/core/netdev_max_backlog: No such file or directory\n"
+            },
+            {
+              "label": "actual applied MTU value",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "sysctl",
+                "-n",
+                "net.ipv4.tcp_mtu_probing"
+              ],
+              "rc": 0,
+              "output": "1\n"
+            },
+            {
+              "label": "actual partial kernel rollback from generated instructions",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "bash",
+                "-e",
+                "/etc/qeli/client-links/kernel-tuning-20261008-094806-i1cICJ/restore.txt"
+              ],
+              "rc": 1,
+              "output": "net.ipv4.tcp_mtu_probing = 0\nsysctl: permission denied on key \"net.ipv4.tcp_congestion_control\"\nsysctl: setting key \"net.core.rmem_max\": Operation not permitted\nsysctl: setting key \"net.core.wmem_max\": Operation not permitted\nsysctl: permission denied on key \"net.ipv4.tcp_rmem\"\nsysctl: permission denied on key \"net.ipv4.tcp_wmem\"\nsysctl: setting key \"net.core.rmem_default\": Operation not permitted\nsysctl: setting key \"net.core.wmem_default\": Operation not permitted\n"
+            },
+            {
+              "label": "actual restored MTU value",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "sysctl",
+                "-n",
+                "net.ipv4.tcp_mtu_probing"
+              ],
+              "rc": 0,
+              "output": "0\n"
+            },
+            {
+              "label": "remove only owned peer namespace",
+              "argv": [
+                "ip",
+                "netns",
+                "delete",
+                "qeli-q33-pkg-20261008094729014028-client"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "stop only owned service",
+              "argv": [
+                "systemctl",
+                "stop",
+                "qeli-q33-pkg-20261008094729014028.service"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "MainPID",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli-q33-pkg-20261008094729014028.service",
+                "-p",
+                "MainPID",
+                "--value"
+              ],
+              "rc": 0,
+              "output": "0\n"
+            }
+          ],
+          "owned_main_pid_after_stop": "0"
+        },
+        "host": {
+          "status": "PASS",
+          "remote": "/var/tmp/qeli-q33-pkg-20261008094729014028",
+          "unit": "qeli-q33-pkg-20261008094729014028.service",
+          "source_commit": "af967bfc8fd52f7cb84f1d055c269d44b0451e88",
+          "package_sha256": "b3d0363b58cc1ae36c3b5da3518fb9d9a8e00d6153b442ac477a5772f36c9809",
+          "binary_sha256": "f9c70e679ce68120a19e9ce93c10199860d04c89b7e6c919d1a45efc9b9a3cfd",
+          "commands": [
+            {
+              "label": "service before",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli",
+                "-p",
+                "MainPID",
+                "-p",
+                "ExecMainStartTimestampMonotonic",
+                "-p",
+                "ActiveState"
+              ],
+              "rc": 0,
+              "output": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active"
+            },
+            {
+              "label": "binary before",
+              "argv": [
+                "sha256sum",
+                "/usr/bin/qeli"
+              ],
+              "rc": 0,
+              "output": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli"
+            },
+            {
+              "label": "fresh own root",
+              "argv": [
+                "test",
+                "!",
+                "-e",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "create owned package root",
+              "argv": [
+                "mkdir",
+                "-m",
+                "755",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "fresh owned manager directories",
+              "argv": [
+                "mkdir",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/unit-map",
+                "/run/systemd/system/qeli-q33-pkg-20261008094729014028.service.d"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "fresh own unit",
+              "argv": [
+                "test",
+                "!",
+                "-e",
+                "/run/systemd/system/qeli-q33-pkg-20261008094729014028.service"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "map only own unit",
+              "argv": [
+                "ln",
+                "-s",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/unit-map/qeli-q33-pkg-20261008094729014028.service",
+                "/run/systemd/system/qeli-q33-pkg-20261008094729014028.service"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service namespace",
+              "argv": [
+                "ip",
+                "netns",
+                "add",
+                "qeli-q33-pkg-20261008094729014028"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service network",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028",
+                "link",
+                "set",
+                "lo",
+                "up"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service network",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028",
+                "link",
+                "add",
+                "wan0",
+                "type",
+                "dummy"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service network",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028",
+                "link",
+                "set",
+                "wan0",
+                "up"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service network",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028",
+                "addr",
+                "add",
+                "192.0.2.1/24",
+                "dev",
+                "wan0"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service network",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094729014028",
+                "route",
+                "add",
+                "default",
+                "dev",
+                "wan0"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "host tuning before",
+              "argv": [
+                "sysctl",
+                "net.ipv4.tcp_mtu_probing",
+                "net.ipv4.tcp_congestion_control",
+                "net.ipv4.tcp_rmem",
+                "net.ipv4.tcp_wmem",
+                "net.core.rmem_max",
+                "net.core.wmem_max"
+              ],
+              "rc": 0,
+              "output": "net.ipv4.tcp_mtu_probing = 1\nnet.ipv4.tcp_congestion_control = bbr\nnet.ipv4.tcp_rmem = 4096\t131072\t16777216\nnet.ipv4.tcp_wmem = 4096\t65536\t16777216\nnet.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216"
+            },
+            {
+              "label": "input SHA qeli_0.8.2_amd64.deb",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/qeli_0.8.2_amd64.deb"
+              ],
+              "rc": 0,
+              "output": "b3d0363b58cc1ae36c3b5da3518fb9d9a8e00d6153b442ac477a5772f36c9809  /var/tmp/qeli-q33-pkg-20261008094729014028/qeli_0.8.2_amd64.deb"
+            },
+            {
+              "label": "input SHA release-binary",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/release-binary"
+              ],
+              "rc": 0,
+              "output": "f9c70e679ce68120a19e9ce93c10199860d04c89b7e6c919d1a45efc9b9a3cfd  /var/tmp/qeli-q33-pkg-20261008094729014028/release-binary"
+            },
+            {
+              "label": "input SHA update-qeli-server.sh",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/update-qeli-server.sh"
+              ],
+              "rc": 0,
+              "output": "f35c515c2c6f7932ed40c2c4d0500d9634d8f6e40d71866882ae4fcfa77883c9  /var/tmp/qeli-q33-pkg-20261008094729014028/update-qeli-server.sh"
+            },
+            {
+              "label": "input SHA fixture.py",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/fixture.py"
+              ],
+              "rc": 0,
+              "output": "507ad8c2a233598ece44114790b6c840fcd2558c0b0a4f3f25a82a5f6d3cea50  /var/tmp/qeli-q33-pkg-20261008094729014028/fixture.py"
+            },
+            {
+              "label": "input SHA install-qeli-server.sh",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/install-qeli-server.sh"
+              ],
+              "rc": 0,
+              "output": "0beedf00b96b92fa0a2cc3ed138f79d6f2f67711e16a72ab3e5c8d5ad17d8f03  /var/tmp/qeli-q33-pkg-20261008094729014028/install-qeli-server.sh"
+            },
+            {
+              "label": "input SHA audit_installer_manager_case.py",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/audit_installer_manager_case.py"
+              ],
+              "rc": 0,
+              "output": "3bc9dc9bd394b12e8fbd05cb4d8f78e8f070fc975e08e5a81a08a5d9606dc81c  /var/tmp/qeli-q33-pkg-20261008094729014028/audit_installer_manager_case.py"
+            },
+            {
+              "label": "input SHA installer-payload.tar",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/installer-payload.tar"
+              ],
+              "rc": 0,
+              "output": "8d503e3a7215ff9c85aa8603364d118e777abf616e737e70c3bade05eae11bb0  /var/tmp/qeli-q33-pkg-20261008094729014028/installer-payload.tar"
+            },
+            {
+              "label": "actual apt/dpkg manager fixture",
+              "argv": [
+                "timeout",
+                "--signal=TERM",
+                "--kill-after=20",
+                "600",
+                "nsenter",
+                "--net=/run/netns/qeli-q33-pkg-20261008094729014028",
+                "unshare",
+                "--mount",
+                "python3",
+                "-u",
+                "-B",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028/fixture.py",
+                "--root",
+                "/var/tmp/qeli-q33-pkg-20261008094729014028",
+                "--unit",
+                "qeli-q33-pkg-20261008094729014028",
+                "--installer",
+                "binary",
+                "--writable-mtu"
+              ],
+              "rc": 0,
+              "output": "PASS installer runs in exactly its owned service NET namespace\nPASS installer NET namespace differs from host PID1\nPASS complete installer exits successfully and reports Done\nPASS installed exact qualified production ELF\nPASS only selected profile and private service-owned INI\nPASS panel enabled only over loopback HTTPS\nPASS all five users persisted by real Argon2 CLI\nPASS credential directory and six files are root private\nPASS successful install retires pending credential journal\nPASS real manager starts default service user\nPASS actual installer adds both IPv4 MSS directions\nPASS generated link pins actual key and chosen transport\nPASS packaged systemd service carries authenticated VPN traffic installer-binary\nPASS inner destination uses actual client TUN installer-binary\nPASS client clean stop removes TUN installer-binary\nPASS unforced reentry refuses before state or running process changes\nPASS restricted proc really refuses sysctl rather than a stub\nPASS installer never claims unqualified kernel tuning applied\nPASS real namespaced MTU probing changed from 0 to 1\nPASS per-run root recovery receipt retains actual MTU baseline\nPASS restore reports other readonly kernel writes unavailable\nPASS actual MTU runtime value is restored to 0\nPASS prior persistent file bytes and mode restored etc/sysctl.d/99-qeli-perf.conf\nPASS prior persistent file bytes and mode restored etc/modules-load.d/qeli-bbr.conf"
+            },
+            {
+              "label": "owned package journal",
+              "argv": [
+                "journalctl",
+                "-u",
+                "qeli-q33-pkg-20261008094729014028.service",
+                "--no-pager",
+                "-n",
+                "150"
+              ],
+              "rc": 0,
+              "output": "\u043e\u043a\u0442 08 12:48:07 debian systemd[1]: Started qeli-q33-pkg-20261008094729014028.service - Qeli VPN Server.\n\u043e\u043a\u0442 08 12:48:12 debian systemd[1]: Stopping qeli-q33-pkg-20261008094729014028.service - Qeli VPN Server...\n\u043e\u043a\u0442 08 12:48:12 debian systemd[1]: qeli-q33-pkg-20261008094729014028.service: Deactivated successfully.\n\u043e\u043a\u0442 08 12:48:12 debian systemd[1]: Stopped qeli-q33-pkg-20261008094729014028.service - Qeli VPN Server.\n\u043e\u043a\u0442 08 12:48:12 debian systemd[1]: qeli-q33-pkg-20261008094729014028.service: Consumed 237ms CPU time, 82.9M memory peak."
+            },
+            {
+              "label": "stop own package unit",
+              "argv": [
+                "systemctl",
+                "stop",
+                "qeli-q33-pkg-20261008094729014028.service"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "own stopped PID",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli-q33-pkg-20261008094729014028.service",
+                "--value",
+                "-p",
+                "MainPID"
+              ],
+              "rc": 0,
+              "output": "0"
+            },
+            {
+              "label": "remove only own manager mapping",
+              "argv": [
+                "python3",
+                "-B",
+                "-c",
+                "from pathlib import Path; u=Path('/run/systemd/system/qeli-q33-pkg-20261008094729014028.service'); d=Path('/run/systemd/system/qeli-q33-pkg-20261008094729014028.service.d'); assert u.parent==d.parent==Path('/run/systemd/system') and u.name=='qeli-q33-pkg-20261008094729014028.service';\nif u.is_symlink():\n assert str(u.readlink())=='/var/tmp/qeli-q33-pkg-20261008094729014028/unit-map/qeli-q33-pkg-20261008094729014028.service';u.unlink()\nif d.exists():\n assert not d.is_symlink();\n for p in d.iterdir():\n  assert p.name=='run-as.conf' and p.is_file() and not p.is_symlink();p.unlink()\n d.rmdir()"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "unload own manager mapping",
+              "argv": [
+                "systemctl",
+                "daemon-reload"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "remove own namespace",
+              "argv": [
+                "ip",
+                "netns",
+                "delete",
+                "qeli-q33-pkg-20261008094729014028"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "retain owned manager /var/lib",
+              "argv": [
+                "python3",
+                "-B",
+                "-c",
+                "from pathlib import Path;p=Path('/var/lib/qeli-q33-pkg-20261008094729014028'); d=Path('/var/tmp/qeli-q33-pkg-20261008094729014028/manager-state');\nif p.exists():\n assert p.parent==Path('/var/lib') and not p.is_symlink() and not d.exists();p.rename(d)"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "retain owned manager /var/log",
+              "argv": [
+                "python3",
+                "-B",
+                "-c",
+                "from pathlib import Path;p=Path('/var/log/qeli-q33-pkg-20261008094729014028'); d=Path('/var/tmp/qeli-q33-pkg-20261008094729014028/manager-logs');\nif p.exists():\n assert p.parent==Path('/var/log') and not p.is_symlink() and not d.exists();p.rename(d)"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "service after",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli",
+                "-p",
+                "MainPID",
+                "-p",
+                "ExecMainStartTimestampMonotonic",
+                "-p",
+                "ActiveState"
+              ],
+              "rc": 0,
+              "output": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active"
+            },
+            {
+              "label": "binary after",
+              "argv": [
+                "sha256sum",
+                "/usr/bin/qeli"
+              ],
+              "rc": 0,
+              "output": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli"
+            },
+            {
+              "label": "host tuning after",
+              "argv": [
+                "sysctl",
+                "net.ipv4.tcp_mtu_probing",
+                "net.ipv4.tcp_congestion_control",
+                "net.ipv4.tcp_rmem",
+                "net.ipv4.tcp_wmem",
+                "net.core.rmem_max",
+                "net.core.wmem_max"
+              ],
+              "rc": 0,
+              "output": "net.ipv4.tcp_mtu_probing = 1\nnet.ipv4.tcp_congestion_control = bbr\nnet.ipv4.tcp_rmem = 4096\t131072\t16777216\nnet.ipv4.tcp_wmem = 4096\t65536\t16777216\nnet.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216"
+            }
+          ],
+          "host_before": {
+            "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+            "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+            "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+            "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+            "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+            "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+            "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+            "firewall6_legacy": "",
+            "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}",
+            "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=845,fd=11))",
+            "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+            "named_namespaces": ""
+          },
+          "service_before": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+          "binary_before": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+          "kernel_before": "net.ipv4.tcp_mtu_probing = 1\nnet.ipv4.tcp_congestion_control = bbr\nnet.ipv4.tcp_rmem = 4096\t131072\t16777216\nnet.ipv4.tcp_wmem = 4096\t65536\t16777216\nnet.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216",
+          "journal": "\u043e\u043a\u0442 08 12:48:07 debian systemd[1]: Started qeli-q33-pkg-20261008094729014028.service - Qeli VPN Server.\n\u043e\u043a\u0442 08 12:48:12 debian systemd[1]: Stopping qeli-q33-pkg-20261008094729014028.service - Qeli VPN Server...\n\u043e\u043a\u0442 08 12:48:12 debian systemd[1]: qeli-q33-pkg-20261008094729014028.service: Deactivated successfully.\n\u043e\u043a\u0442 08 12:48:12 debian systemd[1]: Stopped qeli-q33-pkg-20261008094729014028.service - Qeli VPN Server.\n\u043e\u043a\u0442 08 12:48:12 debian systemd[1]: qeli-q33-pkg-20261008094729014028.service: Consumed 237ms CPU time, 82.9M memory peak.",
+          "host_after": {
+            "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+            "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+            "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+            "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+            "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+            "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+            "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+            "firewall6_legacy": "",
+            "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}",
+            "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=845,fd=11))",
+            "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+            "named_namespaces": ""
+          },
+          "service_after": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+          "binary_after": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+          "kernel_after": "net.ipv4.tcp_mtu_probing = 1\nnet.ipv4.tcp_congestion_control = bbr\nnet.ipv4.tcp_rmem = 4096\t131072\t16777216\nnet.ipv4.tcp_wmem = 4096\t65536\t16777216\nnet.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216",
+          "host_restored": true
+        },
+        "cleanup": {
+          "status": "PASS",
+          "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008094729014028",
+          "archive_verified_locally": true,
+          "original_service": "MainPID=777\nActiveState=active\n",
+          "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+        }
+      },
+      "q33-installer-manager-deb-final-20261008": {
+        "runtime": {
+          "status": "PASS",
+          "checks": [
+            {
+              "name": "installer runs in exactly its owned service NET namespace",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "installer NET namespace differs from host PID1",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "complete installer exits successfully and reports Done",
+              "status": "PASS",
+              "detail": "8-094602-qd1saG/restore.txt\nMobile/LTE:    IPv4 server-to-client MSS 1240 + IPv4 client-to-server MSS 1240\n               Revert installer-added rules: iptables -t mangle -D PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 ; iptables -t mangle -D OUTPUT -p tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\n\nConnection strings (qeli:// \u2014 paste or scan into the app):\n  /etc/qeli/client-links/<user>.qeli           one file per user\n  /etc/qeli/client-links/CONNECTION-STRINGS.txt                          all of them (with passwords)\n\nNEXT STEPS:\n  \u2022 Open inbound TCP 443 in your cloud firewall / security group.\n  \u2022 Add a connection string to the app \u2014 that's all. To print one:\n      cat /etc/qeli/client-links/phone1.qeli\n\n  \u2022 The panel listens on LOOPBACK only. Reach it with an SSH tunnel:\n      ssh -L 8080:127.0.0.1:8080 root@10.88.0.1   then open https://127.0.0.1:8080\n    To publish it instead, set web.bind = 0.0.0.0 AND web.allowed_ips in /etc/qeli/server.conf.\nNo root override present \u2014 qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\nqeli configured successfully.\nService runs as: qeli   (change later: qeli set-service-user root|qeli)\nExamples in /etc/qeli/ (flat-INI):\n  server.conf.example              - exhaustive single-profile reference (every key)\n  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)\n  server-ipv6.conf.example         - runnable dual-stack IPv4+IPv6 profile\n  server-maxobf.conf.example       - maximum-obfuscation server reference\n  client.conf.example              - standard client reference\n  client-reality.conf.example      - REALITY client template\n  client-maxobf.conf.example       - maximum-obfuscation client template\nCreate your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf\nAdd users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf\nShow identity: qeli show-identity --config /etc/qeli/server.conf\n\nIMPORTANT \u2014 ownership: the service runs as user 'qeli' and WRITES inside\n/etc/qeli (identity keys, users file, panel saves). Files you create there as\nroot AFTER this install stay root-owned and the service cannot write them\n(profile fails to bind, users/panel changes don't persist). Either run the CLI\nas the service user:\n    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf\nor restore ownership once you are done:\n    qeli set-service-user qeli\n\nStart: systemctl start qeli\n\u001b[1;33mWARNING: no usable public IPv6 default-route + ip6tables NAT path; installed an IPv4-only active profile.\u001b[0m\n2026-10-08 09:46:03.070 INFO  qeli_core::server: Profile 'fake-tls': generated new identity key at /etc/qeli/identity/fake-tls.key\n\u001b[1;33mWARNING: kernel tuning incomplete (8/10 values effective; 5 writes unavailable/failed); inspect /etc/qeli/client-links/kernel-tuning-20261008-094602-qd1saG/apply.log. Persistent requests remain in /etc/sysctl.d/99-qeli-perf.conf.\u001b[0m\n2026-10-08 09:46:03.426 WARN  qeli_core::server: profile 'fake-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nCreated symlink '/run/systemd/system/multi-user.target.wants/qeli-q33-pkg-20261008094523511895.service' -> '/var/tmp/qeli-q33-pkg-20261008094523511895/unit-map/qeli-q33-pkg-20261008094523511895.service'.\n"
+            },
+            {
+              "name": "installed exact qualified production ELF",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "only selected profile and private service-owned INI",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "panel enabled only over loopback HTTPS",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "all five users persisted by real Argon2 CLI",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "credential directory and six files are root private",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "successful install retires pending credential journal",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "real manager starts default service user",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "actual installer adds both IPv4 MSS directions",
+              "status": "PASS",
+              "detail": "# Generated by iptables-save v1.8.11 (nf_tables) on Thu Oct  8 12:46:05 2026\n*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A PREROUTING -p tcp -m tcp --dport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\n-A FORWARD -o vpn2 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:fake-tls\" -j TCPMSS --set-mss 1360\n-A FORWARD -i vpn2 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:fake-tls\" -j TCPMSS --set-mss 1360\n-A OUTPUT -p tcp -m tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\nCOMMIT\n# Completed on Thu Oct  8 12:46:05 2026\n"
+            },
+            {
+              "name": "generated link pins actual key and chosen transport",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "packaged systemd service carries authenticated VPN traffic installer-deb",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "inner destination uses actual client TUN installer-deb",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "client clean stop removes TUN installer-deb",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "unforced reentry refuses before state or running process changes",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "restricted proc really refuses sysctl rather than a stub",
+              "status": "PASS",
+              "detail": "net.ipv4.tcp_mtu_probing = 1\nsysctl: cannot stat /proc/sys/net/core/default_qdisc: No such file or directory\nsysctl: permission denied on key \"net.ipv4.tcp_congestion_control\"\nsysctl: setting key \"net.core.rmem_max\": Operation not permitted\nsysctl: setting key \"net.core.wmem_max\": Operation not permitted\nsysctl: permission denied on key \"net.ipv4.tcp_rmem\"\nsysctl: permission denied on key \"net.ipv4.tcp_wmem\"\nsysctl: setting key \"net.core.rmem_default\": Operation not permitted\nsysctl: setting key \"net.core.wmem_default\": Operation not permitted\nsysctl: cannot stat /proc/sys/net/core/netdev_max_backlog: No such file or directory\n"
+            },
+            {
+              "name": "installer never claims unqualified kernel tuning applied",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "real namespaced MTU probing changed from 0 to 1",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "per-run root recovery receipt retains actual MTU baseline",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "restore reports other readonly kernel writes unavailable",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "actual MTU runtime value is restored to 0",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "prior persistent file bytes and mode restored etc/sysctl.d/99-qeli-perf.conf",
+              "status": "PASS",
+              "detail": null
+            },
+            {
+              "name": "prior persistent file bytes and mode restored etc/modules-load.d/qeli-bbr.conf",
+              "status": "PASS",
+              "detail": null
+            }
+          ],
+          "commands": [
+            {
+              "label": "private mount propagation",
+              "argv": [
+                "mount",
+                "--make-rprivate",
+                "/"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "real manager socket",
+              "argv": [
+                "mount",
+                "--bind",
+                "/run/systemd/private",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root/run/systemd/private"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned manager paths",
+              "argv": [
+                "mount",
+                "--bind",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/unit-map",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root/run/qeli-audit-unit"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned manager paths",
+              "argv": [
+                "mount",
+                "--bind",
+                "/run/systemd/system/qeli-q33-pkg-20261008094523511895.service.d",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root/run/qeli-audit-dropin"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "read-only process inspection",
+              "argv": [
+                "mount",
+                "--bind",
+                "/proc",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root/proc"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "protect proc",
+              "argv": [
+                "mount",
+                "-o",
+                "remount,bind,ro",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root/proc"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "seed only owned NET MTU value",
+              "argv": [
+                "sysctl",
+                "-w",
+                "net.ipv4.tcp_mtu_probing=0"
+              ],
+              "rc": 0,
+              "output": "net.ipv4.tcp_mtu_probing = 0\n"
+            },
+            {
+              "label": "allow one per-NET kernel key",
+              "argv": [
+                "mount",
+                "--bind",
+                "/proc/sys/net/ipv4/tcp_mtu_probing",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root/proc/sys/net/ipv4/tcp_mtu_probing"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "complete actual one-shot deb",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "env",
+                "QELI_PROFILE=fake-tls",
+                "QELI_DEB=/fixtures/original.deb",
+                "bash",
+                "/installer.sh",
+                "10.88.0.1"
+              ],
+              "rc": 0,
+              "output": "Profile (from QELI_PROFILE): fake-tls\nNo terminal for a prompt and no QELI_PORT set \u2014 using default port 443.\nSelected port: 443\n\n\u001b[1;36m== OS dependencies already available; skipping apt dependency setup\u001b[0m\n\n\u001b[1;36m== Obtaining the qeli .deb\u001b[0m\n  using local .deb: /fixtures/original.deb\n\n\u001b[1;36m== Installing the package\u001b[0m\nReading package lists...\nBuilding dependency tree...\nThe following NEW packages will be installed:\n  qeli\n0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.\nNeed to get 0 B/4553 kB of archives.\nAfter this operation, 14.4 MB of additional disk space will be used.\nGet:1 /fixtures/original.deb qeli amd64 0.8.2 [4553 kB]\nSelecting previously unselected package qeli.\n(Reading database ... 112387 files and directories currently installed.)\nPreparing to unpack /fixtures/original.deb ...\nUnpacking qeli (0.8.2) ...\nSetting up qeli (0.8.2) ...\n\n\u001b[1;36m== Configuring the fake-tls profile on :443\u001b[0m\n\n\u001b[1;36m== Generating the server identity key\u001b[0m\nPROFILE        BIND                   SERVER PUBLIC KEY (pin on client)\nfake-tls       tcp://0.0.0.0:443      259ca6208a2c8dcfbad6bd12c19d4f15e37df0eda556f7e5d03f943bfa9f6605\n\n\u001b[1;36m== Creating 5 users + connection strings\u001b[0m\n  pending credentials on failure \u2192 /etc/qeli/client-links/INSTALL-PENDING-20261008-094602-uRt32j\n  + phone1\n  + phone2\n  + phone3\n  + phone4\n  + phone5\n\n\u001b[1;36m== Applying OS tuning (outer MSS clamp + sysctl) for mobile/LTE\u001b[0m\n  + IPv4 server-to-client MSS clamp 1240 on :443\n  + IPv4 client-to-server MSS clamp 1240 on :443\n  (netfilter-persistent is unavailable \u2014 rules.v4/rules.v6 will not be\n   restored automatically; install iptables-persistent or use your firewall manager)\n  kernel tuning incomplete (8/10 values effective; 5 writes unavailable/failed)\n  Previous runtime values/files and restore commands: /etc/qeli/client-links/kernel-tuning-20261008-094602-qd1saG\n\n\u001b[1;36m== Enabling the web admin panel (HTTPS, generated password)\u001b[0m\n\n\u001b[1;36m== Validating the final server and users configuration\u001b[0m\n/etc/qeli/server.conf.qeli-DH3CJb: OK\n\n\u001b[1;36m== Configuring the service user: qeli\u001b[0m\nNo root override present \u2014 qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\n\n\u001b[1;36m== Starting the service\u001b[0m\n\n\u001b[1;36m== Done\u001b[0m\nServer:        fake-tls (TCP) on 10.88.0.1:443   (full-tunnel NAT enabled)\nIdentity key:  259ca6208a2c8dcfbad6bd12c19d4f15e37df0eda556f7e5d03f943bfa9f6605\nUsers:         5  (phone1 \u2026 phone5)\nWeb panel:     https://127.0.0.1:8080  (loopback only \u2014 tunnel in: ssh -L 8080:127.0.0.1:8080 root@10.88.0.1)  \u2192  login: admin  /  GuhYpfPtHznVDiFCLZ4K\n               \u26a0 SAVE THIS PASSWORD NOW \u2014 shown once, only the hash is stored.\nPerf tuning:   kernel tuning incomplete (8/10 values effective; 5 writes unavailable/failed)\n               Details and restore instructions: /etc/qeli/client-links/kernel-tuning-20261008-094602-qd1saG/restore.txt\nMobile/LTE:    IPv4 server-to-client MSS 1240 + IPv4 client-to-server MSS 1240\n               Revert installer-added rules: iptables -t mangle -D PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 ; iptables -t mangle -D OUTPUT -p tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\n\nConnection strings (qeli:// \u2014 paste or scan into the app):\n  /etc/qeli/client-links/<user>.qeli           one file per user\n  /etc/qeli/client-links/CONNECTION-STRINGS.txt                          all of them (with passwords)\n\nNEXT STEPS:\n  \u2022 Open inbound TCP 443 in your cloud firewall / security group.\n  \u2022 Add a connection string to the app \u2014 that's all. To print one:\n      cat /etc/qeli/client-links/phone1.qeli\n\n  \u2022 The panel listens on LOOPBACK only. Reach it with an SSH tunnel:\n      ssh -L 8080:127.0.0.1:8080 root@10.88.0.1   then open https://127.0.0.1:8080\n    To publish it instead, set web.bind = 0.0.0.0 AND web.allowed_ips in /etc/qeli/server.conf.\nNo root override present \u2014 qeli.service already runs as the qeli user.\nRun `systemctl restart qeli.service` to apply.\nqeli configured successfully.\nService runs as: qeli   (change later: qeli set-service-user root|qeli)\nExamples in /etc/qeli/ (flat-INI):\n  server.conf.example              - exhaustive single-profile reference (every key)\n  server-multiprofile.conf.example - ready 10-profile template (one per wire mode)\n  server-ipv6.conf.example         - runnable dual-stack IPv4+IPv6 profile\n  server-maxobf.conf.example       - maximum-obfuscation server reference\n  client.conf.example              - standard client reference\n  client-reality.conf.example      - REALITY client template\n  client-maxobf.conf.example       - maximum-obfuscation client template\nCreate your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf\nAdd users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf\nShow identity: qeli show-identity --config /etc/qeli/server.conf\n\nIMPORTANT \u2014 ownership: the service runs as user 'qeli' and WRITES inside\n/etc/qeli (identity keys, users file, panel saves). Files you create there as\nroot AFTER this install stay root-owned and the service cannot write them\n(profile fails to bind, users/panel changes don't persist). Either run the CLI\nas the service user:\n    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf\nor restore ownership once you are done:\n    qeli set-service-user qeli\n\nStart: systemctl start qeli\n\u001b[1;33mWARNING: no usable public IPv6 default-route + ip6tables NAT path; installed an IPv4-only active profile.\u001b[0m\n2026-10-08 09:46:03.070 INFO  qeli_core::server: Profile 'fake-tls': generated new identity key at /etc/qeli/identity/fake-tls.key\n\u001b[1;33mWARNING: kernel tuning incomplete (8/10 values effective; 5 writes unavailable/failed); inspect /etc/qeli/client-links/kernel-tuning-20261008-094602-qd1saG/apply.log. Persistent requests remain in /etc/sysctl.d/99-qeli-perf.conf.\u001b[0m\n2026-10-08 09:46:03.426 WARN  qeli_core::server: profile 'fake-tls': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nCreated symlink '/run/systemd/system/multi-user.target.wants/qeli-q33-pkg-20261008094523511895.service' -> '/var/tmp/qeli-q33-pkg-20261008094523511895/unit-map/qeli-q33-pkg-20261008094523511895.service'.\n"
+            },
+            {
+              "label": "MainPID",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli-q33-pkg-20261008094523511895.service",
+                "-p",
+                "MainPID",
+                "--value"
+              ],
+              "rc": 0,
+              "output": "2932214\n"
+            },
+            {
+              "label": "real unit listeners",
+              "argv": [
+                "nsenter",
+                "-t",
+                "2932214",
+                "-n",
+                "--",
+                "ss",
+                "-lnt"
+              ],
+              "rc": 0,
+              "output": "State  Recv-Q Send-Q Local Address:Port Peer Address:Port\nLISTEN 0      128          0.0.0.0:443       0.0.0.0:*   \nLISTEN 0      128        127.0.0.1:8080      0.0.0.0:*   \nLISTEN 0      128         10.9.2.1:53        0.0.0.0:*   \n"
+            },
+            {
+              "label": "User",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli-q33-pkg-20261008094523511895.service",
+                "-p",
+                "User",
+                "--value"
+              ],
+              "rc": 0,
+              "output": "qeli\n"
+            },
+            {
+              "label": "actual owned NET MSS rules",
+              "argv": [
+                "iptables-save",
+                "-t",
+                "mangle"
+              ],
+              "rc": 0,
+              "output": "# Generated by iptables-save v1.8.11 (nf_tables) on Thu Oct  8 12:46:05 2026\n*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A PREROUTING -p tcp -m tcp --dport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\n-A FORWARD -o vpn2 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:fake-tls\" -j TCPMSS --set-mss 1360\n-A FORWARD -i vpn2 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:fake-tls\" -j TCPMSS --set-mss 1360\n-A OUTPUT -p tcp -m tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240\nCOMMIT\n# Completed on Thu Oct  8 12:46:05 2026\n"
+            },
+            {
+              "label": "owned installer client namespace",
+              "argv": [
+                "ip",
+                "netns",
+                "add",
+                "qeli-q33-pkg-20261008094523511895-client"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895",
+                "link",
+                "add",
+                "q33pv",
+                "type",
+                "veth",
+                "peer",
+                "name",
+                "q33pc"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895",
+                "link",
+                "set",
+                "q33pc",
+                "netns",
+                "qeli-q33-pkg-20261008094523511895-client"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895",
+                "addr",
+                "add",
+                "10.88.0.1/24",
+                "dev",
+                "q33pv"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895",
+                "link",
+                "set",
+                "q33pv",
+                "up"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895-client",
+                "link",
+                "set",
+                "lo",
+                "up"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895-client",
+                "addr",
+                "add",
+                "10.88.0.2/24",
+                "dev",
+                "q33pc"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895-client",
+                "link",
+                "set",
+                "q33pc",
+                "up"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned installer peer carrier",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895-client",
+                "route",
+                "add",
+                "default",
+                "via",
+                "10.88.0.1"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "actual client TUN installer-deb",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895-client",
+                "link",
+                "show",
+                "q33pcvpn"
+              ],
+              "rc": 1,
+              "output": "Device \"q33pcvpn\" does not exist.\n"
+            },
+            {
+              "label": "actual client TUN installer-deb",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895-client",
+                "link",
+                "show",
+                "q33pcvpn"
+              ],
+              "rc": 0,
+              "output": "2: q33pcvpn: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 1400 qdisc fq state UNKNOWN mode DEFAULT group default qlen 500\n    link/none \n"
+            },
+            {
+              "label": "real inner tunnel roundtrip installer-deb",
+              "argv": [
+                "ip",
+                "netns",
+                "exec",
+                "qeli-q33-pkg-20261008094523511895-client",
+                "ping",
+                "-c",
+                "3",
+                "-W",
+                "2",
+                "10.9.2.1"
+              ],
+              "rc": 0,
+              "output": "PING 10.9.2.1 (10.9.2.1) 56(84) bytes of data.\n64 bytes from 10.9.2.1: icmp_seq=1 ttl=64 time=12.1 ms\n64 bytes from 10.9.2.1: icmp_seq=2 ttl=64 time=9.91 ms\n64 bytes from 10.9.2.1: icmp_seq=3 ttl=64 time=14.8 ms\n\n--- 10.9.2.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2002ms\nrtt min/avg/max/mdev = 9.909/12.281/14.803/2.000 ms\n"
+            },
+            {
+              "label": "inner route proof installer-deb",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895-client",
+                "route",
+                "get",
+                "10.9.2.1"
+              ],
+              "rc": 0,
+              "output": "10.9.2.1 dev q33pcvpn src 10.9.2.2 uid 0 \n    cache \n"
+            },
+            {
+              "label": "owned client PID inventory",
+              "argv": [
+                "ip",
+                "netns",
+                "pids",
+                "qeli-q33-pkg-20261008094523511895-client"
+              ],
+              "rc": 0,
+              "output": "2932396\n2932400\n"
+            },
+            {
+              "label": "client clean stop installer-deb",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895-client",
+                "link",
+                "show",
+                "q33pcvpn"
+              ],
+              "rc": 1,
+              "output": "Device \"q33pcvpn\" does not exist.\n"
+            },
+            {
+              "label": "real installer refuses unforced reentry",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "env",
+                "QELI_PROFILE=fake-tls",
+                "QELI_DEB=/fixtures/original.deb",
+                "bash",
+                "/installer.sh",
+                "10.88.0.1"
+              ],
+              "rc": 1,
+              "output": "\u001b[1;31mERROR: /etc/qeli/server.conf already exists \u2014 this server is already configured, and re-running\n  the installer would rewrite it: a new REALITY short_id (every qeli:// link already\n  issued stops working) and the loss of every hand-made edit.\n    \u2022 upgrade the binary, keeping the config:  ./update-qeli-server.sh\n    \u2022 add a user:                              qeli add-client <name> --link --host <host:port>\n    \u2022 show the panel/link data again:          cat /etc/qeli/client-links/CONNECTION-STRINGS.txt\n    \u2022 really reconfigure from scratch (a timestamped backup is kept):\n        QELI_FORCE_RECONFIG=1 /installer.sh 10.88.0.1\u001b[0m\n"
+            },
+            {
+              "label": "MainPID",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli-q33-pkg-20261008094523511895.service",
+                "-p",
+                "MainPID",
+                "--value"
+              ],
+              "rc": 0,
+              "output": "2932214\n"
+            },
+            {
+              "label": "actual restricted proc rejects tuning",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "sysctl",
+                "-p",
+                "/etc/sysctl.d/99-qeli-perf.conf"
+              ],
+              "rc": 1,
+              "output": "net.ipv4.tcp_mtu_probing = 1\nsysctl: cannot stat /proc/sys/net/core/default_qdisc: No such file or directory\nsysctl: permission denied on key \"net.ipv4.tcp_congestion_control\"\nsysctl: setting key \"net.core.rmem_max\": Operation not permitted\nsysctl: setting key \"net.core.wmem_max\": Operation not permitted\nsysctl: permission denied on key \"net.ipv4.tcp_rmem\"\nsysctl: permission denied on key \"net.ipv4.tcp_wmem\"\nsysctl: setting key \"net.core.rmem_default\": Operation not permitted\nsysctl: setting key \"net.core.wmem_default\": Operation not permitted\nsysctl: cannot stat /proc/sys/net/core/netdev_max_backlog: No such file or directory\n"
+            },
+            {
+              "label": "actual applied MTU value",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "sysctl",
+                "-n",
+                "net.ipv4.tcp_mtu_probing"
+              ],
+              "rc": 0,
+              "output": "1\n"
+            },
+            {
+              "label": "actual partial kernel rollback from generated instructions",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "bash",
+                "-e",
+                "/etc/qeli/client-links/kernel-tuning-20261008-094602-qd1saG/restore.txt"
+              ],
+              "rc": 1,
+              "output": "net.ipv4.tcp_mtu_probing = 0\nsysctl: permission denied on key \"net.ipv4.tcp_congestion_control\"\nsysctl: setting key \"net.core.rmem_max\": Operation not permitted\nsysctl: setting key \"net.core.wmem_max\": Operation not permitted\nsysctl: permission denied on key \"net.ipv4.tcp_rmem\"\nsysctl: permission denied on key \"net.ipv4.tcp_wmem\"\nsysctl: setting key \"net.core.rmem_default\": Operation not permitted\nsysctl: setting key \"net.core.wmem_default\": Operation not permitted\n"
+            },
+            {
+              "label": "actual restored MTU value",
+              "argv": [
+                "chroot",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/root",
+                "/usr/bin/env",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "LC_ALL=C",
+                "DEBIAN_FRONTEND=noninteractive",
+                "SYSTEMD_IGNORE_CHROOT=1",
+                "sysctl",
+                "-n",
+                "net.ipv4.tcp_mtu_probing"
+              ],
+              "rc": 0,
+              "output": "0\n"
+            },
+            {
+              "label": "remove only owned peer namespace",
+              "argv": [
+                "ip",
+                "netns",
+                "delete",
+                "qeli-q33-pkg-20261008094523511895-client"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "stop only owned service",
+              "argv": [
+                "systemctl",
+                "stop",
+                "qeli-q33-pkg-20261008094523511895.service"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "MainPID",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli-q33-pkg-20261008094523511895.service",
+                "-p",
+                "MainPID",
+                "--value"
+              ],
+              "rc": 0,
+              "output": "0\n"
+            }
+          ],
+          "owned_main_pid_after_stop": "0"
+        },
+        "host": {
+          "status": "PASS",
+          "remote": "/var/tmp/qeli-q33-pkg-20261008094523511895",
+          "unit": "qeli-q33-pkg-20261008094523511895.service",
+          "source_commit": "af967bfc8fd52f7cb84f1d055c269d44b0451e88",
+          "package_sha256": "b3d0363b58cc1ae36c3b5da3518fb9d9a8e00d6153b442ac477a5772f36c9809",
+          "binary_sha256": "f9c70e679ce68120a19e9ce93c10199860d04c89b7e6c919d1a45efc9b9a3cfd",
+          "commands": [
+            {
+              "label": "service before",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli",
+                "-p",
+                "MainPID",
+                "-p",
+                "ExecMainStartTimestampMonotonic",
+                "-p",
+                "ActiveState"
+              ],
+              "rc": 0,
+              "output": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active"
+            },
+            {
+              "label": "binary before",
+              "argv": [
+                "sha256sum",
+                "/usr/bin/qeli"
+              ],
+              "rc": 0,
+              "output": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli"
+            },
+            {
+              "label": "fresh own root",
+              "argv": [
+                "test",
+                "!",
+                "-e",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "create owned package root",
+              "argv": [
+                "mkdir",
+                "-m",
+                "755",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "fresh owned manager directories",
+              "argv": [
+                "mkdir",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/unit-map",
+                "/run/systemd/system/qeli-q33-pkg-20261008094523511895.service.d"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "fresh own unit",
+              "argv": [
+                "test",
+                "!",
+                "-e",
+                "/run/systemd/system/qeli-q33-pkg-20261008094523511895.service"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "map only own unit",
+              "argv": [
+                "ln",
+                "-s",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/unit-map/qeli-q33-pkg-20261008094523511895.service",
+                "/run/systemd/system/qeli-q33-pkg-20261008094523511895.service"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service namespace",
+              "argv": [
+                "ip",
+                "netns",
+                "add",
+                "qeli-q33-pkg-20261008094523511895"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service network",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895",
+                "link",
+                "set",
+                "lo",
+                "up"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service network",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895",
+                "link",
+                "add",
+                "wan0",
+                "type",
+                "dummy"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service network",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895",
+                "link",
+                "set",
+                "wan0",
+                "up"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service network",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895",
+                "addr",
+                "add",
+                "192.0.2.1/24",
+                "dev",
+                "wan0"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "owned service network",
+              "argv": [
+                "ip",
+                "-n",
+                "qeli-q33-pkg-20261008094523511895",
+                "route",
+                "add",
+                "default",
+                "dev",
+                "wan0"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "host tuning before",
+              "argv": [
+                "sysctl",
+                "net.ipv4.tcp_mtu_probing",
+                "net.ipv4.tcp_congestion_control",
+                "net.ipv4.tcp_rmem",
+                "net.ipv4.tcp_wmem",
+                "net.core.rmem_max",
+                "net.core.wmem_max"
+              ],
+              "rc": 0,
+              "output": "net.ipv4.tcp_mtu_probing = 1\nnet.ipv4.tcp_congestion_control = bbr\nnet.ipv4.tcp_rmem = 4096\t131072\t16777216\nnet.ipv4.tcp_wmem = 4096\t65536\t16777216\nnet.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216"
+            },
+            {
+              "label": "input SHA qeli_0.8.2_amd64.deb",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/qeli_0.8.2_amd64.deb"
+              ],
+              "rc": 0,
+              "output": "b3d0363b58cc1ae36c3b5da3518fb9d9a8e00d6153b442ac477a5772f36c9809  /var/tmp/qeli-q33-pkg-20261008094523511895/qeli_0.8.2_amd64.deb"
+            },
+            {
+              "label": "input SHA release-binary",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/release-binary"
+              ],
+              "rc": 0,
+              "output": "f9c70e679ce68120a19e9ce93c10199860d04c89b7e6c919d1a45efc9b9a3cfd  /var/tmp/qeli-q33-pkg-20261008094523511895/release-binary"
+            },
+            {
+              "label": "input SHA update-qeli-server.sh",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/update-qeli-server.sh"
+              ],
+              "rc": 0,
+              "output": "f35c515c2c6f7932ed40c2c4d0500d9634d8f6e40d71866882ae4fcfa77883c9  /var/tmp/qeli-q33-pkg-20261008094523511895/update-qeli-server.sh"
+            },
+            {
+              "label": "input SHA fixture.py",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/fixture.py"
+              ],
+              "rc": 0,
+              "output": "507ad8c2a233598ece44114790b6c840fcd2558c0b0a4f3f25a82a5f6d3cea50  /var/tmp/qeli-q33-pkg-20261008094523511895/fixture.py"
+            },
+            {
+              "label": "input SHA install-qeli-server.sh",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/install-qeli-server.sh"
+              ],
+              "rc": 0,
+              "output": "0beedf00b96b92fa0a2cc3ed138f79d6f2f67711e16a72ab3e5c8d5ad17d8f03  /var/tmp/qeli-q33-pkg-20261008094523511895/install-qeli-server.sh"
+            },
+            {
+              "label": "input SHA audit_installer_manager_case.py",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/audit_installer_manager_case.py"
+              ],
+              "rc": 0,
+              "output": "3bc9dc9bd394b12e8fbd05cb4d8f78e8f070fc975e08e5a81a08a5d9606dc81c  /var/tmp/qeli-q33-pkg-20261008094523511895/audit_installer_manager_case.py"
+            },
+            {
+              "label": "input SHA installer-payload.tar",
+              "argv": [
+                "sha256sum",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/installer-payload.tar"
+              ],
+              "rc": 0,
+              "output": "8d503e3a7215ff9c85aa8603364d118e777abf616e737e70c3bade05eae11bb0  /var/tmp/qeli-q33-pkg-20261008094523511895/installer-payload.tar"
+            },
+            {
+              "label": "actual apt/dpkg manager fixture",
+              "argv": [
+                "timeout",
+                "--signal=TERM",
+                "--kill-after=20",
+                "600",
+                "nsenter",
+                "--net=/run/netns/qeli-q33-pkg-20261008094523511895",
+                "unshare",
+                "--mount",
+                "python3",
+                "-u",
+                "-B",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895/fixture.py",
+                "--root",
+                "/var/tmp/qeli-q33-pkg-20261008094523511895",
+                "--unit",
+                "qeli-q33-pkg-20261008094523511895",
+                "--installer",
+                "deb",
+                "--writable-mtu"
+              ],
+              "rc": 0,
+              "output": "PASS installer runs in exactly its owned service NET namespace\nPASS installer NET namespace differs from host PID1\nPASS complete installer exits successfully and reports Done\nPASS installed exact qualified production ELF\nPASS only selected profile and private service-owned INI\nPASS panel enabled only over loopback HTTPS\nPASS all five users persisted by real Argon2 CLI\nPASS credential directory and six files are root private\nPASS successful install retires pending credential journal\nPASS real manager starts default service user\nPASS actual installer adds both IPv4 MSS directions\nPASS generated link pins actual key and chosen transport\nPASS packaged systemd service carries authenticated VPN traffic installer-deb\nPASS inner destination uses actual client TUN installer-deb\nPASS client clean stop removes TUN installer-deb\nPASS unforced reentry refuses before state or running process changes\nPASS restricted proc really refuses sysctl rather than a stub\nPASS installer never claims unqualified kernel tuning applied\nPASS real namespaced MTU probing changed from 0 to 1\nPASS per-run root recovery receipt retains actual MTU baseline\nPASS restore reports other readonly kernel writes unavailable\nPASS actual MTU runtime value is restored to 0\nPASS prior persistent file bytes and mode restored etc/sysctl.d/99-qeli-perf.conf\nPASS prior persistent file bytes and mode restored etc/modules-load.d/qeli-bbr.conf"
+            },
+            {
+              "label": "owned package journal",
+              "argv": [
+                "journalctl",
+                "-u",
+                "qeli-q33-pkg-20261008094523511895.service",
+                "--no-pager",
+                "-n",
+                "150"
+              ],
+              "rc": 0,
+              "output": "\u043e\u043a\u0442 08 12:46:03 debian systemd[1]: Started qeli-q33-pkg-20261008094523511895.service - Qeli VPN Server.\n\u043e\u043a\u0442 08 12:46:08 debian systemd[1]: Stopping qeli-q33-pkg-20261008094523511895.service - Qeli VPN Server...\n\u043e\u043a\u0442 08 12:46:08 debian systemd[1]: qeli-q33-pkg-20261008094523511895.service: Deactivated successfully.\n\u043e\u043a\u0442 08 12:46:08 debian systemd[1]: Stopped qeli-q33-pkg-20261008094523511895.service - Qeli VPN Server.\n\u043e\u043a\u0442 08 12:46:08 debian systemd[1]: qeli-q33-pkg-20261008094523511895.service: Consumed 237ms CPU time, 83.2M memory peak."
+            },
+            {
+              "label": "stop own package unit",
+              "argv": [
+                "systemctl",
+                "stop",
+                "qeli-q33-pkg-20261008094523511895.service"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "own stopped PID",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli-q33-pkg-20261008094523511895.service",
+                "--value",
+                "-p",
+                "MainPID"
+              ],
+              "rc": 0,
+              "output": "0"
+            },
+            {
+              "label": "remove only own manager mapping",
+              "argv": [
+                "python3",
+                "-B",
+                "-c",
+                "from pathlib import Path; u=Path('/run/systemd/system/qeli-q33-pkg-20261008094523511895.service'); d=Path('/run/systemd/system/qeli-q33-pkg-20261008094523511895.service.d'); assert u.parent==d.parent==Path('/run/systemd/system') and u.name=='qeli-q33-pkg-20261008094523511895.service';\nif u.is_symlink():\n assert str(u.readlink())=='/var/tmp/qeli-q33-pkg-20261008094523511895/unit-map/qeli-q33-pkg-20261008094523511895.service';u.unlink()\nif d.exists():\n assert not d.is_symlink();\n for p in d.iterdir():\n  assert p.name=='run-as.conf' and p.is_file() and not p.is_symlink();p.unlink()\n d.rmdir()"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "unload own manager mapping",
+              "argv": [
+                "systemctl",
+                "daemon-reload"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "remove own namespace",
+              "argv": [
+                "ip",
+                "netns",
+                "delete",
+                "qeli-q33-pkg-20261008094523511895"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "retain owned manager /var/lib",
+              "argv": [
+                "python3",
+                "-B",
+                "-c",
+                "from pathlib import Path;p=Path('/var/lib/qeli-q33-pkg-20261008094523511895'); d=Path('/var/tmp/qeli-q33-pkg-20261008094523511895/manager-state');\nif p.exists():\n assert p.parent==Path('/var/lib') and not p.is_symlink() and not d.exists();p.rename(d)"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "retain owned manager /var/log",
+              "argv": [
+                "python3",
+                "-B",
+                "-c",
+                "from pathlib import Path;p=Path('/var/log/qeli-q33-pkg-20261008094523511895'); d=Path('/var/tmp/qeli-q33-pkg-20261008094523511895/manager-logs');\nif p.exists():\n assert p.parent==Path('/var/log') and not p.is_symlink() and not d.exists();p.rename(d)"
+              ],
+              "rc": 0,
+              "output": ""
+            },
+            {
+              "label": "service after",
+              "argv": [
+                "systemctl",
+                "show",
+                "qeli",
+                "-p",
+                "MainPID",
+                "-p",
+                "ExecMainStartTimestampMonotonic",
+                "-p",
+                "ActiveState"
+              ],
+              "rc": 0,
+              "output": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active"
+            },
+            {
+              "label": "binary after",
+              "argv": [
+                "sha256sum",
+                "/usr/bin/qeli"
+              ],
+              "rc": 0,
+              "output": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli"
+            },
+            {
+              "label": "host tuning after",
+              "argv": [
+                "sysctl",
+                "net.ipv4.tcp_mtu_probing",
+                "net.ipv4.tcp_congestion_control",
+                "net.ipv4.tcp_rmem",
+                "net.ipv4.tcp_wmem",
+                "net.core.rmem_max",
+                "net.core.wmem_max"
+              ],
+              "rc": 0,
+              "output": "net.ipv4.tcp_mtu_probing = 1\nnet.ipv4.tcp_congestion_control = bbr\nnet.ipv4.tcp_rmem = 4096\t131072\t16777216\nnet.ipv4.tcp_wmem = 4096\t65536\t16777216\nnet.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216"
+            }
+          ],
+          "host_before": {
+            "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+            "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+            "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+            "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+            "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+            "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+            "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+            "firewall6_legacy": "",
+            "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}",
+            "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=845,fd=11))",
+            "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+            "named_namespaces": ""
+          },
+          "service_before": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+          "binary_before": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+          "kernel_before": "net.ipv4.tcp_mtu_probing = 1\nnet.ipv4.tcp_congestion_control = bbr\nnet.ipv4.tcp_rmem = 4096\t131072\t16777216\nnet.ipv4.tcp_wmem = 4096\t65536\t16777216\nnet.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216",
+          "journal": "\u043e\u043a\u0442 08 12:46:03 debian systemd[1]: Started qeli-q33-pkg-20261008094523511895.service - Qeli VPN Server.\n\u043e\u043a\u0442 08 12:46:08 debian systemd[1]: Stopping qeli-q33-pkg-20261008094523511895.service - Qeli VPN Server...\n\u043e\u043a\u0442 08 12:46:08 debian systemd[1]: qeli-q33-pkg-20261008094523511895.service: Deactivated successfully.\n\u043e\u043a\u0442 08 12:46:08 debian systemd[1]: Stopped qeli-q33-pkg-20261008094523511895.service - Qeli VPN Server.\n\u043e\u043a\u0442 08 12:46:08 debian systemd[1]: qeli-q33-pkg-20261008094523511895.service: Consumed 237ms CPU time, 83.2M memory peak.",
+          "host_after": {
+            "addresses4": "lo               UNKNOWN        127.0.0.1/8 \nens18            UP             10.66.116.11/24 \nvpn0             UNKNOWN        10.9.0.1/24",
+            "addresses6": "lo               UNKNOWN        ::1/128 \nens18            UP             fe80::be24:11ff:fef1:574a/64 \nvpn0             UNKNOWN        fe80::168e:68ea:8cd6:caa/64",
+            "routes4": "default via 10.66.116.1 dev ens18 onlink \n10.9.0.0/24 dev vpn0 proto kernel scope link src 10.9.0.1 \n10.66.116.0/24 dev ens18 proto kernel scope link src 10.66.116.11 \nlocal 10.9.0.1 dev vpn0 table local proto kernel scope host src 10.9.0.1 \nbroadcast 10.9.0.255 dev vpn0 table local proto kernel scope link src 10.9.0.1 \nlocal 10.66.116.11 dev ens18 table local proto kernel scope host src 10.66.116.11 \nbroadcast 10.66.116.255 dev ens18 table local proto kernel scope link src 10.66.116.11 \nlocal 127.0.0.0/8 dev lo table local proto kernel scope host src 127.0.0.1 \nlocal 127.0.0.1 dev lo table local proto kernel scope host src 127.0.0.1 \nbroadcast 127.255.255.255 dev lo table local proto kernel scope link src 127.0.0.1",
+            "routes6": "fe80::/64 dev ens18 proto kernel metric 256 pref medium\nfe80::/64 dev vpn0 proto kernel metric 256 pref medium\nlocal ::1 dev lo table local proto kernel metric 0 pref medium\nlocal fe80::168e:68ea:8cd6:caa dev vpn0 table local proto kernel metric 0 pref medium\nlocal fe80::be24:11ff:fef1:574a dev ens18 table local proto kernel metric 0 pref medium\nmulticast ff00::/8 dev ens18 table local proto kernel metric 256 pref medium\nmulticast ff00::/8 dev vpn0 table local proto kernel metric 256 pref medium",
+            "firewall4": "*mangle\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A FORWARD -o vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\n-A FORWARD -i vpn0 -p tcp -m tcp --tcp-flags SYN,RST SYN -m comment --comment \"qeli-nat:reality-tls\" -j TCPMSS --set-mss 1240\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\n-A POSTROUTING -s 10.9.0.0/24 -o ens18 -m comment --comment \"qeli-nat:reality-tls\" -j MASQUERADE\nCOMMIT",
+            "firewall6": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT",
+            "firewall4_legacy": "*filter\n:INPUT ACCEPT [COUNTERS]\n:FORWARD ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\nCOMMIT\n*nat\n:PREROUTING ACCEPT [COUNTERS]\n:INPUT ACCEPT [COUNTERS]\n:OUTPUT ACCEPT [COUNTERS]\n:POSTROUTING ACCEPT [COUNTERS]\nCOMMIT",
+            "firewall6_legacy": "",
+            "nft": "table ip nat {\n\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\toifname \"ens18\" ip saddr 10.8.0.0/24 masquerade\n\t}\n\n\tchain POSTROUTING {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t\tip saddr 10.9.0.0/24 oifname \"ens18\"  counter packets COUNTER bytes COUNTER masquerade\n\t}\n}\ntable ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-reply counter packets COUNTER bytes COUNTER accept\n\t\ticmp type destination-unreachable counter packets COUNTER bytes COUNTER accept\n\t\ticmp type time-exceeded counter packets COUNTER bytes COUNTER accept\n\t\ticmp type echo-request counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 80 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 443 counter packets COUNTER bytes COUNTER accept\n\t\ttcp dport 8080 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 95.214.10.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 89.108.81.177 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 185.217.198.87 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.66.0.0/16 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 192.168.50.0/24 counter packets COUNTER bytes COUNTER accept\n\t\tip saddr 10.8.0.0/24 counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t\tct state established,related counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"vpn0\" accept\n\t\toifname \"vpn0\" ct state established,related accept\n\t\tiifname \"vpn0\" oifname \"ens18\"  counter packets COUNTER bytes COUNTER accept\n\t\tiifname \"ens18\" oifname \"vpn0\" ct state related,established  counter packets COUNTER bytes COUNTER accept\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t\toifname \"lo\" counter packets COUNTER bytes COUNTER accept\n\t}\n}\ntable ip6 filter {\n\tchain INPUT {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n\n\tchain OUTPUT {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n\n\tchain FORWARD {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}\ntable ip mangle {\n\tchain FORWARD {\n\t\ttype filter hook forward priority mangle; policy accept;\n\t\toifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t\tiifname \"vpn0\" tcp flags & (syn | rst) == syn  counter packets COUNTER bytes COUNTER tcp option maxseg size set 1240\n\t}\n}",
+            "listener": "LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:((\"qeli\",pid=845,fd=11))",
+            "resolver_sha256": "d9fcf7783d7b0b51869ef66ed4febbf50f514057108278e330b1e84d8aeb33e0  /etc/resolv.conf",
+            "named_namespaces": ""
+          },
+          "service_after": "MainPID=777\nExecMainStartTimestampMonotonic=3583132\nActiveState=active",
+          "binary_after": "75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+          "kernel_after": "net.ipv4.tcp_mtu_probing = 1\nnet.ipv4.tcp_congestion_control = bbr\nnet.ipv4.tcp_rmem = 4096\t131072\t16777216\nnet.ipv4.tcp_wmem = 4096\t65536\t16777216\nnet.core.rmem_max = 16777216\nnet.core.wmem_max = 16777216",
+          "host_restored": true
+        },
+        "cleanup": {
+          "status": "PASS",
+          "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008094523511895",
+          "archive_verified_locally": true,
+          "original_service": "MainPID=777\nActiveState=active\n",
+          "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+        }
+      }
+    },
+    "Linux_regressions": {
+      "status": "PASS",
+      "rows": [
+        {
+          "script": "test_debian_lifecycle.py",
+          "rc": 0,
+          "methods": 16,
+          "skipped": false
+        },
+        {
+          "script": "test_server_updater.py",
+          "rc": 0,
+          "methods": 21,
+          "skipped": false
+        },
+        {
+          "script": "test_binary_installer.py",
+          "rc": 0,
+          "methods": 18,
+          "skipped": false
+        },
+        {
+          "script": "test_installer_admission.py",
+          "rc": 0,
+          "methods": 18,
+          "skipped": false
+        },
+        {
+          "script": "test_installer_secrets.py",
+          "rc": 0,
+          "methods": 21,
+          "skipped": false
+        },
+        {
+          "script": "test_installer_cli_version.py",
+          "rc": 0,
+          "methods": 2,
+          "skipped": false
+        },
+        {
+          "script": "test_installer_config.py",
+          "rc": 0,
+          "methods": 21,
+          "skipped": false
+        },
+        {
+          "script": "test_service_state_ownership.py",
+          "rc": 0,
+          "methods": 2,
+          "skipped": false
+        },
+        {
+          "script": "test_installer_real_cli.py",
+          "rc": 0,
+          "methods": 10,
+          "skipped": false
+        },
+        {
+          "script": "test_installer_tuning.py",
+          "rc": 0,
+          "methods": 7,
+          "skipped": false
+        }
+      ]
+    },
+    "regression_host_qualification": {
+      "status": "PASS_SCOPED",
+      "unchanged_original_host_fields": [
+        "addresses4",
+        "addresses6",
+        "routes4",
+        "routes6",
+        "firewall4",
+        "firewall6",
+        "firewall4_legacy",
+        "firewall6_legacy",
+        "nft",
+        "listener",
+        "resolver_sha256"
+      ],
+      "snapshot_assertion_failure_retained": true,
+      "only_difference": "the concurrently running owned DEB gate namespace disappeared through its verified driver cleanup",
+      "owned_namespace": "qeli-q33-pkg-20261008094523511895",
+      "own_DEB_driver_host_restored": true,
+      "regression_methods": 136,
+      "test_skips": 0,
+      "scope": "regression execution PASS; original before/after raw retained; namespace-list equality not claimed"
+    },
+    "local": {
+      "status": "PASS",
+      "commands": [
+        {
+          "script": "check_docs.py",
+          "rc": 0
+        },
+        {
+          "script": "test_native_recipes.py",
+          "rc": 0
+        },
+        {
+          "script": "test_release_ci_gate.py",
+          "rc": 0
+        }
+      ],
+      "docs_checks": 9,
+      "Markdown": 684,
+      "recipes_mocked_methods": 38,
+      "CI_admission_methods": 18,
+      "AST": "PASS",
+      "native_source_digest": "923b93a93106161bdc6409765682ac6d7b6562b7d64874a87a1303eddb3a5b49",
+      "native_SHA_entries": 14,
+      "native_evidence": "prior A/B + ABI preserved, no new builds",
+      "qeli_product_blobs": "unchanged from qualified production ELF/package 9afbb348"
+    },
+    "cleanup": [
+      {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008093417918369",
+        "archive_verified_locally": true,
+        "original_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      },
+      {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008093723871039",
+        "archive_verified_locally": true,
+        "original_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      },
+      {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008094028719015",
+        "archive_verified_locally": true,
+        "original_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      },
+      {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008094523511895",
+        "archive_verified_locally": true,
+        "original_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      },
+      {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-pkg-20261008094729014028",
+        "archive_verified_locally": true,
+        "original_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      },
+      {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-tuning-tests-20261008094228752777",
+        "archive_verified_locally": true,
+        "original_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      },
+      {
+        "status": "PASS",
+        "owned_root_removed": "/var/tmp/qeli-q33-tuning-tests-20261008094550396273",
+        "archive_verified_locally": true,
+        "original_service": "MainPID=777\nActiveState=active\n",
+        "host_processes": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      }
+    ]
+  },
+  "raw_packets": {
+    "q33-installer-manager-baseline-20261008": {
+      "name": "q33-installer-manager-baseline-20261008",
+      "files": 10,
+      "bytes": 69224782,
+      "manifest_sha256": "8ce35eca8c97d46073ad06dbc2be571bd6dcb7d04eb9f181b86f20fa81460e19",
+      "runtime_status": "FAIL_RETAINED",
+      "path": "audit-debt-20260924/q33-installer-manager-baseline-20261008",
+      "status": "SEALED"
+    },
+    "q33-installer-manager-fixed-20261008": {
+      "name": "q33-installer-manager-fixed-20261008",
+      "files": 10,
+      "bytes": 69208658,
+      "manifest_sha256": "17c8a911a9592d8417966f1d66f01392493760e18aacfce9d4aea1be23d3947b",
+      "runtime_status": "PASS",
+      "path": "audit-debt-20260924/q33-installer-manager-fixed-20261008",
+      "status": "SEALED"
+    },
+    "q33-installer-manager-deb-20261008": {
+      "name": "q33-installer-manager-deb-20261008",
+      "files": 11,
+      "bytes": 69701224,
+      "manifest_sha256": "4b9ee12c015f1b4194161721e0ec687290e47e32e235ef5545972d2b18c52ebc",
+      "runtime_status": "FAIL_RETAINED",
+      "path": "audit-debt-20260924/q33-installer-manager-deb-20261008",
+      "status": "SEALED"
+    },
+    "q33-installer-manager-deb-final-20261008": {
+      "name": "q33-installer-manager-deb-final-20261008",
+      "files": 10,
+      "bytes": 69683702,
+      "manifest_sha256": "883714acc70fa998ac89af6bb280a53e3d092248dab56f3b56fdd74c56c9fafb",
+      "runtime_status": "PASS",
+      "path": "audit-debt-20260924/q33-installer-manager-deb-final-20261008",
+      "status": "SEALED"
+    },
+    "q33-installer-manager-binary-final-20261008": {
+      "name": "q33-installer-manager-binary-final-20261008",
+      "files": 10,
+      "bytes": 69210622,
+      "manifest_sha256": "71f4c8d99be2893054892930f8e3ad849ef34e759647b0b34db090881b1d7cb5",
+      "runtime_status": "PASS",
+      "path": "audit-debt-20260924/q33-installer-manager-binary-final-20261008",
+      "status": "SEALED"
+    },
+    "q33-installer-tuning-tests-20261008": {
+      "name": "q33-installer-tuning-tests-20261008",
+      "files": 48,
+      "bytes": 12532172,
+      "manifest_sha256": "91e764f54dee88d5dc710f2de8a5fdc8fb00f86a717559c3a75a1f62044a8dd0",
+      "runtime_status": "FAIL_RETAINED",
+      "path": "audit-debt-20260924/q33-installer-tuning-tests-20261008",
+      "status": "SEALED"
+    },
+    "q33-installer-tuning-tests-final-20261008": {
+      "name": "q33-installer-tuning-tests-final-20261008",
+      "files": 55,
+      "bytes": 12547912,
+      "manifest_sha256": "24e7f70688b7c948f1565371e4ec8d8616f06a4214b4ebc2256877ab36b0884d",
+      "runtime_status": "PASS_SCOPED_WITH_NAMESPACE_OVERLAP",
+      "path": "audit-debt-20260924/q33-installer-tuning-tests-final-20261008",
+      "status": "SEALED"
+    }
+  },
+  "scope": "Q33 full one-shot installer and kernel tuning F445/Q33-F048: false BBR/PMTU success reproduced in complete original installer with real manager/VPN and readonly proc. Fix keeps private per-run readable runtime baseline, prior persistent files/UID/GID/mode/restore instructions, atomic publication, early tuning path guards, write status/normalized readback; skips writes without a baseline and reports partial application. Complete QELI_BIN+QELI_SRC and production QELI_DEB final24checks each PASS: actual CLI/Argon2/identity/INI/openssl/iptables/systemd owned adapter, five users/root-private links/default qeli/HTTPSloopback/MSS/generated pinned H1 VPN/three innerpings/TUNroute/cleanstops/reentry. Actual per-NET tcp_mtu_probing0->1->0 and prior persistent file bytes/mode recovery; other proc keys readonly during apply/restore return nonzero, not all-global-key/module/reboot qualification. Linux136regressions without skips including7tuningfault seams, ShellCheck0.10 warning/bashsyntax,recipes38/CIadmission18/docs9-684PASS;CIcommand added, not current Actions. Baseline false success and initial new implementation dev-fd/regression fixture failures retained; no process-substitution requirement remains. Final regression outer assertion FAIL retained for disappearing concurrent owned DEB namespace only; all other snapshot fields match and separate owner cleanup proves restoration. Seven SEALED credential-scanned SHA-backed-up/guard-cleaned roots preserve original777/845/network/resolver/kernel/hostELF,.10unused. Same production DEBb3d0363b/ELFf9c70e67 from9afbb348; Rust/Cargo/qeli blobs/native14SHA/source923b/priorA-B ABI unchanged, no heavy rebuild/benchmark. Q33IN_PROGRESS29-37DONE78.4%,8remain;Dockeractualimagevolume absentruntime OPEN,independentrelease/currentActions/Q31capacity3-5/Q29SIGKILLFAILENONET/Q30/exclusions/D06 accepted retained. No all-or-nothing installer rollback/SIGKILLfsyncdurability/emptyOSbootstrap/HTTPattestation promise; review recovery receipt after later operator edits. Preserve41casesacceptance+67prior supplements modulo source_digest,append68;20requiredautomated21advisoryphysical distinct. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

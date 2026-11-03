@@ -1,0 +1,405 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-12",
+  "qualification": {
+    "status": "CURRENT_INDEPENDENT_UID_COLD_UI_STARTUP_LOCKDOWN_PASS_STORAGE_RACE_FIXED",
+    "runtime_status": "PASS",
+    "runtime_error": null,
+    "source_identity": "b6496c10051dd6328b79c9953f100f9c46bdb4bf\n12bd8e210942a6c7c60aa50ef5ed60d0231b18ac\n",
+    "source_dirty": true,
+    "executed_pending_fixture_hashes": {
+      "scripts/audit_android_data_plane_lab.py": "cd0f5c40671f5304a4e5a8b9a83b7ad44f54038539e62123fe02349448e3946f",
+      "scripts/audit_android_release_ui.py": "56ac0b2d249bd3599fc8c999c5ad6f0cbeb8d3b2d91825ce3d1fbb031e347309",
+      "scripts/test_android_storage_admission.py": "f8f774bc27be3c4ec3ac0ec0a8b3c0bb98d4019b062b9697029a613344447815"
+    },
+    "storage_admission": [
+      {
+        "phase": "before-install",
+        "observations": 3,
+        "ready": true,
+        "elapsed_seconds": 16.995,
+        "initial_refusal": true
+      },
+      {
+        "phase": "before-import",
+        "observations": 1,
+        "ready": true,
+        "elapsed_seconds": 0.446,
+        "initial_refusal": false
+      }
+    ],
+    "helper_methods": 8,
+    "canonical_android_inputs": 126,
+    "apk_inputs": {
+      "fixed/app.apk": {
+        "bytes": 12207583,
+        "sha256": "77c120515d6496969fab475dd16e4938e75c636224cf892a7bc06c2f245b0c95"
+      },
+      "fixed/test.apk": {
+        "bytes": 772485,
+        "sha256": "4d6f5107a37da728ec74a0a3b1719b9c6daee7a02331d09dc2ee2c6cd3935396"
+      },
+      "qeli": {
+        "bytes": 14454184,
+        "sha256": "52511cebd43aca364e317c04955287630dc24055de32168206d280ddbee82069"
+      },
+      "audit_android_data_plane_lab.py": {
+        "bytes": 53440,
+        "sha256": "cd0f5c40671f5304a4e5a8b9a83b7ad44f54038539e62123fe02349448e3946f"
+      },
+      "android_lab_ui.py": {
+        "bytes": 7817,
+        "sha256": "c5d2bd815240ab3c7003a638416fd1bc4a30951a3f7fa79cb02a38889f41eb37"
+      },
+      "audit_udp_handshake_contracts.py": {
+        "bytes": 19012,
+        "sha256": "7d85785fd6d428e95a607aab276a462e5fc65c8f14273b77ff659a8cafa76510"
+      },
+      "audit_android_network_handover.py": {
+        "bytes": 9275,
+        "sha256": "4397909b4f528165a869c9a69bfb7d092d4fa4a29b35771988bde13f32550bfc"
+      },
+      "audit_android_release_ui.py": {
+        "bytes": 7602,
+        "sha256": "56ac0b2d249bd3599fc8c999c5ad6f0cbeb8d3b2d91825ce3d1fbb031e347309"
+      },
+      "audit_android_nat64.py": {
+        "bytes": 11650,
+        "sha256": "6e3dbf3a971f9c85965ec08cfdc9c4cbed2e3353b444648b2eed723b35153a78"
+      },
+      "audit_android_leak_bursts.py": {
+        "bytes": 7317,
+        "sha256": "839620715464254156c12093e82b2f722e39c84952d2e5780854c18323e8bec3"
+      },
+      "audit_android_startup_dns.py": {
+        "bytes": 9424,
+        "sha256": "53d7a6d9852c3d9ad8fa7388462f9c3f3ab84ad9266bb6491b1a4c729d069765"
+      },
+      "audit_android_dns_fixture.py": {
+        "bytes": 1421,
+        "sha256": "02fa34c1ee922d32756455411c6f24acee39b51b0126412b3a453c33a3a5b2ce"
+      }
+    },
+    "ini_sha256": "47b1fdfb3d03243925f1b5a025c0ad8b9adb14b11015ce6a8750338a6b5351a7",
+    "ini_upload_sha_assertion_executed": true,
+    "independent_probe_uids": {
+      "com.qeli": "10148",
+      "com.qeli.test": "10149"
+    },
+    "burst_metrics": {
+      "physical-baseline": {
+        "samples": 48,
+        "success": 48
+      },
+      "cold-lockdown-start": {
+        "samples": 96,
+        "success": 64
+      },
+      "startup-followup": {
+        "samples": 48,
+        "success": 48
+      },
+      "connected-steady": {
+        "samples": 48,
+        "success": 48
+      },
+      "force-stop": {
+        "samples": 48,
+        "success": 23
+      },
+      "stopped-lockdown": {
+        "samples": 48,
+        "success": 0
+      }
+    },
+    "successful_burst_samples": 231,
+    "echo_receipts": 241,
+    "all_successful_burst_payload_sha_correlated_to_server": true,
+    "cold_start": {
+      "immediate_first_socket_status": "FAIL_POST_PLAN_BLOCKING",
+      "network_plan_applied_device_epoch": 1791781975.657,
+      "first_post_plan": {
+        "ipv4-tcp": {
+          "sample": 13,
+          "delay_ms": 51.0,
+          "success": false,
+          "detail": "error=ConnectException:failed to connect to /198.19.0.1 (port 26000) from /:: (port 0) after 250ms: connect failed: EACCES (Permission denied)"
+        },
+        "ipv4-udp": {
+          "sample": 13,
+          "delay_ms": 50.0,
+          "success": false,
+          "detail": "error=SocketException:Pending connect failure"
+        },
+        "ipv6-tcp": {
+          "sample": 13,
+          "delay_ms": 49.0,
+          "success": false,
+          "detail": "error=ConnectException:failed to connect to /2001:db8:29::1 (port 26000) from /:: (port 0) after 250ms: connect failed: EACCES (Permission denied)"
+        },
+        "ipv6-udp": {
+          "sample": 13,
+          "delay_ms": 40.0,
+          "success": false,
+          "detail": "error=SocketException:Pending connect failure"
+        }
+      },
+      "coverage": "First fresh sampled sockets after APPLIED; bounded sampling, not synchronous CONNECTED observation",
+      "published_start": {
+        "status": "PASS",
+        "device_ms": 1791781976192,
+        "delay_after_plan_ms": 535.0,
+        "post_connected_samples": 80,
+        "errors": 0,
+        "cold_burst_post_connected_samples": 32,
+        "coverage": "COLD_AND_FOLLOWUP",
+        "first_post_connected": {
+          "ipv4-tcp": {
+            "sample": 16,
+            "uid": 10149,
+            "family": "ipv4",
+            "protocol": "tcp",
+            "started_ms": 1791781976351,
+            "done_ms": 1791781976393,
+            "success": true,
+            "payload_sha256": "50d61728698864dbdb6eeb6d36f5488c6d6218d960fe9bb0c71104bc198155c2",
+            "reply_sha256": "518b87815fda79036c5458489ff20e4eb301bbb03de77124aa5a739cf95622e7",
+            "detail": "source=10.86.0.2 reply=Q29:Q29RECOVERED sha256=50d61728698864dbdb6eeb6d36f5488c6d6218d960fe9bb0c71104bc198155c2 reply_sha256=518b87815fda79036c5458489ff20e4eb301bbb03de77124aa5a739cf95622e7",
+            "source_phase": "cold-lockdown-start"
+          },
+          "ipv4-udp": {
+            "sample": 16,
+            "uid": 10149,
+            "family": "ipv4",
+            "protocol": "udp",
+            "started_ms": 1791781976340,
+            "done_ms": 1791781976346,
+            "success": true,
+            "payload_sha256": "50d61728698864dbdb6eeb6d36f5488c6d6218d960fe9bb0c71104bc198155c2",
+            "reply_sha256": "d0319e6f26a9e209379380b97a53f5144f1399d5724fbcdca5364b2feda6f7da",
+            "detail": "source=10.86.0.2 reply=Q29:Q29RECOVERED sha256=50d61728698864dbdb6eeb6d36f5488c6d6218d960fe9bb0c71104bc198155c2 reply_sha256=d0319e6f26a9e209379380b97a53f5144f1399d5724fbcdca5364b2feda6f7da",
+            "source_phase": "cold-lockdown-start"
+          },
+          "ipv6-tcp": {
+            "sample": 16,
+            "uid": 10149,
+            "family": "ipv6",
+            "protocol": "tcp",
+            "started_ms": 1791781976342,
+            "done_ms": 1791781976357,
+            "success": true,
+            "payload_sha256": "50d61728698864dbdb6eeb6d36f5488c6d6218d960fe9bb0c71104bc198155c2",
+            "reply_sha256": "518b87815fda79036c5458489ff20e4eb301bbb03de77124aa5a739cf95622e7",
+            "detail": "source=fd86:29:1::2 reply=Q29:Q29RECOVERED sha256=50d61728698864dbdb6eeb6d36f5488c6d6218d960fe9bb0c71104bc198155c2 reply_sha256=518b87815fda79036c5458489ff20e4eb301bbb03de77124aa5a739cf95622e7",
+            "source_phase": "cold-lockdown-start"
+          },
+          "ipv6-udp": {
+            "sample": 16,
+            "uid": 10149,
+            "family": "ipv6",
+            "protocol": "udp",
+            "started_ms": 1791781976330,
+            "done_ms": 1791781976342,
+            "success": true,
+            "payload_sha256": "50d61728698864dbdb6eeb6d36f5488c6d6218d960fe9bb0c71104bc198155c2",
+            "reply_sha256": "d0319e6f26a9e209379380b97a53f5144f1399d5724fbcdca5364b2feda6f7da",
+            "detail": "source=fd86:29:1::2 reply=Q29:Q29RECOVERED sha256=50d61728698864dbdb6eeb6d36f5488c6d6218d960fe9bb0c71104bc198155c2 reply_sha256=d0319e6f26a9e209379380b97a53f5144f1399d5724fbcdca5364b2feda6f7da",
+            "source_phase": "cold-lockdown-start"
+          }
+        },
+        "product_log": "         1791781976.267  1977  2692 D VpnSvc  : Android VPN CONNECTED: generation=1 network=437197393933 device_ms=1791781976192"
+      }
+    },
+    "dns_probe_cases": [
+      {
+        "stage": "physical-baseline",
+        "mode": "raw",
+        "name": "q29-1791781969022812114.test",
+        "expected_reply": true,
+        "success": true,
+        "host_before": 1791781969.0228155,
+        "host_after": 1791781969.1013768,
+        "line": "DNS uid=10149 mode=raw name=q29-1791781969022812114.test started_ms=1791781968434 done_ms=1791781968438 source=10.0.2.15 reply_sha256=5c39d43fddd00fe5ed1bb3006591ceeddd999f2c94369cb5bc155a5817310428"
+      },
+      {
+        "stage": "connected",
+        "mode": "system",
+        "name": "q29-1791781969022812115.test",
+        "expected_reply": true,
+        "success": true,
+        "host_before": 1791781985.2737536,
+        "host_after": 1791781985.332427,
+        "line": "DNS uid=10149 mode=system name=q29-1791781969022812115.test started_ms=1791781984672 done_ms=1791781984680 answers=198.19.0.1,2001:db8:29::1"
+      },
+      {
+        "stage": "connected",
+        "mode": "raw",
+        "name": "q29-1791781969022812116.test",
+        "expected_reply": true,
+        "success": true,
+        "host_before": 1791781985.332611,
+        "host_after": 1791781985.3899543,
+        "line": "DNS uid=10149 mode=raw name=q29-1791781969022812116.test started_ms=1791781984733 done_ms=1791781984737 source=10.86.0.2 reply_sha256=283545e743d9ab385c6a0f59f7f2c63413b1cae390eff8b204f11b9b9888eea6"
+      },
+      {
+        "stage": "blocked",
+        "mode": "system",
+        "name": "q29-1791781969022812117.test",
+        "expected_reply": false,
+        "success": false,
+        "host_before": 1791781997.8010123,
+        "host_after": 1791781997.854001,
+        "line": "DNS uid=10149 mode=system name=q29-1791781969022812117.test started_ms=1791781997199 done_ms=1791781997202 error=ExecutionException:java.net.UnknownHostException: Unable to resolve host \"q29-1791781969022812117.test\": No address associated with hostname"
+      },
+      {
+        "stage": "blocked",
+        "mode": "raw",
+        "name": "q29-1791781969022812118.test",
+        "expected_reply": false,
+        "success": false,
+        "host_before": 1791781997.8541405,
+        "host_after": 1791781997.9066591,
+        "line": "DNS uid=10149 mode=raw name=q29-1791781969022812118.test started_ms=1791781997251 done_ms=1791781997253 error=SocketException:Pending connect failure"
+      },
+      {
+        "stage": "manual-recovery",
+        "mode": "system",
+        "name": "q29-1791781969022812119.test",
+        "expected_reply": true,
+        "success": true,
+        "host_before": 1791782027.784825,
+        "host_after": 1791782027.8418968,
+        "line": "DNS uid=10149 mode=system name=q29-1791781969022812119.test started_ms=1791782027183 done_ms=1791782027190 answers=198.19.0.1,2001:db8:29::1"
+      },
+      {
+        "stage": "manual-recovery",
+        "mode": "raw",
+        "name": "q29-1791781969022812120.test",
+        "expected_reply": true,
+        "success": true,
+        "host_before": 1791782027.842328,
+        "host_after": 1791782027.9071367,
+        "line": "DNS uid=10149 mode=raw name=q29-1791781969022812120.test started_ms=1791782027241 done_ms=1791782027244 source=10.86.0.2 reply_sha256=b21bdaa7080a30144061f34a2c15998175e1631c2431d70b9cb050ab0c264f6f"
+      }
+    ],
+    "resolver_diagnostics": {
+      "connectivity": [
+        "DNS uid=10149 mode=connectivity name=q29-1791781985390111281.test started_ms=1791781984788 active=101 capabilities=[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null] links={InterfaceName: tun0 LinkAddresses: [ 10.86.0.2/32,fd86:29:1::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 10.86.0.0/24 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::/120 -> :: tun0 mtu 0,0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,198.19.0.53/32 -> 0.0.0.0 tun0 mtu 0,10.86.0.2/32 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::2/128 -> :: tun0 mtu 0 ]}",
+        "DNS uid=10149 mode=connectivity name=q29-1791781985390111281.test started_ms=1791781984788 network=null target=8.8.8.8 phase=connected source=/10.86.0.2:34805",
+        "DNS uid=10149 mode=connectivity name=q29-1791781985390111281.test started_ms=1791781984788 network=null target=2000:: phase=connected source=/[fd86:29:1::2]:41965",
+        "DNS uid=10149 mode=connectivity name=q29-1791781985390111281.test started_ms=1791781984788 network=null target=198.19.0.53 phase=connected source=/10.86.0.2:43415",
+        "DNS uid=10149 mode=connectivity name=q29-1791781985390111281.test started_ms=1791781984788 network=null target=2001:db8:29::1 phase=connected source=/[fd86:29:1::2]:50975",
+        "DNS uid=10149 mode=connectivity name=q29-1791781985390111281.test started_ms=1791781984788 network=101 target=8.8.8.8 phase=connected source=/10.86.0.2:56414",
+        "DNS uid=10149 mode=connectivity name=q29-1791781985390111281.test started_ms=1791781984788 network=101 target=2000:: phase=connected source=/[fd86:29:1::2]:48759",
+        "DNS uid=10149 mode=connectivity name=q29-1791781985390111281.test started_ms=1791781984788 network=101 target=198.19.0.53 phase=connected source=/10.86.0.2:58898",
+        "DNS uid=10149 mode=connectivity name=q29-1791781985390111281.test started_ms=1791781984788 network=101 target=2001:db8:29::1 phase=connected source=/[fd86:29:1::2]:41245",
+        "DNS uid=10149 mode=connectivity name=q29-1791781985390111281.test started_ms=1791781984788 done_ms=1791781984796 diagnostic=COMPLETE"
+      ],
+      "auto": [
+        "DNS uid=10149 mode=auto name=q29-1791781985472541234.test started_ms=1791781984871 active=101 capabilities=[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null] links={InterfaceName: tun0 LinkAddresses: [ 10.86.0.2/32,fd86:29:1::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 10.86.0.0/24 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::/120 -> :: tun0 mtu 0,0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,198.19.0.53/32 -> 0.0.0.0 tun0 mtu 0,10.86.0.2/32 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::2/128 -> :: tun0 mtu 0 ]}",
+        "DNS uid=10149 mode=auto name=q29-1791781985472541234.test started_ms=1791781984871 done_ms=1791781984876 error=ExecutionException:android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)"
+      ],
+      "a": [
+        "DNS uid=10149 mode=a name=q29-1791781985554905858.test started_ms=1791781984956 active=101 capabilities=[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null] links={InterfaceName: tun0 LinkAddresses: [ 10.86.0.2/32,fd86:29:1::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 10.86.0.0/24 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::/120 -> :: tun0 mtu 0,0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,198.19.0.53/32 -> 0.0.0.0 tun0 mtu 0,10.86.0.2/32 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::2/128 -> :: tun0 mtu 0 ]}",
+        "DNS uid=10149 mode=a name=q29-1791781985554905858.test started_ms=1791781984956 done_ms=1791781984965 answers=198.19.0.1"
+      ],
+      "aaaa": [
+        "DNS uid=10149 mode=aaaa name=q29-1791781985649204841.test started_ms=1791781985049 active=101 capabilities=[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null] links={InterfaceName: tun0 LinkAddresses: [ 10.86.0.2/32,fd86:29:1::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 10.86.0.0/24 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::/120 -> :: tun0 mtu 0,0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,198.19.0.53/32 -> 0.0.0.0 tun0 mtu 0,10.86.0.2/32 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::2/128 -> :: tun0 mtu 0 ]}",
+        "DNS uid=10149 mode=aaaa name=q29-1791781985649204841.test started_ms=1791781985049 done_ms=1791781985057 answers=2001:db8:29::1"
+      ],
+      "auto-active": [
+        "DNS uid=10149 mode=auto-active name=q29-1791781985743051683.test started_ms=1791781985147 active=101 capabilities=[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null] links={InterfaceName: tun0 LinkAddresses: [ 10.86.0.2/32,fd86:29:1::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 10.86.0.0/24 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::/120 -> :: tun0 mtu 0,0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,198.19.0.53/32 -> 0.0.0.0 tun0 mtu 0,10.86.0.2/32 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::2/128 -> :: tun0 mtu 0 ]}",
+        "DNS uid=10149 mode=auto-active name=q29-1791781985743051683.test started_ms=1791781985147 done_ms=1791781985155 answers=198.19.0.1,2001:db8:29::1"
+      ],
+      "a-active": [
+        "DNS uid=10149 mode=a-active name=q29-1791781985848199677.test started_ms=1791781985248 active=101 capabilities=[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null] links={InterfaceName: tun0 LinkAddresses: [ 10.86.0.2/32,fd86:29:1::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 10.86.0.0/24 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::/120 -> :: tun0 mtu 0,0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,198.19.0.53/32 -> 0.0.0.0 tun0 mtu 0,10.86.0.2/32 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::2/128 -> :: tun0 mtu 0 ]}",
+        "DNS uid=10149 mode=a-active name=q29-1791781985848199677.test started_ms=1791781985248 done_ms=1791781985254 answers=198.19.0.1"
+      ],
+      "aaaa-active": [
+        "DNS uid=10149 mode=aaaa-active name=q29-1791781985930239868.test started_ms=1791781985328 active=101 capabilities=[ Transports: CELLULAR|VPN Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=1800Kbps LinkDnBandwidth>=4300Kbps TransportInfo: <VpnTransportInfo{type=1, sessionId=null, bypassable=false longLivedTcpConnectionsExpensive=false}> UnderlyingNetworks: Null] links={InterfaceName: tun0 LinkAddresses: [ 10.86.0.2/32,fd86:29:1::2/128 ] DnsAddresses: [ /198.19.0.53 ] Domains:  MTU: 1400 Routes: [ 10.86.0.0/24 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::/120 -> :: tun0 mtu 0,0.0.0.0/0 -> 0.0.0.0 tun0 mtu 0,::/0 -> :: tun0 mtu 0,198.19.0.53/32 -> 0.0.0.0 tun0 mtu 0,10.86.0.2/32 -> 0.0.0.0 tun0 mtu 0,fd86:29:1::2/128 -> :: tun0 mtu 0 ]}",
+        "DNS uid=10149 mode=aaaa-active name=q29-1791781985930239868.test started_ms=1791781985328 done_ms=1791781985334 answers=2001:db8:29::1"
+      ]
+    },
+    "auto_resolver_errors": {
+      "auto": [
+        "DNS uid=10149 mode=auto name=q29-1791781985472541234.test started_ms=1791781984871 done_ms=1791781984876 error=ExecutionException:android.net.DnsResolver$DnsException: android.system.ErrnoException: resNetworkQuery failed: ENONET (Machine is not on the network)"
+      ],
+      "auto-active": []
+    },
+    "manual_force_stop_recovery": [
+      {
+        "uid": 10149,
+        "echoed": 1,
+        "expected_reply": true,
+        "family": "ipv4",
+        "protocol": "tcp",
+        "payload_bytes": 16384,
+        "payload_sha256": "1a0ce6b57615c177812f8f584460ac3e436278b96ad28227c06033d50b0c753b",
+        "reply_sha256": "a6defc47f2467035b237d83b4a3a061bcfd7c32651502b922cdef22c1f45390c"
+      },
+      {
+        "uid": 10149,
+        "echoed": 1,
+        "expected_reply": true,
+        "family": "ipv4",
+        "protocol": "udp",
+        "payload_bytes": 257,
+        "payload_sha256": "7fff30aaf3f28315f42aebf563d8fdfbfd0108f31667e07890cbbc6203634e0c",
+        "reply_sha256": "336e51a723c8a07d47004894ef0f036ca3ba914c3c603f8cd462276d4a65ccc6"
+      },
+      {
+        "uid": 10149,
+        "echoed": 1,
+        "expected_reply": true,
+        "family": "ipv6",
+        "protocol": "tcp",
+        "payload_bytes": 16384,
+        "payload_sha256": "1a0ce6b57615c177812f8f584460ac3e436278b96ad28227c06033d50b0c753b",
+        "reply_sha256": "a6defc47f2467035b237d83b4a3a061bcfd7c32651502b922cdef22c1f45390c"
+      },
+      {
+        "uid": 10149,
+        "echoed": 1,
+        "expected_reply": true,
+        "family": "ipv6",
+        "protocol": "udp",
+        "payload_bytes": 257,
+        "payload_sha256": "7fff30aaf3f28315f42aebf563d8fdfbfd0108f31667e07890cbbc6203634e0c",
+        "reply_sha256": "336e51a723c8a07d47004894ef0f036ca3ba914c3c603f8cd462276d4a65ccc6"
+      }
+    ],
+    "OS_policy": {
+      "always_on_vpn_app": "com.qeli",
+      "always_on_vpn_lockdown": "1"
+    },
+    "SIGKILL_gate": "Historical failure remains open; force-stop/user restart is a different lifecycle",
+    "first_socket_after_plan_status": "FAIL_POST_PLAN_BLOCKING",
+    "ordinary_production_rules_apk_qualified": false,
+    "physical_platforms_qualified": false,
+    "elapsed_seconds": 256.91,
+    "host_service_userdata_preserved": true,
+    "Q29": "IN_PROGRESS",
+    "official_done": 32,
+    "total": 37,
+    "no_push_deploy_release": true,
+    "all_241_receipts_correlated_to_independent_UID_replies": true,
+    "ten_single_socket_probes_correlated": true,
+    "actual_guest_memory": {
+      "requested_mb": 1536,
+      "actual_guest_total_kib": 1505652,
+      "explicit_lowram_override": true
+    },
+    "initial_qualifier_refusal": "Local qualifier incorrectly required prior MemTotal1505648; current1505652 differs by4KiB and is within the unchanged1536MiB reserved-memory admission; original runtime not repeated",
+    "no_new_native_JVM_builds": true
+  },
+  "cleanup": {
+    "status": "OWNED_ROOT_REMOVED_NO_PROCESSES_OR_MOUNTS",
+    "root": "/var/tmp/qeli-q29-data-current-0c798e706a204d76b85f004bd9f8997b",
+    "owned_file_bytes": 31242616,
+    "free_before": 7615143936,
+    "free_after": 7647035392
+  },
+  "raw_packet": "audit-debt-20260924/q29-storage-startup-20261012",
+  "full_release_preflight_qualified": false,
+  "whole_audit_complete": false
+}

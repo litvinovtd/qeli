@@ -1,0 +1,110 @@
+{
+  "status": "ACTUAL_SOURCE_COMPILER_PASS_SDK_FAILURE_ARCHIVE_AND_CLEANUP_VERIFIED",
+  "source_commit": "893337952989a3d249b944e016b6feb5b75fe197",
+  "source_compiler_PASS": true,
+  "cold_SDK_graph_PASS": false,
+  "Q31_closed": false,
+  "source_compile_seconds": 18519.18053315417,
+  "source_install_seconds": 5.3792705880478024,
+  "actual_clang_selection": {
+    "status": "ACTUAL_LLVM_CMAKE_CLANG_C_CXX_SELECTED",
+    "cache_relative": "build/x86_64-unknown-linux-gnu/llvm/build/CMakeCache.txt",
+    "cache_sha256": "a7fbe2b9463890e735a96c0401aa35675cab62b25899da22902b9e6dd423c859",
+    "host_compilers": {
+      "cc": "/usr/bin/clang",
+      "cxx": "/usr/bin/clang++"
+    },
+    "compiler_ids": {
+      "C": "Clang",
+      "CXX": "Clang"
+    },
+    "prebuilt_llvm_substitution": false
+  },
+  "installed_rustc_sha256": "5c8f41a90101847ae5b9e4493e2bc68b0d223e3e1bcccc8e867f9e039dcdf991",
+  "compiler_result_sha256": "379cd5d44886d19fdb0b4cc205bfd8424aab6bcb26db001c3fdf8a0fa8d089d4",
+  "compiler_archive_sha256": "7c397c00290f6509b2f89bc7c23133f55a0d7f59ce22088eb8554514bdd882d5",
+  "SDK_failure_qualification": {
+    "status": "ACTUAL_SOURCE_COMPILER_PASS_SDK_FAILURE_ARCHIVE_AND_CLEANUP_VERIFIED",
+    "source_compiler_PASS": true,
+    "cold_SDK_graph_PASS": false,
+    "Q31_closed": false,
+    "execution": {
+      "status": "PACKAGE_OR_RUNTIME_FAILURE_RETAINED",
+      "started_unix": 1792043833.6461565,
+      "steps": [
+        {
+          "label": "source-sdk-consumer",
+          "exit": 1,
+          "seconds": 12.009588562883437,
+          "log_sha256": "dadaaff0201dc7b996934448fde5808c8533b0c2a4f77b2328a391516fd98e3d"
+        }
+      ],
+      "cold_SDK_graph_PASS": false,
+      "budgets": {
+        "source_sdk_seconds": 3300,
+        "runtime_seconds": 300,
+        "total_seconds": 3600
+      },
+      "error": "source-sdk-consumer failed; original log retained",
+      "finished_unix": 1792043845.8055232,
+      "elapsed_seconds": 12.159297371050343
+    },
+    "compiler_packet": "q31-clean-lab-source-r2-20261015",
+    "consumer_packet": "q31-clean-lab-consumer-r4-20261015",
+    "original_outcome_retained": true,
+    "archive_sha256": "69781888d5fa0ad9f2a9bb9ae93125254e540a550930bf15ff67cee8629820ae",
+    "cleanup_sha256": "8373d4c261bb9d9827448d6cfb86842a41f092690d2c9911903771e8de491f91",
+    "observed_unix": 1792043900.770411
+  },
+  "SDK_failure_stage": "defconfig",
+  "cause": "Consumer prepended SDK-generated host/bin to ORIG_PATH; host prerequisite checks shadowed their own canonical tools.",
+  "cause_reproduction": {
+    "status": "SDK_ORIG_PATH_SELF_SHADOW_REPRODUCED_EXTERNAL_PATH_PASSES",
+    "macro_sha256": "cdce2173b998174bb002d3b5cdfe5438c170931269a3b75f1257faeb092b3107",
+    "cases": {
+      "self-shadowed": {
+        "exit": 2,
+        "log_sha256": "b65ae6d5bff4606265ff4126fadec30322a07f5c8bcd7cab8ac824f5978393d1",
+        "original_symlinks": {
+          "bash": "/usr/bin/bash",
+          "cp": "/usr/bin/cp",
+          "grep": "/usr/bin/grep",
+          "python3": "/usr/bin/python3"
+        },
+        "final_symlinks": {
+          "bash": "/usr/bin/bash",
+          "cp": "/usr/bin/cp",
+          "grep": "/usr/bin/grep",
+          "python3": "/usr/bin/python3"
+        },
+        "output": "Checking 'bash'... failed.\nChecking 'cp'... failed.\nChecking 'grep'... failed.\nChecking 'python3'... failed.\n\nSDK test: missing bash\nSDK test: missing cp\nSDK test: missing grep\nSDK test: missing python3\n\nmake: *** [/var/tmp/qeli-sdk-prereq-30389419c03d4721a2158b2a1e233e62/prereq.mk:9: prereq] Error 1\n"
+      },
+      "external-only": {
+        "exit": 0,
+        "log_sha256": "b25044b887686f4232304ed238447d7a672055821133d55b73db82e6dc486a77",
+        "original_symlinks": {
+          "bash": "/usr/bin/bash",
+          "cp": "/usr/bin/cp",
+          "grep": "/usr/bin/grep",
+          "python3": "/usr/bin/python3"
+        },
+        "final_symlinks": {
+          "bash": "/usr/bin/bash",
+          "cp": "/usr/bin/cp",
+          "grep": "/usr/bin/grep",
+          "python3": "/usr/bin/python3"
+        },
+        "output": "Checking 'bash'... ok.\nChecking 'cp'... ok.\nChecking 'grep'... ok.\nChecking 'python3'... ok.\n"
+      }
+    },
+    "source_compiler_runs": 0,
+    "product_builds": 0,
+    "system_tools_modified": false,
+    "host_state_preserved": true
+  },
+  "installed_compiler_deleted_by_old_consumer_cleanup": true,
+  "compiler_reuse_available": false,
+  "completed_SDK_IPK_opkg_userspace_campaign": false,
+  "host_preserved": true,
+  "no_push_deploy_release": true
+}

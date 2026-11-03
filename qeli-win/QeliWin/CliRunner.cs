@@ -8,6 +8,7 @@ namespace QeliWin;
 /// <summary>
 /// Headless command-line modes for testing without the GUI:
 ///   QeliWin.exe selftest             — WinDivert/Wintun/routes/DNS platform checks
+///   QeliWin.exe selftest-storage     — isolated storage migration/cache regressions
 ///   QeliWin.exe windivert-smoke       — elevated production-filter smoke test
 ///   QeliWin.exe handshake &lt;link|ini|file&gt; — connect + full handshake only
 ///   QeliWin.exe connect   &lt;link|ini|file&gt; [seconds] — full tunnel (needs admin)
@@ -21,6 +22,7 @@ public static class CliRunner
         return verb.ToLowerInvariant() switch
         {
             "selftest" => SelfTest(),
+            "selftest-storage" => StorageSelfTest(),
             "windivert-smoke" => WinDivertSmoke(),
             "handshake" => Handshake(rest),
             "connect" => Connect(rest),
@@ -34,11 +36,22 @@ public static class CliRunner
 
     private static int Usage()
     {
-        Console.WriteLine("Usage: QeliWin.exe [selftest | windivert-smoke | handshake <link|ini|file> | connect <link|ini|file> [seconds]]");
+        Console.WriteLine("Usage: QeliWin.exe [selftest | selftest-storage | windivert-smoke | handshake <link|ini|file> | connect <link|ini|file> [seconds]]");
         return 2;
     }
 
     // ── platform self-test ──────────────────────────────────────────────────────
+    private static int StorageSelfTest()
+    {
+        int failed = 0;
+        QeliWin.Service.StorageMigrationSelfTest.Run((name, ok) =>
+        {
+            Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}");
+            if (!ok) failed++;
+        });
+        return failed == 0 ? 0 : 1;
+    }
+
     private static int SelfTest()
     {
         int failed = 0;
@@ -48,26 +61,46 @@ public static class CliRunner
             if (!ok) failed++;
         }
 
-        Console.WriteLine("qeli-win platform self-test");
-        WinDivertSelfTest.RunUnit(Check);
-        WindowsRoamingSocket.RunSelfTest(Check);
-        VpnTunnel.RunRoamingCapabilitySelfTest(Check);
-        NetworkConfigurator.RunDnsLifecycleSelfTest(Check);
-        NetworkConfigurator.RunRouteLifecycleSelfTest(Check);
+        // One unavailable native dependency must not hide independent route/DNS results.
+        // Keep the overall exit code nonzero while collecting every diagnostic group.
+        void RunGroup(string name, Action action)
+        {
+            try { action(); }
+            catch (Exception error)
+            {
+                Check($"{name}: {error.GetType().Name}: {error.Message}", false);
+            }
+        }
 
-        bool wintunLoaded;
-        uint driverVersion = 0;
-        try
+        Console.WriteLine("qeli-win platform self-test");
+        RunGroup("DPAPI profile store", () => QeliWin.Model.ProfileStoreSelfTest.Run(Check));
+        RunGroup("service profile storage", () => QeliWin.Service.ServiceProfileSelfTest.Run(Check));
+        RunGroup("service control and autostart", () => QeliWin.Service.ServiceControlSelfTest.Run(Check));
+        RunGroup("service observation and registration", () => QeliWin.Service.ServiceObservationSelfTest.Run(Check));
+        RunGroup("storage migration and native bundle", () => QeliWin.Service.StorageMigrationSelfTest.Run(Check));
+        RunGroup("driver resource lifetime", () => DriverResourceSelfTest.Run(Check));
+        RunGroup("owned adapter sharing policy", () => AdapterSharingSelfTest.Run(Check));
+        RunGroup("WinDivert unit", () => WinDivertSelfTest.RunUnit(Check));
+        RunGroup("roaming socket", () => WindowsRoamingSocket.RunSelfTest(Check));
+        RunGroup("DNS lifecycle", () => NetworkConfigurator.RunDnsLifecycleSelfTest(Check));
+        RunGroup("route lifecycle", () => NetworkConfigurator.RunRouteLifecycleSelfTest(Check));
+        RunGroup("native roaming capability", () => VpnTunnel.RunRoamingCapabilitySelfTest(Check));
+        RunGroup("Wintun probe", () =>
         {
-            driverVersion = WintunAdapter.ProbeLoad();
-            wintunLoaded = true;
-        }
-        catch (DllNotFoundException)
-        {
-            wintunLoaded = false;
-        }
-        Check($"Wintun loads from embedded resource (driver {driverVersion >> 16}.{driverVersion & 0xFFFF})",
-            wintunLoaded);
+            bool wintunLoaded;
+            uint driverVersion = 0;
+            try
+            {
+                driverVersion = WintunAdapter.ProbeLoad();
+                wintunLoaded = true;
+            }
+            catch (DllNotFoundException)
+            {
+                wintunLoaded = false;
+            }
+            Check($"Wintun loads from embedded resource (driver {driverVersion >> 16}.{driverVersion & 0xFFFF})",
+                wintunLoaded);
+        });
 
         Console.WriteLine(failed == 0 ? "ALL PASS" : $"{failed} FAILED");
         return failed == 0 ? 0 : 1;
@@ -84,10 +117,10 @@ public static class CliRunner
 
 
     // ── live handshake / connect ──────────────────────────────────────────────────
-    // Accepts a file path OR an inline config, in any format: flat-INI (current),
-    // an INI file/text or a qeli:// link. Retired formats are rejected by VpnConfig.Parse.
+    // Accepts a UTF-8 flat-INI file, inline INI or a qeli:// link.
+    // Retired config formats are rejected by the shared parser.
     private static VpnConfig LoadConfig(string arg) =>
-        VpnConfig.Parse(File.Exists(arg) ? File.ReadAllText(arg) : arg);
+        File.Exists(arg) ? VpnConfig.ParseFile(arg) : VpnConfig.Parse(arg);
 
     private static int Handshake(string[] rest)
     {

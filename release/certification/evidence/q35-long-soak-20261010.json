@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS",
+  "source_digest": "348df699cfc863a1b5a0710956a4a2de40234182eb11bf92b81520c12bc3b90b",
+  "qualification_source_commit": "e101efb3ea3711394b8e0aa7f8680fd027ae4844",
+  "product_source_commit": "e101efb3ea3711394b8e0aa7f8680fd027ae4844",
+  "verification_id": "Q35-V004",
+  "findings_closed": [
+    "Q35-F008 concurrent 30-minute TCP/UDP soak gap"
+  ],
+  "verification": {
+    "runtime_proof": {
+      "status": "PASS_Q35_30MIN_TCP_UDP_SOAK",
+      "elapsed_seconds": 1850.900753948954,
+      "started": 1791630834.0914311,
+      "finished": 1791632684.9921854,
+      "iterations": 900,
+      "simultaneous_active_seconds": 1835.88836317393,
+      "transport_results": [
+        {
+          "name": "tcp",
+          "rc": 0,
+          "results": [
+            [
+              "fake-tls/soak/tun/single",
+              "16",
+              "0"
+            ]
+          ],
+          "progress_last": "900",
+          "resource": [
+            "  RESOURCE baseline transport=tcp client_pid=183 server_pid=85 client_rss_kib=50812 server_rss_kib=56156 client_fd=18 server_fd=21 client_sockets=6 server_sockets=7",
+            "  RESOURCE final transport=tcp client_rss_kib=52400 server_rss_kib=60844 client_rss_delta_kib=1588 server_rss_delta_kib=4688 client_rss_peak_delta_kib=2068 server_rss_peak_delta_kib=4688 client_fd=18 server_fd=21 client_sockets=6 server_sockets=7"
+          ],
+          "start": 773174.890663342,
+          "end": 775025.790644306
+        },
+        {
+          "name": "udp",
+          "rc": 0,
+          "results": [
+            [
+              "quic/soak/tun",
+              "17",
+              "0"
+            ]
+          ],
+          "progress_last": "900",
+          "resource": [
+            "  RESOURCE baseline transport=udp client_pid=195 server_pid=97 client_rss_kib=54360 server_rss_kib=66048 client_fd=18 server_fd=21 client_sockets=6 server_sockets=7",
+            "  RESOURCE final transport=udp client_rss_kib=60956 server_rss_kib=72996 client_rss_delta_kib=6596 server_rss_delta_kib=6948 client_rss_peak_delta_kib=10520 server_rss_peak_delta_kib=6976 client_fd=19 server_fd=21 client_sockets=7 server_sockets=7"
+          ],
+          "start": 773174.893064363,
+          "end": 775025.790830827
+        }
+      ],
+      "live_samples": 368,
+      "all_samples": 370,
+      "resources": [
+        {
+          "transport": "tcp",
+          "role": "client",
+          "pid": 234,
+          "first": {
+            "pid": 234,
+            "role": "client",
+            "config": "/var/tmp/qeli-long-soak.ULQfxl5C/runtime/tcp/qeli-roaming-netns-fc27pP/client.conf",
+            "ns": {
+              "mnt": "mnt:[4026532644]",
+              "net": "net:[4026532453]",
+              "pid": "pid:[4026532328]"
+            },
+            "rss_kib": 50812,
+            "threads": 7,
+            "fds": 18,
+            "sockets": 6
+          },
+          "last": {
+            "pid": 234,
+            "role": "client",
+            "config": "/var/tmp/qeli-long-soak.ULQfxl5C/runtime/tcp/qeli-roaming-netns-fc27pP/client.conf",
+            "ns": {
+              "mnt": "mnt:[4026532644]",
+              "net": "net:[4026532453]",
+              "pid": "pid:[4026532328]"
+            },
+            "rss_kib": 52404,
+            "threads": 8,
+            "fds": 22,
+            "sockets": 6
+          },
+          "max": {
+            "rss_kib": 53024,
+            "threads": 9,
+            "fds": 25,
+            "sockets": 7
+          },
+          "delta": {
+            "rss_kib": 1592,
+            "threads": 1,
+            "fds": 4,
+            "sockets": 0
+          },
+          "peak": {
+            "rss_kib": 2212,
+            "threads": 2,
+            "fds": 7,
+            "sockets": 1
+          }
+        },
+        {
+          "transport": "tcp",
+          "role": "_worker",
+          "pid": 136,
+          "first": {
+            "pid": 136,
+            "role": "_worker",
+            "config": "/var/tmp/qeli-long-soak.ULQfxl5C/runtime/tcp/qeli-roaming-netns-fc27pP/server.conf",
+            "ns": {
+              "mnt": "mnt:[4026532642]",
+              "net": "net:[4026532575]",
+              "pid": "pid:[4026532328]"
+            },
+            "rss_kib": 56156,
+            "threads": 9,
+            "fds": 21,
+            "sockets": 7
+          },
+          "last": {
+            "pid": 136,
+            "role": "_worker",
+            "config": "/var/tmp/qeli-long-soak.ULQfxl5C/runtime/tcp/qeli-roaming-netns-fc27pP/server.conf",
+            "ns": {
+              "mnt": "mnt:[4026532642]",
+              "net": "net:[4026532575]",
+              "pid": "pid:[4026532328]"
+            },
+            "rss_kib": 60836,
+            "threads": 8,
+            "fds": 21,
+            "sockets": 7
+          },
+          "max": {
+            "rss_kib": 60836,
+            "threads": 9,
+            "fds": 21,
+            "sockets": 7
+          },
+          "delta": {
+            "rss_kib": 4680,
+            "threads": -1,
+            "fds": 0,
+            "sockets": 0
+          },
+          "peak": {
+            "rss_kib": 4680,
+            "threads": 0,
+            "fds": 0,
+            "sockets": 0
+          }
+        },
+        {
+          "transport": "udp",
+          "role": "client",
+          "pid": 472,
+          "first": {
+            "pid": 472,
+            "role": "client",
+            "config": "/var/tmp/qeli-long-soak.ULQfxl5C/runtime/udp/qeli-roaming-udp-netns-xJQmkG/client.conf",
+            "ns": {
+              "mnt": "mnt:[4026532840]",
+              "net": "net:[4026532647]",
+              "pid": "pid:[4026532391]"
+            },
+            "rss_kib": 54252,
+            "threads": 7,
+            "fds": 18,
+            "sockets": 6
+          },
+          "last": {
+            "pid": 472,
+            "role": "client",
+            "config": "/var/tmp/qeli-long-soak.ULQfxl5C/runtime/udp/qeli-roaming-udp-netns-xJQmkG/client.conf",
+            "ns": {
+              "mnt": "mnt:[4026532840]",
+              "net": "net:[4026532647]",
+              "pid": "pid:[4026532391]"
+            },
+            "rss_kib": 60964,
+            "threads": 8,
+            "fds": 19,
+            "sockets": 7
+          },
+          "max": {
+            "rss_kib": 66836,
+            "threads": 10,
+            "fds": 29,
+            "sockets": 8
+          },
+          "delta": {
+            "rss_kib": 6712,
+            "threads": 1,
+            "fds": 1,
+            "sockets": 1
+          },
+          "peak": {
+            "rss_kib": 12584,
+            "threads": 3,
+            "fds": 11,
+            "sockets": 2
+          }
+        },
+        {
+          "transport": "udp",
+          "role": "_worker",
+          "pid": 374,
+          "first": {
+            "pid": 374,
+            "role": "_worker",
+            "config": "/var/tmp/qeli-long-soak.ULQfxl5C/runtime/udp/qeli-roaming-udp-netns-xJQmkG/server.conf",
+            "ns": {
+              "mnt": "mnt:[4026532838]",
+              "net": "net:[4026532769]",
+              "pid": "pid:[4026532391]"
+            },
+            "rss_kib": 66048,
+            "threads": 9,
+            "fds": 21,
+            "sockets": 7
+          },
+          "last": {
+            "pid": 374,
+            "role": "_worker",
+            "config": "/var/tmp/qeli-long-soak.ULQfxl5C/runtime/udp/qeli-roaming-udp-netns-xJQmkG/server.conf",
+            "ns": {
+              "mnt": "mnt:[4026532838]",
+              "net": "net:[4026532769]",
+              "pid": "pid:[4026532391]"
+            },
+            "rss_kib": 72996,
+            "threads": 8,
+            "fds": 21,
+            "sockets": 7
+          },
+          "max": {
+            "rss_kib": 73024,
+            "threads": 9,
+            "fds": 21,
+            "sockets": 7
+          },
+          "delta": {
+            "rss_kib": 6948,
+            "threads": -1,
+            "fds": 0,
+            "sockets": 0
+          },
+          "peak": {
+            "rss_kib": 6976,
+            "threads": 0,
+            "fds": 0,
+            "sockets": 0
+          }
+        }
+      ],
+      "host_preserved": true,
+      "normalization": "Only builtin firewall packet/byte chain counters; raw snapshots and diff retained",
+      "service_unchanged": true,
+      "service_receipt": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+      "cleanup": {
+        "status": "PASS_SHA_BACKED_EXACT_OWNED_CLEANUP",
+        "regular_files": 67,
+        "stale_sockets": 0,
+        "dirs": 8,
+        "root_absent": true
+      },
+      "source_archive_sha256": "89405cacf3923c8c8b4caccae701b0e6650d694250630cccd0e9a0034e977617",
+      "binary_sha256": "98335046d0c16b2126b22334102011ecfaff8390e0a3b09be5e6c7df87104bc2",
+      "overlay_sha256": {
+        "scripts/roaming_netns_e2e.sh": "fca54d80506cec70e82f2a59ffb1f163eca81b0748b62ab66175c0c0e14bc731",
+        "scripts/roaming_netns_isolation.sh": "8c92dd50bb2376fb448f8f3f2591acbb350e1af535de845ad3a9945e08cb48f6",
+        "scripts/roaming_tcp_bonding_netns_case.sh": "62c10c92034c4bca9b3aebd597f940185a9b06441bbe5b683274c0123d32b6cf",
+        "scripts/roaming_tcp_netns_soak_case.sh": "1dd133e33f3ee847d410e21e9ffdb6961c3d6da66e7f9e19aa5d52b0cee18e7e",
+        "scripts/roaming_udp_netns_e2e.sh": "1bdca757a71bf89c6326d6f204dc4073ca6fd4e0003e61283820d30a32275d0a",
+        "scripts/roaming_udp_netns_soak_case.sh": "6209dbbb28e8b0b48afb88262048f74e102ce803450e8b0316504a65f9490a05",
+        "scripts/test_roaming_netns_isolation_kernel.py": "a27cdc658386cf0c22aae6d94af16577c380c7607cc8134a004501bbe57ff817",
+        "outer.sh": "fabda755b014cb8bdace8462d09095ca6b3e4629bffabed8053dd78f5457d867",
+        "long-soak.py": "f4704b2805cecffb92db38a8acc3903891f93617f1d31fd5273725c35ec00e44"
+      },
+      "acceptance_sha256": "5cc8b4a51e08c92c93350a0d92c4f62b3eab0a2a523eb775ebf0b8b6070abd91",
+      "scope": "Two concurrent isolated actual VPN same-session 900-flip TCP fake-tls/UDP QUIC soaks, >=1800s elapsed; RSS/fd/socket/threads sampled, session/process/TUN/candidate/orphan/route thresholds, host structural state preserved. No 10k/8h/pre-release/other adapters/DoS or Q35 section closure claim. .10 unused, no service/pkg changes.",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "acceptance": {
+      "status": "PREDECLARED_WHILE_RUNNING",
+      "min_wall_seconds": 1800,
+      "max_wall_seconds": 2700,
+      "iterations_per_transport": 900,
+      "transport_cases": [
+        "tcp.fake-tls",
+        "udp.quic"
+      ],
+      "sample_every_iterations": 25,
+      "sampling_interval_seconds": 5,
+      "min_simultaneous_live_samples": 60,
+      "process_roles": [
+        "client",
+        "_worker"
+      ],
+      "threads_peak_growth_max": 8,
+      "threads_final_growth_max": 4,
+      "rss_peak_growth_kib_max": 32768,
+      "fd_peak_growth_max": 16,
+      "fd_final_growth_max": 4,
+      "socket_peak_growth_max": 8,
+      "socket_final_growth_max": 2,
+      "tcp_orphans_final": 0,
+      "udp_candidates_final": 0,
+      "udp_cid_aliases_final": 3,
+      "host_policy": "exact structural match; normalize only builtin firewall chain packet/byte counters; preserve raw snapshots",
+      "source": "same preset RSS/fd/socket checks as existing soak plus new /proc Threads samples; no threshold relaxation after result",
+      "recorded_at_utc": "2026-10-10"
+    },
+    "seal": {
+      "name": "q35-long-soak-20261010",
+      "files": 64,
+      "bytes": 4067181,
+      "manifest_sha256": "1c7a2614ede44713b92c8ac05a438fa13639062e920a33f1c2ee21952a90c20c",
+      "runtime_status": "PASS"
+    }
+  },
+  "raw_packet": {
+    "name": "q35-long-soak-20261010",
+    "files": 64,
+    "bytes": 4067181,
+    "manifest_sha256": "1c7a2614ede44713b92c8ac05a438fa13639062e920a33f1c2ee21952a90c20c",
+    "runtime_status": "PASS",
+    "path": "audit-debt-20260924/q35-long-soak-20261010",
+    "status": "SEALED"
+  },
+  "scope": "Q35 concurrent actual VPN TCP fake-TLS and UDP QUIC 900 flips each, 1850.9s elapsed and 1835.9s simultaneous live activity; 368 full process samples and predeclared RSS/threads/fd/socket budgets PASS, no TCP orphans or UDP candidates, CID aliases3. Exact binary and input archive reused; seven changed script SHA checked; 67 regular remote files SHA backed up and guarded own-root cleanup, host structural state and service777/845 unchanged. Original CRLF harness refusal preserved. No 10k/1k release endurance, eight-hour stress, other adapters, full DoS or Q35 completion claim. Q35 IN_PROGRESS,30/37 DONE; historical F459/D06/USER_EXCLUDED limits retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

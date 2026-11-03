@@ -25,7 +25,11 @@
     "pinned key the link never carried. They are local device policy, not a property of the",
     "server, and `bind_static=0` in a forwardable QR hands out a security downgrade — so",
     "Android stopped emitting them rather than the other three learning them. It still PARSES",
-    "them, as tolerance for links it issued before 0.7.13. Set both in the profile file."
+    "them, as tolerance for links it issued before 0.7.13. Set both in the profile file.",
+    "",
+    "Q02 (2026-09-22): duplicate known parameters, malformed numeric/boolean values,",
+    "invalid percent escapes and invalid UTF-8 are rejected. Unknown extensions remain",
+    "ignored. AWG defaults and clamping are shared; literal plus is not decoded as space."
   ],
   "cases": [
     {
@@ -230,6 +234,66 @@
         "quic": false,
         "awg": false
       }
+    },
+    {
+      "name": "q02-awg-default-sizes",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&awg=1&jc=4",
+      "expect": {
+        "awg": true,
+        "jc": 4,
+        "jmin": 40,
+        "jmax": 300
+      }
+    },
+    {
+      "name": "q02-case-insensitive-true",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=udp&mode=fake-tls&quic=TRUE",
+      "expect": {
+        "proto": "udp",
+        "quic": true
+      }
+    },
+    {
+      "name": "q02-case-insensitive-false",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&quic=FALSE&awg=FALSE",
+      "expect": {
+        "quic": false,
+        "awg": false
+      }
+    },
+    {
+      "name": "q02-utf8-and-literal-plus",
+      "uri": "qeli://audit:%D0%BF%D0%B0%D1%80%D0%BE%D0%BB%D1%8C+%25@vpn.example.com:443?proto=tcp&mode=fake-tls",
+      "expect": {
+        "pass": "пароль+%"
+      }
+    },
+    {
+      "name": "q02-repeated-future-extension",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&future=one&future=two",
+      "expect": {
+        "mode": "fake-tls",
+        "proto": "tcp"
+      }
+    },
+    {
+      "name": "q02-bounded-awg",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&awg=1&jc=4294967295&jmin=1500&jmax=2000",
+      "expect": {
+        "awg": true,
+        "jc": 128,
+        "jmin": 1400,
+        "jmax": 1400
+      }
+    },
+    {
+      "name": "q02-reversed-awg-sizes",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&awg=1&jc=1&jmin=100&jmax=50",
+      "expect": {
+        "jc": 1,
+        "jmin": 50,
+        "jmax": 50
+      }
     }
   ],
   "reject": [
@@ -269,6 +333,108 @@
     {
       "name": "wrong-scheme",
       "uri": "https://user:pw@vpn.example.com:443?proto=tcp&mode=fake-tls"
+    },
+    {
+      "name": "q02-duplicate-mode",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&mode=obfs"
+    },
+    {
+      "name": "q02-duplicate-key-clears-pin",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&key=1111111111111111111111111111111111111111111111111111111111111111&key="
+    },
+    {
+      "name": "q02-duplicate-mtu",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&mtu=1400&mtu=0"
+    },
+    {
+      "name": "q02-malformed-mtu",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&mtu=abc"
+    },
+    {
+      "name": "q02-overflow-mtu",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&mtu=2147483648"
+    },
+    {
+      "name": "q02-malformed-junk-count",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&awg=1&jc=abc"
+    },
+    {
+      "name": "q02-overflow-junk-count",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&awg=1&jc=4294967296"
+    },
+    {
+      "name": "q02-negative-junk-count",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&awg=1&jc=-1"
+    },
+    {
+      "name": "q02-malformed-junk-min",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&awg=1&jmin=no"
+    },
+    {
+      "name": "q02-overflow-junk-max",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&awg=1&jmax=65536"
+    },
+    {
+      "name": "q02-malformed-quic-bool",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&quic=maybe"
+    },
+    {
+      "name": "q02-malformed-awg-bool",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&awg=maybe"
+    },
+    {
+      "name": "q02-empty-bool",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&awg="
+    },
+    {
+      "name": "q02-truncated-percent",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&sni=bad%"
+    },
+    {
+      "name": "q02-nonhex-percent",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&sni=bad%GG"
+    },
+    {
+      "name": "q02-invalid-utf8-query",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&sni=%FF"
+    },
+    {
+      "name": "q02-invalid-utf8-label",
+      "why": "Q02: reject ambiguous or malformed input before normalizing a profile.",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls#%FF"
+    },
+    {
+      "name": "q02-invalid-utf8-password",
+      "uri": "qeli://audit:%C0%AF@vpn.example.com:443?proto=tcp&mode=fake-tls",
+      "why": "Never replace invalid UTF-8 in credentials with U+FFFD."
+    },
+    {
+      "name": "q02-negative-zero-unsigned",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&jc=-0"
+    },
+    {
+      "name": "q02-numeric-trailing-nul",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&mtu=1400%00"
+    },
+    {
+      "name": "q02-numeric-leading-whitespace",
+      "uri": "qeli://audit:secret@vpn.example.com:443?proto=tcp&mode=fake-tls&mtu=%201400"
     }
   ]
 }

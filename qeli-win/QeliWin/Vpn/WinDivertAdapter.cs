@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -65,6 +66,13 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     private IntPtr _handle = IntPtr.Zero;
     private readonly object _gate = new();
     private readonly object _policyGate = new();
+    private readonly object _lifecycleGate = new();
+    private bool _disposeComplete;
+    private bool _opened;
+    private bool _shutdown;
+    private Exception? _workerFailure;
+    // Tests replace this before Open; production retains the native defaults.
+    internal WinDivertRuntime Runtime { private get; set; } = new();
     private volatile bool _disposed;
     private volatile bool _tunnelUp;
     private long _captured;
@@ -133,6 +141,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     /// <summary>Mark the VPN data plane down — include traffic is dropped, not reinjected.</summary>
     public void SetTunnelUp(bool up)
     {
+        if (up) EnsureOperational();
         _tunnelUp = up;
         if (!up)
         {
@@ -165,6 +174,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         int tunnelMtu,
         IEnumerable<string>? physicalLocalRoutes = null)
     {
+        EnsureOperational();
         SetTunnelUp(false);
         if ((clientIpv4 != null && clientIpv4.AddressFamily != AddressFamily.InterNetwork)
             || (clientIpv6 != null && clientIpv6.AddressFamily != AddressFamily.InterNetworkV6)
@@ -214,7 +224,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         // the capture critical section.
         previousApps.Dispose();
         CarrierEndpoint carrier = replacementCarriers[0];
-        _log?.Invoke(
+        SafeLog(
             $"WinDivert policy refreshed after reconnect (carrier {carrier.Ip}:{carrier.Port}, "
             + $"apps={replacementApps.SelectedCount}, include={replacementApps.IncludeMode})");
     }
@@ -227,7 +237,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     {
         CarrierEndpoint[] replacement = MakeCarriers(addresses, port, protocol);
         lock (_policyGate) _carriers = replacement;
-        _log?.Invoke("WinDivert carrier allow-set: "
+        SafeLog("WinDivert carrier allow-set: "
             + string.Join(", ", replacement.Select(item => $"{item.Ip}:{item.Port}")));
     }
 
@@ -257,62 +267,63 @@ public sealed class WinDivertAdapter : IPacketTunDevice
 
     public void Open()
     {
-        if (_apps.SelectedCount == 0)
-            throw new InvalidOperationException(
-                "per-app profile contains no Windows executable paths; select at least one .exe "
-                + "on this device (foreign app identifiers are preserved but cannot be applied here)");
-        int addrSize = Marshal.SizeOf<WinDivertNative.WinDivertAddress>();
-        if (addrSize != 80)
-            throw new InvalidOperationException(
-                $"WinDivertAddress layout mismatch: got {addrSize} bytes, expected 80 (WinDivert 2.2).");
-
-        EnsureDriverLoaded();
-        // Capture both IPv4 and IPv6. Do NOT put private-net exclusions in the filter —
-        // WinDivert's filter compiler rejects that form; DestinationPolicy decides in
-        // ReceivePacket. The qeli carrier is bypassed by its exact endpoint and process
-        // ownership; mutating TTL/HopLimit is neither necessary nor a reliable recursion
-        // guard (and the old IPv4/IPv6 OR expression captured the carrier anyway).
-        string filter = "outbound and !loopback";
-
-        _handle = WinDivertNative.WinDivertOpen(filter, WinDivertNative.WINDIVERT_LAYER_NETWORK, 0, 0);
-        if (_handle == IntPtr.Zero || _handle == new IntPtr(-1))
+        lock (_lifecycleGate)
         {
-            int err = Marshal.GetLastWin32Error();
-            string detail = CompileFilterError(filter);
-            throw new InvalidOperationException(
-                err == 5
-                    ? "WinDivert access denied — run Qeli elevated (administrator)."
-                    : $"WinDivertOpen failed (Win32 {err}){detail}. Is WinDivert64.sys loadable?");
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_handle != IntPtr.Zero || _opened) throw new InvalidOperationException("WinDivert adapter is already open");
+            if (_apps.SelectedCount == 0)
+                throw new InvalidOperationException(
+                    "per-app profile contains no Windows executable paths; select at least one .exe "
+                    + "on this device (foreign app identifiers are preserved but cannot be applied here)");
+            int addrSize = Marshal.SizeOf<WinDivertNative.WinDivertAddress>();
+            if (addrSize != 80)
+                throw new InvalidOperationException(
+                    $"WinDivertAddress layout mismatch: got {addrSize} bytes, expected 80 (WinDivert 2.2).");
+
+            try
+            {
+                Runtime.EnsureLoaded();
+                _handle = Runtime.Open(BuildFilter());
+                if (_handle == IntPtr.Zero || _handle == new IntPtr(-1))
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    _handle = IntPtr.Zero;
+                    throw new InvalidOperationException(error == 5
+                        ? "WinDivert access denied — run Qeli elevated (administrator)."
+                        : $"WinDivertOpen failed (Win32 {error}){CompileFilterError(BuildFilter())}. Is WinDivert64.sys loadable?");
+                }
+                Runtime.Configure(_handle);
+                if (!_apps.HasPathMatches)
+                    SafeLog("split-tunnel WARNING: no running process matched the app list — check the selected .exe paths");
+                SafeLog($"WinDivert per-app filter open (IPv4 {_clientIpv4?.ToString() ?? "off"}, "
+                    + $"IPv6 {_clientIpv6?.ToString() ?? "off"}, {_apps.SelectedCount} app path(s), "
+                    + $"include={_apps.IncludeMode}, allow_ipv4_leak={_allowIpv4Leak}, "
+                    + $"allow_ipv6_leak={_allowIpv6Leak}, mtu={_tunnelMtu})");
+                _classificationThread = Runtime.CreateThread(ClassificationLoop, "qeli-windivert-owner-classifier");
+                Runtime.StartThread(_classificationThread);
+                _captureThread = Runtime.CreateThread(CaptureLoop, "qeli-windivert-capture");
+                Runtime.StartThread(_captureThread);
+                _opened = true;
+            }
+            catch (Exception opening)
+            {
+                try { Dispose(); }
+                catch (Exception cleanup) { throw new AggregateException("WinDivert open and rollback failed; ownership retained", opening, cleanup); }
+                throw;
+            }
         }
-        try
-        {
-            WinDivertNative.WinDivertSetParam(_handle, WinDivertNative.WINDIVERT_PARAM_QUEUE_LENGTH, 8192);
-            WinDivertNative.WinDivertSetParam(_handle, WinDivertNative.WINDIVERT_PARAM_QUEUE_TIME, 2000);
-            WinDivertNative.WinDivertSetParam(_handle, WinDivertNative.WINDIVERT_PARAM_QUEUE_SIZE, 8 * 1024 * 1024);
-        }
-        catch { /* best-effort */ }
+    }
 
-        if (!_apps.HasPathMatches)
-            _log?.Invoke("split-tunnel WARNING: no running process matched the app list — " +
-                         (_apps.SelectedCount > 0
-                             ? "check that the selected .exe paths are installed/running"
-                             : "app list is empty"));
-        _log?.Invoke(
-            $"WinDivert per-app filter open (IPv4 {_clientIpv4?.ToString() ?? "off"}, " +
-            $"IPv6 {_clientIpv6?.ToString() ?? "off"}, {_apps.SelectedCount} app path(s), " +
-            $"include={_apps.IncludeMode}, allow_ipv4_leak={_allowIpv4Leak}, " +
-            $"allow_ipv6_leak={_allowIpv6Leak}, mtu={_tunnelMtu})");
-        _classificationThread = new Thread(ClassificationLoop)
-        {
-            IsBackground = true,
-            Name = "qeli-windivert-owner-classifier",
-        };
-        _classificationThread.Start();        _captureThread = new Thread(CaptureLoop)
-        {
-            IsBackground = true,
-            Name = "qeli-windivert-capture",
-        };
-        _captureThread.Start();
+    private void SafeLog(string message)
+    {
+        try { _log?.Invoke(message); } catch { /* observer cannot own driver lifetime */ }
+    }
+
+    private void EnsureOperational()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_opened && (Volatile.Read(ref _workerFailure) != null || _captureThread?.IsAlive != true || _classificationThread?.IsAlive != true))
+            throw new IOException("WinDivert worker stopped; dispose this generation before reconnect", _workerFailure);
     }
 
     private static string CompileFilterError(string filter)
@@ -362,7 +373,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                     h = _handle;
                 }
                 var addr = new WinDivertNative.WinDivertAddress();
-                if (!WinDivertNative.WinDivertRecv(h, buf, (uint)buf.Length, out uint len, ref addr))
+                if (!Runtime.Receive(h, buf, (uint)buf.Length, out uint len, ref addr))
                 {
                     int err = Marshal.GetLastWin32Error();
                     if (_disposed || err == 6 /* INVALID_HANDLE */) break;
@@ -387,6 +398,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 }
             }
         }
+        catch (Exception error) { WorkerFailed(error); }
         finally
         {
             _deferredClassification.Writer.TryComplete();
@@ -394,67 +406,80 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
     }
 
+    private void WorkerFailed(Exception error)
+    {
+        Interlocked.CompareExchange(ref _workerFailure, error, null);
+        _tunnelUp = false;
+        SafeLog($"WinDivert worker failed: {error.Message}");
+        _deferredClassification.Writer.TryComplete();
+        _uplink.Writer.TryComplete();
+    }
+
     private void ClassificationLoop()
     {
-        while (!_disposed)
+        try
         {
-            DeferredPacket deferred;
-            try
+            while (!_disposed)
             {
-                deferred = _deferredClassification.Reader
-                    .ReadAsync()
-                    .AsTask()
-                    .GetAwaiter()
-                    .GetResult();
-            }
-            catch (ChannelClosedException)
-            {
-                break;
-            }
-
-            ProcessAppMap ownerMap;
-            lock (_policyGate)
-            {
-                if (_disposed) break;
-                if (deferred.PolicyGeneration != _policyGeneration)
+                DeferredPacket deferred;
+                try
                 {
-                    Interlocked.Increment(ref _ownerPacketsDropped);
-                    continue;
+                    deferred = _deferredClassification.Reader
+                        .ReadAsync()
+                        .AsTask()
+                        .GetAwaiter()
+                        .GetResult();
                 }
-                ownerMap = _apps;
-            }
-
-            // Classify() already queued the refresh. Waiting is deliberately isolated on
-            // this worker so the WinDivert receive loop can continue draining the driver.
-            ownerMap.WaitForPendingRefresh(OwnerRefreshWaitMs);
-
-            lock (_policyGate)
-            {
-                if (_disposed) break;
-                if (deferred.PolicyGeneration != _policyGeneration)
+                catch (ChannelClosedException)
                 {
-                    Interlocked.Increment(ref _ownerPacketsDropped);
-                    continue;
+                    break;
                 }
 
-                Interlocked.Increment(ref _ownerPacketsRetried);
-                var address = deferred.Address;
-                byte version = (byte)(deferred.Packet[0] >> 4);
-                if (version == 4)
-                    HandleIpv4(
-                        deferred.Packet, deferred.Packet.Length, ref address,
-                        allowOwnerDeferral: false);
-                else if (version == 6)
-                    HandleIpv6(
-                        deferred.Packet, deferred.Packet.Length, ref address,
-                        allowOwnerDeferral: false);
-                else
+                ProcessAppMap ownerMap;
+                lock (_policyGate)
                 {
-                    Interlocked.Increment(ref _ownerPacketsDropped);
-                    Interlocked.Increment(ref _policyDrops);
+                    if (_disposed) break;
+                    if (deferred.PolicyGeneration != _policyGeneration)
+                    {
+                        Interlocked.Increment(ref _ownerPacketsDropped);
+                        continue;
+                    }
+                    ownerMap = _apps;
+                }
+
+                // Classify() already queued the refresh. Waiting is deliberately isolated on
+                // this worker so the WinDivert receive loop can continue draining the driver.
+                ownerMap.WaitForPendingRefresh(OwnerRefreshWaitMs);
+
+                lock (_policyGate)
+                {
+                    if (_disposed) break;
+                    if (deferred.PolicyGeneration != _policyGeneration)
+                    {
+                        Interlocked.Increment(ref _ownerPacketsDropped);
+                        continue;
+                    }
+
+                    Interlocked.Increment(ref _ownerPacketsRetried);
+                    var address = deferred.Address;
+                    byte version = (byte)(deferred.Packet[0] >> 4);
+                    if (version == 4)
+                        HandleIpv4(
+                            deferred.Packet, deferred.Packet.Length, ref address,
+                            allowOwnerDeferral: false);
+                    else if (version == 6)
+                        HandleIpv6(
+                            deferred.Packet, deferred.Packet.Length, ref address,
+                            allowOwnerDeferral: false);
+                    else
+                    {
+                        Interlocked.Increment(ref _ownerPacketsDropped);
+                        Interlocked.Increment(ref _policyDrops);
+                    }
                 }
             }
         }
+        catch (Exception error) { WorkerFailed(error); }
     }
 
     private bool DeferOwnerClassification(
@@ -1039,7 +1064,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     {
         if (len > destination.Length)
         {
-            _log?.Invoke($"WinDivert packet dropped: {len} bytes exceeds packet-pump buffer {destination.Length}");
+            SafeLog($"WinDivert packet dropped: {len} bytes exceeds packet-pump buffer {destination.Length}");
             return 0;
         }
         if (meta.IsDns && !HasTunnelDns(AddressFamily.InterNetwork)
@@ -1089,7 +1114,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 tunnelDst, meta.RemotePort, in addr, dnsOrig, tcpFin, tcpRst);
             if (translatedPort == 0)
             {
-                _log?.Invoke("WinDivert packet dropped: NAT flow-port space exhausted");
+                SafeLog("WinDivert packet dropped: NAT flow-port space exhausted");
                 return 0;
             }
             if (translatedPort != meta.LocalPort)
@@ -1103,7 +1128,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                     buf, len, meta.Proto, origSrc, clientIp, meta.Dst, tunnelDst,
                     meta.LocalPort, translatedLocalPort, meta.RemotePort, meta.RemotePort))
             {
-                _log?.Invoke("WinDivert fragment dropped: first fragment does not contain a complete transport header");
+                SafeLog("WinDivert fragment dropped: first fragment does not contain a complete transport header");
                 return 0;
             }
             FixFragmentChecksums(buf, len, meta.Proto, meta.IsFirstFrag, ref addr);
@@ -1128,7 +1153,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     {
         if (len > destination.Length)
         {
-            _log?.Invoke(
+            SafeLog(
                 $"WinDivert IPv6 packet dropped: {len} bytes exceeds packet-pump buffer {destination.Length}");
             return 0;
         }
@@ -1190,7 +1215,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 tunnelDestination, remotePort, in addr, dnsOriginal, tcpFin, tcpRst);
             if (translatedPort == 0)
             {
-                _log?.Invoke("WinDivert IPv6 packet dropped: NAT flow-port space exhausted");
+                SafeLog("WinDivert IPv6 packet dropped: NAT flow-port space exhausted");
                 return 0;
             }
             if (translatedPort != localPort)
@@ -2185,28 +2210,50 @@ public sealed class WinDivertAdapter : IPacketTunDevice
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _tunnelUp = false;
-        IntPtr h;
-        lock (_gate)
+        lock (_lifecycleGate)
         {
-            h = _handle;
-            _handle = IntPtr.Zero;
+            if (_disposeComplete) return;
+            _disposed = true;
+            _tunnelUp = false;
+            _deferredClassification.Writer.TryComplete();
+            _uplink.Writer.TryComplete();
+            if (_handle != IntPtr.Zero && !_shutdown)
+            {
+                Runtime.Shutdown(_handle); // Wake Recv without invalidating its handle.
+                _shutdown = true;
+            }
+            var clock = Stopwatch.StartNew();
+            void Join(Thread? thread)
+            {
+                if (thread == null || (thread.ThreadState & System.Threading.ThreadState.Unstarted) != 0) return;
+                if (thread == Thread.CurrentThread) throw new InvalidOperationException("WinDivert worker cannot dispose itself");
+                int remaining = Math.Max(0, Runtime.JoinMilliseconds - (int)clock.ElapsedMilliseconds);
+                if (!thread.Join(remaining)) throw new TimeoutException("WinDivert worker did not stop; driver ownership retained for retry");
+            }
+            Join(_captureThread);
+            Join(_classificationThread);
+            // Every Send path holds this gate. Do not close/reuse a handle while a
+            // sender is inside a native call, even after the receive workers joined.
+            lock (_policyGate)
+            {
+                lock (_gate)
+                {
+                    if (_handle != IntPtr.Zero)
+                    {
+                        Runtime.Close(_handle); // On failure leave the handle for retry.
+                        _handle = IntPtr.Zero;
+                    }
+                }
+                DrainUplink();
+                _pendingIpv6.Clear();
+                _pendingOutboundIpv4.Clear();
+                _pendingInboundIpv4.Clear();
+                _pendingInboundIpv6.Clear();
+                _apps.Dispose();
+                _disposeComplete = true;
+            }
         }
-        if (h != IntPtr.Zero && h != new IntPtr(-1))
-            try { WinDivertNative.WinDivertClose(h); } catch { }
-        _deferredClassification.Writer.TryComplete();
-        try { _captureThread?.Join(2000); } catch { }
-        try { _classificationThread?.Join(2000); } catch { }
-        _uplink.Writer.TryComplete();
-        DrainUplink();
-        _pendingIpv6.Clear();
-        _pendingOutboundIpv4.Clear();
-        _pendingInboundIpv4.Clear();
-        _pendingInboundIpv6.Clear();
-        _apps.Dispose();
-        _log?.Invoke("WinDivert stats: "
+        SafeLog("WinDivert stats: "
             + $"captured={Interlocked.Read(ref _captured)} "
             + $"tunnelled={Interlocked.Read(ref _tunnelled)} "
             + $"bypass={Interlocked.Read(ref _bypassed)} "
@@ -2445,16 +2492,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
     }
 
-    internal static void EnsureDriverLoaded()
-    {
-        string? dir = NativeLoader.EnsureWinDivertDir();
-        if (dir == null)
-            throw new InvalidOperationException("WinDivert.dll could not be extracted from the embedded resources.");
-        IntPtr mod = WinDivertNative.LoadLibrary(Path.Combine(dir, "WinDivert.dll"));
-        if (mod == IntPtr.Zero)
-            throw new InvalidOperationException(
-                $"LoadLibrary(WinDivert.dll) failed (Win32 {Marshal.GetLastWin32Error()}).");
-    }
+    internal static void EnsureDriverLoaded() => NativeLoader.EnsureWinDivertLoaded();
 
     /// <summary>Filter expression used at Open — exposed for self-tests.</summary>
     internal static string BuildFilter() =>

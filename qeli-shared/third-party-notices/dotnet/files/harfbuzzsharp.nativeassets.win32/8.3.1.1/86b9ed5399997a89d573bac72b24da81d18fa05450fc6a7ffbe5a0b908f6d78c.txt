@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>HarfBuzzSharp.NativeAssets.Win32</id>
+    <version>8.3.1.1</version>
+    <title>HarfBuzzSharp - Native Assets for Win32</title>
+    <authors>Microsoft</authors>
+    <requireLicenseAcceptance>true</requireLicenseAcceptance>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <icon>icon.png</icon>
+    <readme>README.md</readme>
+    <projectUrl>https://go.microsoft.com/fwlink/?linkid=868515</projectUrl>
+    <description>HarfBuzzSharp is a cross-platform OpenType text shaping engine for .NET platforms.</description>
+    <releaseNotes>Please visit https://go.microsoft.com/fwlink/?linkid=868517 to view the release notes.</releaseNotes>
+    <copyright>© Microsoft Corporation. All rights reserved.</copyright>
+    <tags>graphics text cross-platform harfbuzzsharp harfbuzz ios android linux windows tvos macos tizen</tags>
+    <repository type="git" url="https://go.microsoft.com/fwlink/?linkid=868515" branch="release/3.119.0" commit="64f24b1cddb68d30ec0ac6b661964178fc21d5ec" />
+    <dependencies>
+      <group targetFramework=".NETFramework4.6.2" />
+      <group targetFramework="net6.0" />
+      <group targetFramework="net6.0-windows10.0.19041" />
+      <group targetFramework="net8.0" />
+      <group targetFramework="net8.0-windows10.0.19041" />
+      <group targetFramework=".NETStandard2.0" />
+      <group targetFramework=".NETStandard2.1" />
+    </dependencies>
+  </metadata>
+</package>

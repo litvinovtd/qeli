@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_PASS_F359_F360_Q31_IN_PROGRESS",
+  "source_digest": "f718093c618ee0dc493736d8da9b676e9e31815465838a96dd05233ebcecf3bc",
+  "base_worktree_commit": "23c3da5aeb0b6cc7fe866289698f283e8a6e835c",
+  "base_dev_commit": "e0881648795ae4cb536b7bad16532f617db6c9bb",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-openwrt-config-generation-20261007",
+  "raw_seal_sha256": "03d642134340c73310fa3b4fb822fa5035d6152c3df3d466f51e46e37aab5b9c",
+  "raw_sealed_files": 41,
+  "scope": "Q31 F359/F360: actual OpenWrt24.10.4 procd2024.12.22~42d39376/ubusd/ubus/UCI/rc.common in owned mount/network/PID namespaces with private procfs. F359 baseline repeated start returns success while retaining old process after changed INI/password; procd file parameter for rendered INI and password now compares contents and replaces instance when changed, preserves PID for identical bytes. Secret write alone remains non-restarting; explicit start/restart/reload applies data. F360 baseline failed render still submits empty service set through rc.common and removes live instance; ubus wrapper refuses set/add after unsuccessful preparation and preserves preparation error. Intentional disabled start/delete and existing lifecycle retained. Same expanded test source baseline5expected failures across3methods (changed INI,password and3render refusal subtests); fixed11methods PASS no skips,4newmethods and7previous lifecycle/transport methods.55related shell/renderer/dispatcher/actual-ucode methods PASS on dash and BusyBox ash without skips. Inert receipt/sleep client, TUN existence marker only, non-PID1 procd; no actual VPN/firewall or host proc/dev mounts into chroot. Initial CRLF preparation, procfs/PID namespace mismatch and import-path errors retained separately; first3failure baseline retained before expanding independent render subtests.10exact source inputs match staged Git,4retained parser/ucode artifacts SHA-verified; shared INI parser source matches current Git. Official rootfs959regular/215links verified before/after; owned template removed, no residual owned process/mount/runtime case roots.37recipes/14LuCI/docs9/bindings/diff PASS. Rust/core/schema/native ABI/published artifacts unchanged; no fresh Qeli/FFI/cross build.41historic cases/acceptance fields preserved except source_digest and32previous supplements preserved; new scoped supplement only. Q31 IN_PROGRESS28/37(75.7%),9remain; Q29SIGKILL FAIL/auto-null ENONET,Q30callback-drain OPEN/Apple exclusions,D06ACCEPTED preserved. Not an atomic UCI/firewall/INI/core plan transaction: rollback after successful render,core generation/ABA/admin replacement,full SDK bootstrap/source release pipeline,full hermetic clean Qeli A/B/power-loss transaction OPEN; firmware USER_EXCLUDED. .10 unused; no host service/network/firewall mutations, no push/deploy.",
+  "checks": {
+    "baseline_expected_failures": 5,
+    "baseline_failing_methods": 3,
+    "fixed_native_methods": 11,
+    "new_native_methods": 4,
+    "native_skips": 0,
+    "shell_methods_per_interpreter": 55,
+    "shell_interpreters": [
+      "dash",
+      "BusyBox ash"
+    ],
+    "shell_skips": 0,
+    "source_inputs": 10,
+    "retained_artifacts": 4,
+    "rootfs_regular": 959,
+    "rootfs_links": 215,
+    "recipes": 37,
+    "luci": 14,
+    "docs": 9,
+    "bindings": "PASS",
+    "diff": "PASS"
+  },
+  "rootfs_archive_sha256": "e7f8ab84eef55c7eb23492de7b0517dbc23fbedaa4abbb680fe64720c309dc03",
+  "procd_version": "2024.12.22~42d39376-r1",
+  "primary_source": "https://github.com/openwrt/procd/blob/42d39376/service/instance.c",
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "q31": "IN_PROGRESS"
+  }
+}

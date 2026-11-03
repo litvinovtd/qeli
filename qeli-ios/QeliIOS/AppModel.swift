@@ -49,7 +49,9 @@ final class AppModel: ObservableObject {
     private var queuedProbes: [Profile] = []
     private var queuedOrActiveProbeIDs = Set<UUID>()
     private var startupSigningInvalid = false
+    private var profileStoreLoadRejected = false
     private var activeProbeCount = 0
+    private let managedPolicyGate = PreferenceMutationGate()
     private static let maximumConcurrentProbes = 4
 
     init(
@@ -70,12 +72,14 @@ final class AppModel: ObservableObject {
         if !missingSigningRequirements.isEmpty {
             self.archive = .initial
             self.startupSigningInvalid = true
+            self.profileStoreLoadRejected = true
             self.alert = Self.invalidSigningAlert
         } else {
             do {
-                self.archive = try profileStore.load()
+                self.archive = try profileStore.load(initializeIfMissing: true)
             } catch {
                 self.archive = .initial
+                self.profileStoreLoadRejected = true
                 if (error as? KeychainError)?.isMissingEntitlement == true {
                     self.startupSigningInvalid = true
                     self.alert = Self.invalidSigningAlert
@@ -239,13 +243,24 @@ final class AppModel: ObservableObject {
         persistArchive(rollbackTo: previous)
     }
 
-    func saveProfile(id: UUID?, name: String, configText: String) throws {
+    /// Returns whether a running tunnel still uses the previous active configuration.
+    @discardableResult
+    func saveProfile(original: Profile?, name: String, configText: String) throws -> Bool {
         let previous = archive
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { throw VPNConfigError.invalid("profile name is empty") }
         let config = try VPNConfig(parsing: configText)
         let normalized = try config.toINI(label: trimmedName)
-        if let id, let index = archive.profiles.firstIndex(where: { $0.id == id }) {
+        var reconnectRequired = false
+        if let original {
+            guard let index = archive.profiles.firstIndex(where: { $0.id == original.id }),
+                  archive.profiles[index] == original else {
+                throw ProfileStoreError.staleProfile
+            }
+            reconnectRequired = (
+                isTunnelBusy && original.id == activeProfileID &&
+                archive.profiles[index].configText != normalized
+            )
             archive.profiles[index].name = trimmedName
             archive.profiles[index].configText = normalized
             archive.profiles[index].modifiedAt = Date()
@@ -256,13 +271,14 @@ final class AppModel: ObservableObject {
         }
         do { try commitArchive() }
         catch { archive = previous; throw error }
+        return reconnectRequired
     }
 
     @discardableResult
     func importProfile(_ rawText: String, suggestedName: String? = nil) throws -> Profile {
         let previous = archive
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let config = try VPNConfig(parsing: trimmed)
+        let config = try VPNConfig(parsing: rawText)
         let name = suggestedName?.nonEmpty
             ?? (trimmed.hasPrefix("qeli://") ? VPNConfig.label(fromQeliURI: trimmed) : nil)
             ?? Self.commentLabel(trimmed)
@@ -295,16 +311,23 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func delete(_ id: UUID) {
-        guard let index = archive.profiles.firstIndex(where: { $0.id == id }) else { return }
-        if id == managedConfiguration.activeProfileID {
+    func delete(_ original: Profile) {
+        guard let index = archive.profiles.firstIndex(where: { $0.id == original.id }),
+              archive.profiles[index] == original else {
+            alert = AppAlert(
+                title: "Profile changed",
+                message: "Profile changed while the dialog was open. Reopen it before deleting."
+            )
+            return
+        }
+        if original.id == managedConfiguration.activeProfileID {
             alert = AppAlert(
                 title: "Managed profile",
                 message: "Remove the managed profile policy before deleting this profile."
             )
             return
         }
-        if isTunnelBusy && id == activeProfileID {
+        if isTunnelBusy && original.id == activeProfileID {
             alert = AppAlert(title: "Tunnel active", message: "Disconnect before deleting the active profile.")
             return
         }
@@ -412,6 +435,7 @@ final class AppModel: ObservableObject {
                 tunnelManager.disconnect()
                 return
             } catch is CancellationError {
+                if Task.isCancelled { return }
                 // A concurrent settings edit also captured connectionDesired=false. Retry
                 // its latest policy instead of restoring true and diverging from the rules
                 // that newer task is about to persist. An explicit Connect flips the bit and
@@ -428,7 +452,8 @@ final class AppModel: ObservableObject {
     }
 
     func ping(_ profile: Profile) {
-        guard queuedOrActiveProbeIDs.insert(profile.id).inserted else { return }
+        guard profiles.contains(where: { $0.id == profile.id && $0.configText == profile.configText }),
+              queuedOrActiveProbeIDs.insert(profile.id).inserted else { return }
         reachability[profile.id] = .checking
         queuedProbes.append(profile)
         startQueuedProbes()
@@ -449,6 +474,7 @@ final class AppModel: ObservableObject {
     }
 
     private func runProbe(_ profile: Profile) async {
+        let result: ReachabilityState
         do {
             let config = try VPNConfig(parsing: profile.configText)
             // While THIS profile's tunnel is up, dialing the public endpoint measures a
@@ -487,10 +513,13 @@ final class AppModel: ObservableObject {
                     timeout: 4
                 )
             }
-            reachability[profile.id] = .reachable(milliseconds: milliseconds)
+            result = .reachable(milliseconds: milliseconds)
         } catch {
-            reachability[profile.id] = .unavailable(error.localizedDescription)
+            result = .unavailable(error.localizedDescription)
         }
+        guard !Task.isCancelled,
+              profiles.contains(where: { $0.id == profile.id && $0.configText == profile.configText }) else { return }
+        reachability[profile.id] = result
     }
 
     func pingAll() { profiles.forEach(ping) }
@@ -514,6 +543,9 @@ final class AppModel: ObservableObject {
     }
 
     func makeBackup(passphrase: String) async throws -> Data {
+        guard !profileStoreLoadRejected else {
+            throw ProfileStoreError.unavailableAfterLoadFailure
+        }
         let archiveSnapshot = archive
         let store = profileStore
         let json = try await Task.detached(priority: .userInitiated) {
@@ -554,7 +586,7 @@ final class AppModel: ObservableObject {
         }
         let previous = self.archive
         self.archive = archive
-        if persistArchive(rollbackTo: previous) {
+        if persistArchive(rollbackTo: previous, replacingUnreadableStore: true) {
             reachability.removeAll()
         }
     }
@@ -577,9 +609,23 @@ final class AppModel: ObservableObject {
         alert = AppAlert(title: title, message: error.localizedDescription, isLiteralMessage: true)
     }
 
-    private func commitArchive() throws {
+    private func commitArchive(replacingUnreadableStore: Bool = false) throws {
+        guard !profileStoreLoadRejected || replacingUnreadableStore else {
+            throw ProfileStoreError.unavailableAfterLoadFailure
+        }
         try profileStore.save(archive)
+        profileStoreLoadRejected = false
+        let previousConfigs = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0.configText) })
         profiles = archive.profiles
+        let currentConfigs = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0.configText) })
+        for id in Array(reachability.keys) where currentConfigs[id] == nil || currentConfigs[id] != previousConfigs[id] {
+            reachability.removeValue(forKey: id)
+        }
+        // Remove only queued IDs; an active native probe keeps its slot until its bounded
+        // call returns, so a replacement cannot exceed the four-worker limit.
+        let obsolete = queuedProbes.filter { currentConfigs[$0.id] != $0.configText }
+        queuedProbes.removeAll { currentConfigs[$0.id] != $0.configText }
+        for profile in obsolete { queuedOrActiveProbeIDs.remove(profile.id) }
         synchronizeActiveProfile()
         if managedConfiguration.hasActiveProfilePolicy {
             Task { [weak self] in
@@ -652,6 +698,19 @@ final class AppModel: ObservableObject {
     }
 
     func refreshManagedConfiguration(forceVPNPolicy: Bool = false) async {
+        do {
+            try await managedPolicyGate.withLock {
+                // Load MDM inside the serialized transaction. Loading before the wait
+                // would allow an older captured policy to overwrite a newer refresh.
+                await reconcileManagedConfiguration(forceVPNPolicy: forceVPNPolicy)
+            }
+        } catch is CancellationError {
+        } catch {
+            present(error, title: "Managed VPN policy")
+        }
+    }
+
+    private func reconcileManagedConfiguration(forceVPNPolicy: Bool) async {
         let previous = managedConfiguration
         let previousEffectiveOnDemand = effectiveOnDemandEnabled
         let current = ManagedConfigurationReader().load()
@@ -695,7 +754,7 @@ final class AppModel: ObservableObject {
                 }
                 try await tunnelManager.applyProfileConfiguration(
                     profile: profile,
-                    settings: effectiveSettings
+                    settings: { self.effectiveSettings }
                 )
             } else {
                 let onDemandRevision = tunnelManager.reserveOnDemandUpdate()
@@ -721,9 +780,12 @@ final class AppModel: ObservableObject {
     }
 
     @discardableResult
-    private func persistArchive(rollbackTo previous: ProfileArchive) -> Bool {
+    private func persistArchive(
+        rollbackTo previous: ProfileArchive,
+        replacingUnreadableStore: Bool = false
+    ) -> Bool {
         do {
-            try commitArchive()
+            try commitArchive(replacingUnreadableStore: replacingUnreadableStore)
             return true
         } catch {
             // Roll back from the in-memory snapshot first. Reloading the store can fail for the
@@ -860,45 +922,40 @@ private enum ReachabilityProbe {
         }
         let connection = NWConnection(host: NWEndpoint.Host(host), port: networkPort, using: .tcp)
         let start = DispatchTime.now().uptimeNanoseconds
-        return try await withCheckedThrowingContinuation { continuation in
-            let gate = ProbeGate()
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    let elapsed = DispatchTime.now().uptimeNanoseconds - start
-                    gate.resume {
-                        connection.cancel()
-                        continuation.resume(returning: Int(elapsed / 1_000_000))
-                    }
-                case .failed(let error):
-                    gate.resume { connection.cancel(); continuation.resume(throwing: error) }
-                default:
-                    break
-                }
-            }
-            connection.start(queue: DispatchQueue.global(qos: .utility))
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) {
-                gate.resume {
-                    connection.cancel()
-                    continuation.resume(throwing: URLError(.timedOut))
-                }
-            }
+        let completion = CancellableProbeCompletion<Int> {
+            connection.stateUpdateHandler = nil
+            connection.cancel()
         }
+        let outcome = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                completion.park(continuation)
+                completion.start {
+                    connection.stateUpdateHandler = { state in
+                        switch state {
+                        case .ready:
+                            let elapsed = DispatchTime.now().uptimeNanoseconds - start
+                            completion.finish(.success(Int(elapsed / 1_000_000)))
+                        case .failed(let error):
+                            completion.finish(.failure(error))
+                        case .cancelled:
+                            completion.finish(.failure(CancellationError()))
+                        default:
+                            break
+                        }
+                    }
+                    connection.start(queue: DispatchQueue.global(qos: .utility))
+                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) {
+                        completion.finish(.failure(URLError(.timedOut)))
+                    }
+                }
+            }
+        } onCancel: {
+            completion.finish(.failure(CancellationError()))
+        }
+        try Task.checkCancellation()
+        return try outcome.get()
     }
 
-}
-
-private final class ProbeGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var didResume = false
-
-    func resume(_ body: () -> Void) {
-        lock.lock()
-        guard !didResume else { lock.unlock(); return }
-        didResume = true
-        lock.unlock()
-        body()
-    }
 }
 
 private enum ManagedConfigurationError: LocalizedError {

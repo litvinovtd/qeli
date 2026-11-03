@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Linux TCP make-before-break integration test. Everything runs in three isolated network
-# namespaces; no host route or production process is changed.
+# Linux TCP make-before-break integration test. Everything runs in isolated network
+# namespaces (a fourth server namespace for multinode); no host route or production process is changed.
 # QELI_ROAMING_DEVICE_TYPE selects a Linux tun or tap endpoint on both sides (default: tun).
 # QELI_ROAMING_MULTIPATH_MODE selects single, fixed, or adaptive stream membership.
 # The perf case may override QELI_ROAMING_SERVER_ENABLED and
@@ -42,10 +42,30 @@ if [ "$CASE" = grace-expiry ]; then
 fi
 SERVER_ROAMING_GRACE_SECS=${QELI_ROAMING_SERVER_GRACE_SECS:-$DEFAULT_SERVER_ROAMING_GRACE_SECS}
 CLIENT_ROAMING_POLICY=${QELI_ROAMING_CLIENT_POLICY:-$DEFAULT_CLIENT_ROAMING_POLICY}
-WORK=/tmp/qeli-roaming-netns-${WIRE_MODE}-${DEVICE_TYPE}-${MULTIPATH_MODE}
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 2
+if [ "$CASE" = soak ]; then
+  if [ ! -r "$SCRIPT_DIR/roaming_soak_parameters.sh" ]; then
+    echo "required roaming soak parameter helper is missing" >&2
+    exit 2
+  fi
+  source "$SCRIPT_DIR/roaming_soak_parameters.sh" || exit 2
+  roaming_soak_counts "${QELI_ROAMING_SOAK_ITERATIONS:-10000}" "${QELI_ROAMING_SOAK_SAMPLE_EVERY:-100}" || exit 2
+fi
+# Isolation must succeed before initial cleanup can touch fixed namespace names.
+if [ ! -r "$SCRIPT_DIR/roaming_netns_isolation.sh" ]; then
+  echo "required roaming namespace isolation helper is missing" >&2
+  exit 2
+fi
+source "$SCRIPT_DIR/roaming_netns_isolation.sh" || exit 2
+roaming_netns_isolate "${BASH_SOURCE[0]}" "$@" || exit 2
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/qeli-roaming-netns-XXXXXX") || exit 2
+# Each test creates new namespaces; never reuse the host or another case's journal.
+export STATE_DIRECTORY="$WORK/state"
+mkdir -m 700 "$STATE_DIRECTORY" || exit 2
 CLI_NS=qrm-cli
 RTR_NS=qrm-rtr
 SRV_NS=qrm-srv
+SECONDARY_SRV_NS=qrm-srv-secondary
 PASS=0
 FAIL=0
 SERVER_JOB_PID=
@@ -53,9 +73,10 @@ SECONDARY_SERVER_JOB_PID=
 CLIENT_JOB_PID=
 TARGET_JOB_PID=
 LOAD_JOB_PID=
+FAULT_JOB_PID=
 
 usage() {
-  echo "usage: $0 [qeli-binary] [success|resume|grace-expiry|soak|perf|multinode] [fake-tls|reality-tls|plain|obfs-ws|obfs-none|obfs-awg]" >&2
+  echo "usage: $0 [qeli-binary] [success|resume|grace-expiry|soak|perf|multinode|bonding|starvation] [fake-tls|reality|reality-tls|plain|obfs-ws|obfs-none|obfs-awg|obfs-awg-none]" >&2
 }
 
 if [ "$#" -gt 3 ]; then
@@ -63,7 +84,7 @@ if [ "$#" -gt 3 ]; then
   exit 2
 fi
 case "$CASE" in
-  success|resume|grace-expiry|soak|perf|multinode) ;;
+  success|resume|grace-expiry|soak|perf|multinode|bonding|starvation) ;;
   *)
     usage
     exit 2
@@ -152,6 +173,16 @@ CLIENT_BIND_STATIC=false
 REALITY_TARGET=false
 case "$WIRE_MODE" in
   fake-tls) ;;
+  reality)
+    SERVER_OBF_MODE=fake-tls
+    CLIENT_OBF_MODE=fake-tls
+    AUTH_REQUIRE_KEY_PROOF=true
+    AUTH_BIND_STATIC=true
+    CLIENT_BIND_STATIC=true
+    REALITY_TARGET=true
+    SERVER_OBF_EXTRA=$'obf.tls.server_name = www.microsoft.com\nobf.tls.reality_proxy.enabled = true\nobf.tls.reality_proxy.target = 10.40.3.1\nobf.tls.reality_proxy.target_port = 9443\nobf.tls.reality_proxy.short_ids = 0123456789abcdef\nobf.tls.reality_proxy.real_tls = false\nobf.tls.reality_proxy.handrolled = true'
+    CLIENT_OBF_EXTRA=$'reality_sid = 0123456789abcdef\nsni = www.microsoft.com'
+    ;;
   reality-tls)
     SERVER_OBF_MODE=reality-tls
     CLIENT_OBF_MODE=reality-tls
@@ -177,6 +208,12 @@ case "$WIRE_MODE" in
     CLIENT_OBF_MODE=obfs
     SERVER_OBF_EXTRA=$'obf.obfs_key = roam-tcp-obfs-key-1234\nobf.obfs_fronting = none'
     CLIENT_OBF_EXTRA=$'obfs_key = roam-tcp-obfs-key-1234\nfront = none'
+    ;;
+  obfs-awg-none)
+    SERVER_OBF_MODE=obfs
+    CLIENT_OBF_MODE=obfs
+    SERVER_OBF_EXTRA=$'obf.obfs_key = roam-tcp-obfs-key-1234\nobf.obfs_fronting = none\nobf.awg.enabled = true\nobf.awg.jc = 4\nobf.awg.jmin = 48\nobf.awg.jmax = 160'
+    CLIENT_OBF_EXTRA=$'obfs_key = roam-tcp-obfs-key-1234\nfront = none\nawg = true\njc = 4\njmin = 48\njmax = 160'
     ;;
   obfs-awg)
     SERVER_OBF_MODE=obfs
@@ -225,7 +262,7 @@ run_case_helper() {
 }
 
 cleanup() {
-  for pid in "$CLIENT_JOB_PID" "$SERVER_JOB_PID" "$SECONDARY_SERVER_JOB_PID" "$TARGET_JOB_PID" "$LOAD_JOB_PID"; do
+  for pid in "$CLIENT_JOB_PID" "$SERVER_JOB_PID" "$SECONDARY_SERVER_JOB_PID" "$TARGET_JOB_PID" "$LOAD_JOB_PID" "$FAULT_JOB_PID"; do
     if [ -n "$pid" ]; then
       kill -9 "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -233,14 +270,14 @@ cleanup() {
   done
   ip netns pids "$CLI_NS" 2>/dev/null | xargs -r kill -9 2>/dev/null
   ip netns pids "$SRV_NS" 2>/dev/null | xargs -r kill -9 2>/dev/null
-  for ns in "$CLI_NS" "$RTR_NS" "$SRV_NS"; do
+  ip netns pids "$SECONDARY_SRV_NS" 2>/dev/null | xargs -r kill -9 2>/dev/null
+  for ns in "$CLI_NS" "$RTR_NS" "$SRV_NS" "$SECONDARY_SRV_NS"; do
     ip netns del "$ns" 2>/dev/null
   done
   sleep 0.2
 }
 trap cleanup EXIT
 cleanup
-mkdir -p "$WORK"
 rm -f "$WORK"/*.log "$WORK"/*.conf "$WORK"/*.key "$WORK"/*.crt \
   "$WORK"/*-known-hosts "$WORK"/*-device-id
 
@@ -276,8 +313,19 @@ ip netns exec "$SRV_NS" ip route add default via 10.40.3.1 dev qrm-s
 
 check "path A reaches the server" \
   "ip netns exec $CLI_NS ping -I 10.40.1.2 -c1 -W2 10.40.3.2"
-check "path B reaches the server" \
-  "ip netns exec $CLI_NS ping -I 10.40.2.2 -c1 -W2 10.40.3.2"
+# The initial /32 bypass and strict rp_filter can reject a B reply while A is the
+# physical default. Prove the B link works with a temporary loose filter, then put
+# the original value back so Qeli itself must manage the candidate during handover.
+ORIGINAL_RPF_B=$(ip netns exec "$CLI_NS" sysctl -n net.ipv4.conf.qrm-b.rp_filter)
+ip netns exec "$CLI_NS" sysctl -qw net.ipv4.conf.qrm-b.rp_filter=2
+check "path B reaches the server with a candidate-compatible reverse-path filter" \
+  "ip netns exec $CLI_NS ping -I qrm-b -c1 -W2 10.40.3.2"
+ip netns exec "$CLI_NS" sysctl -qw "net.ipv4.conf.qrm-b.rp_filter=$ORIGINAL_RPF_B"
+if [ "$(ip netns exec "$CLI_NS" sysctl -n net.ipv4.conf.qrm-b.rp_filter)" = "$ORIGINAL_RPF_B" ]; then
+  ok "path B reverse-path filter was restored before Qeli starts"
+else
+  bad "path B reverse-path filter was restored before Qeli starts"
+fi
 
 if [ "$REALITY_TARGET" = true ]; then
   if ! openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
@@ -345,7 +393,7 @@ if [ "$REALITY_TARGET" = true ]; then
   fi
 fi
 "$BIN" add-client roam-user -p roam-pass-1234 -c "$WORK/server.conf" >/dev/null 2>&1
-ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$WORK/control.sock" "$BIN" server -c "$WORK/server.conf" >"$WORK/server.log" 2>&1 &
+ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$ROAMING_CONTROL_SOCKET" "$BIN" server -c "$WORK/server.conf" >"$WORK/server.log" 2>&1 &
 SERVER_JOB_PID=$!
 wait_for 50 "ip netns exec $SRV_NS ss -lnt | grep -q ':4443'" || bad "server did not listen"
 wait_for 50 "ip netns exec $SRV_NS ip link show qrms0" || bad "server tunnel device did not come up"
@@ -353,6 +401,25 @@ check "server $DEVICE_TYPE device has the requested kernel kind" \
   "flags=\$(ip netns exec $SRV_NS cat /sys/class/net/qrms0/tun_flags); \
    test \$((flags & 3)) -eq $EXPECTED_DEVICE_KIND"
 if [ "$CASE" = multinode ]; then
+  # Worker ownership is per network namespace. A different port/control socket
+  # does not isolate the independent registry and network cleanup responsibilities.
+  ip netns add "$SECONDARY_SRV_NS"
+  ip link add qrm-t type veth peer name qrm-tr
+  ip link set qrm-t netns "$SECONDARY_SRV_NS"
+  ip link set qrm-tr netns "$RTR_NS"
+  ip netns exec "$SECONDARY_SRV_NS" ip addr add 10.40.4.2/24 dev qrm-t
+  ip netns exec "$RTR_NS" ip addr add 10.40.4.1/24 dev qrm-tr
+  ip netns exec "$SECONDARY_SRV_NS" ip link set lo up
+  ip netns exec "$SECONDARY_SRV_NS" ip link set qrm-t up
+  ip netns exec "$RTR_NS" ip link set qrm-tr up
+  ip netns exec "$SECONDARY_SRV_NS" ip route add default via 10.40.4.1 dev qrm-t
+  if [ "$(ip netns exec "$SRV_NS" readlink /proc/self/ns/net)" != \
+       "$(ip netns exec "$SECONDARY_SRV_NS" readlink /proc/self/ns/net)" ]; then
+    ok "independent servers use different network namespaces"
+  else
+    bad "independent servers must use different network namespaces"
+    exit 1
+  fi
   sed \
     -e 's/^level = info$/level = debug/' \
     -e 's/^bind.port = 4443$/bind.port = 4444/' \
@@ -361,24 +428,29 @@ if [ "$CASE" = multinode ]; then
     -e 's#^pool.cidr = 10\.88\.0\.0/24$#pool.cidr = 10.89.0.0/24#' \
     -e 's/^pool.exclude = 10\.88\.0\.1$/pool.exclude = 10.89.0.1/' \
     "$WORK/server.conf" >"$WORK/server-secondary.conf"
-  ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$WORK/control-secondary.sock" \
+  ip netns exec "$SECONDARY_SRV_NS" env QELI_CONTROL_SOCKET="$ROAMING_SECONDARY_CONTROL_SOCKET" \
     "$BIN" server -c "$WORK/server-secondary.conf" >"$WORK/server-secondary.log" 2>&1 &
   SECONDARY_SERVER_JOB_PID=$!
-  if wait_for 50 "ip netns exec $SRV_NS ss -lnt | grep -q ':4444'"; then
+  if wait_for 50 "ip netns exec $SECONDARY_SRV_NS ss -lnt | grep -q ':4444'"; then
     ok "secondary process listens with the shared identity on port 4444"
   else
     bad "secondary process did not listen on port 4444"
     exit 1
   fi
-  wait_for 50 "ip netns exec $SRV_NS ip link show qrms1" || bad "secondary tunnel device did not come up"
+  wait_for 50 "ip netns exec $SECONDARY_SRV_NS ip link show qrms1" || bad "secondary tunnel device did not come up"
   ip netns exec "$RTR_NS" iptables -t nat -A PREROUTING -i qrm-br -p tcp \
-    -d 10.40.3.2 --dport 4443 -j DNAT --to-destination 10.40.3.2:4444
+    -d 10.40.3.2 --dport 4443 -j DNAT --to-destination 10.40.4.2:4444
   check "path B is mapped to the independent secondary process" \
-    "ip netns exec $RTR_NS iptables -t nat -C PREROUTING -i qrm-br -p tcp -d 10.40.3.2 --dport 4443 -j DNAT --to-destination 10.40.3.2:4444"
+    "ip netns exec $RTR_NS iptables -t nat -C PREROUTING -i qrm-br -p tcp -d 10.40.3.2 --dport 4443 -j DNAT --to-destination 10.40.4.2:4444"
 fi
 if [ "$REALITY_TARGET" = true ]; then
+  if [ "$WIRE_MODE" = reality ]; then
+    check "legacy REALITY keeps fake-TLS instead of real TLS termination" \
+      "! grep -q 'real-TLS termination enabled' $WORK/server.log"
+  else
   check "REALITY server borrowed the target TLS shape and certificate" \
     "grep -q 'borrowed TLS shape.*real cert chain: captured' $WORK/server.log"
+  fi
   ip netns exec "$CLI_NS" timeout 10 openssl s_client -connect 10.40.3.2:4443 \
     -servername www.microsoft.com -showcerts </dev/null >"$WORK/decoy.log" 2>&1 || true
   check "non-Qeli TLS probe was bridged to the REALITY target" \
@@ -454,7 +526,6 @@ elif [ "$MULTIPATH_MODE" = adaptive ]; then
   fi
 fi
 
-SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 if [ "$CASE" = soak ]; then
   # shellcheck source=roaming_tcp_netns_soak_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_tcp_netns_soak_case.sh" run_tcp_soak_case || exit $?
@@ -464,6 +535,11 @@ elif [ "$CASE" = perf ]; then
 elif [ "$CASE" = resume ] || [ "$CASE" = grace-expiry ]; then
   # shellcheck source=roaming_tcp_resume_netns_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_tcp_resume_netns_case.sh" run_tcp_resume_case || exit $?
+elif [ "$CASE" = starvation ]; then
+  run_case_helper "$SCRIPT_DIR/roaming_tcp_starvation_netns_case.sh" run_tcp_starvation_case || exit $?
+elif [ "$CASE" = bonding ]; then
+  # shellcheck source=roaming_tcp_bonding_netns_case.sh
+  run_case_helper "$SCRIPT_DIR/roaming_tcp_bonding_netns_case.sh" run_tcp_bonding_case || exit $?
 elif [ "$CASE" = multinode ]; then
   # shellcheck source=roaming_tcp_multinode_netns_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_tcp_multinode_netns_case.sh" run_tcp_multinode_case || exit $?
@@ -524,6 +600,27 @@ PING_RX=$(awk -F, '/packets transmitted/ { value=$2; gsub(/[^0-9]/, "", value); 
   "$WORK/ping.log" | tail -n1)
 check "continuous probe retained at least 140 of 150 packets" \
   "test -n '$PING_RX' && test '$PING_RX' -ge 140"
+fi
+
+if [ "$CASE" = success ]; then
+  RPF_B=$(ip netns exec "$CLI_NS" sysctl -n net.ipv4.conf.qrm-b.rp_filter)
+  if [ "$RPF_B" = "$ORIGINAL_RPF_B" ] \
+      && ! grep -q 'roam-rpf-' "$STATE_DIRECTORY/sysctls.state" 2>/dev/null; then
+    ok "COMMIT restored the candidate reverse-path filter and released its lease"
+  else
+    bad "COMMIT restored the candidate reverse-path filter and released its lease"
+  fi
+  kill -TERM "$CLIENT_JOB_PID" 2>/dev/null || true
+  for attempt in $(seq 1 100); do
+    RPF_B=$(ip netns exec "$CLI_NS" sysctl -n net.ipv4.conf.qrm-b.rp_filter)
+    if [ "$RPF_B" = "$ORIGINAL_RPF_B" ]; then break; fi
+    sleep 0.2
+  done
+  if [ "$RPF_B" = "$ORIGINAL_RPF_B" ]; then
+    ok "client shutdown restored the candidate interface reverse-path filter"
+  else
+    bad "client shutdown restored the candidate interface reverse-path filter"
+  fi
 fi
 
 echo

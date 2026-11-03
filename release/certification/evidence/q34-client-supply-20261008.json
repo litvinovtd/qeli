@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q34_CLIENT_BUILD_POLICY_SCOPED_WITH_BRACES_OPEN",
+  "source_digest": "cb59d3094d106cbe24b9ab9b70c567491388af3aac508bf7d7037ecb8457f556",
+  "qualification_source_commit": "33597e6b96e061387307b27b56e46516ed8c5bd1",
+  "product_source_commit": "33597e6b96e061387307b27b56e46516ed8c5bd1",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F455/Q34-F009",
+    "F456/Q34-F010",
+    "F457/Q34-F011",
+    "F458/Q34-F012"
+  ],
+  "findings_open": [
+    "F459/Q34-F013"
+  ],
+  "verification": {
+    "web": {
+      "status": "PASS_SCOPED_WITH_BRACES_OPEN",
+      "updated_lock_records": [
+        "node_modules/postcss-selector-parser",
+        "node_modules/source-map-js"
+      ],
+      "css_sha256": "c925399cb860bea80fcbc5d66dec7cf3ebb0740fbd8bb7489d211730bdc1d8bd",
+      "css_byte_identical": true,
+      "initial_advisory_roots": 3,
+      "current_advisory_roots": 1,
+      "initial_affected_graph_entries": 8,
+      "current_affected_graph_entries": 5,
+      "open_advisory": "GHSA-vfj7-8cjw-p6xm",
+      "fixed_braces_release_available": false,
+      "npm_audit_current_exit": 1
+    },
+    "gradle": {
+      "status": "PASS",
+      "archive_sha256": "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a",
+      "rows": [
+        {
+          "case": "positive",
+          "rc": 0
+        },
+        {
+          "case": "corrupt",
+          "rc": 1
+        }
+      ]
+    },
+    "managed": {
+      "status": "PASS",
+      "sdk": "10.0.300",
+      "build_rc": {
+        "win": 0,
+        "mac_managed_cross_build": 0,
+        "conformance": 0
+      },
+      "selftest_rc": {
+        "win": 0,
+        "conformance_with_required_corpus": 0,
+        "packetbench_ci": 0
+      },
+      "negative_restore_rc": 1,
+      "initial_fixture_failure": "8 required fixture files absent from scratch copy; tracked corpus copied, mandatory checks repeated with 0 failures",
+      "harness_assertion_failure": "incorrect b0-space check on localized summary after all checks passed; return codes from original commands retained"
+    },
+    "nuget_policy": {
+      "status": "PASS",
+      "all_three_explicit_source_restores": 0,
+      "known_vulnerability_refused": 1,
+      "unavailable_advisory_source_refused": 1
+    },
+    "drivers": {
+      "status": "PASS",
+      "rows": [
+        {
+          "case": "positive",
+          "rc": 0
+        },
+        {
+          "case": "dll-corrupt",
+          "rc": 1
+        },
+        {
+          "case": "sys-corrupt",
+          "rc": 1
+        },
+        {
+          "case": "notice-corrupt",
+          "rc": 1
+        },
+        {
+          "case": "missing-consumed-sys",
+          "rc": 1
+        }
+      ],
+      "scope": "file signatures/hash/notices only; no WinDivert filter or driver installation"
+    },
+    "windivert_upstream": {
+      "url": "https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip",
+      "release_published": "2022-09-21T00:09:43Z",
+      "asset_updated": "2022-09-21T00:08:59Z",
+      "archive_sha256": "63cb41763bb4b20f600b6de04e991a9c2be73279e317d4d82f237b150c5f3f15",
+      "asset_digest": null,
+      "files": [
+        {
+          "file": "WinDivert.dll",
+          "member": "WinDivert-2.2.2-A/x64/WinDivert.dll",
+          "upstream_sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2",
+          "bundled_sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2",
+          "match": true
+        },
+        {
+          "file": "WinDivert64.sys",
+          "member": "WinDivert-2.2.2-A/x64/WinDivert64.sys",
+          "upstream_sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2",
+          "bundled_sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2",
+          "match": true
+        }
+      ]
+    },
+    "unchanged": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_files": [
+        {
+          "path": "*native-libs/android/arm64-v8a/libqeli.so",
+          "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+        },
+        {
+          "path": "*qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+          "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+        },
+        {
+          "path": "*native-libs/android/x86_64/libqeli.so",
+          "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+        },
+        {
+          "path": "*qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+          "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+        },
+        {
+          "path": "*native-libs/windows-x64/qeli.dll",
+          "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+        },
+        {
+          "path": "*qeli-win/QeliWin/native/qeli.dll",
+          "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+        },
+        {
+          "path": "*native-libs/macos-universal/libqeli.dylib",
+          "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+        },
+        {
+          "path": "*qeli-mac/QeliMac/native/libqeli.dylib",
+          "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+        },
+        {
+          "path": "*native-libs/third-party/windows-x64/wintun.dll",
+          "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+        },
+        {
+          "path": "*qeli-win/QeliWin/wintun/wintun.dll",
+          "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+        },
+        {
+          "path": "*native-libs/third-party/windows-x64/windivert/WinDivert.dll",
+          "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+        },
+        {
+          "path": "*qeli-win/QeliWin/windivert/WinDivert.dll",
+          "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+        },
+        {
+          "path": "*native-libs/third-party/windows-x64/windivert/WinDivert64.sys",
+          "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+        },
+        {
+          "path": "*qeli-win/QeliWin/windivert/WinDivert64.sys",
+          "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+        }
+      ],
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a",
+        "qeli/src/web/assets/app.css": "c925399cb860bea80fcbc5d66dec7cf3ebb0740fbd8bb7489d211730bdc1d8bd"
+      }
+    },
+    "local": {
+      "status": "PASS",
+      "docs": 690,
+      "native_release_unit_suites": "PASS",
+      "changes": "No Rust/native/CSS source changes; no new native A-B build claimed"
+    },
+    "harness_failures": {
+      "failures": [
+        {
+          "stage": "scratch npm trial",
+          "reason": "braces3.0.4 unpublished; ETARGET; none of failed trial entered repo"
+        },
+        {
+          "stage": "scratch conformance",
+          "reason": "8 fixture files omitted; original failure log retained; required full tracked corpus rerun PASS"
+        },
+        {
+          "stage": "result assertion",
+          "reason": "b0-space literal did not match localized successful build summary; original rc0 builds retained"
+        },
+        {
+          "stage": "signature display",
+          "reason": "cp1251 console encoding; signature inventory itself rc0, saved bytes retained"
+        },
+        {
+          "stage": "first driver-positive",
+          "reason": "canonical and application NOTICE are intentionally different; copied canonical hash incorrectly assumed identical; per-path pinned notices fixed, positive and four negatives pass"
+        }
+      ]
+    }
+  },
+  "raw_packet": {
+    "name": "q34-client-supply-20261008",
+    "files": 88,
+    "bytes": 404870232,
+    "manifest_sha256": "049420ad624cd500958d4b0a9dacefa18e4142f32ece4d814259da8e36e0e66a",
+    "runtime_status": "PASS_CLIENT_BUILD_POLICY_SCOPED_WITH_BRACES_OPEN",
+    "path": "audit-debt-20260924/q34-client-supply-20261008",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F455-F458/Q34-F009-F012 scoped client build policy: selector-parser7.1.6/source-map-js1.2.2 overrides only two lock records; actual npm ci/build identical CSS c925399c. F459/Q34-F013 braces GHSA-vfj7-8cjw-p6xm remains OPEN without published fix; npm audit1 with5 affected entries from1advisory,not zero vulnerability or npm hardgate. Official Gradle9.7.1 distribution checksum pinned; real wrapper positive and modified-ZIP refusalPASS. NuGet all/transitive/low warning errors NU1900-1905 and explicit official audit source: fresh3Releasegraphs0knownvuln/3managedbuildsPASS,real vulnerable-package and unavailable-advisory-source refusalsPASS;Debug-headless-Linuxgraphs/SDKpolicy/locks not qualified. Required full shared conformance/Windows adapter selftest/localcodecbenchmarkPASS,not VPNthroughput or physicalMac. Official WinDivert2.2.2-A archive exact DLL/SYS match; kernel signatureValid/pinnedthumbprint/hash/license/per-pathnotice gatePASS,4corrupt-missingfile refusalsPASS;officialDLLunsigned,no driverinstallation/filter/networkVM claim. Nativee3fb inputs/currentA-B/copies14SHA/CHANGELOG/users/CSS unchanged;no freshnative rebuild claimed. Docs690-9/native12-release11unitPASS. Harness failures documented;owned local recoverable managed ZIP/SHA/cachesretained/SEALEDcredentialscan;noSSHlabchange. FullQ34IN_PROGRESS30-37DONE81.1percent7remain;currentActions/excludedMac-iOS-router-WindowsVM/D06accepted/Q29SIGKILLFAIL-ENONET/Q30Applecallback/Q31capacity-sourcecut-currentCI preserved. Old14debtDONE;41cases72prior supplements unchanged modulo source_digest;append73 scoped evidence only. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

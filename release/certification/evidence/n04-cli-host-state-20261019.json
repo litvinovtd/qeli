@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "source_commit": "ea03c092e6f42f6a4e5d04944988e487f24e94db",
+  "executed_source_commit": "ea03c092e6f42f6a4e5d04944988e487f24e94db",
+  "artifact_sha256": "e4cb6e055854806bcef7c61f394ea696cbf9cde3de90fef7b5f0f02e60326ddb",
+  "original_host_guard": "PASS",
+  "changed_fields": [],
+  "source": "Existing vpn-nat.service /usr/local/bin/vpn-nat.sh",
+  "potentially_varying_rules": [
+    "-A FORWARD -i vpn0 -j ACCEPT",
+    "-A FORWARD -o vpn0 -m state --state RELATED,ESTABLISHED -j ACCEPT",
+    "-A POSTROUTING -s 10.8.0.0/24 -o ens18 -j MASQUERADE"
+  ],
+  "maintenance_script_sha256": "64f207975424f4e1d01e8b400e222c826b65fe2dc18faf645ec9a18ce3cc7c2f",
+  "maintenance_unit_sha256": "86c68f56601ab17f360ac2bdacdeba7fc67f4c69e8a0cbb9dd7ba3584af9852d",
+  "pre_runtime_journal_sha256": "eb0f69501eebba32e7b666a8b823a2852e4b0348208ad2f5a995992b248af50e",
+  "raw_variance_record_sha256": "43021681b29be69ae38571467c96e35edec8c97a758bf56911e6f1de8c248dbb",
+  "original_execution_log_sha256": "418a24d637d92ccfd193ecabd3e1118e8acd937f77d72a3d0434b7a5ab1be7b7",
+  "original_20261018_host_guard_fail": "Preserved in debt-closure-host-variance-20261018.json; not overwritten by this run.",
+  "full_host_unchanged_claim": true,
+  "service_or_firewall_modified_by_release_preparation": false,
+  "published": false
+}

@@ -27,8 +27,7 @@ binary is not part of this image.
 > **Re-verified (2026-07-08)** on Docker 29 / Debian 13 with `qeli 0.7.9`: a
 > **two-container** server↔client test on a user bridge — auth, tunnel-gateway ping,
 > and internet egress via the server's NAT all pass (0% loss). Copy-paste walkthrough
-> with full server + client configs in **§2d**; automated in
-> [`scripts/docker_2container_test.py`](../../scripts/docker_2container_test.py).
+> with full server + client configs in **§2d**. This is historical 0.7.9 evidence.
 
 ---
 
@@ -36,12 +35,20 @@ binary is not part of this image.
 
 ### Easiest — pull the published image (no build)
 
-CI (`.github/workflows/docker-publish.yml`) builds the multi-arch image and pushes
-it to GHCR on **every release tag**, so `:latest` always tracks the newest release:
+CI (`.github/workflows/docker-publish.yml`) builds a versioned multi-arch image
+after release-tag admission. `:latest` is promoted only for the highest stable Git
+version with a published, non-prerelease GitHub Release; it does not follow beta releases.
+
+An explicit maintainer recovery can separately promote a verified beta image to
+`:latest`, as requested for 0.8.2 in [issue #200](https://github.com/litvinovtd/qeli/issues/200).
+This does not change the GitHub Release's beta status or the automatic workflow's
+stable-only policy. For 0.8.3 Beta, pin `:0.8.3` only after its multi-arch Docker
+workflow succeeds. A draft or published GitHub Release alone does not confirm that
+the image is available; it does not automatically move `:latest` to a Beta.
 
 ```sh
-docker pull ghcr.io/litvinovtd/qeli:latest     # newest release (recommended)
-docker pull ghcr.io/litvinovtd/qeli:0.7.11      # or pin a specific release tag
+docker pull ghcr.io/litvinovtd/qeli:latest     # automatic stable channel; explicit recovery promotions may include a beta
+docker pull ghcr.io/litvinovtd/qeli:0.8.3      # beta, only after its Docker workflow succeeds
 ```
 
 Use that image name anywhere `qeli:latest` appears below. Build locally only to
@@ -59,10 +66,10 @@ modify the source or if the registry is unreachable.
 >
 > The Dockerfile is **version-agnostic** — it builds whatever source is checked
 > out, so the image's `qeli --version` equals the `qeli/Cargo.toml` of your
-> checkout. **A stale checkout builds an old version.** `main` gives the latest dev
-> build; for the newest **release** run
-> `git pull && git checkout "$(git describe --tags --abbrev=0)"` (or a specific tag,
-> e.g. `git checkout v0.7.4`) before building.
+> checkout. **A stale checkout builds an old version.** Development is on `dev`.
+> Fetch the repository and select the exact reviewed commit or published release tag
+> before building (for example `git fetch origin --tags`, then `git checkout v0.8.3`
+> once that tag is published). The nearest tag is not necessarily the newest release.
 
 Multi-arch (one tag, three arches):
 
@@ -71,7 +78,7 @@ docker buildx create --use --name qeli-builder   # once
 # A multi-arch build cannot `--load` into the local daemon — it must `--push` to a
 # registry, so the tag has to be registry-qualified.
 docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 \
-  -f release/docker/Dockerfile -t ghcr.io/litvinovtd/qeli:latest --push .
+  -f release/docker/Dockerfile -t ghcr.io/YOUR_ACCOUNT/qeli:local-build --push .
 ```
 
 Single arch you can `--load` into the local daemon (e.g. amd64 for a Linux box,
@@ -149,9 +156,12 @@ A self-contained connectivity test: a **server** and a **client** container on o
 Docker host, on a user-defined bridge, verified with pings through the tunnel. This
 is the minimal "does it actually work in Docker" reproduction — no remote server, no
 published ports (the two containers reach each other **by name** on the bridge's
-embedded DNS). The whole thing is automated in
-[`scripts/docker_2container_test.py`](../../scripts/docker_2container_test.py); the
-manual steps are below.
+embedded DNS). The manual steps are below. For isolated audit runs,
+[`scripts/audit_docker_runtime_case.py`](../../scripts/audit_docker_runtime_case.py)
+requires a separately prepared, resource-limited audit daemon and SHA-verified
+image record; it never installs Docker or uses the host default socket. Its pinned
+TCP test covers local tunnel traffic, volumes, recreation and deliberate bad-image
+recovery; it does not repeat the historical Internet/NAT or throughput benchmark.
 
 **1. Config dirs + the server config.** One fake-TLS TCP profile on `:443` with NAT
 egress on. `dns.enabled = false` (the server pushes no resolver); comments must be on
@@ -375,28 +385,46 @@ through the tunnel, add `gateway_nat = true` under `[qeli]`. Drop the file in th
 | caps `NET_ADMIN`,`NET_RAW`,`NET_BIND_SERVICE` | create TUN, set routes/iptables, bind :443 | `--cap-add` (no `--privileged` needed) |
 | `net.ipv4.ip_forward=1` | **server NAT** (`routing.nat.enabled`) — internet egress | `--sysctl net.ipv4.ip_forward=1` |
 | `nf_nat` / `iptable_nat` kernel modules | **server NAT** MASQUERADE | host kernel (`modprobe iptable_nat`) — containers share the host kernel |
-| `net.core.rmem_default` ≥ 4 MB | **UDP profiles** — otherwise the socket sits at the 208 KB default and drops packets under load | **on the HOST**, not the container (see below) |
+| `net.core.rmem_max` ≥ requested UDP receive buffer | **UDP profiles** — permits Qeli's explicit buffer requests and bounded growth | Check the host limit and actual socket readback (see below) |
 
 A **client-only** container needs just `/dev/net/tun` + `NET_ADMIN` (no iptables,
 no ip_forward). NAT is opt-in (`routing.nat.enabled` in the server config); a
 server without NAT (e.g. behind a host that NATs) doesn't need iptables at all.
 
-**Running a `udp-*` profile in Docker — tune the host.** `net.core.rmem_default` and
-`net.core.wmem_default` are *not* network-namespaced, so `--sysctl` refuses them and the
-container inherits whatever the host has. UDP gets no buffer autotuning (unlike TCP), so on
-an untuned host the socket keeps the 208 KB default and starts dropping datagrams under
-load — and every dropped datagram is a lost TCP segment *inside* the tunnel, which halves
-the inner connection's window. Set it on the host once:
+**Running a `udp-*` profile in Docker.** In automatic mode Qeli requests a 4 MiB
+receive buffer and may grow it to 16 MiB within its own RAM budget. UDP has no
+kernel receive autotuning; Qeli supplies its own bounded controller. Check host
+`net.core.rmem_max`: raising `rmem_default` alone does not permit larger explicit
+requests. The one-shot Linux installer requests a 16 MiB maximum; for a manually
+configured host, preserve the previous value/file and add this limit to your
+existing tuning file if needed:
 
-```bash
-printf 'net.core.rmem_default=4194304\nnet.core.wmem_default=4194304\nnet.core.netdev_max_backlog=4000\n' \
-  | sudo tee /etc/sysctl.d/99-qeli-udp.conf
-sudo sysctl --system
-docker restart qeli-server        # UDP sockets take the buffer size at creation
+```ini
+net.core.rmem_max=16777216
 ```
 
-Check it landed: `docker exec qeli-server ss -ulnm | grep -A1 ':8449' | grep -o 'rb[0-9]*'`
-should print `rb4194304`, not `rb212992`. TCP-only deployments can skip this.
+Apply that file with `sudo sysctl -p /etc/sysctl.d/99-qeli-perf.conf` (use your actual
+file path), then recreate affected sockets, for example with `docker restart qeli-server`.
+Check Qeli logs and `docker exec qeli-server ss -ulnm`; Linux normally reports twice
+the requested `SO_RCVBUF` in `rb`: about `rb8388608` for a 4 MiB request, up to
+`rb33554432` for 16 MiB, subject to kernel limits. Monitor overflow counters as well;
+larger buffers do not eliminate sustained overload or TUN drops.
+
+**TCP autotuning.** In each server TCP `[profile:...]`, use:
+
+```ini
+perf.tcp.send_buffer_size = 0
+perf.tcp.recv_buffer_size = 0
+```
+
+These keys leave socket buffers to the OS; explicit nonzero values are preserved
+and lock the corresponding buffer. Check the TCP sysctls **in the container's
+network namespace**: `docker exec qeli-server sysctl net.ipv4.tcp_moderate_rcvbuf net.ipv4.tcp_rmem net.ipv4.tcp_wmem`.
+If necessary, set `--sysctl net.ipv4.tcp_moderate_rcvbuf=1` when creating a bridge-network
+container (or the equivalent Compose `sysctls`). With host networking, configure
+these on the host instead. Preserve existing RAM limits; do not copy large
+per-socket budgets blindly to routers. Restart/reconnect for new TCP sockets.
+The image does not modify host sysctl. See the [Linux server tuning guide](../../docs/eng/manuals/CONFIG.md).
 
 ---
 
@@ -539,3 +567,101 @@ idle + load + ~90 s of combined soak. The netns/veth overhead is negligible.
 > **Stability depends on `dns = off`** for client containers — Docker bind-mounts
 > `/etc/resolv.conf`, which the default `dns = tunnel` cannot atomically replace
 > (EBUSY → reconnect loop). The entrypoint warns if it's missing; see §5.
+
+## First-run configuration and filesystem behavior
+
+With no arguments the entrypoint selects `server`. `QELI_CONFIG` chooses the default
+path; an explicit `--config PATH`, `--config=PATH`, `-c PATH` or `-cPATH` takes
+precedence and is passed to qeli once. Missing/empty/duplicate config options refuse
+before writing. Help/version options do not create config or users files.
+
+New config and empty users files are0600. Existing regular files retain their contents
+and permissions; symlinks and other file types refuse startup. Creation publishes a
+complete temporary file with GNU `ln -T`, preserving a concurrent regular creator and
+refusing a concurrent link/directory. First-run volumes need hard-link support; failed
+copy/link or readonly storage refuses instead of leaving a partial final file. This
+is not fsync/power-loss durability, and SIGKILL can leave a temporary file. Administrator
+changes to parent paths are outside the cooperative publication boundary.
+
+[Q33 audit](../../docs/eng/reports/audit-0.8.2/AUDIT-Q33-DOCKER-ENTRYPOINT.md) records34 shell/chroot
+scenarios. These checks use an argv-recording executable and do not qualify Docker
+image builds, daemon networking, health or recreation.
+
+### Publication and recovery policy
+
+`docker-publish` validates release tags before login/build. Manual branch runs
+publish a full `sha-<commit>` tag; stable SemVer release tags also publish `latest`,
+while prereleases never replace it. Cargo builds use `--locked`.
+
+Keep `/etc/qeli` and `/var/lib/qeli` volumes across recreation. Record and retain
+the current image ID and back up configuration/state before upgrading. Check logs,
+client authentication and actual tunnel traffic after recreation; Running is only
+process state. Restore the saved image with the same volumes on failure. Neither
+this image nor the example compose implements automatic rollback or HEALTHCHECK.
+
+On 2026-10-08 the actual amd64 runtime stage was built with a SHA-verified existing
+0.8.2 release ELF supplied via the named `build` context, then passed26 local
+runtime/volume/recreation/fault-recovery checks on Debian13/Docker29.8.2. This did
+not rerun the Rust compiler stage, multiarch publication, Internet NAT or old
+throughput benchmarks. See the [scoped audit report](../../docs/eng/reports/audit-0.8.2/AUDIT-Q33-DOCKER-ENTRYPOINT.md).
+
+## Release source and legal resources
+
+The runtime image retains the project AGPL, LICENSING and common reviewed Cargo/
+toolchain notices in `/usr/share/doc/qeli/`; the complete native legal bundle is
+under `licenses/rust/`. Validate `python3 scripts/native_licenses.py` from the repo
+root before a local build. Publication CI runs that check before registry login.
+Rust1.97.0 builder and Debian Bookworm runtime bases use recorded multiarch digests;
+base pinning does not pin live APT packages or qualify a whole image rebuild.
+The official tag metadata lists amd64,arm64/v8 and arm/v7; current layer pull/full
+Docker build/runtime on these new pins remains a separate qualification.
+
+GitHub provides release-tag source archives. Record the exact source commit and
+build provenance alongside distributed artifacts; a tag name alone can be moved.
+The Linux release workflow now requires an actual tag on HEAD, matching committed
+Cargo version and successful CI for that exact commit before installing build tools.
+This does not replace the full multi-platform/SDK release preflight. See
+[licensing and publication maintenance](../../LICENSING.md).
+
+
+### Release tag admission and compiler qualification
+
+The publication workflow checks the full Git ref and, for a release tag, runs
+`python3 scripts/release_tag.py --tag "$GITHUB_REF_NAME" --require-ci` before
+build tools or registry login. The tag must identify the checked-out clean commit,
+match committed `qeli/Cargo.toml` version, and have successful CI for that exact
+commit. SemVer syntax alone is insufficient. Manual branch builds retain SHA-only
+tags. Missing, failed or stale CI refuses release publication; this gate needs
+`actions: read`. Local tag/version inspection without publication:
+
+```sh
+python3 scripts/release_tag.py --tag v0.8.2
+```
+
+[Q34 compiler/image qualification](../../docs/eng/reports/audit-0.8.2/AUDIT-Q34-DOCKER-BUILD.md)
+records an actual amd64 build with the pinned Rust/Debian bases, default release
+fat LTO/jemalloc and no prebuilt binary override; exact image notices and compact
+VPN/recreation/rollback checks passed. This is scoped amd64 evidence. ARM images,
+registry publication, hosted signatures and reproducible A/B remain separate.
+The runtime fixture used explicit AppArmor unconfined with default seccomp;
+Docker's automatically loaded default profile was restored after strict ownership
+checks. It does not qualify the default AppArmor confinement on this new image.
+
+
+### Updating immutable build inputs
+
+The Dockerfile frontend is pinned by digest. Runtime APT uses only the reviewed
+Debian and Debian-security snapshot `20261008T000000Z`, defined in
+`release/docker/debian.sources`; inherited live sources are removed first.
+APT verifies Debian archive signatures and package hashes using the base image's
+archive keyring. `Check-Valid-Until: no` is scoped to the historical snapshot.
+HTTP permits bootstrap before the slim image has CA certificates; it does not
+turn off repository authentication.
+
+To receive newer security packages, review and update the snapshot date explicitly,
+together with the Rust/Debian base and frontend pins as needed. Keep the Debian
+and Debian-security dates identical, check signed metadata and package installation,
+then qualify the affected image. Do not add live mirrors as a fallback.
+These pins fix the selected inputs; they do not establish byte-for-byte image
+reproducibility. [Q34 input qualification](../../docs/eng/reports/audit-0.8.2/AUDIT-Q34-DOCKER-INPUTS.md)
+records the exact scope of the frontend and amd64 APT checks.

@@ -27,6 +27,7 @@ ProtectHome=true
 PrivateTmp=true
 StateDirectory=qeli
 RuntimeDirectory=qeli
+RuntimeDirectoryMode=0700
 LogsDirectory=qeli
 
 ExecStart=/usr/bin/qeli server --config /etc/qeli/server.conf

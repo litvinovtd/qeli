@@ -2,15 +2,29 @@
 	"luci-app-qeli": {
 		"description": "Grant access to the qeli VPN client config and scoped service control",
 		"read": {
-			"uci": [ "qeli" ],
+			"uci": [
+				"qeli"
+			],
 			"ubus": {
-				"service": [ "list" ]
+				"service": [
+					"list"
+				],
+				"luci.qeli": [
+					"service_status"
+				]
 			}
 		},
 		"write": {
-			"uci": [ "qeli" ],
+			"uci": [
+				"qeli"
+			],
 			"ubus": {
-				"luci.qeli": [ "service_action", "secret_status", "set_secret", "clear_secret" ]
+				"luci.qeli": [
+					"service_action",
+					"secret_status",
+					"set_secret",
+					"clear_secret"
+				]
 			}
 		}
 	}

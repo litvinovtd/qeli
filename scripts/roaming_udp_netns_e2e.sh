@@ -26,7 +26,26 @@ BIN=${1:-${BIN:-/opt/qeli-src/target/release/qeli}}
 CASE=${2:-${CASE:-success}}
 WIRE_MODE=${QELI_ROAMING_UDP_WIRE_MODE:-quic}
 DEVICE_TYPE=${QELI_ROAMING_DEVICE_TYPE:-tun}
-WORK=/tmp/qeli-roaming-udp-netns-${DEVICE_TYPE}
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 2
+if [ "$CASE" = soak ]; then
+  if [ ! -r "$SCRIPT_DIR/roaming_soak_parameters.sh" ]; then
+    echo "required roaming soak parameter helper is missing" >&2
+    exit 2
+  fi
+  source "$SCRIPT_DIR/roaming_soak_parameters.sh" || exit 2
+  roaming_soak_counts "${QELI_ROAMING_SOAK_ITERATIONS:-10000}" "${QELI_ROAMING_SOAK_SAMPLE_EVERY:-100}" || exit 2
+fi
+# Isolation must succeed before initial cleanup can touch fixed namespace names.
+if [ ! -r "$SCRIPT_DIR/roaming_netns_isolation.sh" ]; then
+  echo "required roaming namespace isolation helper is missing" >&2
+  exit 2
+fi
+source "$SCRIPT_DIR/roaming_netns_isolation.sh" || exit 2
+roaming_netns_isolate "${BASH_SOURCE[0]}" "$@" || exit 2
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/qeli-roaming-udp-netns-XXXXXX") || exit 2
+# Each test creates new namespaces; never reuse the host or another case's journal.
+export STATE_DIRECTORY="$WORK/state"
+mkdir -m 700 "$STATE_DIRECTORY" || exit 2
 CLI_NS=qru-cli
 RTR_NS=qru-rtr
 SRV_NS=qru-srv
@@ -150,7 +169,6 @@ cleanup() {
 }
 trap cleanup EXIT
 cleanup
-mkdir -p "$WORK"
 rm -f "$WORK"/*.log "$WORK"/*.conf
 : "${WORK:?UDP roaming work directory must be set}"
 rm -rf -- "${WORK:?}/bin" "${WORK:?}"/commit-race-*
@@ -195,8 +213,29 @@ ip netns exec "$SRV_NS" ip route add default via 10.41.3.1 dev qru-s
 
 check "path A reaches the server" \
   "ip netns exec $CLI_NS ping -I 10.41.1.2 -c1 -W2 10.41.3.2"
-check "path B reaches the server" \
-  "ip netns exec $CLI_NS ping -I 10.41.2.2 -c1 -W2 10.41.3.2"
+# A remains the initial physical default. Strict rp_filter can discard a B reply
+# even when B works; test B with a temporary candidate-compatible filter, then
+# restore it before Qeli starts so the product must manage its own handover.
+ORIGINAL_RPF_A=$(ip netns exec "$CLI_NS" sysctl -n net.ipv4.conf.qru-a.rp_filter)
+ORIGINAL_RPF_B=$(ip netns exec "$CLI_NS" sysctl -n net.ipv4.conf.qru-b.rp_filter)
+ip netns exec "$CLI_NS" sysctl -qw net.ipv4.conf.qru-b.rp_filter=2
+check "path B reaches the server with a candidate-compatible reverse-path filter" \
+  "ip netns exec $CLI_NS ping -I qru-b -c1 -W2 10.41.3.2"
+ip netns exec "$CLI_NS" sysctl -qw "net.ipv4.conf.qru-b.rp_filter=$ORIGINAL_RPF_B"
+check "path B reverse-path filter was restored before Qeli starts" \
+  "test \"\$(ip netns exec $CLI_NS sysctl -n net.ipv4.conf.qru-b.rp_filter)\" = '$ORIGINAL_RPF_B'"
+
+if [ "$CASE" = supersede ] || [ "$CASE" = commit-race ]; then
+  # Probe the physical C link before Qeli installs its endpoint bypass on A.
+  # Bind the device and restore rp_filter so the actor still owns its handover.
+  ORIGINAL_RPF_C=$(ip netns exec "$CLI_NS" sysctl -n net.ipv4.conf.qru-c.rp_filter)
+  ip netns exec "$CLI_NS" sysctl -qw net.ipv4.conf.qru-c.rp_filter=2
+  check "path C reaches the server with a candidate-compatible reverse-path filter" \
+    "ip netns exec $CLI_NS ping -I qru-c -c1 -W2 10.41.3.2"
+  ip netns exec "$CLI_NS" sysctl -qw "net.ipv4.conf.qru-c.rp_filter=$ORIGINAL_RPF_C"
+  check "path C reverse-path filter was restored before Qeli starts" \
+    "test \"\$(ip netns exec $CLI_NS sysctl -n net.ipv4.conf.qru-c.rp_filter)\" = '$ORIGINAL_RPF_C'"
+fi
 
 if [ "$CASE" = nat-rebind ]; then
   # Stateless one-to-one translation keeps the client's local socket/interface untouched while
@@ -302,7 +341,7 @@ perf.connection.new_session_rate_window_secs = 60
 EOF
 : >"$WORK/users.conf"
 "$BIN" add-client roam-user -p roam-pass-1234 -c "$WORK/server.conf" >/dev/null 2>&1
-ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$WORK/control.sock" "$BIN" server -c "$WORK/server.conf" >"$WORK/server.log" 2>&1 &
+ip netns exec "$SRV_NS" env QELI_CONTROL_SOCKET="$ROAMING_CONTROL_SOCKET" "$BIN" server -c "$WORK/server.conf" >"$WORK/server.log" 2>&1 &
 SERVER_JOB_PID=$!
 wait_for 50 "ip netns exec $SRV_NS ss -lnu | grep -q ':4444'" || bad "server did not listen"
 wait_for 50 "ip netns exec $SRV_NS ip link show qrus0" || bad "server tunnel device did not come up"
@@ -384,7 +423,6 @@ check "initial carrier bypass uses path A" \
 check "tunnel works before route change" \
   "ip netns exec $CLI_NS ping -c3 -W1 10.89.0.1"
 
-SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 if [ "$CASE" = drain-reorder ]; then
   # shellcheck source=roaming_udp_netns_drain_case.sh
   run_case_helper "$SCRIPT_DIR/roaming_udp_netns_drain_case.sh" run_drain_reorder_case || exit $?
@@ -589,8 +627,6 @@ elif [ "$CASE" = rollback ]; then
     "test -n '$PING_RX' && test '$PING_RX' -ge 140"
 elif [ "$CASE" = supersede ]; then
   sleep 3
-  check "path C reaches the server" \
-    "ip netns exec $CLI_NS ping -I 10.41.4.2 -c1 -W2 10.41.3.2"
   ip netns exec "$RTR_NS" iptables -I FORWARD 1 -i qru-br -o qru-sr \
     -p udp --dport 4444 -j DROP
   check "candidate path B blackhole is active" \
@@ -660,8 +696,6 @@ elif [ "$CASE" = supersede ]; then
     "test -n '$PING_RX' && test '$PING_RX' -ge 170"
 elif [ "$CASE" = commit-race ]; then
   sleep 3
-  check "path C reaches the server" \
-    "ip netns exec $CLI_NS ping -I 10.41.4.2 -c1 -W2 10.41.3.2"
   ip netns exec "$CLI_NS" ping -n -i 0.2 -c 240 -W1 10.89.0.1 >"$WORK/ping.log" 2>&1 &
   PING_PID=$!
 

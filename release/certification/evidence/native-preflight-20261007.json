@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_PASS_F370_F371_NATIVE_REFRESH_CAPACITY_BLOCKED_APPROVAL_PENDING",
+  "source_digest": "fa37b5e96a63e77464ff3bf744dc4d89621f896b26f4fd3dd39eb0b08dafb20e",
+  "scope": "Q31/Q34 F370-F371 native preflight: exact old reset function on real .10 removes two tiny retained A/B fixtures before low-space refusal; fixed preserves existing pair and refuses absent root without mkdir. Free-space check follows existing build filesystem or parent before destructive actions; malformed inventory also refuses. Desktop/Android source sync defaults moved from shared service trees to separate owned native source roots; three Cargo commands jobs1 for 2GiB lab, no OOM or RSS ceiling claim. Exact baseline/fixed AST command captures qualify path/job changes without compilation. 36 native Linux methods PASS zero skips,764 exact model inputs before/after/index;80 local native methods including38recipes/docs9/bindings/diff PASS. Initial incomplete Linux discover80 reports20missing-input preparation errors retained,not claimed as Linux80 PASS. Actual pinned desktop/Android inventories PASS without installs. Both read-only lab backups verified all regular-file bytes/link/FIFO metadata against remote inventory and unchanged postcopy;18,231 .10 and138,114 .11 tar entries,918 inactive sockets metadata only. Backup SHA256/source indices preserved;decompressed payload secret scans zero hits. No old roots removed: broad8root cleanup auto-review rejected without exact-path approval; approval-only guarded implementation prepared,not run. No mount/process below roots aftercopy; new tiny fixture removed,model source retained. Native provenance preexisting STALE remains release-blockingQ34; no PROVENANCE/repro evidence/published binaries rewritten,no native compilation/export/signature/AVD/CI-run claim. CoreRust/schema/ABI/routerflags unchanged;same-group native concurrency unsupported,space reservation/hermeticity not added. 41historic cases/acceptance and39prior supplements preserved except source_digest;scoped cert doesnot make CI/provenancegreen. Q31IN_PROGRESS28/37(75.7%),9remain,Q29SIGKILLFAIL/auto-nullENONET,Q30callbackdrainOPEN/Apple exclusions,D06ACCEPTED preserved. No services/network/firewall/globaltools/default mutations,no push/deploy.",
+  "checks": {
+    "model_inputs_match_index": 764,
+    "linux_methods": 36,
+    "local_native_methods": 80,
+    "local_recipe_methods": 38,
+    "actual_low_disk_cases": 3,
+    "actual_builds_executed": false,
+    "native_provenance": "STALE",
+    "services_network_firewall_toolchains_changed": false,
+    "cleanup_executed": false
+  },
+  "backups": [
+    {
+      "host": "10.66.116.10",
+      "roots": [
+        "/var/tmp/qeli-q24-jni-sdk-20261004",
+        "/var/tmp/qeli-q25-cli-target-20261004"
+      ],
+      "archive_sha256": "adf4118f471fe7cf8311f1facdd984801473cf5890140126978fc107d1061cf5",
+      "archive_bytes": 3414150653,
+      "verified_entries": 18231,
+      "remote_unchanged": true
+    },
+    {
+      "host": "10.66.116.11",
+      "roots": [
+        "/var/tmp/qeli-audit-debt-20260924-d85ead10",
+        "/var/tmp/qeli-q31-openwrt-sdk-20261007",
+        "/var/tmp/qeli-q06-inline-build-20261003",
+        "/var/tmp/qeli-q31-router-cross-host-20261006",
+        "/var/tmp/qeli-q31-keenetic-core-gateway-20261006",
+        "/var/tmp/qeli-q23-clippy-20261004"
+      ],
+      "archive_sha256": "9f2d84a656e6e8565f73080226805667818789e5b5a3953831c2c39a955c7343",
+      "archive_bytes": 3039012293,
+      "verified_entries": 138114,
+      "remote_unchanged": true
+    }
+  ],
+  "base_worktree_commit": "b4e68e12eda9e14edaae843f2e06133bbaf27c0a",
+  "base_dev_commit": "66a755efd7b9f56813c2e6d77e9f543321bc3ead",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\native-refresh-20261007",
+  "raw_seal_sha256": "10f83a7480fab8616f7685d141f8ef8d2bf8b981c0aba264fc96264fb95240c4",
+  "raw_sealed_files": 44,
+  "progress": {
+    "done": 28,
+    "total": 37,
+    "q31": "IN_PROGRESS",
+    "native_refresh": "BLOCKED_BY_DISK_APPROVAL_PENDING"
+  }
+}

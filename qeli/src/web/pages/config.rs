@@ -50,8 +50,12 @@ mod tests {
         assert!(CONFIG_PAGE.contains("cfg.profiles[activeTab].roaming.max_orphaned"));
         assert!(CONFIG_PAGE.contains("roamingMaxMiB(cfg.profiles[activeTab])"));
         assert!(CONFIG_PAGE.contains("profile.roaming.max_orphan_bytes = mib * 1048576"));
-        // Existing missing fields stay upgrade-compatible; the new-profile fallback is on.
-        assert!(CONFIG_PAGE.contains("roaming: { enabled: true, grace_secs: 30, max_orphaned: 256, max_orphan_bytes: 67108864 }"));
+        // Older profiles remain upgrade-compatible; new profiles use server defaults.
+        assert!(
+            crate::config::server::ProfileConfig::new_profile()
+                .roaming
+                .enabled
+        );
         assert!(CONFIG_PAGE.contains("roaming: { enabled: false, grace_secs: 30, max_orphaned: 256, max_orphan_bytes: 67108864 }"));
         assert!(CONFIG_PAGE.contains("New profiles enable it by default"));
     }
@@ -62,7 +66,9 @@ mod tests {
         assert!(CONFIG_PAGE.contains("routing.ipv6.ndp_proxy"));
         assert!(CONFIG_PAGE.contains("routing.ipv6.ndp_proxy_interface"));
         assert!(CONFIG_PAGE.contains("<option value=\"required\">required</option>"));
-        assert!(CONFIG_PAGE.contains("routing.ipv6.mode !== 'route'"));
+        assert!(CONFIG_PAGE.contains("onIpv6RoutingModeChange(activeTab)"));
+        assert!(CONFIG_PAGE.contains("['route', 'manual'].includes"));
+        assert!(CONFIG_PAGE.contains("<option value=\"manual\">manual</option>"));
         assert!(CONFIG_PAGE.contains("ipv6: { ndp_proxy: 'off', ndp_proxy_interface: '' }"));
     }
 }

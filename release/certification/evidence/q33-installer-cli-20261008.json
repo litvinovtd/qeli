@@ -1,0 +1,299 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "status": "PASS_Q33_ACTUAL_CLI_PROFILE_CONFIG_AND_LEGACY_VERSION_SCOPED",
+  "source_digest": "460f2451617838d795ed6046623e51889f15c51792f4d0155ab331431c074a2d",
+  "qualification_source_commit": "ba0c532e9918e7e398f8e9c031b19dde2ca14301",
+  "baseline_worktree_commit": "1aafa45b580417a2ef3fd089a6640df2538f6db9",
+  "baseline_dev_commit": "9cf18ee331592519293a6dd7710a7566fedf622c",
+  "scenario": "F437-F438 / Q33-F040-F041",
+  "product_changes": [
+    "--version compatible reading in payload tag/updater fallback; strict fixture CLI rejects unsupported argv",
+    "only unique config-stage sibling lock registered for cleanup after synchronous child writers finish; live config/users locks retained",
+    "actual CLI suite:3whole profile flows with real parsing/keygen/Argon2/users/panel/links,invalid staged port preserves live bytes,custom unit root override/revert",
+    "CI version suite and actual packaged CLI suite after portable .deb extraction; script asserts executable; package Actions job not locally executed"
+  ],
+  "verification": {
+    "runtime": {
+      "status": "PASS",
+      "version_methods": 2,
+      "rows": [
+        {
+          "suite": "test_installer_real_cli",
+          "methods": 5,
+          "rc": 0
+        },
+        {
+          "suite": "test_installer_config",
+          "methods": 21,
+          "rc": 0
+        },
+        {
+          "suite": "test_installer_secrets",
+          "methods": 21,
+          "rc": 0
+        },
+        {
+          "suite": "test_installer_admission",
+          "methods": 18,
+          "rc": 0
+        },
+        {
+          "suite": "test_binary_installer",
+          "methods": 18,
+          "rc": 0
+        },
+        {
+          "suite": "test_server_updater",
+          "methods": 21,
+          "rc": 0
+        }
+      ],
+      "scope": "real debug CLI artifact85ea;CLI/config/Argon2/keys/service helper actual;daemon/systemctl/HTTP/accounts/kernel/preflight-ip seams;laternotify/client changes outside artifact"
+    },
+    "initial_runtime": {
+      "rows": [
+        {
+          "suite": "test_installer_real_cli",
+          "methods": 5,
+          "rc": 1
+        },
+        {
+          "suite": "test_installer_config",
+          "methods": 21,
+          "rc": 0
+        },
+        {
+          "suite": "test_installer_secrets",
+          "methods": 21,
+          "rc": 0
+        },
+        {
+          "suite": "test_installer_admission",
+          "methods": 18,
+          "rc": 0
+        },
+        {
+          "suite": "test_binary_installer",
+          "methods": 18,
+          "rc": 0
+        },
+        {
+          "suite": "test_server_updater",
+          "methods": 21,
+          "rc": 0
+        }
+      ],
+      "scope": "actual provenance-qualified CLI reused from85ea; daemon/systemctl/HTTP/account/kernel/preflight-ip seams; config21+78regression suites"
+    },
+    "ci_and_regressions_lint": {
+      "status": "PASS",
+      "version_methods": 2,
+      "actual_cli_methods": 5,
+      "exact_local_ci_command_root_sudo_omitted": true,
+      "packaged_release_binary_CI_job_not_executed": "Local realCLI command uses provenance-qualified debug artifact85ea; CI step will extract actual release .deb binary",
+      "regression_methods": 99,
+      "shellcheck": "0.10.0 warning gate PASS two scripts",
+      "syntax": "bash -n PASS two scripts"
+    },
+    "final_input_sha": [
+      {
+        "path": "baseline-install-qeli-server.sh",
+        "sha256": "f8180bae64d79f9855c75c79b580b3339dedc04ab28087a6ae4ab1d6df7924c2"
+      },
+      {
+        "path": "baseline-update-qeli-server.sh",
+        "sha256": "326663c5a086e239547fd9e4f1e364dfb670bc69eadf7ab5953668b85e100817"
+      },
+      {
+        "path": "install-qeli-server.sh",
+        "sha256": "8b4bc31a841a4a783a76c8daa0801a426c5177889435cc49c3748b1878e90eb2"
+      },
+      {
+        "path": "qeli/config/client-maxobf.conf",
+        "sha256": "51eda85bf860e73b413b5b05aa416736081b0c525ec69d610462b2efd57911c6"
+      },
+      {
+        "path": "qeli/config/client-reality.conf",
+        "sha256": "3dddfd5798a37bef90de397d02e53106cec0cfa8af9cf125f490615dfddd848f"
+      },
+      {
+        "path": "qeli/config/client.conf",
+        "sha256": "41464ea29a219c6df0ffa60fda50d1931d2ff0d3dc24c75c29dc0c5d50c5ce68"
+      },
+      {
+        "path": "qeli/config/server-ipv6.conf",
+        "sha256": "9a6b4af0d2c03f9cd46a3949e46f37d2ca929b18a8930063ede5bd25018870ed"
+      },
+      {
+        "path": "qeli/config/server-maxobf.conf",
+        "sha256": "6c8412ecb9f404da20e88e1f450151aad3a3127d22c47da39809d2f17a0ca475"
+      },
+      {
+        "path": "qeli/config/server-multiprofile.conf",
+        "sha256": "f973798025115b507a19e90fdb0a9e95b147018ddc436a4c3d55ac2175fc2160"
+      },
+      {
+        "path": "qeli/config/server.conf",
+        "sha256": "30758562baede2b06056e4c01125ec99ff370571875fa6f663281ddcf9d8f72c"
+      },
+      {
+        "path": "qeli/config/users.conf",
+        "sha256": "8f7e2481cbd17d2aa52e9639483bc4771b61406e04915c410d41d4b65cd3351f"
+      },
+      {
+        "path": "qeli/debian/49-qeli.rules",
+        "sha256": "9a04e8e2e2c7be0ba988e4723c0e97b4c1945928ff9c142f5742fac272b0726c"
+      },
+      {
+        "path": "qeli/debian/config",
+        "sha256": "c3d6a27a6e30809aaeaf9790a5146fbfdf9f6472b01ee71d61352d0c0732875f"
+      },
+      {
+        "path": "qeli/debian/control",
+        "sha256": "6937f5bf8ffe4bf3eb13f83971300a522738fe4af541c1d9891ffec5164d1083"
+      },
+      {
+        "path": "qeli/debian/Makefile",
+        "sha256": "89a1bf60fcbda6b105a56190f9f51b24b55c2312ce352400db950fc250f90322"
+      },
+      {
+        "path": "qeli/debian/postinst",
+        "sha256": "a8207f6ba13776b6aa240eb6015012b751fa967dfe1ea6b0bc2131fcd248a2cc"
+      },
+      {
+        "path": "qeli/debian/preinst",
+        "sha256": "2283607c94fa2a0ebe707db329cefbb3fa65a32c6741798809e5a2b82202db64"
+      },
+      {
+        "path": "qeli/debian/prerm",
+        "sha256": "e390dd020b23fab124b62338677c674fd47bed6a68c5bc9555d8c97ba985d832"
+      },
+      {
+        "path": "qeli/debian/qeli.service",
+        "sha256": "fedd2cf39e903326db36cedb56ed2fea5862476000a32dad25408635ad86e72e"
+      },
+      {
+        "path": "qeli/debian/templates",
+        "sha256": "e9c00dda10803a74b259c55a675e1f88c342d4c821a6e90c64c1bbf11ea9a643"
+      },
+      {
+        "path": "test_binary_installer.py",
+        "sha256": "e21c185e29ca9a45cd9b73fbf02d76ed53914c303e9e0ef02af111e432c75934"
+      },
+      {
+        "path": "test_installer_admission.py",
+        "sha256": "b02c1140cc56f23554d09e2867266ac21f68c4dea11594e9cba31d3da9dae661"
+      },
+      {
+        "path": "test_installer_cli_version.py",
+        "sha256": "8aaf6701201b79a44ea08bfae5ac4c6b66e83c3255cfa30ff9ed04657091fa56"
+      },
+      {
+        "path": "test_installer_config.py",
+        "sha256": "b1517d3c3f9260589a2ae4ed149e67349379ea1d4feecc118763f8ff57136010"
+      },
+      {
+        "path": "test_installer_real_cli.py",
+        "sha256": "4b5db357f65935d3a48cd076708a6051efed1420149d27ab0912116e6a20f36e"
+      },
+      {
+        "path": "test_installer_secrets.py",
+        "sha256": "85e502f69b31799df75200d2a2c89f83c38309d87efc015f86e4687d4323a576"
+      },
+      {
+        "path": "test_server_updater.py",
+        "sha256": "25b465a78092464fc0ff737fb82f2f8ff37e4fd8c7f7c348d8ab0a38d9f945d3"
+      },
+      {
+        "path": "update-qeli-server.sh",
+        "sha256": "f35c515c2c6f7932ed40c2c4d0500d9634d8f6e40d71866882ae4fcfa77883c9"
+      }
+    ],
+    "scope": {
+      "notes": [
+        "Initial realCLI5 methods:4 assertion failures on orphan stage .lock, custom service override/revert passed. Initial source reconstructed from current script minus exact cleanup patch, not a separately measured initial-input SHA; final source SHA checked on lab.",
+        "Version baseline2 methods2expectedassertionfailures with strict --version-only fixtures; fixed2PASS. RealCLI5PASS noskips, CI2+5 repeat;99regression methodsPASS.",
+        "Actual artifact from immutable q32-logs-trace packet85ea8fa9, SHA37a6e349; current main/CLI/parser/identity/users/web/trust/preflight/helper code unchanged. Four remaining Rust differences in client/mod,client/plan_publication,config/notify,server/notify. Not fullcurrentRust/release jemalloc or shipping ABI qualification.",
+        "Actual CLI profile generation, identity keys, Argon2 hashes for users/panel, share links, staged/final config admission and custom service drop-in write/revert. HTTP,accountcreation,systemctl/start/health,kernel/tuning/preflight ip command seams. No sockets/TUN/VPN/firewall or actual systemd manager qualification.",
+        "Legacy live qeli0.7.5 rejects version and accepts --version; current Rust supports both. --version is cross-version-compatible reading interface; docs version --check remain valid.",
+        "Unique config-stage .lock registered for cleanup after synchronous child writers finish. Persistent live config/users locks not deleted; no concurrent unlink on shared live lock. Signal/SIGKILL/fsync/ancestor-race guarantees not added.",
+        "Root qeli.service override reset/default qeli ownership repair still OPEN, recursive helper chown can change ownership of root0600 secret receipts/backups. Only custom service unit revert tested here; actual default-unit transition not certified.",
+        "No Rust/native changes/heavybuild;CI package step added but release package build/Actions not run. Own root recoverablySHA-backed-up then guarded-cleaned;service777/845 unchanged,.10untouched."
+      ]
+    },
+    "binary_provenance": {
+      "artifact_source_commit": "85ea8fa9adab146d52b6f8908e5f29c89f2d8c20",
+      "sha256": "37a6e349ed5b72c44cb72ba147e4df7e87e277763c250cfe226173a6e9414b7c",
+      "size": 78424328,
+      "sealed_packet": "q32-logs-trace-20261008",
+      "remaining_Rust_difference": [
+        "qeli/src/client/mod.rs",
+        "qeli/src/client/plan_publication.rs",
+        "qeli/src/config/notify.rs",
+        "qeli/src/server/notify.rs"
+      ],
+      "limits": "Reused genuine debug CLI artifact; current CLI/parser/identity/users/web/trust/preflight/service-helper sources unchanged; client plan publication and notify sources differ. Not a current full Rust rebuild or release jemalloc qualification."
+    },
+    "source_reuse": {
+      "source_commit": "85ea8fa9adab146d52b6f8908e5f29c89f2d8c20",
+      "unchanged_paths": [
+        "qeli/src/main.rs",
+        "qeli/src/config/server.rs",
+        "qeli/src/config/format.rs",
+        "qeli/src/config/users.rs",
+        "qeli/src/server/preflight.rs",
+        "qeli/src/util.rs",
+        "qeli/src/util/atomic_file.rs",
+        "qeli/src/web/tls.rs"
+      ]
+    },
+    "backup": {
+      "backup": "/var/tmp/qeli-q33-cli-20261008.kkSgyb-backup.tar.gz",
+      "sha256": "d2106753ce7ae20223ce8a968bc57ba2e29040cae0dee70044fa4d137c5bcd2c",
+      "size": 21914148,
+      "lab_after": {
+        "service": "MainPID=777\nActiveState=active\n",
+        "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "own_root_removed": "/var/tmp/qeli-q33-cli-20261008.kkSgyb",
+      "backup_removed_after_local_sha": "/var/tmp/qeli-q33-cli-20261008.kkSgyb-backup.tar.gz",
+      "service": "MainPID=777\nActiveState=active\n",
+      "qeli": "777 /usr/bin/qeli server --config /etc/qeli/server.conf\n845 /usr/bin/qeli _worker -c /etc/qeli/server.conf\n"
+    },
+    "docs": "9checks/678Markdown PASS",
+    "recipes": "38 mocked recipe tests PASS;not native builds",
+    "native": "14SHA/source/A-B provenance PASS;unchanged native/Rust/ABI/core inputs"
+  },
+  "raw_packets": {
+    "q33-installer-cli-20261008": {
+      "path": "audit-debt-20260924/q33-installer-cli-20261008",
+      "status": "SEALED",
+      "files": 334,
+      "bytes": 41695825,
+      "manifest_sha256": "463e8729410b56be06f662e2c3193d78cf3aea1daea6971b320c7395e8f80c17"
+    }
+  },
+  "limits": [
+    "old actual lab qeli0.7.5 only --version;current source supports version and --version, version --check remainsvalid",
+    "baselineversion2methods2expectedfailures;initialactual5methods4orphanlockassertions(customunitPASS),fixed2+5PASS noskips CI2+5repeat;99regressionsPASS",
+    "actualCLI artifact85ea8fa9 SHA37a6e349 current main/CLI/parser/identity/users/web/trust/preflight/helper unchanged;4laterclient/notify source changes;not fullcurrentRust rebuild orrelease jemalloc/ABI qualification",
+    "actual keys/Argon2 hashing/users persistence/parser/link/custom unit helper,not password-auth roundtrip/VPN handshake;accountcreation/HTTP/systemctl/daemonstart-health/kernel/tuning/preflight-ip seams",
+    "initialinput reconstructed minus exact lockcleanup patch,not independent initialSHA;finalinputsSHAverified;realCLItest rawCRLF normalized toLF in Git,Python text identical",
+    "realdefaultqeli.service root-to-qeli/default override removal OPEN;recursive helper chown can change root0600 secretreceipt/backup ownership;onlycustomunitrevert executed",
+    "no whole-install/accountrollback/restart-afterpubrollback/fsyncSIGKILLpowerloss/ancestor-race qualification;Docker/actual systemd/kernel/VPN stillOPEN",
+    "CI newreleasepackage actualbinary step added but package build/Actions not executed;noheavybuilds",
+    "Q31bootstrapcapacitydeferred/sourcecut/currentActions,Q29SIGKILLFAIL/ENONET,Q30Apple/callbackOPEN;Mac-iOS/router/WindowsVM USER_EXCLUDED,D06ACCEPTED"
+  ],
+  "progress": {
+    "Q33": "IN_PROGRESS;actualCLI profile/config+legacyversion scoped closure",
+    "Q31": "3/5 IN_PROGRESS",
+    "full_audit": "29/37DONE78.4%;8remain",
+    "old_debt": "14DONE+D06accepted"
+  },
+  "historical_policy": "41cases/acceptance+62prior supplements preserved modulo sourcedigest;historical date/artifact/status unchanged;no fullmatrix/soak/benchmark/native rerun",
+  "actions": "local dev commit;NO_PUSH_DEPLOY_RELEASE"
+}

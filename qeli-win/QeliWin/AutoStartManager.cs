@@ -1,61 +1,57 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace QeliWin;
 
-/// <summary>
-/// "Service mode" autostart via a Windows Scheduled Task that runs at logon with
-/// highest privileges — this starts the elevated app automatically without a UAC
-/// prompt (a plain Run-key entry would prompt every logon because the app requires
-/// admin). The app then auto-connects and self-reconnects via its normal loop.
-/// </summary>
+/// <summary>Elevated GUI logon task; failures are reported instead of silently succeeding.</summary>
 public static class AutoStartManager
 {
     private const string TaskName = "QeliWinAutoStart";
-
     private static string ExePath => Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule!.FileName;
 
-    public static bool IsEnabled() => Run($"/Query /TN \"{TaskName}\"") == 0;
+    public static void Enable() => Apply(true);
+    public static void Disable() => Apply(false);
+    public static void Apply(bool enabled) => Apply(enabled, ExePath,
+        Service.ServiceManager.EnsureProtectedLocation, Run, IsEnabled);
 
-    public static void Enable()
+    internal static void Apply(bool enabled, string exePath, Action<string> requireProtected,
+        Func<string, WindowsCommandResult> run, Func<bool> taskExists)
     {
-        // Same reasoning as the service: /RL HIGHEST runs this elevated at every
-        // logon from the recorded path, so registering a path a standard user can
-        // overwrite hands out unattended high-integrity execution. Reuses the
-        // service's check so both entry points share one definition of "protected".
-        Service.ServiceManager.EnsureProtectedLocation(ExePath);
-        // /RL HIGHEST = elevated, /SC ONLOGON = at user logon, /F = overwrite.
-        Run($"/Create /TN \"{TaskName}\" /TR \"\\\"{ExePath}\\\" --autostart\" /SC ONLOGON /RL HIGHEST /F");
+        if (!enabled && !taskExists()) return; // Missing task is an idempotent disable, not an error.
+        if (enabled) requireProtected(exePath);
+        string args = enabled
+            ? $"/Create /TN \"{TaskName}\" /TR \"\\\"{exePath}\\\" --autostart\" /SC ONLOGON /RL HIGHEST /F"
+            : $"/Delete /TN \"{TaskName}\" /F";
+        var result = run(args);
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"Autostart {(enabled ? "create" : "delete")} failed (exit {result.ExitCode}): {result.Error}{result.Output}");
     }
 
-    public static void Disable() => Run($"/Delete /TN \"{TaskName}\" /F");
+    public static bool IsEnabled() => HasTask(TaskName);
 
-    public static void Apply(bool enabled)
+    internal static bool HasTask(string name)
     {
-        bool already = IsEnabled();
-        if (enabled && !already) Enable();
-        else if (!enabled && already) Disable();
-        else if (enabled) Enable(); // refresh path in case the exe moved
-    }
-
-    private static int Run(string args)
-    {
+        object? scheduler = null, folder = null, task = null;
         try
         {
-            // Absolute path, not a bare name — see SystemPaths. (Audit 2026-08-04, H-05.)
-            var psi = new ProcessStartInfo(SystemPaths.SchTasks, args)
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                WorkingDirectory = SystemPaths.SystemDirectory,
-            };
-            using var p = Process.Start(psi)!;
-            p.StandardOutput.ReadToEnd();
-            p.StandardError.ReadToEnd();
-            p.WaitForExit();
-            return p.ExitCode;
+            var type = Type.GetTypeFromProgID("Schedule.Service", throwOnError: true)!;
+            scheduler = Activator.CreateInstance(type)!;
+            ((dynamic)scheduler).Connect();
+            folder = ((dynamic)scheduler).GetFolder(@"\");
+            try { task = ((dynamic)folder).GetTask(name); }
+            catch (Exception error) when (error.HResult == unchecked((int)0x80070002))
+            { return false; } // Only an absent task; access/RPC/registration errors propagate.
+            return true;
         }
-        catch { return -1; }
+        finally
+        {
+            foreach (var value in new[] { task, folder, scheduler })
+                if (value != null && Marshal.IsComObject(value)) Marshal.ReleaseComObject(value);
+        }
     }
+
+    private static WindowsCommandResult Run(string args) => WindowsCommand.RunAsync(
+        new ProcessStartInfo(SystemPaths.SchTasks, args) { WorkingDirectory = SystemPaths.SystemDirectory },
+        TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
 }

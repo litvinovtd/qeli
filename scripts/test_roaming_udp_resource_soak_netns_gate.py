@@ -32,6 +32,7 @@ class RoamingUdpResourceSoakGateTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.work = Path(self.tempdir.name)
         shutil.copy2(SCRIPT, self.work / SCRIPT.name)
+        shutil.copy2(SCRIPT.with_name("roaming_soak_parameters.sh"), self.work / "roaming_soak_parameters.sh")
         runner = self.work / RUNNER
         runner.write_text(STUB, encoding="utf-8", newline="\n")
         runner.chmod(0o755)
@@ -79,6 +80,8 @@ class RoamingUdpResourceSoakGateTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual([line.split()[1:3] for line in self.trace_lines()], [["17", "1"], ["3", "1"], ["3", "1"], ["3", "1"]])
+        self.assertIn("ROAMING_UDP_RESOURCE_SOAK_MATRIX_SMOKE", result.stdout)
+        self.assertNotIn("SOAK_PASS", result.stdout)
 
     def test_failure_stops_later_modes(self) -> None:
         result = self.run_gate(QELI_TEST_FAIL_MODE="obfs")

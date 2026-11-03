@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_F332_F334_COOPERATING_SHELL_LIFECYCLE_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T16:57:03.345535+00:00",
+  "base_commit": "877940e5f7862dc00a3b90688f88e0646cecb569",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-keenetic-lifecycle-lock-20261006",
+  "raw_seal_sha256": "80c69a4734debacdee54b6377bce4b1be7d83de63ba11b2d1f67871f45658a5f",
+  "checks": [
+    {
+      "id": "recipes",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "log": "recipes.log"
+    },
+    {
+      "id": "docs",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs.log"
+    },
+    {
+      "id": "bindings",
+      "command": [
+        "python",
+        "scripts/gen_config_bindings.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "bindings.log"
+    },
+    {
+      "id": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff.log"
+    },
+    {
+      "id": "docs-final",
+      "command": [
+        "python",
+        "scripts/check_docs.py"
+      ],
+      "exit_code": 0,
+      "log": "docs-final.log"
+    },
+    {
+      "id": "diff-staged-final",
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "diff-staged-final.log"
+    },
+    {
+      "id": "busybox-lifecycle-initial",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic_lifecycle.py' -v",
+      "exit_code": 0,
+      "log": "busybox-lifecycle-initial.log"
+    },
+    {
+      "id": "dash-lifecycle-initial",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic_lifecycle.py' -v",
+      "exit_code": 0,
+      "log": "dash-lifecycle-initial.log"
+    },
+    {
+      "id": "busybox-suite-pre-directory",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "busybox-suite-pre-directory.log",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "busybox-baseline",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture QELI_LIFECYCLE_BASELINE=/var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006/baseline/release/keenetic PYTHONPATH=scripts python3 -m unittest test_keenetic_lifecycle.KeeneticLifecycleTests.test_second_hook_cannot_interleave_mutations test_keenetic_lifecycle.KeeneticLifecycleTests.test_stop_refuses_busy_hook_then_removes_its_state_after_join test_keenetic_lifecycle.KeeneticLifecycleTests.test_core_plan_replacement_during_save_retains_retry_and_no_receipt -v",
+      "exit_code": 1,
+      "log": "busybox-baseline.log",
+      "expected_exit_code": 1
+    },
+    {
+      "id": "dash-suite-pre-directory",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "dash-suite-pre-directory.log",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "dash-baseline",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture QELI_LIFECYCLE_BASELINE=/var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006/baseline/release/keenetic PYTHONPATH=scripts python3 -m unittest test_keenetic_lifecycle.KeeneticLifecycleTests.test_second_hook_cannot_interleave_mutations test_keenetic_lifecycle.KeeneticLifecycleTests.test_stop_refuses_busy_hook_then_removes_its_state_after_join test_keenetic_lifecycle.KeeneticLifecycleTests.test_core_plan_replacement_during_save_retains_retry_and_no_receipt -v",
+      "exit_code": 1,
+      "log": "dash-baseline.log",
+      "expected_exit_code": 1
+    },
+    {
+      "id": "busybox-suite-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "busybox-suite-final.log",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "busybox-directory-baseline",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture QELI_LIFECYCLE_BASELINE=/var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006/baseline/release/keenetic PYTHONPATH=scripts python3 -m unittest test_keenetic_templates.KeeneticInstallerTests.test_publication_directory_targets_fail_before_dependencies -v",
+      "exit_code": 1,
+      "log": "busybox-directory-baseline.log",
+      "expected_exit_code": 1
+    },
+    {
+      "id": "dash-suite-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic*.py' -v",
+      "exit_code": 0,
+      "log": "dash-suite-final.log",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "dash-directory-baseline",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture QELI_LIFECYCLE_BASELINE=/var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006/baseline/release/keenetic PYTHONPATH=scripts python3 -m unittest test_keenetic_templates.KeeneticInstallerTests.test_publication_directory_targets_fail_before_dependencies -v",
+      "exit_code": 1,
+      "log": "dash-directory-baseline.log",
+      "expected_exit_code": 1
+    },
+    {
+      "id": "busybox-directory-isolated",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_DIRECTORY_BASELINE=/var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006/baseline/release/keenetic PYTHONPATH=scripts python3 reproduce-directory.py",
+      "exit_code": 0,
+      "log": "busybox-directory-isolated.log",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "dash-directory-isolated",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_DIRECTORY_BASELINE=/var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006/baseline/release/keenetic PYTHONPATH=scripts python3 reproduce-directory.py",
+      "exit_code": 0,
+      "log": "dash-directory-isolated.log",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "busybox-lifecycle-eof-crlf",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic_lifecycle.py' -v",
+      "exit_code": 0,
+      "log": "busybox-lifecycle-eof-crlf.log",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "dash-lifecycle-eof-crlf",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic_lifecycle.py' -v",
+      "exit_code": 0,
+      "log": "dash-lifecycle-eof-crlf.log",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "busybox-lifecycle-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic_lifecycle.py' -v",
+      "exit_code": 0,
+      "log": "busybox-lifecycle-final.log",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "dash-lifecycle-final",
+      "command": "cd /var/tmp/qeli-q31-keenetic-lifecycle-lock-20261006 && QELI_ROUTER_TEST_SHELL='/bin/dash' QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/target/debug/qeli-client QELI_KEENETIC_PROCESS_FIXTURE=/var/tmp/qeli-q31-keenetic-core-gateway-20261006/process-fixture python3 -m unittest discover -s scripts -p 'test_keenetic_lifecycle.py' -v",
+      "exit_code": 0,
+      "log": "dash-lifecycle-final.log",
+      "expected_exit_code": 0
+    }
+  ],
+  "findings": {
+    "F332": "One shared atomic-mkdir lifecycle library for both init,hook,installer; whole restart/internal cleanup holds lock; marker reread under lock.",
+    "F333": "Observed whole-plan/marker replacement rejected before L3/save and after save before receipt; pending retained. No atomic generation protocol.",
+    "F334": "Directory binary/init/config/helper targets rejected before dependencies; prepared helper600 publication precedes binary/init."
+  },
+  "qualification": {
+    "total_per_busybox_ash_dash": 165,
+    "new_lifecycle_methods": 8,
+    "new_installer_methods": 2,
+    "breakdown": {
+      "owned_native_process": 47,
+      "state_models": 44,
+      "installer": 14,
+      "hook": 17,
+      "verifier": 19,
+      "owner": 16,
+      "lifecycle": 8
+    },
+    "actual_exclusion": "Owned shell process barriers and atomic mkdir; both init variants checked inside admission/restart method.",
+    "network_ndm_opkg_proc_sys": "models only",
+    "original_hook_init_assertion_failures_per_shell": 3,
+    "isolated_directory_old_current_records_per_shell": 6,
+    "initial_baseline_fixture_errors": "two cross-subtest fixture errors retained, unqualified affected targets; isolated fresh fixtures qualify binary/init/config.",
+    "test_eof_projection": "AST equal; full165-suite bytes match retained executed map. Only blank EOF removed; intermediate CRLF bytes retained and canonicalized;8affected methods rerun per shell on exact staged bytes PASS.",
+    "native_recipes": 37,
+    "docs_bindings_diff": "PASS",
+    "supplied_exact_git_inputs": 18,
+    "scoped_unchanged_git_inputs": 1203,
+    "native_core_abi_artifacts_recipes_unchanged": true,
+    "reused_helper_sha256": "63523cc606305c3911510591be46222bbbd2e51d0db15f9e87cf5c387a39950a",
+    "reused_host_debug_inspector_sha256": "afa69da1d5bbcc64599f593856984d203cfec50dd81acbf6a248190ff0ce1b38",
+    "prior_inspector_build_evidence": "release/certification/evidence/q31-keenetic-core-gateway-20261006.json",
+    "fresh_rust_ffi_release_cross_build": "NOT_RUN; relevant inputs identical"
+  },
+  "limitations": {
+    "concurrency": "Cooperating shipped scripts only; older scripts/admin/core do not share lock. Busy events retry, not queued. Hanging ndmc may retain lock. Normal exit/HUP/INT/TERM releases; SIGKILL stale lock manual owner review, no automatic deletion/kill.",
+    "generation": "Core/config generation,last-check replacement,identical-byte ABA,authentication binding,family removal OPEN",
+    "installation": "No whole-bundle transaction/rollback; older deployments require stop/review then complete library/binary/init/hook update",
+    "runtime": "Router USER_EXCLUDED; models do not qualify firmware/VPN networking",
+    "historical": "Q29 FAIL/ENONET,Q30 skips/drainOPEN,D06 retained; historical dates/artifacts/statuses not newly executed",
+    "progress": "Q31 IN_PROGRESS28/37 (75.7%),9remain"
+  }
+}

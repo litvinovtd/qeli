@@ -87,6 +87,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     var checkForUpdates = false
     var logTimeFormat: LogTimeFormat = .time
     var logLevel: ClientLogLevel = .info
+    var clearLogOnDisconnect = true
     var appearance: AppAppearance = .system
     var language: AppLanguage = .en
 
@@ -123,6 +124,8 @@ struct AppSettings: Codable, Equatable, Sendable {
             ?? fallback.logTimeFormat
         logLevel = try container.decodeIfPresent(ClientLogLevel.self, forKey: .logLevel)
             ?? fallback.logLevel
+        clearLogOnDisconnect = try container.decodeIfPresent(Bool.self, forKey: .clearLogOnDisconnect)
+            ?? fallback.clearLogOnDisconnect
         appearance = try container.decodeIfPresent(AppAppearance.self, forKey: .appearance)
             ?? fallback.appearance
         language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? fallback.language

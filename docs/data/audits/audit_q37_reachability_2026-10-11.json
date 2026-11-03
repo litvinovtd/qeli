@@ -1,0 +1,1189 @@
+{
+  "schema_version": 1,
+  "finding": "Q37-F007",
+  "status": "SCOPED_DEPENDENCY_AND_AUDIT_TEST_INTEGRATION_VERIFIED_HOST_FAILURES_RETAINED_FULL_BUILDS_REQUIRED",
+  "source_baseline_commit": "c6acf2f799b54af1bfee137def23eb5d185e06a9",
+  "native_input_digest": "3538e06ce413971f353d02b7725cf24a7a18c6c6c83758eddfbb11db794a3498",
+  "reachability": {
+    "rust_module_files": 297,
+    "declaration_edges": 306,
+    "entry_points": [
+      "qeli/src/client_main.rs",
+      "qeli/src/gen_conformance_main.rs",
+      "qeli/src/lib.rs",
+      "qeli/src/main.rs",
+      "qeli/src/packet_bench_main.rs"
+    ],
+    "orphan_candidates": [],
+    "dead_code_allow_sites": 74,
+    "extern_abi_function_sites": 66,
+    "no_mangle_sites": 56,
+    "reviewed_retained_boundaries": [
+      "Android JNI external bindings",
+      "C ABI via generated header and managed P/Invoke",
+      "Swift/C bridge",
+      "router client-bin target",
+      "fuzzing entrypoints",
+      "conformance-gen target",
+      "packet-bench target",
+      "portable host-test aliases of Linux helpers",
+      "FileLock descriptor lifetime",
+      "public Rust API including SharedSecret accessor"
+    ],
+    "limitations": "Lexical module reachability and explicit consumers do not prove all functions semantically live or qualify every platform/feature build. Full current compile/clippy/native A/B remain required."
+  },
+  "dependency_graphs": [
+    {
+      "profile": "default",
+      "before_nodes": 170,
+      "after_nodes": 170,
+      "added": [
+        "mio v1.2.3|net,os-ext,os-poll"
+      ],
+      "removed": [
+        "mio v1.2.3|default,log,net,os-ext,os-poll"
+      ],
+      "verdict": "PASS_EXPECTED_MIO_DEFAULT_LOG_FEATURE_REMOVAL",
+      "socket_features_retained": [
+        "net",
+        "os-ext",
+        "os-poll"
+      ]
+    },
+    {
+      "profile": "client-bin",
+      "before_nodes": 122,
+      "after_nodes": 122,
+      "added": [
+        "mio v1.2.3|net,os-ext,os-poll"
+      ],
+      "removed": [
+        "mio v1.2.3|default,log,net,os-ext,os-poll"
+      ],
+      "verdict": "PASS_EXPECTED_MIO_DEFAULT_LOG_FEATURE_REMOVAL",
+      "socket_features_retained": [
+        "net",
+        "os-ext",
+        "os-poll"
+      ]
+    },
+    {
+      "profile": "ffi",
+      "before_nodes": 132,
+      "after_nodes": 132,
+      "added": [
+        "mio v1.2.3|net,os-ext,os-poll"
+      ],
+      "removed": [
+        "mio v1.2.3|default,log,net,os-ext,os-poll"
+      ],
+      "verdict": "PASS_EXPECTED_MIO_DEFAULT_LOG_FEATURE_REMOVAL",
+      "socket_features_retained": [
+        "net",
+        "os-ext",
+        "os-poll"
+      ]
+    },
+    {
+      "profile": "fuzz",
+      "before_nodes": 128,
+      "after_nodes": 128,
+      "added": [
+        "mio v1.2.3|net,os-ext,os-poll"
+      ],
+      "removed": [
+        "mio v1.2.3|default,log,net,os-ext,os-poll"
+      ],
+      "verdict": "PASS_EXPECTED_MIO_DEFAULT_LOG_FEATURE_REMOVAL",
+      "socket_features_retained": [
+        "net",
+        "os-ext",
+        "os-poll"
+      ]
+    }
+  ],
+  "locked_versions_and_checksums_unchanged": true,
+  "legal_resources_changed": [
+    "BINDING.properties",
+    "INDEX.tsv"
+  ],
+  "legal_packages": 235,
+  "ci_python_modules": 24,
+  "portable_current": {
+    "group": "portable",
+    "modules": [
+      "test_android_dns_fixture",
+      "test_android_handover_epochs",
+      "test_android_resolver_diagnostics",
+      "test_android_startup_state",
+      "test_android_trusted_lockdown",
+      "test_audit_script_imports",
+      "test_dns_test_server",
+      "test_keenetic_verify",
+      "test_roaming_android_sleep_wake_gate",
+      "test_roaming_control_stats",
+      "test_router_artifact",
+      "test_router_build",
+      "test_router_toolchain",
+      "test_tap_ipv6_control_probe",
+      "test_verify_ios_ipa"
+    ],
+    "planned": 104,
+    "run": 104,
+    "skipped": [],
+    "failures": [],
+    "errors": [],
+    "expected_failures": [],
+    "status": "PASS"
+  },
+  "linux_fixtures": {
+    "group": "linux",
+    "modules": [
+      "test_roaming_android_udp_grace_expiry_gate",
+      "test_roaming_process_probe",
+      "test_router_checkout",
+      "test_router_source",
+      "test_keenetic_templates",
+      "test_keenetic_state",
+      "test_keenetic_install_rollback",
+      "test_openwrt_init",
+      "test_openwrt_defaults"
+    ],
+    "planned": 149,
+    "run": 149,
+    "skipped": [],
+    "failures": [],
+    "errors": [],
+    "expected_failures": [],
+    "status": "PASS"
+  },
+  "luci_fixture_tests": 14,
+  "admission_guard_methods": 4,
+  "native_recipe_methods": 38,
+  "legal_methods": 17,
+  "manual_imports": {
+    "changed": [
+      "scripts/test_0712_features.py",
+      "scripts/test_blocked_ips.py",
+      "scripts/test_blocked_settings.py",
+      "scripts/test_config_rejection.py",
+      "scripts/test_disconnect2.py",
+      "scripts/test_disconnect_during_connect.py",
+      "scripts/test_download_bonding.py",
+      "scripts/test_gateway_nat.py",
+      "scripts/test_kick.py",
+      "scripts/test_l3_user_limits.py",
+      "scripts/test_live_tunnel.py",
+      "scripts/test_maxsessions.py",
+      "scripts/test_multidevice.py",
+      "scripts/test_multipath_allmodes.py",
+      "scripts/test_multipath_bonding.py",
+      "scripts/test_multipath_resilience.py",
+      "scripts/test_panel_ipv6_e2e.py",
+      "scripts/test_push_matrix.py",
+      "scripts/test_route_push.py",
+      "scripts/test_tun_reclaim.py",
+      "scripts/test_udp_reap.py",
+      "scripts/test_user_reload.py",
+      "scripts/test_web_reload.py"
+    ],
+    "all_reviewed_manual_entries": [
+      "scripts/test_0712_features.py",
+      "scripts/test_blocked_ips.py",
+      "scripts/test_blocked_settings.py",
+      "scripts/test_config_rejection.py",
+      "scripts/test_disconnect2.py",
+      "scripts/test_disconnect_during_connect.py",
+      "scripts/test_download_bonding.py",
+      "scripts/test_gateway_nat.py",
+      "scripts/test_kick.py",
+      "scripts/test_l3_user_limits.py",
+      "scripts/test_live_tunnel.py",
+      "scripts/test_maxsessions.py",
+      "scripts/test_multidevice.py",
+      "scripts/test_multipath_allmodes.py",
+      "scripts/test_multipath_bonding.py",
+      "scripts/test_multipath_resilience.py",
+      "scripts/test_panel_ipv6_e2e.py",
+      "scripts/test_panel_route_dns.py",
+      "scripts/test_push_matrix.py",
+      "scripts/test_route_push.py",
+      "scripts/test_tun_reclaim.py",
+      "scripts/test_udp_reap.py",
+      "scripts/test_user_reload.py",
+      "scripts/test_web_reload.py"
+    ],
+    "body_and_literal_ast_preserved": true,
+    "import_references_from_other_scripts": [],
+    "preparation_note": "One early wrapper attempt was refused by AST comparison because Python3.14 tokenizes f-strings separately; no failing wrapper was written. Literal token spans protected and exact AST comparison required."
+  },
+  "old_source_failures": {
+    "workflow": 1,
+    "router_output": 1,
+    "manual_import_guards": 23
+  },
+  "test_dispositions": [
+    {
+      "path": "scripts/test_0712_features.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "0.7.12 feature surface: allowed_networks ACL, QELI_TRACE, dev_attach.\n\nallowed_networks -- per-user destination ACL, enforced server-side. The lab\ngives the server a second subnet (dummy55 = 10.55.55.1/24) reachable only",
+      "retired": false,
+      "calls": [],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_android_dns_fixture.py",
+      "classes": [
+        "DnsFixtureTests"
+      ],
+      "methods": 5,
+      "doc": "",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_android_handover_epochs.py",
+      "classes": [
+        "CarrierEpochTests"
+      ],
+      "methods": 5,
+      "doc": "Repeated carrier visits must never accept a historical roaming commit.",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_android_resolver_diagnostics.py",
+      "classes": [
+        "ResolverDiagnosticsTest"
+      ],
+      "methods": 3,
+      "doc": "",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_android_startup_state.py",
+      "classes": [
+        "StartupStateTest",
+        "PublishedStartTest"
+      ],
+      "methods": 4,
+      "doc": "",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_android_trusted_lockdown.py",
+      "classes": [
+        "ObservedSsidTests",
+        "ForegroundTypeTests"
+      ],
+      "methods": 6,
+      "doc": "",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_audit_script_imports.py",
+      "classes": [
+        "AuditScriptImportTests"
+      ],
+      "methods": 1,
+      "doc": "Offline discovery must never start the remote panel/DNS mutation scenario.",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_blocked_ips.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "E2E for the blocked-IPs feature (CLI list-blocked / unblock / unblock --all).\n\nStarts a test server (fake-tls :8507, brute_force.max_attempts=2), drives a\nclient on .11 with a WRONG password so its IP gets hard-locked, t",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_blocked_settings.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "E2E for the web-panel brute-force settings editor (Blocked IPs tab).\n\nServes the qeli panel on loopback (.10), logs in over curl, then exercises\nGET/POST /api/blocked/settings. Verifies:\n  * the three [auth] brute_force ",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_config_rejection.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "L2 -- value-domain rejection: for every config key with a constrained value\n(CIDR / IP / port / enum / range), feed a junk value and assert\n`qeli check-config` refuses it (non-zero exit). Complements L1 (which proves a\nV",
+      "retired": false,
+      "calls": [],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_disconnect2.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Disconnect-during-blocked-connect, using the existing :9999 plain profile on the\nemulator. DROP .10:9999 so connect() hangs; connect (status stuck Connecting); tap\nDisconnect; assert it returns to Disconnected without an",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_disconnect_during_connect.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Verify Disconnect interrupts a blocked connect: point the app at a DROPped port\n(SYN silently dropped -> blocking connect() hangs for minutes), connect (status\nstuck CONNECTING), then tap Disconnect. OLD code: stuck unti",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_dns_test_server.py",
+      "classes": [
+        "DnsTestServerTest"
+      ],
+      "methods": 3,
+      "doc": "",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_download_bonding.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "0.7.12: adaptive bonding must ramp on DOWNLOAD-only load.\n\nThe historic defect (fixed in Rust earlier, in C#/Kotlin in 0.7.12) was that the\nramp decision read the upload counter only, so the archetypal case -- a big\ndown",
+      "retired": false,
+      "calls": [],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_gateway_nat.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Qualify gateway NAT and forward_private in fresh NET/mount/PID namespaces.\nRequires a SHA-pinned candidate and a read-only extracted firewalld package directory.\nDoes not replace executables, restart services, or clean h",
+      "retired": false,
+      "calls": [
+        "connect_lab"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_keenetic_gateway_owner.py",
+      "classes": [
+        "KeeneticGatewayBaseTests",
+        "KeeneticGatewayOpkgTunTests"
+      ],
+      "methods": 12,
+      "doc": "Canonical gateway inspector and init gates; all network actions are models.",
+      "retired": false,
+      "calls": [],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_keenetic_install_rollback.py",
+      "classes": [],
+      "methods": 11,
+      "doc": "",
+      "retired": false,
+      "calls": [
+        "subprocess.run"
+      ],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_keenetic_launch_config.py",
+      "classes": [
+        "LaunchConfigTests"
+      ],
+      "methods": 8,
+      "doc": "Owned native process/real core preflight; filesystem and network control models.\nRequires root Linux, the recorded C process fixture and current actual inspector.\nBoth templates are exercised per method; baseline overrid",
+      "retired": false,
+      "calls": [],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_keenetic_lifecycle.py",
+      "classes": [],
+      "methods": 12,
+      "doc": "Real shell/process exclusion in an owned POSIX sandbox; ndm/network are models.",
+      "retired": false,
+      "calls": [
+        "subprocess.PIPE",
+        "subprocess.Popen",
+        "subprocess.TimeoutExpired",
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_keenetic_process.py",
+      "classes": [],
+      "methods": 29,
+      "doc": "Linux-owned native process tests for Keenetic scripts; fake network callbacks.\nShort polling qualifies control flow, not the production 15-second budget.",
+      "retired": false,
+      "calls": [
+        "subprocess.DEVNULL",
+        "subprocess.Popen",
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_keenetic_publication.py",
+      "classes": [],
+      "methods": 4,
+      "doc": "Real Rust PublicationLock vs real dash/ash hook; ndmc remains a model.",
+      "retired": false,
+      "calls": [
+        "subprocess.PIPE",
+        "subprocess.Popen",
+        "subprocess.TimeoutExpired",
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_keenetic_state.py",
+      "classes": [],
+      "methods": 22,
+      "doc": "Keenetic legacy state tests: temporary proc/sys files and firewall command model.\nNo actual forwarding/firewall/PID signals or router service execution.",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_keenetic_templates.py",
+      "classes": [
+        "KeeneticFixture"
+      ],
+      "methods": 31,
+      "doc": "Real Keenetic shell templates with isolated /opt, command and ndm models.\nNo service, firewall, proc/sys, network or actual router mutation. Linux lab only.",
+      "retired": false,
+      "calls": [
+        "subprocess.run"
+      ],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_keenetic_verify.py",
+      "classes": [
+        "GraphTests",
+        "VerifyTests",
+        "MainTests"
+      ],
+      "methods": 19,
+      "doc": "Verification gate tests: all compiler/SSH/service calls are controlled models.",
+      "retired": false,
+      "calls": [
+        "connect_lab"
+      ],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_kick.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Regression test for \"kicked user stays in the panel / can't reconnect\".\n\nRoot cause: the control-plane `kick` only sent a cooperative channel signal; a\nstream task blocked on `write_all` to a half-dead client never recei",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_l3_user_limits.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Q06 static IP, group bandwidth metadata, ACL/source revoke and device caps. Includes sustained throughput checks; not a release performance benchmark.",
+      "retired": false,
+      "calls": [],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_live_tunnel.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Hit iperf3 against the *currently running* tunnel, do NOT restart qeli.\nWatch what happens in real time.",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_maxsessions.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Per-user max_sessions cap with device-id. admin has max_sessions=2: devices A,B\ncoexist (2 sessions); device C (3rd) evicts the OLDEST (A) -> still 2, now B+C.\nThrowaway fake-tls server on .10 (steals control socket; sys",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_multidevice.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Multi-device: two clients with the SAME login (admin) but DIFFERENT device-ids\nmust COEXIST (two sessions, two IPs) instead of evicting each other. Then the same\ndevice-id reconnecting supersedes only its OWN session. Th",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_multipath_allmodes.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Prove stream bonding works on the non-reality TCP modes (fake-tls, obfs, plain).\nOne lab server with 3 multipath profiles; the freshly-built CLI client connects in\neach mode (user admin, NOT user01) and must open 4 conne",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_multipath_bonding.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "P1 multipath bonding mechanism test: lab reality-tls server with\nmultipath.max_streams=4; the freshly-built client connects (mode=reality-tls,\nfixed bonding) and must open 4 parallel connections that the server aggregate",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_multipath_resilience.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Loss-resilience: a multipath client opens 4 bonded streams; we kill ONE of the\n4 server-side connections mid-tunnel and assert the tunnel SURVIVES on the\nremaining 3 (no full reconnect). Old behaviour: any stream death t",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_openwrt_compile.py",
+      "classes": [
+        "CompileTests"
+      ],
+      "methods": 6,
+      "doc": "Actual SDK Build/Compile macro with tiny real-Cargo musl fixtures.\nExplicit QELI_OPENWRT_COMPILE_TEMPLATE and QELI_OPENWRT_COMPILER_ROOT are required.\nThe template is exported from the owned SDK, with owned host tool pat",
+      "retired": false,
+      "calls": [
+        "shutil.rmtree",
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_openwrt_defaults.py",
+      "classes": [
+        "OpenWrtDefaultsTests"
+      ],
+      "methods": 9,
+      "doc": "Execute package defaults with isolated paths and a fault-injectable UCI model.\nThis exercises shell control flow, not libuci, fw4 or rc.common integration.",
+      "retired": false,
+      "calls": [
+        "subprocess.run"
+      ],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_openwrt_dispatch.py",
+      "classes": [
+        "OpenWrtDispatchTests"
+      ],
+      "methods": 5,
+      "doc": "Run a saved upstream rc.common dispatcher with fixture-only UCI/procd adapters.\nProvide QELI_OPENWRT_RC_COMMON_FIXTURE; the recorded upstream snapshot hash is required.\nNo actual rpcd/procd/firewall/rc.d or /etc changes.",
+      "retired": false,
+      "calls": [
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_openwrt_http.py",
+      "classes": [
+        "HttpIntegrationTests"
+      ],
+      "methods": 6,
+      "doc": "Actual uhttpd HTTP/session bridge to the owned native rpcd fixture.\nRun as root inside private mount AND network namespaces with loopback up.\nQELI_OPENWRT_ROOTFS_TEMPLATE selects official musl uhttpd/rootfs; rpcd/ucode\nu",
+      "retired": false,
+      "calls": [
+        "subprocess.Popen",
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_openwrt_ini_roundtrip.py",
+      "classes": [
+        "OpenWrtIniRoundTripTests"
+      ],
+      "methods": 4,
+      "doc": "Render through the actual OpenWrt init and parse with the exact shared Rust INI.\nRequires QELI_OPENWRT_INI_INSPECTOR compiled from config/format.rs in an owned lab.\nNo real UCI/procd/firewall or service changes.",
+      "retired": false,
+      "calls": [
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_openwrt_init.py",
+      "classes": [
+        "OpenWrtInitTests"
+      ],
+      "methods": 23,
+      "doc": "Real init functions in isolated files, mocked UCI/firewall; never mutate /etc.\nLinux: QELI_OPENWRT_TEST_SHELL='/usr/bin/busybox ash' python -m unittest\n  discover -s scripts -p test_openwrt_init.py -v",
+      "retired": false,
+      "calls": [
+        "subprocess.run"
+      ],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_openwrt_luci.js",
+      "classes": [],
+      "methods": 0,
+      "doc": "// Execute the actual LuCI module with deterministic RPC/UCI fixtures, no browser/router.\n'use strict';\nconst assert = r",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_openwrt_opkg.py",
+      "classes": [
+        "OpkgTests"
+      ],
+      "methods": 7,
+      "doc": "Actual offline opkg tests on an explicitly marked, private Linux rootfs.\nQELI_OPENWRT_OPKG_ROOTFS requires prepared genuine packages/dependencies.\nNo forced dependencies, simulated installed records or VPN startup.",
+      "retired": false,
+      "calls": [
+        "shutil.rmtree",
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_openwrt_procd.py",
+      "classes": [
+        "ProcdIntegrationTests"
+      ],
+      "methods": 11,
+      "doc": "Actual OpenWrt procd/rc.common/UCI in an owned rootfs chroot.\nRequires root Linux and QELI_OPENWRT_ROOTFS_TEMPLATE (official extracted rootfs).\nThe client is an inert sleep/receipt adapter; no VPN, real TUN or firewall r",
+      "retired": false,
+      "calls": [
+        "subprocess.Popen",
+        "subprocess.TimeoutExpired",
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_openwrt_rpcd.py",
+      "classes": [
+        "RpcdIntegrationTests"
+      ],
+      "methods": 7,
+      "doc": "Actual pinned rpcd/ubusd/UCI in a private chroot, never host /etc or sockets.\nRequires a root Linux lab and QELI_OPENWRT_RPCD_TEMPLATE with built runtime files.\nOnly service verbs are adapters; ucode dispatch, errors, fs",
+      "retired": false,
+      "calls": [
+        "subprocess.Popen",
+        "subprocess.TimeoutExpired",
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_openwrt_sdk.py",
+      "classes": [
+        "SdkTests",
+        "IpkTests"
+      ],
+      "methods": 6,
+      "doc": "SDK Kconfig and actual LuCI IPK checks; optional explicit audit inputs.\nQELI_OPENWRT_SDK must be an owned working SDK with pinned feeds registered and\n.qeli-audit-sdk containing qeli-sdk-audit-fixture-v1. Kconfig cases c",
+      "retired": false,
+      "calls": [
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_openwrt_ucode.py",
+      "classes": [
+        "UcodeRpcTests"
+      ],
+      "methods": 14,
+      "doc": "Actual ucode/fs RPC module + real init secret CLI in private files.\nNo rpcd daemon, ubus, /etc changes, service/firewall or network mutations.\nRun with QELI_UCODE_EXECUTABLE and QELI_UCODE_LIBDIR for a built pinned ucode",
+      "retired": false,
+      "calls": [
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_panel_ipv6_e2e.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Dual-stack panel E2E for server push, client policy and iroutes.\n\nThe test uses the disposable Qeli lab only:\n\n* .10 runs a temporary panel/server with one TCP and one UDP+QUIC profile;\n* every profile is changed through",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_panel_route_dns.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Panel end-to-end: add a route + DNS to a profile THROUGH THE WEB PANEL API,\nprove it lands in the config correctly, is rejected when malformed, and actually\nreaches a connected client. Also compares the panel's qeli:// l",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_push_matrix.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Matrix test for EVERY field the server pushes at auth (handler.rs::build_auth_ok)\nand each of its branches.\n\nFields: client_ip, server_ip, prefix, mtu, dns, dns_port, routes, obfuscation,\nsession_token, max_streams, mult",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_roaming_android_sleep_wake_gate.py",
+      "classes": [
+        "AndroidSleepWakeGateTests"
+      ],
+      "methods": 6,
+      "doc": "Parser regressions for roaming_android_sleep_wake_gate.py.",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_roaming_android_udp_grace_expiry_gate.py",
+      "classes": [
+        "AndroidUdpGraceExpiryGateTests"
+      ],
+      "methods": 13,
+      "doc": "Regressions for roaming_android_udp_grace_expiry_gate.py.",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_roaming_control_stats.py",
+      "classes": [
+        "RoamingControlStatsTests"
+      ],
+      "methods": 2,
+      "doc": "Contract tests for the private roaming control-counter reader.",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_roaming_netns_isolation_kernel.py",
+      "classes": [
+        "KernelIsolationTests"
+      ],
+      "methods": 7,
+      "doc": "Root-only, real Linux kernel tests. Run inside an independently isolated lab.\n\nThe caller must supply its parent mnt/net/pid namespace inode strings as\nQELI_TEST_PARENT_MNT/NET/PID; this suite refuses to create sentinels",
+      "retired": false,
+      "calls": [
+        "subprocess.PIPE",
+        "subprocess.Popen",
+        "subprocess.STDOUT",
+        "subprocess.check_output",
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_roaming_process_probe.py",
+      "classes": [
+        "RoamingProcessProbeTests"
+      ],
+      "methods": 4,
+      "doc": "Contract tests for exact qeli data-plane worker selection in soak gates.",
+      "retired": false,
+      "calls": [
+        "subprocess.CompletedProcess",
+        "subprocess.run"
+      ],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_route_push.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Route-push matrix test: server `route = ...` lines x client `route_local`.\n\nFor each case: start a fake-tls server on .10 with the given profile route line(s),\nconnect the Rust CLI client on .11 with the given route_loca",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_router_artifact.py",
+      "classes": [
+        "RouterElfTests",
+        "RouterPullTests"
+      ],
+      "methods": 16,
+      "doc": "Router metadata tests; generated ELF fixtures are not firmware/runtime qualification.",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_router_build.py",
+      "classes": [
+        "RouterBuildTests"
+      ],
+      "methods": 12,
+      "doc": "Execute router helper failure paths without SSH, toolchain installs or real builds.",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_router_cargo_runtime.py",
+      "classes": [
+        "CargoRuntimeTests"
+      ],
+      "methods": 9,
+      "doc": "Real pinned Cargo on a dependency-free owned Linux probe; no Zig/router build.\nCompiler and build-directory configuration live only in fixture CARGO_HOME.\nSet QELI_ROUTER_CARGO_RUNTIME=1; optional QELI_CARGO_BASELINE sel",
+      "retired": false,
+      "calls": [
+        "shutil.rmtree",
+        "subprocess.check_output",
+        "subprocess.run"
+      ],
+      "disposition": "EXPLICIT_LINUX_SDK_NATIVE_ROOTFS_OR_KERNEL_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_router_checkout.py",
+      "classes": [
+        "RouterCheckoutTests"
+      ],
+      "methods": 7,
+      "doc": "Isolation admission models plus real private POSIX checkout/restriction operations.",
+      "retired": false,
+      "calls": [
+        "shutil.rmtree"
+      ],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_router_source.py",
+      "classes": [
+        "RouterSourceTests"
+      ],
+      "methods": 7,
+      "doc": "Execute managed sync against isolated local paths using the real shell and SFTP adapter.\nNo /opt, SSH service, compiler, network settings or live lab checkout is changed.",
+      "retired": false,
+      "calls": [
+        "subprocess.run"
+      ],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_router_toolchain.py",
+      "classes": [
+        "RouterToolchainTests"
+      ],
+      "methods": 11,
+      "doc": "Pinned router toolchain failure paths and recipe flag isolation.",
+      "retired": false,
+      "calls": [
+        "subprocess.check_output"
+      ],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_site_docs.js",
+      "classes": [],
+      "methods": 0,
+      "doc": "/* Run: node scripts/test_site_docs.js [--site-root PATH]. No external packages required. */\n'use strict';\nconst assert ",
+      "retired": false,
+      "calls": [],
+      "disposition": "PRIVATE_SITE_INPUT_REQUIRED"
+    },
+    {
+      "path": "scripts/test_tap_ipv6_control_probe.py",
+      "classes": [
+        "TapIpv6ControlProbeTest"
+      ],
+      "methods": 3,
+      "doc": "",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_tun_reclaim.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "0.7.12: `interface 'vpn0' already exists` after an uplink drop.\n\nBefore the fix, a data plane that exited on an error path leaked its reader\nthread; the tun then still existed on the next reconnect and EVERY later attemp",
+      "retired": false,
+      "calls": [],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_udp_reap.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Verify the UDP stale-session reap fix: a UDP client auths (creates a session),\nis then killed; with idle_timeout=0 the OLD code left the session forever, the\nNEW code reaps it on the RX-liveness window (3×hb, >=30s). Run",
+      "retired": false,
+      "calls": [
+        "paramiko.SSHClient"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_user_reload.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Q06 live revoke and file/inline reload regression. Requires an explicit binary/SHA; never stops host services.",
+      "retired": false,
+      "calls": [],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    },
+    {
+      "path": "scripts/test_verify_ios_ipa.py",
+      "classes": [
+        "IOSIPAVerifierTests"
+      ],
+      "methods": 6,
+      "doc": "",
+      "retired": false,
+      "calls": [],
+      "disposition": "NEW_CI_SELF_CONTAINED"
+    },
+    {
+      "path": "scripts/test_web_reload.py",
+      "classes": [],
+      "methods": 0,
+      "doc": "Compatibility entry point for isolated Q05 panel live-reload verification.\n\nRequires --qeli, --sha256 and --output. The shared runner preserves running services\nand executes the runtime scenario in private NET/mount/PID ",
+      "retired": false,
+      "calls": [
+        "subprocess.call"
+      ],
+      "disposition": "MANUAL_LAB_ENTRYPOINT_NOT_UNIT_TEST"
+    }
+  ],
+  "checks": [
+    {
+      "args": [
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_audit_test_suite.py",
+        "-v"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": "test_incomplete_empty_skipped_expected_failure_or_error_never_pass (test_audit_test_suite.AuditSuiteTests.test_incomplete_empty_skipped_expected_failure_or_error_never_pass) ... ok\ntest_registry_has_only_existing_test_modules_with_no_duplicates (test_audit_test_suite.AuditSuiteTests.test_registry_has_only_existing_test_modules_with_no_duplicates) ... ok\ntest_unknown_group_refuses_before_loading_any_module (test_audit_test_suite.AuditSuiteTests.test_unknown_group_refuses_before_loading_any_module) ... ok\ntest_workflow_connects_every_group_and_its_admission_guard (test_audit_test_suite.AuditSuiteTests.test_workflow_connects_every_group_and_its_admission_guard) ... ok\n\n----------------------------------------------------------------------\nRan 4 tests in 0.076s\n\nOK\n"
+    },
+    {
+      "args": [
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_recipes.py",
+        "-v"
+      ],
+      "exit": 0,
+      "stdout": "=== pass a: Windows x86_64-pc-windows-gnu ===\nCodeSignatureFlags(ADHOC)\nCodeSignatureFlags(ADHOC)\n[win/a] rc=0 in 0s\n=== pass a: macOS universal2-apple-darwin ===\nCodeSignatureFlags(ADHOC)\nCodeSignatureFlags(ADHOC)\n[mac/a] rc=0 in 0s\n=== pass a: Android arm64-v8a + x86_64 ===\nCodeSignatureFlags(ADHOC)\nCodeSignatureFlags(ADHOC)\n[android/a] rc=0\n",
+      "stderr": "test_active_release_scenarios_are_checkout_and_tool_path_neutral (test_native_recipes.NativeRecipeTests.test_active_release_scenarios_are_checkout_and_tool_path_neutral) ... ok\ntest_android_e2e_uses_current_abi_strict_ssh_and_exact_restore (test_native_recipes.NativeRecipeTests.test_android_e2e_uses_current_abi_strict_ssh_and_exact_restore) ... ok\ntest_apk_rebuild_uses_strict_shared_lab_connection (test_native_recipes.NativeRecipeTests.test_apk_rebuild_uses_strict_shared_lab_connection) ... ok\ntest_authoritative_session_teardown_joins_admission_transaction (test_native_recipes.NativeRecipeTests.test_authoritative_session_teardown_joins_admission_transaction) ... ok\ntest_client_subnet_admission_is_non_destructive_and_fail_closed (test_native_recipes.NativeRecipeTests.test_client_subnet_admission_is_non_destructive_and_fail_closed) ... ok\ntest_config_matrix_uses_strict_server_client_and_users_validation (test_native_recipes.NativeRecipeTests.test_config_matrix_uses_strict_server_client_and_users_validation) ... ok\ntest_desktop_ipv6_merge_keeps_persist_tun_plan_guard (test_native_recipes.NativeRecipeTests.test_desktop_ipv6_merge_keeps_persist_tun_plan_guard) ... ok\ntest_failed_tcp_and_udp_admission_release_restored_device_lease (test_native_recipes.NativeRecipeTests.test_failed_tcp_and_udp_admission_release_restored_device_lease) ... ok\ntest_fuzz_harnesses_use_the_renamed_library_crate (test_native_recipes.NativeRecipeTests.test_fuzz_harnesses_use_the_renamed_library_crate) ... ok\ntest_gui_connection_logs_include_sanitized_username (test_native_recipes.NativeRecipeTests.test_gui_connection_logs_include_sanitized_username) ... ok\ntest_independent_artifacts_still_have_distinct_storage (test_native_recipes.NativeRecipeTests.test_independent_artifacts_still_have_distinct_storage) ... ok\ntest_installer_e2e_fails_closed_on_any_red_case (test_native_recipes.NativeRecipeTests.test_installer_e2e_fails_closed_on_any_red_case) ... ok\ntest_installer_formats_ipv6_authorities_and_public_panel_bind (test_native_recipes.NativeRecipeTests.test_installer_formats_ipv6_authorities_and_public_panel_bind) ... ok\ntest_installer_selects_and_verifies_the_host_deb_architecture (test_native_recipes.NativeRecipeTests.test_installer_selects_and_verifies_the_host_deb_architecture) ... ok\ntest_installer_strictly_validates_the_final_mutated_config_before_restart (test_native_recipes.NativeRecipeTests.test_installer_strictly_validates_the_final_mutated_config_before_restart) ... ok\ntest_ios_retained_wire_primitives_are_test_only (test_native_recipes.NativeRecipeTests.test_ios_retained_wire_primitives_are_test_only) ... ok\ntest_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop (test_native_recipes.NativeRecipeTests.test_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop) ... ok\ntest_keenetic_recipes_resolve_the_current_checkout (test_native_recipes.NativeRecipeTests.test_keenetic_recipes_resolve_the_current_checkout) ... ok\ntest_lab_gate_syncs_integration_tests_and_their_release_fixture (test_native_recipes.NativeRecipeTests.test_lab_gate_syncs_integration_tests_and_their_release_fixture) ... ok\ntest_linux_matrix_uses_the_configured_management_route_end_to_end (test_native_recipes.NativeRecipeTests.test_linux_matrix_uses_the_configured_management_route_end_to_end) ... ok\ntest_macos_install_name_does_not_contain_build_pass_path (test_native_recipes.NativeRecipeTests.test_macos_install_name_does_not_contain_build_pass_path) ... ok\ntest_macos_packaging_batches_signing_and_accepts_adhoc_runtime_flag (test_native_recipes.NativeRecipeTests.test_macos_packaging_batches_signing_and_accepts_adhoc_runtime_flag) ... ok\ntest_macos_packaging_uses_checked_shared_lab_connection (test_native_recipes.NativeRecipeTests.test_macos_packaging_uses_checked_shared_lab_connection) ... ok\ntest_mobile_connection_properties_use_the_live_generation_snapshot (test_native_recipes.NativeRecipeTests.test_mobile_connection_properties_use_the_live_generation_snapshot) ... ok\ntest_mobile_update_requests_cannot_migrate_to_the_physical_network (test_native_recipes.NativeRecipeTests.test_mobile_update_requests_cannot_migrate_to_the_physical_network) ... ok\ntest_native_builds_use_private_sources_and_one_job (test_native_recipes.NativeRecipeTests.test_native_builds_use_private_sources_and_one_job) ... ok\ntest_native_client_recipes_do_not_enable_the_server_stack (test_native_recipes.NativeRecipeTests.test_native_client_recipes_do_not_enable_the_server_stack) ... ok\ntest_native_library_target_avoids_qeli_executable_pdb_collision (test_native_recipes.NativeRecipeTests.test_native_library_target_avoids_qeli_executable_pdb_collision) ... ok\ntest_native_recipes_require_the_abi_1_12_roaming_exports (test_native_recipes.NativeRecipeTests.test_native_recipes_require_the_abi_1_12_roaming_exports) ... ok\ntest_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys (test_native_recipes.NativeRecipeTests.test_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys) ... ok\ntest_rcodesign_textual_error_is_not_accepted_with_zero_exit (test_native_recipes.NativeRecipeTests.test_rcodesign_textual_error_is_not_accepted_with_zero_exit) ... ok\ntest_release_checksum_is_lf_only_and_installer_handles_crlf_defensively (test_native_recipes.NativeRecipeTests.test_release_checksum_is_lf_only_and_installer_handles_crlf_defensively) ... ok\ntest_release_server_requires_jemalloc_but_client_builds_stay_isolated (test_native_recipes.NativeRecipeTests.test_release_server_requires_jemalloc_but_client_builds_stay_isolated) ... ok\ntest_release_stripping_is_cross_target_safe (test_native_recipes.NativeRecipeTests.test_release_stripping_is_cross_target_safe) ... ok\ntest_retired_root_ssh_scenarios_exit_before_network_or_mutation (test_native_recipes.NativeRecipeTests.test_retired_root_ssh_scenarios_exit_before_network_or_mutation) ... ok\ntest_router_recipes_skip_unused_ffi_crate_types_and_fail_closed (test_native_recipes.NativeRecipeTests.test_router_recipes_skip_unused_ffi_crate_types_and_fail_closed) ... ok\ntest_tracked_python_scenarios_never_silently_trust_a_new_ssh_host (test_native_recipes.NativeRecipeTests.test_tracked_python_scenarios_never_silently_trust_a_new_ssh_host) ... ok\ntest_udp_idle_reaper_joins_admission_before_releasing_device_lease (test_native_recipes.NativeRecipeTests.test_udp_idle_reaper_joins_admission_before_releasing_device_lease) ... ok\n\n----------------------------------------------------------------------\nRan 38 tests in 1.546s\n\nOK\n"
+    },
+    {
+      "args": [
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_native_licenses.py",
+        "-v"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": "test_archive_checksum_rejected (test_native_licenses.NativeLicenseTests.test_archive_checksum_rejected) ... ok\ntest_authors_license_preserved (test_native_licenses.NativeLicenseTests.test_authors_license_preserved) ... ok\ntest_duplicate_index (test_native_licenses.NativeLicenseTests.test_duplicate_index) ... ok\ntest_exact_vcs_supplement (test_native_licenses.NativeLicenseTests.test_exact_vcs_supplement) ... ok\ntest_index_traversal (test_native_licenses.NativeLicenseTests.test_index_traversal) ... ok\ntest_inventory_checksum_binding (test_native_licenses.NativeLicenseTests.test_inventory_checksum_binding) ... ok\ntest_lock_binding_drift (test_native_licenses.NativeLicenseTests.test_lock_binding_drift) ... ok\ntest_missing_resource (test_native_licenses.NativeLicenseTests.test_missing_resource) ... ok\ntest_modified_resource (test_native_licenses.NativeLicenseTests.test_modified_resource) ... ok\ntest_preserves_bytes_and_expressions (test_native_licenses.NativeLicenseTests.test_preserves_bytes_and_expressions) ... ok\ntest_project_license_drift (test_native_licenses.NativeLicenseTests.test_project_license_drift) ... ok\ntest_refuses_existing_output (test_native_licenses.NativeLicenseTests.test_refuses_existing_output) ... ok\ntest_router_export_rejects_corrupt_bundle (test_native_licenses.NativeLicenseTests.test_router_export_rejects_corrupt_bundle) ... ok\ntest_router_zip_deterministic_and_exact (test_native_licenses.NativeLicenseTests.test_router_zip_deterministic_and_exact) ... ok\ntest_unknown_file (test_native_licenses.NativeLicenseTests.test_unknown_file) ... ok\ntest_unknown_registry (test_native_licenses.NativeLicenseTests.test_unknown_registry) ... ok\ntest_wrong_vcs_supplement (test_native_licenses.NativeLicenseTests.test_wrong_vcs_supplement) ... ok\n\n----------------------------------------------------------------------\nRan 17 tests in 0.293s\n\nOK\n"
+    },
+    {
+      "args": [
+        "scripts/native_licenses.py"
+      ],
+      "exit": 0,
+      "stdout": "{\n  \"status\": \"PASS\",\n  \"locked_packages\": 235,\n  \"resources\": 458,\n  \"indexed_files\": 532,\n  \"bytes\": 6557892,\n  \"supplements\": 6,\n  \"toolchains\": {\n    \"status\": \"PASS\",\n    \"components\": 7,\n    \"resources\": 65,\n    \"files\": 69,\n    \"bytes\": 3999768\n  },\n  \"scope\": \"Full Cargo.lock superset; not per-binary linkage or complete release licensing\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "scripts/check_workflows.py",
+        "--actionlint",
+        "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-fuzz-context-20261009\\actionlint.exe"
+      ],
+      "exit": 0,
+      "stdout": "actionlint 1.7.12: 4 workflows PASS (Actions semantics only)\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "native-libs/provenance.py",
+        "--check"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "STALE NATIVE CORES.\n  recorded : e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c\n  actual   : 3538e06ce413971f353d02b7725cf24a7a18c6c6c83758eddfbb11db794a3498\n\nA native source or build recipe has changed since the .so/.dll/.dylib build;\nthe GUI clients may ship cores that do not match this tree. Rebuild them:\n  python scripts/build_native_libs_p4.py   # windows + macos, on lab .10\n  python scripts/build_android_so_11.py    # android, on lab .11\nthen `bash native-libs/verify.sh --update` and\n`python native-libs/provenance.py --update`.\n"
+    }
+  ],
+  "formatting": "Pinned real main/fuzz rustfmt PASS; one users test and seven fuzz target layouts only",
+  "full_cli_or_native_build": "NOT_PERFORMED",
+  "initial_failures_retained": [
+    "license binding after first root-edge edit",
+    "Cargo locked graph requires full lock regeneration",
+    "missing pinned arbitrary in initial offline fuzz cache",
+    "main and fuzz formatting",
+    "initial source wrapper preparation rejected by literal AST comparison"
+  ],
+  "host_gates": [
+    {
+      "stage": "initial",
+      "gate": "FAIL",
+      "changed_fields": [
+        "legacy4"
+      ],
+      "archive": {
+        "bytes": 9298152,
+        "sha256": "12265b004cbeb06e5355fa97f1cfd986f73ce6641e6997c5092085df11651faa",
+        "files": 1712,
+        "all_entries_verified": true
+      },
+      "cleanup": "OWNED_REACHABILITY_ROOT_REMOVED"
+    },
+    {
+      "stage": "repair-stage",
+      "gate": "FAIL",
+      "changed_fields": [
+        "iptables4",
+        "legacy4"
+      ],
+      "archive": {
+        "bytes": 9255680,
+        "sha256": "ccb70c93c505ffc1ec13ab547d3c6e4b4f48481123fbb59018943284c6ffc67e",
+        "files": 1693,
+        "all_entries_verified": true
+      },
+      "cleanup": "OWNED_REACHABILITY_ROOT_REMOVED"
+    },
+    {
+      "stage": "import-stage",
+      "gate": "FAIL",
+      "changed_fields": [
+        "iptables4",
+        "legacy4"
+      ],
+      "archive": {
+        "bytes": 89099,
+        "sha256": "3186e9fd396c86504cfe90d112b18ca075c5bd50e89a36ae4b5f80413586f932",
+        "files": 29,
+        "all_entries_verified": true
+      },
+      "cleanup": "OWNED_REACHABILITY_ROOT_REMOVED"
+    }
+  ],
+  "inputs": {
+    ".github/workflows/ci.yml": "985d328daf6e14c65432b2796f11fff601b6e3e47e9bfed02f81e0b6482533ae",
+    "qeli/Cargo.lock": "fdd1cc20621056c2829dbc4f8d560787da626cb4ed19a0b9d3885ef6424c4b32",
+    "qeli/Cargo.toml": "45f609395a4c0ed7a90b0093b7db5525b4ec4b30817058de00c3f5900f20e51f",
+    "qeli/fuzz/Cargo.lock": "6c4a15d129c4fb197977aa4745b21dfee8a477eb0c90f2897771b7d8a1ceedeb",
+    "qeli/fuzz/fuzz_targets/client_config.rs": "147be63c55bf95998aeedde75f2152354e90439a127570fd70ff483e8aa99320",
+    "qeli/fuzz/fuzz_targets/control_v2.rs": "d4efa165fbb340dce1b53d9f1cfd006a81ae259bef08b712123bb6a8def37149",
+    "qeli/fuzz/fuzz_targets/data_frag.rs": "ccfa2026d8d214ea24034179ebba81cc0bc23e02fb7d7d22c365f73d2307ee89",
+    "qeli/fuzz/fuzz_targets/packet_decrypt.rs": "3e4ceac2ad9a93fbb18b5c26ddeb5d87015560249c665f23c5c186cca179b355",
+    "qeli/fuzz/fuzz_targets/realtls_client.rs": "c0e96d64c88921ebedefe0b031e87b96fef4ac45392dcbb869f7830023fb8122",
+    "qeli/fuzz/fuzz_targets/realtls_record.rs": "72f5fda6edf77d8413a55ae3caaaefdaf9c2f3f6d1aaf0630391f3e0c9b6a747",
+    "qeli/fuzz/fuzz_targets/udp_frag.rs": "5bd7c621d9907b4705a6f874acbde8728636fb61c49beee810ae4a3960ad27ee",
+    "qeli/src/config/users.rs": "01554bf9c4c2d419ce43a0809ab07b79643e6a0d3984c8f27e00e5395ea6b813",
+    "qeli/third-party-notices/rust/BINDING.properties": "ecb49c47a5b8c4c77553cd9480d99d2212b6113a36bc658b612f5d8f7a0b2b7a",
+    "qeli/third-party-notices/rust/INDEX.tsv": "6ed799adde54df6c8c163675532e82d15b15645f22f7f28f8a7b0f848704d2f2",
+    "scripts/audit_test_suite.py": "fca4922dbcb91744e54aeb1148be28d68e36d7aff6121d33bdb95b0ad4a6176b",
+    "scripts/test_0712_features.py": "4ce73629541d1ec06824ef1d673d3d2218d81f6d9f914a33d8336e6e1a8db9a8",
+    "scripts/test_audit_script_imports.py": "1867f1d9159e8079d73b4b8c0c62ba3fb2b654ab3c27cae089d7f33de1ded604",
+    "scripts/test_audit_test_suite.py": "da2231d351755cb0e4cb15b484e6022114232d4cab24f8180b1f15f42872cb90",
+    "scripts/test_blocked_ips.py": "dc8892b56c8ad48c81adff086d6da8131d185f354cc6ead0a8a23169bd0c1921",
+    "scripts/test_blocked_settings.py": "66c3ccefe078fb90f9f18b71fe5973c7a1b4d9dca31ba32af6810fe19da8c5a5",
+    "scripts/test_config_rejection.py": "4b73124cce498641f76913f879cbbe429c15caee3a3de6c43adb611a1267727c",
+    "scripts/test_disconnect2.py": "7e5f2f10254cf028efebacd1b4803590b5a1ebb50aaf4fad3de08d3598f5cb3c",
+    "scripts/test_disconnect_during_connect.py": "11dd18bb037384c35cc48eb78764bfe08878ede39cd8a4a8b2aa97ffd0e0850c",
+    "scripts/test_download_bonding.py": "bb75b0d1164c5798dcd066c126a78fde5d6119c8a4842ad9dc06a9cf3c50ef36",
+    "scripts/test_gateway_nat.py": "5897d121e1c1348854ac6d7ea5d907e0c05c8d5585d3d50261bca7c7beb0a45d",
+    "scripts/test_kick.py": "888a1d335dd5c053ab122b12bfcecb5af259640419b2e1af4a69611c696057c5",
+    "scripts/test_l3_user_limits.py": "64ea92f16613d920ada069e3e110262dbc118ab45d40ebbabcd99834a89fd9f3",
+    "scripts/test_live_tunnel.py": "33d3f6a3244515d20be36cbb6fb3315d215f9eb8da4eb500ec8a5994440f0b18",
+    "scripts/test_maxsessions.py": "77374f01e56ba0e77256948673916138290e2b5ff79c57dee2a73ec15044178c",
+    "scripts/test_multidevice.py": "951e4cb1f291ff71a8cdc23b1392d54ce51e76498cfdd44bfcea2279184e4c39",
+    "scripts/test_multipath_allmodes.py": "45fe2fe7321e641278afe5e9aea7010058152d2b0c805399b9d8f2ed93cf3bbf",
+    "scripts/test_multipath_bonding.py": "d0b463be98689bdd097732d3c61d26e8c0b17bb2d2786c48ae909d4e2f115512",
+    "scripts/test_multipath_resilience.py": "1b87afd1b09649456ee8753f4d310da8c23b97fc82120ddb8dea714f64f60ab6",
+    "scripts/test_panel_ipv6_e2e.py": "6f03cbeb1c7254a8207817721b48b0acd64130f2d883a69e7dcd7bd427d68c67",
+    "scripts/test_push_matrix.py": "9978abf5147d82907f13a816e9fb9ffc35569e4091abd7c307f7ddb3a82bd83c",
+    "scripts/test_route_push.py": "7fee9bcc433357895cd3eb565730aa3d72e6018e0f5b920d2617d4e88e693eb2",
+    "scripts/test_router_build.py": "793ac4c236034d967dc114d542430159d5c07b5d5e1a55e9daaceba5745e6db1",
+    "scripts/test_tun_reclaim.py": "b2a7852b8e4f1e6b5ccf155a2b1bf0f57acd28a15320b3544aaccd915419c723",
+    "scripts/test_udp_reap.py": "8c8160d06a27b8bec447d2483e4be0a27d651cce620ec64ddcfa44da794f3cfe",
+    "scripts/test_user_reload.py": "f99f283002d00d1cd1fcff27a3e0a7f0920601d7d6ed164ed9e31927c5ad999a",
+    "scripts/test_web_reload.py": "8c7396bb7278d67c0890eab8dedb5630f110d8ebef2bb1a016bffb7fcdd89b55"
+  },
+  "overall": {
+    "done": 30,
+    "total": 37,
+    "percent": 81.1,
+    "Q37": "IN_PROGRESS",
+    "Q35": "FROZEN_STOCK_BINARY_RUNNING"
+  },
+  "remaining": [
+    "full current compiler/clippy and independent native A/B",
+    "final Linux release certification after committed freeze",
+    "Q35 final endurance qualification",
+    "Q36 exact TCP asymmetry stage",
+    "input-dependent integration suites in their qualified stages"
+  ],
+  "publication": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

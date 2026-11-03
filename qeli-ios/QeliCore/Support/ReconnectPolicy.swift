@@ -10,17 +10,9 @@ enum ReconnectDecision: Equatable, Sendable {
     case stop(ReconnectStopReason)
 }
 
-/// Android-derived exponential reconnect policy with a floor between the
-/// *start* of consecutive attempts. The floor also throttles a tunnel that reaches
-/// connected state and then drops immediately (where exponential backoff resets).
-/// Unlike an Android edge-case, `enabled = false` is honored after an established
-/// session drops as well as after a pre-establishment failure.
-///
-/// This is transport lifecycle policy, not a UI/VPN-manager implementation. Keep it in
-/// QeliCore/Support so both the app tests and the production QeliPacketTunnel target compile
-/// it; that target intentionally excludes the legacy QeliCore/VPN directory.
+/// Thin lifecycle adapter for the shared Rust reconnect policy. The platform owns
+/// cancellation and carrier waiting; the core owns retry budgets and delay calculation.
 struct ReconnectPolicy: Equatable, Sendable {
-    static let minimumInterAttemptMilliseconds = 1_500
     /// Largest millisecond value that can be converted to Task.sleep nanoseconds.
     static let maximumSleepMilliseconds = Int(UInt64.max / 1_000_000)
 
@@ -55,52 +47,35 @@ struct ReconnectPolicy: Equatable, Sendable {
     }
 
     /// - Parameters:
-    ///   - failureCount: Consecutive failures before reaching connected state,
-    ///     including the latest failure. Pass zero when an established session drops.
+    ///   - failureCount: Consecutive unstable attempts,
+    ///     including the latest failure. Zero follows a stable established session.
     ///   - millisecondsSinceAttemptStarted: Elapsed time since the prior attempt began.
     func decision(
         failureCount: Int,
-        millisecondsSinceAttemptStarted: Int
-    ) -> ReconnectDecision {
-        guard enabled else { return .stop(.disabled) }
-        let attempt = max(0, failureCount)
-        if attempt > 0, maximumRetries >= 0, attempt > maximumRetries {
-            return .stop(.retryLimitReached)
+        millisecondsSinceAttemptStarted: Int,
+        carrierRestored: Bool = false
+    ) throws -> ReconnectDecision {
+        let result = try ConfigCore.policy("retry_decision", [
+            "enabled": enabled, "max_retries": maximumRetries, "attempt": failureCount,
+            "base": baseDelayMilliseconds, "cap": maximumDelayMilliseconds,
+            "elapsed_ms": millisecondsSinceAttemptStarted, "carrier_restored": carrierRestored
+        ])["value"] as! [String: Any]
+        if let reason = result["reason"] as? String {
+            return .stop(reason == "disabled" ? .disabled : .retryLimitReached)
         }
-        let interAttemptRemainder = max(
-            0,
-            Self.minimumInterAttemptMilliseconds - max(0, millisecondsSinceAttemptStarted)
-        )
-        let backoff = attempt == 0 ? 0 : jitteredDelayMilliseconds(forAttempt: attempt)
-        return .retry(attempt: attempt, afterMilliseconds: max(interAttemptRemainder, backoff))
+        return .retry(attempt: result["attempt"] as! Int, afterMilliseconds: result["delay_ms"] as! Int)
     }
 
-    func delayMilliseconds(forAttempt attempt: Int) -> Int {
-        guard attempt > 0 else { return 0 }
-        let exponent = min(max(attempt - 1, 0), 7)
-        let multiplier = min(1 << exponent, 100)
-        let (raw, overflow) = baseDelayMilliseconds.multipliedReportingOverflow(by: multiplier)
-        let safeRaw = overflow ? Int.max : raw
-        return max(1_000, min(safeRaw, maximumDelayMilliseconds))
+    func delayMilliseconds(forAttempt attempt: Int) throws -> Int {
+        try ConfigCore.policy("backoff",["attempt":attempt,"base":baseDelayMilliseconds,"cap":maximumDelayMilliseconds])["value"] as! Int
     }
-
-    /// Randomise the scheduled delay within 80–100% without ever exceeding the configured cap.
-    /// The optional reduction exists only to make both interval edges deterministic in tests.
-    func jitteredDelayMilliseconds(forAttempt attempt: Int, reductionForTesting: Int? = nil) -> Int {
-        let scheduled = delayMilliseconds(forAttempt: attempt)
-        guard scheduled > 0 else { return 0 }
-        let spread = scheduled / 5
-        let reduction = reductionForTesting
-            .map { min(max(0, $0), spread) }
-            ?? Int.random(in: 0...spread)
-        return scheduled - reduction
+    func jitteredDelayMilliseconds(forAttempt attempt: Int, reductionForTesting: Int? = nil) throws -> Int {
+        var data: [String:Any] = ["scheduled":try delayMilliseconds(forAttempt:attempt)]
+        if let reductionForTesting { data["reduction"]=reductionForTesting }
+        return try ConfigCore.policy("jitter",data)["value"] as! Int
     }
-
-    /// Backoff escalates only across failures that never reached connected state.
-    func nextFailureCount(previous: Int, sessionWasEstablished: Bool) -> Int {
-        guard !sessionWasEstablished else { return 0 }
-        let value = max(previous, 0)
-        return value == Int.max ? Int.max : value + 1
+    func nextFailureCount(previous: Int, sessionWasEstablished: Bool, connectedMilliseconds: Int, forced: Bool = false) throws -> Int {
+        try ConfigCore.policy("next_attempt",["attempt":previous,"established":sessionWasEstablished,"connected_ms":connectedMilliseconds,"forced":forced])["value"] as! Int
     }
 
     private static func secondsToMilliseconds(_ seconds: Int) -> Int {

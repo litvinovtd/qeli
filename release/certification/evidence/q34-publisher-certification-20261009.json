@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_PUBLISHER_CERTIFICATION_ADMISSION_SCOPED",
+  "source_digest": "c17edc1a96aeb61cf91aa4a9fe53dcae5f672d81fff2c9c3947d75f96cb2af93",
+  "qualification_source_commit": "68757ef315424f2d0dd44238c16d4624a100e07f",
+  "product_source_commit": "68757ef315424f2d0dd44238c16d4624a100e07f",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F495/Q34-F049"
+  ],
+  "verification": {
+    "baseline": {
+      "status": "BASELINE_CERTIFICATION_BYPASS_REPRODUCED",
+      "commit": "cdd66f314d6c5a36e322e16efe9334551e2091e8",
+      "source_digest": "f6af3fd4a466392158092abfc8f5a9bf66c95765929bc146a22506ce25ed3435",
+      "failed_case": "linux.outer4.inner4.tcp.full",
+      "certification_errors": [
+        "case linux.outer4.inner4.tcp.full: status is 'failed', expected 'passed'"
+      ],
+      "publisher_gate_returncode": 0,
+      "publisher_gate_output": "{\"commit\": \"cdd66f314d6c5a36e322e16efe9334551e2091e8\", \"rust_toolchain\": \"1.97.0\", \"status\": \"PASS\", \"version\": \"0.8.2\"}\n",
+      "github_output": "commit=cdd66f314d6c5a36e322e16efe9334551e2091e8\nversion=0.8.2\nrust_toolchain=1.97.0\n",
+      "ci": "controlled success, one read-only check; no actual GH query",
+      "scope": "Exact existing release_tag command used by both publisher workflows, real Git tag and committed failed manifest; no build/upload/login/OIDC/deploy"
+    },
+    "windows": {
+      "status": "PASS",
+      "methods": 132,
+      "suites": [
+        {
+          "suite": "test_release_tag.py",
+          "returncode": 0,
+          "methods": 30,
+          "log": "windows-test_release_tag.py.log"
+        },
+        {
+          "suite": "test_release_certification.py",
+          "returncode": 0,
+          "methods": 18,
+          "log": "windows-test_release_certification.py.log"
+        },
+        {
+          "suite": "test_release_ci_gate.py",
+          "returncode": 0,
+          "methods": 19,
+          "log": "windows-test_release_ci_gate.py.log"
+        },
+        {
+          "suite": "test_check_workflows.py",
+          "returncode": 0,
+          "methods": 11,
+          "log": "windows-test_check_workflows.py.log"
+        },
+        {
+          "suite": "test_docker_publish_ref.py",
+          "returncode": 0,
+          "methods": 16,
+          "log": "windows-test_docker_publish_ref.py.log"
+        },
+        {
+          "suite": "test_native_recipes.py",
+          "returncode": 0,
+          "methods": 38,
+          "log": "windows-test_native_recipes.py.log"
+        }
+      ],
+      "actionlint": {
+        "command": [
+          "C:/Python314/python.exe",
+          "-X",
+          "utf8",
+          "-B",
+          "scripts/check_workflows.py",
+          "--actionlint",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-fuzz-context-20261009\\actionlint.exe"
+        ],
+        "returncode": 0,
+        "log": "actionlint.log"
+      }
+    },
+    "linux": {
+      "status": "PASS_FINAL41_LINUX_METHODS",
+      "tests": 41,
+      "producer_commit": "63b47b47f2a0597c7a540081c013932c2ba3f80a",
+      "source_archive_sha256": "812b4ade0a3cd01f4b675a123acc780259f00cd0ec5be7557d3934832d41b275",
+      "qualified_files_sha256": {
+        "release_tag.py": "b8620d8ac21cf2bff457b85c3bbc2e0b404c92d56bde8b4c2d2e18690b4fd6d8",
+        "release_source.py": "822f80e48a13728ee097a188d61660d44170cb1267d0496be5c0222d5992bcb5",
+        "release_certification.py": "5d25131f0860d305890f9aca304948c9643e42503f69d4fa7427ae7ad8778381",
+        "release_ci_gate.py": "07a7fadff45d2331e4ff0666fc90c806f2eba895c81e1be874e021cbdd913b2c",
+        "native_repro.py": "23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c",
+        "docker_publish_ref.py": "e054081c3717c365e3a86f2aa54cf78c8344faa8d001a547d3cc1e21a9e4b76f",
+        "test_release_tag.py": "22d1d73dc1614ee989a3463c4d13fadbc128c6451f33f8d77c95036383a20725",
+        "test_release_certification.py": "a899ab2f5c6a04b779bf5c49b65b7d1b07a4fb93b44344ff465c35dca145cc26"
+      },
+      "cleanup": {
+        "status": "PASS_KNOWN_FILES_SHA_CLEANUP",
+        "root": "/var/tmp/qeli-publisher-cert.R8MSFrwN",
+        "files": 9,
+        "process_fd_references": [],
+        "mount_guard": "PASS"
+      },
+      "original_service_unchanged": true,
+      "commands": [
+        {
+          "command": "systemctl is-active qeli; systemctl show qeli -p MainPID; sha256sum /usr/bin/qeli; pgrep -x qeli | sort -n",
+          "returncode": 0,
+          "log": "linux-before.log"
+        },
+        {
+          "command": "mktemp -d /var/tmp/qeli-publisher-cert.XXXXXXXX",
+          "returncode": 0,
+          "log": "linux-root.log"
+        },
+        {
+          "command": "sha256sum /var/tmp/qeli-publisher-cert.R8MSFrwN/source.tar",
+          "returncode": 0,
+          "log": "linux-upload-sha.log"
+        },
+        {
+          "command": "tar -xf /var/tmp/qeli-publisher-cert.R8MSFrwN/source.tar -C /var/tmp/qeli-publisher-cert.R8MSFrwN",
+          "returncode": 0,
+          "log": "linux-extract.log"
+        },
+        {
+          "command": "cd /var/tmp/qeli-publisher-cert.R8MSFrwN && python3 -B -m unittest -v test_release_tag.TagTests test_release_tag.PublisherCertificationTests test_release_certification",
+          "returncode": 0,
+          "log": "linux-41-tests.log"
+        },
+        {
+          "command": "python3 -B -c 'from pathlib import Path\nimport os,re,json,hashlib\nroot=Path('\"'\"'/var/tmp/qeli-publisher-cert.R8MSFrwN'\"'\"');files={'\"'\"'release_tag.py'\"'\"': '\"'\"'b8620d8ac21cf2bff457b85c3bbc2e0b404c92d56bde8b4c2d2e18690b4fd6d8'\"'\"', '\"'\"'release_source.py'\"'\"': '\"'\"'822f80e48a13728ee097a188d61660d44170cb1267d0496be5c0222d5992bcb5'\"'\"', '\"'\"'release_certification.py'\"'\"': '\"'\"'5d25131f0860d305890f9aca304948c9643e42503f69d4fa7427ae7ad8778381'\"'\"', '\"'\"'release_ci_gate.py'\"'\"': '\"'\"'07a7fadff45d2331e4ff0666fc90c806f2eba895c81e1be874e021cbdd913b2c'\"'\"', '\"'\"'native_repro.py'\"'\"': '\"'\"'23b7750a13d847fe0bac36107dca674188068bb7a9482ef003a27c7e54ca8c0c'\"'\"', '\"'\"'docker_publish_ref.py'\"'\"': '\"'\"'e054081c3717c365e3a86f2aa54cf78c8344faa8d001a547d3cc1e21a9e4b76f'\"'\"', '\"'\"'test_release_tag.py'\"'\"': '\"'\"'22d1d73dc1614ee989a3463c4d13fadbc128c6451f33f8d77c95036383a20725'\"'\"', '\"'\"'test_release_certification.py'\"'\"': '\"'\"'a899ab2f5c6a04b779bf5c49b65b7d1b07a4fb93b44344ff465c35dca145cc26'\"'\"', '\"'\"'source.tar'\"'\"': '\"'\"'812b4ade0a3cd01f4b675a123acc780259f00cd0ec5be7557d3934832d41b275'\"'\"'}\nassert root.resolve()==root and root.parent==Path('\"'\"'/var/tmp'\"'\"') and re.fullmatch(r'\"'\"'qeli-publisher-cert\\.[A-Za-z0-9]{8}'\"'\"',root.name)\nassert set(f.name for f in root.iterdir())==set(files) and all(f.is_file() and not f.is_symlink() for f in root.iterdir())\nfor name,sha in files.items():\n with (root/name).open('\"'\"'rb'\"'\"') as incoming:assert hashlib.file_digest(incoming,'\"'\"'sha256'\"'\"').hexdigest()==sha\nusers=[]\nfor proc in Path('\"'\"'/proc'\"'\"').iterdir():\n if not proc.name.isdigit() or int(proc.name)==os.getpid():continue\n try:entries=[proc/name for name in ['\"'\"'cwd'\"'\"','\"'\"'exe'\"'\"','\"'\"'root'\"'\"']]+list((proc/'\"'\"'fd'\"'\"').iterdir())\n except OSError:continue\n for f in entries:\n  try:link=os.readlink(f).removesuffix('\"'\"' (deleted)'\"'\"')\n  except OSError:continue\n  if link==str(root) or link.startswith(str(root)+'\"'\"'/'\"'\"'):users.append([proc.name,f.name,link])\nassert not users,users\nfor line in Path('\"'\"'/proc/self/mountinfo'\"'\"').read_text().splitlines():\n point=re.sub(r'\"'\"'\\\\([0-7]{3})'\"'\"',lambda m:chr(int(m[1],8)),line.split()[4]);assert point!=str(root) and not point.startswith(str(root)+'\"'\"'/'\"'\"'),point\nfor name in files:(root/name).unlink()\nroot.rmdir()\nprint(json.dumps(dict(status='\"'\"'PASS_KNOWN_FILES_SHA_CLEANUP'\"'\"',root=str(root),files=len(files),process_fd_references=users,mount_guard='\"'\"'PASS'\"'\"')))\n'",
+          "returncode": 0,
+          "log": "linux-cleanup.log"
+        },
+        {
+          "command": "systemctl is-active qeli; systemctl show qeli -p MainPID; sha256sum /usr/bin/qeli; pgrep -x qeli | sort -n",
+          "returncode": 0,
+          "log": "linux-after.log"
+        }
+      ],
+      "scope": "Actual Git refs/committed manifest and real offline CLI; CI response controlled, no hosted build/upload/login/OIDC/VPN runtime;.10unused"
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/docker-publish.yml",
+        ".github/workflows/release-attest.yml",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "scripts/release_tag.py",
+        "scripts/test_release_tag.py"
+      ],
+      "qualified_paths": [
+        {
+          "path": ".github/workflows/docker-publish.yml",
+          "sha256": "d75715c9e79b26bbc84228a4f10446347e0a4a21d3b50c76aceb1c4af90c6014",
+          "normalization": "LF"
+        },
+        {
+          "path": ".github/workflows/release-attest.yml",
+          "sha256": "e2aec60bd0b9e85475d0f6eb417388abacb24d8b8dae4673428347b9554074e9",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/release_tag.py",
+          "sha256": "b8620d8ac21cf2bff457b85c3bbc2e0b404c92d56bde8b4c2d2e18690b4fd6d8",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_release_tag.py",
+          "sha256": "22d1d73dc1614ee989a3463c4d13fadbc128c6451f33f8d77c95036383a20725",
+          "normalization": "LF"
+        }
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-publisher-certification-20261009",
+    "files": 42,
+    "bytes": 1211464,
+    "manifest_sha256": "d11345555e523dc6296de351daf95a0a2d8b942c4d672527a7cbd43fd5c80837",
+    "runtime_status": "PASS_Q34_PUBLISHER_CERTIFICATION_ADMISSION_SCOPED",
+    "path": "audit-debt-20260924/q34-publisher-certification-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34 F495/Q34-F049 actual publisher certification admission bypass closed. Exact baseline release_tag --require-ci command with realGit tag and committed failed automated case returnedPASS/rc0 andGITHUB_OUTPUT under controlledCIsuccess while actual validator refused. DEB and release-tag Docker workflows now explicitly require --require-certification alongside exactcommitCI beforecompile/login/build/push. Shared load_and_validate enforces version/current-source-digest/mandatory-case statuses,missing/malformed/stale/failed andI/O/identity errors refuse; re-admit tag/source aftervalidation blocks HEAD/trackedmanifest drift. Certification precedesCIquery andoutput writes; unavailablephysical advisory policy retained, explicitfailedphysical blocks; branch/SHA Docker separatepolicy unchanged, metadata-only tag queries notfulladmission.132Windows methods30tag18cert19CI11workflow16Docker38native contracts and41Linux actualGit/manifest/offlineCLI methodsPASS. Pinnedsemantic actionlint4workflowsPASS; existingCIsuite coversnewtests. No actualGHquery/OIDC/publish/build/runtime innewtests, controlledCI explicit. Linux8sourcefiles+archive SHAqualified;9knownfiles nonrecursivecleanup afterprocess/fd/mount guards; original .11 service777/845/CLI75bc preserved,.10unused. Nativee3fb14SHA/qelitree/protected/OpenWrtcut unchanged; priorqualification inherited withoutRust/APK/Maven rebuild.724Markdown9docsPASS. Primaryadvisory F459 stillno publishedpatch, notsuppressed.41cases96prior supplements preserved modulo source_digest bookkeeping;append97scoped. Q34IN_PROGRESS30/37DONE81.1percent7remain;F459/Q29SIGKILLFAIL-ENONET/Q30Q31/D06accepted/USER_EXCLUDED/expectedactualreleasepublisherOPEN retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE",
+  "post_seal_note": {
+    "path": "audit-debt-20260924/q34-publisher-certification-post-seal-note.json",
+    "sha256": "bf53e70bb3d81a02f6a8eb43f3e4c0a61ab60ecea8113bc56b9a793e09ac99a1",
+    "details": {
+      "status": "PASS_POST_SEAL_DISK_RECOVERY",
+      "packet": "q34-publisher-certification-20261009",
+      "manifest_sha256": "d11345555e523dc6296de351daf95a0a2d8b942c4d672527a7cbd43fd5c80837",
+      "scope": "Packet was already SEALED before git add failed with out-of-diskspace; no payload modified/resealed. Local docs commit resumes after owned cache cleanup.",
+      "failure": "git add index.lock write error out of diskspace; no docs commit completed at failed seal invocation",
+      "cleanup": {
+        "root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-scratch-20261008\\q34-client-supply\\wrapper-positive\\home\\wrapper\\dists\\gradle-9.7.1-bin\\bxwhr1jfbs9xrq875rhmav8st\\gradle-9.7.1",
+        "files": 712,
+        "logical_bytes": 170196887,
+        "physical_bytes_recovered_observed": 159805440,
+        "archive": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-client-supply-20261008\\gradle-9.7.1-bin.zip",
+        "archive_sha256": "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a",
+        "verification": "Every unpacked file SHA equalled exact preserved ZIP member; complete file set matched, no reparse points; absolute resolved path guard and no active private/unknown JVM; PowerShell native Remove-Item; root absent",
+        "retention": "Sealed official ZIP retained, evidence/project/shared caches untouched"
+      },
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE",
+      "recurrent_failure": "First resumed git add also failed ENOSPC before docs commit; original packet stayed immutable",
+      "additional_cleanup": {
+        "root": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-scratch-20261008\\q34-sdk-locks\\publish",
+        "files": 462,
+        "logical_bytes": 337481201,
+        "recovery_archive": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-sdk-locks-20261008\\windows-recoverable.zip",
+        "archive_sha256": "3250e5022c900140f1516d649c474f3eca82c8d4126b4eb821efed840167733b",
+        "verification": "Actual ZIP SHA plus full member set/every file SHA equality, no reparse points; native PowerShell exact absolute-path/process guards; all old owned outputs removed and recovery ZIP retained",
+        "physical_free_after_docs_commit": 317804544
+      },
+      "final_docs_commit": "68757ef315424f2d0dd44238c16d4624a100e07f",
+      "approval_review": "One read-only request timed out; retry succeeded. Later read-only review service403 refused execution; same require_escalated mechanism retried and succeeded, no bypass."
+    }
+  }
+}

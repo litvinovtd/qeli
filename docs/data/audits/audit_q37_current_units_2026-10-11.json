@@ -1,0 +1,1790 @@
+{
+  "schema_version": 1,
+  "finding": "Q37-F009",
+  "status": "CURRENT_PINNED_COMPILER_AND_ELEVEN_CLI_DIAGNOSTICS_SCOPED_PASS_NATIVE_CERTIFICATION_PENDING",
+  "base_commit": "cedc81b8e035ed8e5453a2d4357b77afbc01522c",
+  "frozen_source_inputs_sha256": "fd4aa180bc04f38bcd5944e102f879070d7f999df7d7b8e4e578fb4e73be7339",
+  "actual_compile_toolchain": "1.97.0",
+  "units": [
+    {
+      "name": "preflight-fix",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "excluded_tests": []
+    },
+    {
+      "name": "server-units",
+      "passed": 2310,
+      "failed": 0,
+      "ignored": 56,
+      "excluded_tests": [
+        [
+          "client_killswitch::native_tests::native_kill_switch_failed_restart_preserves_packet_barrier",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        ],
+        [
+          "client_killswitch::native_tests::native_kill_switch_namespace_change_preserves_foreign_rules",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client_killswitch::native_tests::native_kill_switch_packets_stay_blocked_across_tun_reconnect",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client_killswitch::native_tests::native_kill_switch_rebuild_guard_failures_retry_without_unlocking",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        ],
+        [
+          "client_killswitch::native_tests::native_late_ipv4_route_stays_behind_existing_kill_switch",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client_killswitch::native_tests::native_late_ipv6_address_stays_behind_existing_kill_switch",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client_network_lease::linux_tests::lease_child",
+          ""
+        ],
+        [
+          "client_network_task::teardown_tests::teardown_retains_original_namespaces_across_async_pump_shutdown",
+          "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        ],
+        [
+          "client_network_task::tests::native_worker_inherits_context_and_rejects_adoption_after_namespace_change",
+          "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        ],
+        [
+          "client_route::identity_linux_tests::native_cleanup_deleted_original_does_not_delete_same_name_route",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client_route::identity_linux_tests::native_cleanup_namespace_change_preserves_foreign_physical_route",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client_route::identity_linux_tests::native_cleanup_preserves_operator_route_attribute_changes",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client_route::identity_linux_tests::native_cleanup_rename_preserves_replacement_and_cleans_physical_bypass",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client_route::identity_linux_tests::native_roaming_namespace_change_in_callback_is_terminal",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client_route::identity_linux_tests::native_route_scope_does_not_keep_original_tun_alive",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client_route::identity_linux_tests::native_setup_rejects_renamed_tun_before_route_add",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client_route::identity_linux_tests::native_unbound_route_owner_has_no_setup_authority",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client_route::persistent::native::tests::native_route_recovery_cleans_owned_preserves_changed_and_refuses_pending",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "client_route::persistent::native::tests::native_route_recovery_refuses_live_interface_and_lost_namespace",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "client_route::persistent::native::tests::native_route_recovery_retains_failed_delete_and_cleans_other_family",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "client_status_writer::tests::writer_inherits_callers_private_namespaces",
+          "requires Linux CAP_SYS_ADMIN for isolated mount and network namespaces"
+        ],
+        [
+          "dns_lease::tests::child_refuses_live_owner",
+          "subprocess fixture, invoked only by separate_process_cannot_replace_live_dns_owner"
+        ],
+        [
+          "dns_lease::tests::native_dns_state_refuses_foreign_marker_and_sidecar_owners",
+          "requires root; validates privileged DNS state owners"
+        ],
+        [
+          "dns_lease::tests::native_root_dns_files_inherit_the_admitted_service_directory_owner",
+          "requires root; validates delegated service directory ownership"
+        ],
+        [
+          "hooks::io_tests::native_cancel_during_hook_preparation_joins_cleanup_without_spawn",
+          "requires private /tmp and the audit file-I/O preload shim"
+        ],
+        [
+          "hooks::io_tests::native_cancel_running_hook_reaps_before_context_cleanup_returns",
+          "requires private /tmp; checks real process cancellation and reaping"
+        ],
+        [
+          "hooks::io_tests::native_hook_file_io_keeps_executor_live",
+          "requires private /tmp and the audit file-I/O preload shim"
+        ],
+        [
+          "nat_firewall_journal::native::tests::namespace_change_is_sticky_and_never_replays_saved_commands",
+          "requires Linux CAP_SYS_ADMIN; disposable network namespaces"
+        ],
+        [
+          "network_interface::tests::native_interface_queries_ignore_inherited_sysfs",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated netns"
+        ],
+        [
+          "server::deferred_profile_tests::forced_scope_drop_keeps_tun_dns_and_joins_after_cancelled_drain",
+          "requires root in private NET/mount/PID namespaces and private /var/lib"
+        ],
+        [
+          "server::nat::native_tests::native_dns_leases_install_and_remove_both_transports_without_foreign_deletion",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "server::nat::native_tests::native_exact_cleanup_removes_duplicates_both_families_and_preserves_sibling",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "server::ndp_proxy::native_network_view_tests::native_ndp_bind_uses_calling_namespace_without_sysfs_remount",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN/CAP_NET_RAW and ip; isolated netns"
+        ],
+        [
+          "server::network_lease::tests::lease_child",
+          "child fixture: requires QELI_WORKER_LEASE_TEST_NAME; parent kills this process"
+        ],
+        [
+          "server::network_lease::tests::native_worker_reservations_are_independent_across_network_namespaces",
+          "requires Linux CAP_SYS_ADMIN; disposable thread network namespace only"
+        ],
+        [
+          "state_storage::state_dir::native_tests::native_root_and_service_share_state_but_foreign_inodes_are_refused",
+          "requires root for isolated service-user ownership test"
+        ],
+        [
+          "sysctl::host::native_namespace_pin_survives_last_member_and_closes_on_drop",
+          "requires Linux CAP_SYS_ADMIN; isolated thread-owned network namespaces"
+        ],
+        [
+          "sysctl::host::native_network_cookie_is_stable_and_distinguishes_new_namespaces",
+          "requires Linux CAP_SYS_ADMIN and SO_NETNS_COOKIE; isolated namespaces"
+        ],
+        [
+          "sysctl::target::native_descriptor_refuses_recreated_interface_with_reused_index",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; private network namespace"
+        ],
+        [
+          "transport_core::carrier::tests::linux_candidate_socket_binds_exact_interface_and_source",
+          "requires a privileged Linux host with iproute2 and a global IPv4 address"
+        ],
+        [
+          "transport_core::resolver::tests::native_resolver_inherits_callers_network_and_mount_namespaces",
+          "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        ],
+        [
+          "transport_core::udp_source::tests::native_ipv6_wildcard_replies_preserve_both_local_addresses",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "tun::iface::linux_tests::attachment_guard_keeps_existing_device_and_releases_only_its_fd",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::closing_detached_queues_preserves_persistent_replacement",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::closing_renamed_device_preserves_persistent_replacement",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::descriptor_namespace_mismatch_does_not_resolve_same_name",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::duplicate_workers_close_before_original_descriptor_releases_name",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::inherited_sysfs_same_name_different_index_is_rejected",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated mount/net namespaces"
+        ],
+        [
+          "tun::iface::linux_tests::missing_attach_never_registers_tun_or_tap",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::multiqueue_creation_uses_one_device_and_last_fd_releases_it",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "util::tests::atomic_write_preserves_owner",
+          "requires root (chown)"
+        ],
+        [
+          "web::api::backup::io_tests::native_backup_preflight_io_and_cancel_ownership",
+          "requires private /etc/qeli and /tmp, plus audit file-I/O preload shim"
+        ],
+        [
+          "web::api::backup::tests::native_backup_and_overlay_exact_restore_roundtrip",
+          "requires root, a fresh mount/network namespace and existing /etc/qeli mount point"
+        ],
+        [
+          "web::api::backup::tests::native_rollback_snapshot_refuses_unreadable_files",
+          "requires root to exercise tar under an unprivileged uid"
+        ],
+        [
+          "web::api::client::native_panel_device_selection_uses_calling_namespace",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated netns"
+        ],
+        [
+          "web::api::firewall::tests::native_health_probe_keeps_neighboring_http_requests_responsive",
+          "requires Linux root/CAP_SYS_ADMIN for private mount/network namespaces; in-process HTTP router"
+        ]
+      ]
+    },
+    {
+      "name": "client-units",
+      "passed": 1933,
+      "failed": 0,
+      "ignored": 49,
+      "excluded_tests": [
+        [
+          "client::dns::resolver_context::tests::native_resolver_context_refuses_other_service_network",
+          "requires Linux CAP_SYS_ADMIN; changes only a disposable thread network namespace"
+        ],
+        [
+          "client::dns::resolver_context::tests::resolver_service_child",
+          "child fixture: requires QELI_RESOLVER_TEST_BUS and isolated real resolved"
+        ],
+        [
+          "client::killswitch::native_tests::native_kill_switch_failed_restart_preserves_packet_barrier",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        ],
+        [
+          "client::killswitch::native_tests::native_kill_switch_namespace_change_preserves_foreign_rules",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client::killswitch::native_tests::native_kill_switch_packets_stay_blocked_across_tun_reconnect",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client::killswitch::native_tests::native_kill_switch_rebuild_guard_failures_retry_without_unlocking",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        ],
+        [
+          "client::killswitch::native_tests::native_late_ipv4_route_stays_behind_existing_kill_switch",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client::killswitch::native_tests::native_late_ipv6_address_stays_behind_existing_kill_switch",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client::network_lease::linux_tests::lease_child",
+          ""
+        ],
+        [
+          "client::network_task::teardown_tests::teardown_retains_original_namespaces_across_async_pump_shutdown",
+          "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        ],
+        [
+          "client::network_task::tests::native_worker_inherits_context_and_rejects_adoption_after_namespace_change",
+          "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        ],
+        [
+          "client::network_view_tests::native_tap_mac_and_hook_index_use_calling_namespace",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::roaming_linux::tests::live_observation_finds_a_source_complete_physical_path",
+          "requires the Linux ip tool and a live global default route"
+        ],
+        [
+          "client::route::identity_linux_tests::native_cleanup_deleted_original_does_not_delete_same_name_route",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_cleanup_namespace_change_preserves_foreign_physical_route",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_cleanup_preserves_operator_route_attribute_changes",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_cleanup_rename_preserves_replacement_and_cleans_physical_bypass",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_roaming_namespace_change_in_callback_is_terminal",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_route_scope_does_not_keep_original_tun_alive",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_setup_rejects_renamed_tun_before_route_add",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_unbound_route_owner_has_no_setup_authority",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::persistent::native::tests::native_route_recovery_cleans_owned_preserves_changed_and_refuses_pending",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "client::route::persistent::native::tests::native_route_recovery_refuses_live_interface_and_lost_namespace",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "client::route::persistent::native::tests::native_route_recovery_retains_failed_delete_and_cleans_other_family",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "client::status_writer::tests::writer_inherits_callers_private_namespaces",
+          "requires Linux CAP_SYS_ADMIN for isolated mount and network namespaces"
+        ],
+        [
+          "dns_lease::tests::child_refuses_live_owner",
+          "subprocess fixture, invoked only by separate_process_cannot_replace_live_dns_owner"
+        ],
+        [
+          "dns_lease::tests::native_dns_state_refuses_foreign_marker_and_sidecar_owners",
+          "requires root; validates privileged DNS state owners"
+        ],
+        [
+          "dns_lease::tests::native_root_dns_files_inherit_the_admitted_service_directory_owner",
+          "requires root; validates delegated service directory ownership"
+        ],
+        [
+          "hooks::io_tests::native_cancel_during_hook_preparation_joins_cleanup_without_spawn",
+          "requires private /tmp and the audit file-I/O preload shim"
+        ],
+        [
+          "hooks::io_tests::native_cancel_running_hook_reaps_before_context_cleanup_returns",
+          "requires private /tmp; checks real process cancellation and reaping"
+        ],
+        [
+          "hooks::io_tests::native_hook_file_io_keeps_executor_live",
+          "requires private /tmp and the audit file-I/O preload shim"
+        ],
+        [
+          "nat_firewall_journal::native::tests::namespace_change_is_sticky_and_never_replays_saved_commands",
+          "requires Linux CAP_SYS_ADMIN; disposable network namespaces"
+        ],
+        [
+          "network_interface::tests::native_interface_queries_ignore_inherited_sysfs",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated netns"
+        ],
+        [
+          "state_storage::state_dir::native_tests::native_root_and_service_share_state_but_foreign_inodes_are_refused",
+          "requires root for isolated service-user ownership test"
+        ],
+        [
+          "sysctl::host::native_namespace_pin_survives_last_member_and_closes_on_drop",
+          "requires Linux CAP_SYS_ADMIN; isolated thread-owned network namespaces"
+        ],
+        [
+          "sysctl::host::native_network_cookie_is_stable_and_distinguishes_new_namespaces",
+          "requires Linux CAP_SYS_ADMIN and SO_NETNS_COOKIE; isolated namespaces"
+        ],
+        [
+          "sysctl::target::native_descriptor_refuses_recreated_interface_with_reused_index",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; private network namespace"
+        ],
+        [
+          "transport_core::carrier::tests::linux_candidate_socket_binds_exact_interface_and_source",
+          "requires a privileged Linux host with iproute2 and a global IPv4 address"
+        ],
+        [
+          "transport_core::resolver::tests::native_resolver_inherits_callers_network_and_mount_namespaces",
+          "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        ],
+        [
+          "transport_core::udp_source::tests::native_ipv6_wildcard_replies_preserve_both_local_addresses",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "tun::iface::linux_tests::attachment_guard_keeps_existing_device_and_releases_only_its_fd",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::closing_detached_queues_preserves_persistent_replacement",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::closing_renamed_device_preserves_persistent_replacement",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::descriptor_namespace_mismatch_does_not_resolve_same_name",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::duplicate_workers_close_before_original_descriptor_releases_name",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::inherited_sysfs_same_name_different_index_is_rejected",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated mount/net namespaces"
+        ],
+        [
+          "tun::iface::linux_tests::missing_attach_never_registers_tun_or_tap",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::multiqueue_creation_uses_one_device_and_last_fd_releases_it",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "util::tests::atomic_write_preserves_owner",
+          "requires root (chown)"
+        ]
+      ]
+    },
+    {
+      "name": "ffi-units",
+      "passed": 1951,
+      "failed": 0,
+      "ignored": 49,
+      "excluded_tests": [
+        [
+          "client::dns::resolver_context::tests::native_resolver_context_refuses_other_service_network",
+          "requires Linux CAP_SYS_ADMIN; changes only a disposable thread network namespace"
+        ],
+        [
+          "client::dns::resolver_context::tests::resolver_service_child",
+          "child fixture: requires QELI_RESOLVER_TEST_BUS and isolated real resolved"
+        ],
+        [
+          "client::killswitch::native_tests::native_kill_switch_failed_restart_preserves_packet_barrier",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        ],
+        [
+          "client::killswitch::native_tests::native_kill_switch_namespace_change_preserves_foreign_rules",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client::killswitch::native_tests::native_kill_switch_packets_stay_blocked_across_tun_reconnect",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client::killswitch::native_tests::native_kill_switch_rebuild_guard_failures_retry_without_unlocking",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        ],
+        [
+          "client::killswitch::native_tests::native_late_ipv4_route_stays_behind_existing_kill_switch",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client::killswitch::native_tests::native_late_ipv6_address_stays_behind_existing_kill_switch",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        ],
+        [
+          "client::network_lease::linux_tests::lease_child",
+          ""
+        ],
+        [
+          "client::network_task::teardown_tests::teardown_retains_original_namespaces_across_async_pump_shutdown",
+          "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        ],
+        [
+          "client::network_task::tests::native_worker_inherits_context_and_rejects_adoption_after_namespace_change",
+          "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        ],
+        [
+          "client::network_view_tests::native_tap_mac_and_hook_index_use_calling_namespace",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::roaming_linux::tests::live_observation_finds_a_source_complete_physical_path",
+          "requires the Linux ip tool and a live global default route"
+        ],
+        [
+          "client::route::identity_linux_tests::native_cleanup_deleted_original_does_not_delete_same_name_route",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_cleanup_namespace_change_preserves_foreign_physical_route",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_cleanup_preserves_operator_route_attribute_changes",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_cleanup_rename_preserves_replacement_and_cleans_physical_bypass",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_roaming_namespace_change_in_callback_is_terminal",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_route_scope_does_not_keep_original_tun_alive",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_setup_rejects_renamed_tun_before_route_add",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::identity_linux_tests::native_unbound_route_owner_has_no_setup_authority",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        ],
+        [
+          "client::route::persistent::native::tests::native_route_recovery_cleans_owned_preserves_changed_and_refuses_pending",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "client::route::persistent::native::tests::native_route_recovery_refuses_live_interface_and_lost_namespace",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "client::route::persistent::native::tests::native_route_recovery_retains_failed_delete_and_cleans_other_family",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "client::status_writer::tests::writer_inherits_callers_private_namespaces",
+          "requires Linux CAP_SYS_ADMIN for isolated mount and network namespaces"
+        ],
+        [
+          "dns_lease::tests::child_refuses_live_owner",
+          "subprocess fixture, invoked only by separate_process_cannot_replace_live_dns_owner"
+        ],
+        [
+          "dns_lease::tests::native_dns_state_refuses_foreign_marker_and_sidecar_owners",
+          "requires root; validates privileged DNS state owners"
+        ],
+        [
+          "dns_lease::tests::native_root_dns_files_inherit_the_admitted_service_directory_owner",
+          "requires root; validates delegated service directory ownership"
+        ],
+        [
+          "hooks::io_tests::native_cancel_during_hook_preparation_joins_cleanup_without_spawn",
+          "requires private /tmp and the audit file-I/O preload shim"
+        ],
+        [
+          "hooks::io_tests::native_cancel_running_hook_reaps_before_context_cleanup_returns",
+          "requires private /tmp; checks real process cancellation and reaping"
+        ],
+        [
+          "hooks::io_tests::native_hook_file_io_keeps_executor_live",
+          "requires private /tmp and the audit file-I/O preload shim"
+        ],
+        [
+          "nat_firewall_journal::native::tests::namespace_change_is_sticky_and_never_replays_saved_commands",
+          "requires Linux CAP_SYS_ADMIN; disposable network namespaces"
+        ],
+        [
+          "network_interface::tests::native_interface_queries_ignore_inherited_sysfs",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated netns"
+        ],
+        [
+          "state_storage::state_dir::native_tests::native_root_and_service_share_state_but_foreign_inodes_are_refused",
+          "requires root for isolated service-user ownership test"
+        ],
+        [
+          "sysctl::host::native_namespace_pin_survives_last_member_and_closes_on_drop",
+          "requires Linux CAP_SYS_ADMIN; isolated thread-owned network namespaces"
+        ],
+        [
+          "sysctl::host::native_network_cookie_is_stable_and_distinguishes_new_namespaces",
+          "requires Linux CAP_SYS_ADMIN and SO_NETNS_COOKIE; isolated namespaces"
+        ],
+        [
+          "sysctl::target::native_descriptor_refuses_recreated_interface_with_reused_index",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; private network namespace"
+        ],
+        [
+          "transport_core::carrier::tests::linux_candidate_socket_binds_exact_interface_and_source",
+          "requires a privileged Linux host with iproute2 and a global IPv4 address"
+        ],
+        [
+          "transport_core::resolver::tests::native_resolver_inherits_callers_network_and_mount_namespaces",
+          "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        ],
+        [
+          "transport_core::udp_source::tests::native_ipv6_wildcard_replies_preserve_both_local_addresses",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        ],
+        [
+          "tun::iface::linux_tests::attachment_guard_keeps_existing_device_and_releases_only_its_fd",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::closing_detached_queues_preserves_persistent_replacement",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::closing_renamed_device_preserves_persistent_replacement",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::descriptor_namespace_mismatch_does_not_resolve_same_name",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::duplicate_workers_close_before_original_descriptor_releases_name",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::inherited_sysfs_same_name_different_index_is_rejected",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated mount/net namespaces"
+        ],
+        [
+          "tun::iface::linux_tests::missing_attach_never_registers_tun_or_tap",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "tun::iface::linux_tests::multiqueue_creation_uses_one_device_and_last_fd_releases_it",
+          "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        ],
+        [
+          "util::tests::atomic_write_preserves_owner",
+          "requires root (chown)"
+        ]
+      ]
+    }
+  ],
+  "completed_steps": [
+    {
+      "name": "clippy-default",
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "+1.97.0",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "stop_reason": null,
+      "seconds": 83.96000861097127,
+      "log_sha256": "b6e8daeae76fd3795db27dd7e76bb9e9b32998609ce9551d6a04a034cc0b2d75"
+    },
+    {
+      "name": "preflight-fix",
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "+1.97.0",
+        "test",
+        "--offline",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "server",
+        "--lib",
+        "server::preflight::snapshot_tests::later_ipv6_probes_share_one_deadline_and_keep_observed_ipv4",
+        "--",
+        "--exact",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "stop_reason": null,
+      "seconds": 159.17727843101602,
+      "log_sha256": "82cd1e7eda79858fc61b696d9026e20cbff62f30e5db5d4977e9d2c74282274d"
+    },
+    {
+      "name": "server-units",
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "+1.97.0",
+        "test",
+        "--offline",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "server",
+        "--lib",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "stop_reason": null,
+      "seconds": 70.6446704249829,
+      "log_sha256": "d5787618b28addc0700517f8bddb7fb9ac518869b692e8709f30166a1ca9444d"
+    },
+    {
+      "name": "client-units",
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "+1.97.0",
+        "test",
+        "--offline",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "client-bin",
+        "--lib",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "stop_reason": null,
+      "seconds": 144.59879870491568,
+      "log_sha256": "74e897285509878213f98479151711f58c40f11b359a8ed11833cd6adbfbcbb8"
+    },
+    {
+      "name": "ffi-units",
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "+1.97.0",
+        "test",
+        "--offline",
+        "--locked",
+        "--no-default-features",
+        "--features",
+        "transport-core-ffi",
+        "--lib",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "stop_reason": null,
+      "seconds": 144.86518639000133,
+      "log_sha256": "870129094dcb55252237f6f15d270ecb8a485d84c426d1ce85b910c78b60b190"
+    },
+    {
+      "name": "config-editor",
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "+1.97.0",
+        "test",
+        "--offline",
+        "--locked",
+        "--features",
+        "transport-core-ffi",
+        "--test",
+        "config_editor",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "stop_reason": null,
+      "seconds": 62.17235306208022,
+      "log_sha256": "0d329cd9dbf3d18dc9d860cf618818c815cc8bf77eaf6bc20c7a004685008687"
+    },
+    {
+      "name": "config-examples",
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "+1.97.0",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "config_examples",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "stop_reason": null,
+      "seconds": 63.421636466053315,
+      "log_sha256": "890ce458bb4f0d66635cc862375e2a13ae3dc4da91b5e4137774a7e932aec2b9"
+    },
+    {
+      "name": "server-ini",
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "+1.97.0",
+        "test",
+        "--offline",
+        "--locked",
+        "--test",
+        "server_ini_audit",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "stop_reason": null,
+      "seconds": 10.09256211295724,
+      "log_sha256": "e14076c4c1fb86fa0911b794d38300252274cc7190ad1c9ab97dfff2456e8086"
+    },
+    {
+      "name": "conformance",
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "+1.97.0",
+        "run",
+        "--offline",
+        "--locked",
+        "--features",
+        "conformance-gen",
+        "--bin",
+        "gen-conformance",
+        "--",
+        "--check"
+      ],
+      "exit": 0,
+      "stop_reason": null,
+      "seconds": 53.92306194198318,
+      "log_sha256": "45f8dbb35f4683e5e037462c55d1a40e3f0717d63ecdbbb99dd4fedcd634423e"
+    },
+    {
+      "name": "factory-cli",
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "+1.97.0",
+        "build",
+        "--offline",
+        "--locked",
+        "--release",
+        "--features",
+        "jemalloc",
+        "--bin",
+        "qeli"
+      ],
+      "exit": 0,
+      "stop_reason": null,
+      "seconds": 501.9365331759909,
+      "log_sha256": "6f1003066b7f77ff448ff34bfb75cc9a40f7a23a2cc083dec9cbecb96962ef7f"
+    }
+  ],
+  "ci_policy": {
+    "current": {
+      "original": false,
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "output": "test_cargo_failure_is_retained_while_independent_checks_continue (ci_test.LocalCIGateTests.test_cargo_failure_is_retained_while_independent_checks_continue) ... ok\ntest_malformed_pin_refuses_before_cargo (ci_test.LocalCIGateTests.test_malformed_pin_refuses_before_cargo) ... ok\ntest_missing_pin_refuses_before_cargo (ci_test.LocalCIGateTests.test_missing_pin_refuses_before_cargo) ... ok\ntest_non_cargo_failure_never_reports_green (ci_test.LocalCIGateTests.test_non_cargo_failure_never_reports_green) ... ok\ntest_success_uses_pinned_locked_feature_profiles_from_any_directory (ci_test.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory) ... ok\n\n----------------------------------------------------------------------\nRan 5 tests in 2.553s\n\nOK\n"
+    },
+    "original_negative": {
+      "original": true,
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0,
+      "output": "test_success_uses_pinned_locked_feature_profiles_from_any_directory (ci_test.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory) ... FAIL\n\n======================================================================\nFAIL: test_success_uses_pinned_locked_feature_profiles_from_any_directory (ci_test.LocalCIGateTests.test_success_uses_pinned_locked_feature_profiles_from_any_directory)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/ci-fixture-r2/scripts/test_ci_check.py\", line 85, in test_success_uses_pinned_locked_feature_profiles_from_any_directory\n    self.assertIn((\"test\", \"--locked\", \"--no-default-features\", \"--features\",\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                   feature, \"--lib\", \"--\", \"--test-threads=1\"), profiles)\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ('test', '--locked', '--no-default-features', '--features', 'server', '--lib', '--', '--test-threads=1') not found in {('run', '--locked', '--features', 'conformance-gen', '--bin', 'gen-conformance', '--', '--check'), ('test', '--locked', '--features', 'transport-core-ffi', '--test', 'config_editor'), ('clippy', '--locked', '--no-default-features', '--features', 'transport-core-ffi', '--lib', '--', '-D', 'warnings'), ('test', '--locked', '--features', 'transport-core-ffi', 'transport_core', '--', '--test-threads=1'), ('clippy', '--locked', '--all-targets', '--', '-D', 'warnings'), ('build', '--locked', '--bin', 'qeli', '--release', '--features', 'jemalloc'), ('fmt', '--check'), ('check', '--locked', '--no-default-features', '--features', 'server', '--lib'), ('test', '--locked', '--workspace', '--', '--test-threads=1'), ('fmt', '--manifest-path', 'fuzz/Cargo.toml', '--check'), ('build', '--locked', '--release', '--no-default-features', '--features', 'transport-core-ffi'), ('check', '--locked', '--no-default-features', '--features', 'client-bin', '--bin', 'qeli-client')}\n\n----------------------------------------------------------------------\nRan 1 test in 0.627s\n\nFAILED (failures=1)\n"
+    },
+    "host_gate": "FAIL",
+    "changed_fields": [
+      "iptables4"
+    ]
+  },
+  "fixes": [
+    "Separate libtest nocapture label from simulated route stdout.",
+    "Make injected post-publication directory sync failure helper available in all test profiles.",
+    "Execute no-default server/client-bin/transport-core-ffi library tests in both CI and local runner."
+  ],
+  "environment": {
+    "private_tmp": "/tmp",
+    "nofile": 8192,
+    "temporary_swap_bytes": 2147483648,
+    "production_network_deadline_seconds": 15,
+    "no_production_network_changes": true
+  },
+  "retained_failures": {
+    "initial_combined_build": "OOM_ARCHIVED_AND_SEALED",
+    "first_split_build": "OOM_RAW_LOGS_RETAINED",
+    "first_actual_server_run": {
+      "passed": 2300,
+      "failed": 10,
+      "ignored": 56
+    },
+    "first_candidate_client_compile": "E0425_RETAINED",
+    "low_fd_dns_negative": true
+  },
+  "evidence_packet": "audit-debt-20260924/q37-current-matrix-20261011",
+  "packet_sealed": true,
+  "native_status": "STALE",
+  "native_input_digest": "abcc14949dab2d284564ab81b3b22702d3a38eda2e0d74100475a7cd2e443c92",
+  "full_cli_qualified": true,
+  "native_A_B_done": false,
+  "final_certification_done": false,
+  "overall": {
+    "done": 30,
+    "total": 37,
+    "percent": 81.1,
+    "q37": "IN_PROGRESS"
+  },
+  "publication": "LOCAL_DEV_COMMIT_NO_PUSH_DEPLOY_RELEASE",
+  "inputs": {
+    "qeli/src/server/preflight/snapshot_tests.rs": "0a338886656f1fcae21bf6eae734a200b38cda72e5ed12f78214cd1e1b94badd",
+    "qeli/src/util.rs": "a171ce98ce376fd7f2bc62a5669162efb065724699e6602d095b4483898971ac",
+    ".github/workflows/ci.yml": "c4936279ce7545f420dbd90ec3b8dedae4bacc2abc9a6c5934b7d852967c3763",
+    "scripts/ci-check.sh": "5208829a8102f3a68bc21bdfe9e8f3183d1cc6c2474c75f2908667b9ff7c18ac",
+    "scripts/test_ci_check.py": "41aa5b524fdbdc5644f14a9edc00984b15ddbece5d97751c3f2add33ca50acfc"
+  },
+  "compiler_source_commit": "c69f9c9493412aede854cffe308a9a5b22a77c36",
+  "qualified_suites": [
+    {
+      "name": "preflight-fix",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "excluded_tests": [],
+      "status": "PASS_NO_SKIPS"
+    },
+    {
+      "name": "server-units",
+      "passed": 2310,
+      "failed": 0,
+      "ignored": 56,
+      "excluded_tests": [
+        {
+          "name": "client_killswitch::native_tests::native_kill_switch_failed_restart_preserves_packet_barrier",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        },
+        {
+          "name": "client_killswitch::native_tests::native_kill_switch_namespace_change_preserves_foreign_rules",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client_killswitch::native_tests::native_kill_switch_packets_stay_blocked_across_tun_reconnect",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client_killswitch::native_tests::native_kill_switch_rebuild_guard_failures_retry_without_unlocking",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        },
+        {
+          "name": "client_killswitch::native_tests::native_late_ipv4_route_stays_behind_existing_kill_switch",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client_killswitch::native_tests::native_late_ipv6_address_stays_behind_existing_kill_switch",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client_network_lease::linux_tests::lease_child",
+          "reason": "explicit source #[ignore]; child/native fixture not qualified by default run"
+        },
+        {
+          "name": "client_network_task::teardown_tests::teardown_retains_original_namespaces_across_async_pump_shutdown",
+          "reason": "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        },
+        {
+          "name": "client_network_task::tests::native_worker_inherits_context_and_rejects_adoption_after_namespace_change",
+          "reason": "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        },
+        {
+          "name": "client_route::identity_linux_tests::native_cleanup_deleted_original_does_not_delete_same_name_route",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client_route::identity_linux_tests::native_cleanup_namespace_change_preserves_foreign_physical_route",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client_route::identity_linux_tests::native_cleanup_preserves_operator_route_attribute_changes",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client_route::identity_linux_tests::native_cleanup_rename_preserves_replacement_and_cleans_physical_bypass",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client_route::identity_linux_tests::native_roaming_namespace_change_in_callback_is_terminal",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client_route::identity_linux_tests::native_route_scope_does_not_keep_original_tun_alive",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client_route::identity_linux_tests::native_setup_rejects_renamed_tun_before_route_add",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client_route::identity_linux_tests::native_unbound_route_owner_has_no_setup_authority",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client_route::persistent::native::tests::native_route_recovery_cleans_owned_preserves_changed_and_refuses_pending",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "client_route::persistent::native::tests::native_route_recovery_refuses_live_interface_and_lost_namespace",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "client_route::persistent::native::tests::native_route_recovery_retains_failed_delete_and_cleans_other_family",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "client_status_writer::tests::writer_inherits_callers_private_namespaces",
+          "reason": "requires Linux CAP_SYS_ADMIN for isolated mount and network namespaces"
+        },
+        {
+          "name": "dns_lease::tests::child_refuses_live_owner",
+          "reason": "subprocess fixture, invoked only by separate_process_cannot_replace_live_dns_owner"
+        },
+        {
+          "name": "dns_lease::tests::native_dns_state_refuses_foreign_marker_and_sidecar_owners",
+          "reason": "requires root; validates privileged DNS state owners"
+        },
+        {
+          "name": "dns_lease::tests::native_root_dns_files_inherit_the_admitted_service_directory_owner",
+          "reason": "requires root; validates delegated service directory ownership"
+        },
+        {
+          "name": "hooks::io_tests::native_cancel_during_hook_preparation_joins_cleanup_without_spawn",
+          "reason": "requires private /tmp and the audit file-I/O preload shim"
+        },
+        {
+          "name": "hooks::io_tests::native_cancel_running_hook_reaps_before_context_cleanup_returns",
+          "reason": "requires private /tmp; checks real process cancellation and reaping"
+        },
+        {
+          "name": "hooks::io_tests::native_hook_file_io_keeps_executor_live",
+          "reason": "requires private /tmp and the audit file-I/O preload shim"
+        },
+        {
+          "name": "nat_firewall_journal::native::tests::namespace_change_is_sticky_and_never_replays_saved_commands",
+          "reason": "requires Linux CAP_SYS_ADMIN; disposable network namespaces"
+        },
+        {
+          "name": "network_interface::tests::native_interface_queries_ignore_inherited_sysfs",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated netns"
+        },
+        {
+          "name": "server::deferred_profile_tests::forced_scope_drop_keeps_tun_dns_and_joins_after_cancelled_drain",
+          "reason": "requires root in private NET/mount/PID namespaces and private /var/lib"
+        },
+        {
+          "name": "server::nat::native_tests::native_dns_leases_install_and_remove_both_transports_without_foreign_deletion",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "server::nat::native_tests::native_exact_cleanup_removes_duplicates_both_families_and_preserves_sibling",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "server::ndp_proxy::native_network_view_tests::native_ndp_bind_uses_calling_namespace_without_sysfs_remount",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN/CAP_NET_RAW and ip; isolated netns"
+        },
+        {
+          "name": "server::network_lease::tests::lease_child",
+          "reason": "child fixture: requires QELI_WORKER_LEASE_TEST_NAME; parent kills this process"
+        },
+        {
+          "name": "server::network_lease::tests::native_worker_reservations_are_independent_across_network_namespaces",
+          "reason": "requires Linux CAP_SYS_ADMIN; disposable thread network namespace only"
+        },
+        {
+          "name": "state_storage::state_dir::native_tests::native_root_and_service_share_state_but_foreign_inodes_are_refused",
+          "reason": "requires root for isolated service-user ownership test"
+        },
+        {
+          "name": "sysctl::host::native_namespace_pin_survives_last_member_and_closes_on_drop",
+          "reason": "requires Linux CAP_SYS_ADMIN; isolated thread-owned network namespaces"
+        },
+        {
+          "name": "sysctl::host::native_network_cookie_is_stable_and_distinguishes_new_namespaces",
+          "reason": "requires Linux CAP_SYS_ADMIN and SO_NETNS_COOKIE; isolated namespaces"
+        },
+        {
+          "name": "sysctl::target::native_descriptor_refuses_recreated_interface_with_reused_index",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; private network namespace"
+        },
+        {
+          "name": "transport_core::carrier::tests::linux_candidate_socket_binds_exact_interface_and_source",
+          "reason": "requires a privileged Linux host with iproute2 and a global IPv4 address"
+        },
+        {
+          "name": "transport_core::resolver::tests::native_resolver_inherits_callers_network_and_mount_namespaces",
+          "reason": "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        },
+        {
+          "name": "transport_core::udp_source::tests::native_ipv6_wildcard_replies_preserve_both_local_addresses",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "tun::iface::linux_tests::attachment_guard_keeps_existing_device_and_releases_only_its_fd",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::closing_detached_queues_preserves_persistent_replacement",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::closing_renamed_device_preserves_persistent_replacement",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::descriptor_namespace_mismatch_does_not_resolve_same_name",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::duplicate_workers_close_before_original_descriptor_releases_name",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::inherited_sysfs_same_name_different_index_is_rejected",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated mount/net namespaces"
+        },
+        {
+          "name": "tun::iface::linux_tests::missing_attach_never_registers_tun_or_tap",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::multiqueue_creation_uses_one_device_and_last_fd_releases_it",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "util::tests::atomic_write_preserves_owner",
+          "reason": "requires root (chown)"
+        },
+        {
+          "name": "web::api::backup::io_tests::native_backup_preflight_io_and_cancel_ownership",
+          "reason": "requires private /etc/qeli and /tmp, plus audit file-I/O preload shim"
+        },
+        {
+          "name": "web::api::backup::tests::native_backup_and_overlay_exact_restore_roundtrip",
+          "reason": "requires root, a fresh mount/network namespace and existing /etc/qeli mount point"
+        },
+        {
+          "name": "web::api::backup::tests::native_rollback_snapshot_refuses_unreadable_files",
+          "reason": "requires root to exercise tar under an unprivileged uid"
+        },
+        {
+          "name": "web::api::client::native_panel_device_selection_uses_calling_namespace",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated netns"
+        },
+        {
+          "name": "web::api::firewall::tests::native_health_probe_keeps_neighboring_http_requests_responsive",
+          "reason": "requires Linux root/CAP_SYS_ADMIN for private mount/network namespaces; in-process HTTP router"
+        }
+      ],
+      "status": "SCOPED_STANDARD_TESTS_PASS_NATIVE_IGNORED_FIXTURES_NOT_QUALIFIED"
+    },
+    {
+      "name": "client-units",
+      "passed": 1933,
+      "failed": 0,
+      "ignored": 49,
+      "excluded_tests": [
+        {
+          "name": "client::dns::resolver_context::tests::native_resolver_context_refuses_other_service_network",
+          "reason": "requires Linux CAP_SYS_ADMIN; changes only a disposable thread network namespace"
+        },
+        {
+          "name": "client::dns::resolver_context::tests::resolver_service_child",
+          "reason": "child fixture: requires QELI_RESOLVER_TEST_BUS and isolated real resolved"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_kill_switch_failed_restart_preserves_packet_barrier",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_kill_switch_namespace_change_preserves_foreign_rules",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_kill_switch_packets_stay_blocked_across_tun_reconnect",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_kill_switch_rebuild_guard_failures_retry_without_unlocking",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_late_ipv4_route_stays_behind_existing_kill_switch",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_late_ipv6_address_stays_behind_existing_kill_switch",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client::network_lease::linux_tests::lease_child",
+          "reason": "explicit source #[ignore]; child/native fixture not qualified by default run"
+        },
+        {
+          "name": "client::network_task::teardown_tests::teardown_retains_original_namespaces_across_async_pump_shutdown",
+          "reason": "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        },
+        {
+          "name": "client::network_task::tests::native_worker_inherits_context_and_rejects_adoption_after_namespace_change",
+          "reason": "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        },
+        {
+          "name": "client::network_view_tests::native_tap_mac_and_hook_index_use_calling_namespace",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::roaming_linux::tests::live_observation_finds_a_source_complete_physical_path",
+          "reason": "requires the Linux ip tool and a live global default route"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_cleanup_deleted_original_does_not_delete_same_name_route",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_cleanup_namespace_change_preserves_foreign_physical_route",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_cleanup_preserves_operator_route_attribute_changes",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_cleanup_rename_preserves_replacement_and_cleans_physical_bypass",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_roaming_namespace_change_in_callback_is_terminal",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_route_scope_does_not_keep_original_tun_alive",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_setup_rejects_renamed_tun_before_route_add",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_unbound_route_owner_has_no_setup_authority",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::persistent::native::tests::native_route_recovery_cleans_owned_preserves_changed_and_refuses_pending",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "client::route::persistent::native::tests::native_route_recovery_refuses_live_interface_and_lost_namespace",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "client::route::persistent::native::tests::native_route_recovery_retains_failed_delete_and_cleans_other_family",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "client::status_writer::tests::writer_inherits_callers_private_namespaces",
+          "reason": "requires Linux CAP_SYS_ADMIN for isolated mount and network namespaces"
+        },
+        {
+          "name": "dns_lease::tests::child_refuses_live_owner",
+          "reason": "subprocess fixture, invoked only by separate_process_cannot_replace_live_dns_owner"
+        },
+        {
+          "name": "dns_lease::tests::native_dns_state_refuses_foreign_marker_and_sidecar_owners",
+          "reason": "requires root; validates privileged DNS state owners"
+        },
+        {
+          "name": "dns_lease::tests::native_root_dns_files_inherit_the_admitted_service_directory_owner",
+          "reason": "requires root; validates delegated service directory ownership"
+        },
+        {
+          "name": "hooks::io_tests::native_cancel_during_hook_preparation_joins_cleanup_without_spawn",
+          "reason": "requires private /tmp and the audit file-I/O preload shim"
+        },
+        {
+          "name": "hooks::io_tests::native_cancel_running_hook_reaps_before_context_cleanup_returns",
+          "reason": "requires private /tmp; checks real process cancellation and reaping"
+        },
+        {
+          "name": "hooks::io_tests::native_hook_file_io_keeps_executor_live",
+          "reason": "requires private /tmp and the audit file-I/O preload shim"
+        },
+        {
+          "name": "nat_firewall_journal::native::tests::namespace_change_is_sticky_and_never_replays_saved_commands",
+          "reason": "requires Linux CAP_SYS_ADMIN; disposable network namespaces"
+        },
+        {
+          "name": "network_interface::tests::native_interface_queries_ignore_inherited_sysfs",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated netns"
+        },
+        {
+          "name": "state_storage::state_dir::native_tests::native_root_and_service_share_state_but_foreign_inodes_are_refused",
+          "reason": "requires root for isolated service-user ownership test"
+        },
+        {
+          "name": "sysctl::host::native_namespace_pin_survives_last_member_and_closes_on_drop",
+          "reason": "requires Linux CAP_SYS_ADMIN; isolated thread-owned network namespaces"
+        },
+        {
+          "name": "sysctl::host::native_network_cookie_is_stable_and_distinguishes_new_namespaces",
+          "reason": "requires Linux CAP_SYS_ADMIN and SO_NETNS_COOKIE; isolated namespaces"
+        },
+        {
+          "name": "sysctl::target::native_descriptor_refuses_recreated_interface_with_reused_index",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; private network namespace"
+        },
+        {
+          "name": "transport_core::carrier::tests::linux_candidate_socket_binds_exact_interface_and_source",
+          "reason": "requires a privileged Linux host with iproute2 and a global IPv4 address"
+        },
+        {
+          "name": "transport_core::resolver::tests::native_resolver_inherits_callers_network_and_mount_namespaces",
+          "reason": "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        },
+        {
+          "name": "transport_core::udp_source::tests::native_ipv6_wildcard_replies_preserve_both_local_addresses",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "tun::iface::linux_tests::attachment_guard_keeps_existing_device_and_releases_only_its_fd",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::closing_detached_queues_preserves_persistent_replacement",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::closing_renamed_device_preserves_persistent_replacement",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::descriptor_namespace_mismatch_does_not_resolve_same_name",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::duplicate_workers_close_before_original_descriptor_releases_name",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::inherited_sysfs_same_name_different_index_is_rejected",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated mount/net namespaces"
+        },
+        {
+          "name": "tun::iface::linux_tests::missing_attach_never_registers_tun_or_tap",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::multiqueue_creation_uses_one_device_and_last_fd_releases_it",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "util::tests::atomic_write_preserves_owner",
+          "reason": "requires root (chown)"
+        }
+      ],
+      "status": "SCOPED_STANDARD_TESTS_PASS_NATIVE_IGNORED_FIXTURES_NOT_QUALIFIED"
+    },
+    {
+      "name": "ffi-units",
+      "passed": 1951,
+      "failed": 0,
+      "ignored": 49,
+      "excluded_tests": [
+        {
+          "name": "client::dns::resolver_context::tests::native_resolver_context_refuses_other_service_network",
+          "reason": "requires Linux CAP_SYS_ADMIN; changes only a disposable thread network namespace"
+        },
+        {
+          "name": "client::dns::resolver_context::tests::resolver_service_child",
+          "reason": "child fixture: requires QELI_RESOLVER_TEST_BUS and isolated real resolved"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_kill_switch_failed_restart_preserves_packet_barrier",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_kill_switch_namespace_change_preserves_foreign_rules",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_kill_switch_packets_stay_blocked_across_tun_reconnect",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_kill_switch_rebuild_guard_failures_retry_without_unlocking",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and real dual-stack iptables; isolated netns"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_late_ipv4_route_stays_behind_existing_kill_switch",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client::killswitch::native_tests::native_late_ipv6_address_stays_behind_existing_kill_switch",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip, ping and iptables/ip6tables; isolated netns"
+        },
+        {
+          "name": "client::network_lease::linux_tests::lease_child",
+          "reason": "explicit source #[ignore]; child/native fixture not qualified by default run"
+        },
+        {
+          "name": "client::network_task::teardown_tests::teardown_retains_original_namespaces_across_async_pump_shutdown",
+          "reason": "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        },
+        {
+          "name": "client::network_task::tests::native_worker_inherits_context_and_rejects_adoption_after_namespace_change",
+          "reason": "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        },
+        {
+          "name": "client::network_view_tests::native_tap_mac_and_hook_index_use_calling_namespace",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::roaming_linux::tests::live_observation_finds_a_source_complete_physical_path",
+          "reason": "requires the Linux ip tool and a live global default route"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_cleanup_deleted_original_does_not_delete_same_name_route",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_cleanup_namespace_change_preserves_foreign_physical_route",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_cleanup_preserves_operator_route_attribute_changes",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_cleanup_rename_preserves_replacement_and_cleans_physical_bypass",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_roaming_namespace_change_in_callback_is_terminal",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_route_scope_does_not_keep_original_tun_alive",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_setup_rejects_renamed_tun_before_route_add",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::identity_linux_tests::native_unbound_route_owner_has_no_setup_authority",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, ip and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "client::route::persistent::native::tests::native_route_recovery_cleans_owned_preserves_changed_and_refuses_pending",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "client::route::persistent::native::tests::native_route_recovery_refuses_live_interface_and_lost_namespace",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "client::route::persistent::native::tests::native_route_recovery_retains_failed_delete_and_cleans_other_family",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "client::status_writer::tests::writer_inherits_callers_private_namespaces",
+          "reason": "requires Linux CAP_SYS_ADMIN for isolated mount and network namespaces"
+        },
+        {
+          "name": "dns_lease::tests::child_refuses_live_owner",
+          "reason": "subprocess fixture, invoked only by separate_process_cannot_replace_live_dns_owner"
+        },
+        {
+          "name": "dns_lease::tests::native_dns_state_refuses_foreign_marker_and_sidecar_owners",
+          "reason": "requires root; validates privileged DNS state owners"
+        },
+        {
+          "name": "dns_lease::tests::native_root_dns_files_inherit_the_admitted_service_directory_owner",
+          "reason": "requires root; validates delegated service directory ownership"
+        },
+        {
+          "name": "hooks::io_tests::native_cancel_during_hook_preparation_joins_cleanup_without_spawn",
+          "reason": "requires private /tmp and the audit file-I/O preload shim"
+        },
+        {
+          "name": "hooks::io_tests::native_cancel_running_hook_reaps_before_context_cleanup_returns",
+          "reason": "requires private /tmp; checks real process cancellation and reaping"
+        },
+        {
+          "name": "hooks::io_tests::native_hook_file_io_keeps_executor_live",
+          "reason": "requires private /tmp and the audit file-I/O preload shim"
+        },
+        {
+          "name": "nat_firewall_journal::native::tests::namespace_change_is_sticky_and_never_replays_saved_commands",
+          "reason": "requires Linux CAP_SYS_ADMIN; disposable network namespaces"
+        },
+        {
+          "name": "network_interface::tests::native_interface_queries_ignore_inherited_sysfs",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated netns"
+        },
+        {
+          "name": "state_storage::state_dir::native_tests::native_root_and_service_share_state_but_foreign_inodes_are_refused",
+          "reason": "requires root for isolated service-user ownership test"
+        },
+        {
+          "name": "sysctl::host::native_namespace_pin_survives_last_member_and_closes_on_drop",
+          "reason": "requires Linux CAP_SYS_ADMIN; isolated thread-owned network namespaces"
+        },
+        {
+          "name": "sysctl::host::native_network_cookie_is_stable_and_distinguishes_new_namespaces",
+          "reason": "requires Linux CAP_SYS_ADMIN and SO_NETNS_COOKIE; isolated namespaces"
+        },
+        {
+          "name": "sysctl::target::native_descriptor_refuses_recreated_interface_with_reused_index",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; private network namespace"
+        },
+        {
+          "name": "transport_core::carrier::tests::linux_candidate_socket_binds_exact_interface_and_source",
+          "reason": "requires a privileged Linux host with iproute2 and a global IPv4 address"
+        },
+        {
+          "name": "transport_core::resolver::tests::native_resolver_inherits_callers_network_and_mount_namespaces",
+          "reason": "requires CAP_SYS_ADMIN for private network and mount namespaces"
+        },
+        {
+          "name": "transport_core::udp_source::tests::native_ipv6_wildcard_replies_preserve_both_local_addresses",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and ip; isolated network namespace"
+        },
+        {
+          "name": "tun::iface::linux_tests::attachment_guard_keeps_existing_device_and_releases_only_its_fd",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::closing_detached_queues_preserves_persistent_replacement",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::closing_renamed_device_preserves_persistent_replacement",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::descriptor_namespace_mismatch_does_not_resolve_same_name",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::duplicate_workers_close_before_original_descriptor_releases_name",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::inherited_sysfs_same_name_different_index_is_rejected",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN, /dev/net/tun and ip; isolated mount/net namespaces"
+        },
+        {
+          "name": "tun::iface::linux_tests::missing_attach_never_registers_tun_or_tap",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "tun::iface::linux_tests::multiqueue_creation_uses_one_device_and_last_fd_releases_it",
+          "reason": "requires Linux CAP_SYS_ADMIN/CAP_NET_ADMIN and /dev/net/tun; isolated netns"
+        },
+        {
+          "name": "util::tests::atomic_write_preserves_owner",
+          "reason": "requires root (chown)"
+        }
+      ],
+      "status": "SCOPED_STANDARD_TESTS_PASS_NATIVE_IGNORED_FIXTURES_NOT_QUALIFIED"
+    },
+    {
+      "name": "config-editor",
+      "passed": 55,
+      "failed": 0,
+      "ignored": 0,
+      "excluded_tests": [],
+      "status": "PASS_NO_SKIPS"
+    },
+    {
+      "name": "config-examples",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0,
+      "excluded_tests": [],
+      "status": "PASS_NO_SKIPS"
+    },
+    {
+      "name": "server-ini",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0,
+      "excluded_tests": [],
+      "status": "PASS_NO_SKIPS"
+    }
+  ],
+  "diagnostics": {
+    "status": "CURRENT_CLI_DIAGNOSTICS_PASS",
+    "binary_sha256": "886e525ed909037fafe8ea494094c7eb0c0a4f2a0e0f0e44f1cd68a3e966cff5",
+    "results": [
+      {
+        "name": "metadata-empty-suffix",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-0.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.622 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-0.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-0.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-0.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): 1 unreadable value(s) in the users database \u2014 limits would silently become unlimited:\n  [user:alice] key 'metadata.' requires a non-empty suffix\n",
+        "seconds": 0.004220976959913969,
+        "expected_exit": 1,
+        "diagnostic": "suffix",
+        "pass_": true
+      },
+      {
+        "name": "metadata-duplicate-key",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-1.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.625 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-1.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-1.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-1.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): 1 unreadable value(s) in the users database \u2014 limits would silently become unlimited:\n  [user:alice] map key 'metadata.note' appears more than once \u2014 keep one\n",
+        "seconds": 0.003099713008850813,
+        "expected_exit": 1,
+        "diagnostic": "more than once",
+        "pass_": true
+      },
+      {
+        "name": "user-duplicate-section",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-2.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.629 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-2.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-2.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-2.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): users database: duplicate [user:alice] section\n",
+        "seconds": 0.003035685047507286,
+        "expected_exit": 1,
+        "diagnostic": "duplicate",
+        "pass_": true
+      },
+      {
+        "name": "group-duplicate-section",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-3.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.632 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-3.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-3.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-3.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): users database: duplicate [group:staff] section\n",
+        "seconds": 0.0031589260324835777,
+        "expected_exit": 1,
+        "diagnostic": "duplicate",
+        "pass_": true
+      },
+      {
+        "name": "group-invalid-acl",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-4.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.636 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-4.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-4.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-4.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): user 'group:staff': allowed_networks entry '10.0.0.0/99' is not a valid IPv4/IPv6 CIDR or address\n",
+        "seconds": 0.003299791947938502,
+        "expected_exit": 1,
+        "diagnostic": "allowed_networks",
+        "pass_": true
+      },
+      {
+        "name": "client-subnet-limit-17",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-5.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.643 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-5.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-5.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-5.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): user 'alice': client_subnet has 17 entries; maximum is 16\n",
+        "seconds": 0.0072012780001387,
+        "expected_exit": 1,
+        "diagnostic": "maximum",
+        "pass_": true
+      },
+      {
+        "name": "user-route-limit-257",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-6.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.648 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-6.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-6.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-6.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): user 'alice': routes has 257 entries; maximum is 256\n",
+        "seconds": 0.0046957180602476,
+        "expected_exit": 1,
+        "diagnostic": "maximum",
+        "pass_": true
+      },
+      {
+        "name": "user-route-desc-rejected",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-7.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.653 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-7.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-7.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-7.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): 1 unreadable value(s) in the users database \u2014 limits would silently become unlimited:\n  [user:alice] invalid route \"172.16.0.0/24 desc=not-supported\": desc is supported only for profile routes\n",
+        "seconds": 0.0035702120512723923,
+        "expected_exit": 1,
+        "diagnostic": "desc",
+        "pass_": true
+      },
+      {
+        "name": "user-route-metric-u32-overflow",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-8.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.656 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-8.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-8.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-8.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): 1 unreadable value(s) in the users database \u2014 limits would silently become unlimited:\n  [user:alice] invalid route \"172.16.0.0/24 metric=4294967296\": invalid route metric \"4294967296\"; expected 0..=4294967295\n",
+        "seconds": 0.003248751047067344,
+        "expected_exit": 1,
+        "diagnostic": "metric",
+        "pass_": true
+      },
+      {
+        "name": "user-route-family-mismatch",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-9.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.660 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-9.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-9.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-9.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): 1 unreadable value(s) in the users database \u2014 limits would silently become unlimited:\n  [user:alice] invalid route \"172.16.0.0/24 gateway=fd71:e1::1\": CIDR and gateway use different address families\n",
+        "seconds": 0.003078646957874298,
+        "expected_exit": 1,
+        "diagnostic": "different address families",
+        "pass_": true
+      },
+      {
+        "name": "user-scalar-unknown",
+        "command": [
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/target/release/qeli",
+          "check-config",
+          "--config",
+          "/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-10.conf"
+        ],
+        "exit": 1,
+        "output": "2026-10-11 19:22:27.663 WARN  qeli_core::server: profile 'tcp': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS handshake records on the wire). Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile networks.\nError: /var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/server-10.conf: users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-10.conf': users file '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-10.conf' exists but could not be loaded; refusing to run on a partial access-control list (inline [user:*] entries do NOT substitute for it): 1 unrecognised key(s) in the users database '/var/tmp/qeli-q37-current-26fe1593243e47a9a687b99d0be47f4f/diagnostic-inputs/users-10.conf' \u2014 nothing reads these, so the setting each was meant to impose is absent (and a missing limit means NO limit):\n  [user:alice] max_session\n",
+        "seconds": 0.0030616120202466846,
+        "expected_exit": 1,
+        "diagnostic": "unrecognised",
+        "pass_": true
+      }
+    ]
+  },
+  "full_cli_qualification_scope": "Stock release CLI build plus eleven check-config refusals; not complete release integration or platform qualification.",
+  "packet_seal_sha256": "7bce20703007c95d8563608d40e2b5e15101fb9edffd47c1f7cae06ccd279ceb",
+  "archive": {
+    "bytes": 653036246,
+    "sha256": "96becb52e76a3ebb3baa9e961d81fe832406d6e8b9a94c992a4ddd5e70869c0e",
+    "verified_files": 17930
+  },
+  "cleanup": {
+    "status": "OWNED_INACTIVE_COMPILER_ROOT_ARCHIVED_AND_REMOVED",
+    "removed": {
+      "root_absent": true,
+      "archive_absent": true
+    },
+    "host_gate": "FAIL",
+    "changed_fields": [
+      "legacy4"
+    ],
+    "temporary_swap_removed": true
+  },
+  "collection_host_gate": "PASS",
+  "collection_changed_fields": []
+}

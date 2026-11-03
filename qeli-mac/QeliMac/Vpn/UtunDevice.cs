@@ -47,6 +47,12 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.IFdTunDevice
     private const ulong CTLIOCGINFO = 0xC0644E03;
     private const string UtunControlName = "com.apple.net.utun_control";
 
+    private readonly object _gate = new();
+    private readonly Func<(int fd, string name)> _create;
+    private readonly Action<int> _close;
+    public UtunDevice() : this(CreateNative, fd => { _ = close(fd); }) { }
+    internal UtunDevice(Func<(int fd, string name)> create, Action<int> closeDescriptor)
+    { _create = create; _close = closeDescriptor; }
     private int _fd = -1;
 
     // Set before close() so descriptor access fails closed during reconnect teardown.
@@ -57,23 +63,47 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.IFdTunDevice
     public string Name { get; private set; } = "";
 
     /// <summary>Borrowed for one generation-scoped duplication by the Rust core.</summary>
-    public int FileDescriptor => !_disposed && _fd >= 0
-        ? _fd
-        : throw new ObjectDisposedException(nameof(UtunDevice));
+    public int FileDescriptor
+    {
+        get { lock (_gate) return !_disposed && _fd >= 0 ? _fd : throw new ObjectDisposedException(nameof(UtunDevice)); }
+    }
 
-    /// <summary>Create a fresh utun interface and connect to it. Requires root.</summary>
     public void Open()
     {
-        // One Open per instance: a second call would overwrite `_fd` and leak the first
-        // utun fd. Callers create a fresh UtunDevice per connection (VpnTunnel.SetupTun),
-        // so make that invariant explicit and fail loud instead of leaking silently.
-        if (_disposed) throw new ObjectDisposedException(nameof(UtunDevice));
-        if (_fd >= 0) throw new InvalidOperationException("utun: device is already open");
+        lock (_gate)
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(UtunDevice));
+            if (_fd >= 0) throw new InvalidOperationException("utun: device is already open");
+            var created = _create();
+            try
+            {
+                if (created.fd < 0 || !ValidName(created.name)) throw new IOException("utun: invalid kernel descriptor/interface name");
+                Name = created.name; _fd = created.fd;
+            }
+            catch { if (created.fd >= 0) _close(created.fd); throw; }
+        }
+    }
+    internal static bool ValidName(string name) => name.StartsWith("utun", StringComparison.Ordinal)
+        && name.Length > 4 && name.AsSpan(4).ToArray().All(char.IsAsciiDigit)
+        && int.TryParse(name.AsSpan(4), out int index) && index >= 0;
+
+    // fcntl is variadic too; Darwin ARM64 requires the third value on the stack.
+    [DllImport("libc", EntryPoint = "fcntl", SetLastError = true)]
+    private static extern int fcntl_arm64(int fd, int command, long d2, long d3, long d4, long d5, long d6, long d7, int flags);
+    [DllImport("libc", EntryPoint = "fcntl", SetLastError = true)]
+    private static extern int fcntl_x64(int fd, int command, int flags);
+
+    private static (int fd, string name) CreateNative()
+    {
         int fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
         if (fd < 0) throw new IOException($"utun: socket(PF_SYSTEM) failed (errno {Marshal.GetLastWin32Error()}) — are you root?");
 
         try
         {
+            const int F_SETFD = 2, FD_CLOEXEC = 1;
+            int flagResult = RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+                ? fcntl_arm64(fd, F_SETFD, 0, 0, 0, 0, 0, 0, FD_CLOEXEC) : fcntl_x64(fd, F_SETFD, FD_CLOEXEC);
+            if (flagResult != 0) throw new IOException($"utun: close-on-exec failed (errno {Marshal.GetLastPInvokeError()})");
             // Resolve the utun control id by name.
             var info = new byte[100]; // u_int32 ctl_id + char[96] ctl_name
             var nameBytes = Encoding.ASCII.GetBytes(UtunControlName);
@@ -104,9 +134,11 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.IFdTunDevice
             int len = ifname.Length;
             if (getsockopt(fd, SYSPROTO_CONTROL, UTUN_OPT_IFNAME, ifname, ref len) < 0)
                 throw new IOException($"utun: getsockopt(IFNAME) failed (errno {Marshal.GetLastWin32Error()})");
-            Name = Encoding.ASCII.GetString(ifname, 0, Math.Max(0, len - 1)).TrimEnd('\0');
-
-            _fd = fd;
+            if (len <= 1 || len > ifname.Length || ifname[len - 1] != 0)
+                throw new IOException("utun: invalid IFNAME response length/terminator");
+            string name = Encoding.ASCII.GetString(ifname, 0, len - 1);
+            if (!ValidName(name)) throw new IOException("utun: invalid IFNAME response");
+            return (fd, name);
         }
         catch
         {
@@ -117,7 +149,12 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.IFdTunDevice
 
     public void Dispose()
     {
-        _disposed = true; // stop the reader loop from issuing new syscalls on this fd
-        if (_fd >= 0) { close(_fd); _fd = -1; }
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            int fd = _fd; _fd = -1;
+            if (fd >= 0) _close(fd);
+        }
     }
 }

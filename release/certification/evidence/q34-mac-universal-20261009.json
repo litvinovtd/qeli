@@ -1,0 +1,356 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "PASS_Q34_MAC_UNIVERSAL_ASSEMBLY_SCOPED",
+  "source_digest": "55414dffeedc7eddeefe4090ae51b02e71cb93e54ec3366ddb8c7f989f212a4d",
+  "qualification_source_commit": "50bd2114ccec8dae30b2113953a92a5128220282",
+  "product_source_commit": "50bd2114ccec8dae30b2113953a92a5128220282",
+  "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+  "findings_closed": [
+    "F497/Q34-F051",
+    "F498/Q34-F052"
+  ],
+  "verification": {
+    "baseline": {
+      "command": [
+        "C:\\Python314\\python.exe",
+        "-X",
+        "utf8",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_macos_universal.AssemblyTests"
+      ],
+      "methods": 9,
+      "expected_failures": 7,
+      "returncode": 1,
+      "scope": "Old exact REMOTE_PY; only fixed root/LIPO assignments adapted to owned temp; real files, controlled subprocess/lipo; no signing/build/SSH"
+    },
+    "windows": {
+      "status": "PASS",
+      "methods": 58,
+      "checks": [
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_macos_universal.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 9,
+          "output": "[assemble] lipo=0 copy=3; all Mach-O arm64+x86_64\r\n[assemble] lipo=1 copy=2; all Mach-O arm64+x86_64\r\ntest_already_universal_apphost_is_copied (test_macos_universal.AssemblyTests.test_already_universal_apphost_is_copied) ... ok\r\ntest_fat_file_without_x64_slice_is_refused (test_macos_universal.AssemblyTests.test_fat_file_without_x64_slice_is_refused) ... ok\r\ntest_lipo_failure_is_not_replaced_with_arm64 (test_macos_universal.AssemblyTests.test_lipo_failure_is_not_replaced_with_arm64) ... ok\r\ntest_merges_paired_thin_binary_and_preserves_fat_core (test_macos_universal.AssemblyTests.test_merges_paired_thin_binary_and_preserves_fat_core) ... ok\r\ntest_missing_required_native_core_is_refused (test_macos_universal.AssemblyTests.test_missing_required_native_core_is_refused) ... ok\r\ntest_missing_x64_partner_refuses_before_output_replacement (test_macos_universal.AssemblyTests.test_missing_x64_partner_refuses_before_output_replacement) ... ok\r\ntest_native_core_must_already_be_universal (test_macos_universal.AssemblyTests.test_native_core_must_already_be_universal) ... ok\r\ntest_successful_lipo_with_thin_output_is_refused (test_macos_universal.AssemblyTests.test_successful_lipo_with_thin_output_is_refused) ... ok\r\ntest_x64_only_macho_is_not_silently_omitted (test_macos_universal.AssemblyTests.test_x64_only_macho_is_not_silently_omitted) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 9 tests in 0.069s\r\n\r\nOK\r\n"
+        },
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_native_recipes.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 38,
+          "output": "=== pass a: Windows x86_64-pc-windows-gnu ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[win/a] rc=0 in 0s\r\n=== pass a: macOS universal2-apple-darwin ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[mac/a] rc=0 in 0s\r\n=== pass a: Android arm64-v8a + x86_64 ===\r\nCodeSignatureFlags(ADHOC)\r\nCodeSignatureFlags(ADHOC)\r\n[android/a] rc=0\r\ntest_active_release_scenarios_are_checkout_and_tool_path_neutral (test_native_recipes.NativeRecipeTests.test_active_release_scenarios_are_checkout_and_tool_path_neutral) ... ok\r\ntest_android_e2e_uses_current_abi_strict_ssh_and_exact_restore (test_native_recipes.NativeRecipeTests.test_android_e2e_uses_current_abi_strict_ssh_and_exact_restore) ... ok\r\ntest_apk_rebuild_uses_strict_shared_lab_connection (test_native_recipes.NativeRecipeTests.test_apk_rebuild_uses_strict_shared_lab_connection) ... ok\r\ntest_authoritative_session_teardown_joins_admission_transaction (test_native_recipes.NativeRecipeTests.test_authoritative_session_teardown_joins_admission_transaction) ... ok\r\ntest_client_subnet_admission_is_non_destructive_and_fail_closed (test_native_recipes.NativeRecipeTests.test_client_subnet_admission_is_non_destructive_and_fail_closed) ... ok\r\ntest_config_matrix_uses_strict_server_client_and_users_validation (test_native_recipes.NativeRecipeTests.test_config_matrix_uses_strict_server_client_and_users_validation) ... ok\r\ntest_desktop_ipv6_merge_keeps_persist_tun_plan_guard (test_native_recipes.NativeRecipeTests.test_desktop_ipv6_merge_keeps_persist_tun_plan_guard) ... ok\r\ntest_failed_tcp_and_udp_admission_release_restored_device_lease (test_native_recipes.NativeRecipeTests.test_failed_tcp_and_udp_admission_release_restored_device_lease) ... ok\r\ntest_fuzz_harnesses_use_the_renamed_library_crate (test_native_recipes.NativeRecipeTests.test_fuzz_harnesses_use_the_renamed_library_crate) ... ok\r\ntest_gui_connection_logs_include_sanitized_username (test_native_recipes.NativeRecipeTests.test_gui_connection_logs_include_sanitized_username) ... ok\r\ntest_independent_artifacts_still_have_distinct_storage (test_native_recipes.NativeRecipeTests.test_independent_artifacts_still_have_distinct_storage) ... ok\r\ntest_installer_e2e_fails_closed_on_any_red_case (test_native_recipes.NativeRecipeTests.test_installer_e2e_fails_closed_on_any_red_case) ... ok\r\ntest_installer_formats_ipv6_authorities_and_public_panel_bind (test_native_recipes.NativeRecipeTests.test_installer_formats_ipv6_authorities_and_public_panel_bind) ... ok\r\ntest_installer_selects_and_verifies_the_host_deb_architecture (test_native_recipes.NativeRecipeTests.test_installer_selects_and_verifies_the_host_deb_architecture) ... ok\r\ntest_installer_strictly_validates_the_final_mutated_config_before_restart (test_native_recipes.NativeRecipeTests.test_installer_strictly_validates_the_final_mutated_config_before_restart) ... ok\r\ntest_ios_retained_wire_primitives_are_test_only (test_native_recipes.NativeRecipeTests.test_ios_retained_wire_primitives_are_test_only) ... ok\r\ntest_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop (test_native_recipes.NativeRecipeTests.test_keenetic_attach_recipe_transfers_both_families_and_mtu_without_loop) ... ok\r\ntest_keenetic_recipes_resolve_the_current_checkout (test_native_recipes.NativeRecipeTests.test_keenetic_recipes_resolve_the_current_checkout) ... ok\r\ntest_lab_gate_syncs_integration_tests_and_their_release_fixture (test_native_recipes.NativeRecipeTests.test_lab_gate_syncs_integration_tests_and_their_release_fixture) ... ok\r\ntest_linux_matrix_uses_the_configured_management_route_end_to_end (test_native_recipes.NativeRecipeTests.test_linux_matrix_uses_the_configured_management_route_end_to_end) ... ok\r\ntest_macos_install_name_does_not_contain_build_pass_path (test_native_recipes.NativeRecipeTests.test_macos_install_name_does_not_contain_build_pass_path) ... ok\r\ntest_macos_packaging_batches_signing_and_accepts_adhoc_runtime_flag (test_native_recipes.NativeRecipeTests.test_macos_packaging_batches_signing_and_accepts_adhoc_runtime_flag) ... ok\r\ntest_macos_packaging_uses_checked_shared_lab_connection (test_native_recipes.NativeRecipeTests.test_macos_packaging_uses_checked_shared_lab_connection) ... ok\r\ntest_mobile_connection_properties_use_the_live_generation_snapshot (test_native_recipes.NativeRecipeTests.test_mobile_connection_properties_use_the_live_generation_snapshot) ... ok\r\ntest_mobile_update_requests_cannot_migrate_to_the_physical_network (test_native_recipes.NativeRecipeTests.test_mobile_update_requests_cannot_migrate_to_the_physical_network) ... ok\r\ntest_native_builds_use_private_sources_and_one_job (test_native_recipes.NativeRecipeTests.test_native_builds_use_private_sources_and_one_job) ... ok\r\ntest_native_client_recipes_do_not_enable_the_server_stack (test_native_recipes.NativeRecipeTests.test_native_client_recipes_do_not_enable_the_server_stack) ... ok\r\ntest_native_library_target_avoids_qeli_executable_pdb_collision (test_native_recipes.NativeRecipeTests.test_native_library_target_avoids_qeli_executable_pdb_collision) ... ok\r\ntest_native_recipes_require_the_abi_1_12_roaming_exports (test_native_recipes.NativeRecipeTests.test_native_recipes_require_the_abi_1_12_roaming_exports) ... ok\r\ntest_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys (test_native_recipes.NativeRecipeTests.test_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys) ... ok\r\ntest_rcodesign_textual_error_is_not_accepted_with_zero_exit (test_native_recipes.NativeRecipeTests.test_rcodesign_textual_error_is_not_accepted_with_zero_exit) ... ok\r\ntest_release_checksum_is_lf_only_and_installer_handles_crlf_defensively (test_native_recipes.NativeRecipeTests.test_release_checksum_is_lf_only_and_installer_handles_crlf_defensively) ... ok\r\ntest_release_server_requires_jemalloc_but_client_builds_stay_isolated (test_native_recipes.NativeRecipeTests.test_release_server_requires_jemalloc_but_client_builds_stay_isolated) ... ok\r\ntest_release_stripping_is_cross_target_safe (test_native_recipes.NativeRecipeTests.test_release_stripping_is_cross_target_safe) ... ok\r\ntest_retired_root_ssh_scenarios_exit_before_network_or_mutation (test_native_recipes.NativeRecipeTests.test_retired_root_ssh_scenarios_exit_before_network_or_mutation) ... ok\r\ntest_router_recipes_skip_unused_ffi_crate_types_and_fail_closed (test_native_recipes.NativeRecipeTests.test_router_recipes_skip_unused_ffi_crate_types_and_fail_closed) ... ok\r\ntest_tracked_python_scenarios_never_silently_trust_a_new_ssh_host (test_native_recipes.NativeRecipeTests.test_tracked_python_scenarios_never_silently_trust_a_new_ssh_host) ... ok\r\ntest_udp_idle_reaper_joins_admission_before_releasing_device_lease (test_native_recipes.NativeRecipeTests.test_udp_idle_reaper_joins_admission_before_releasing_device_lease) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 38 tests in 0.178s\r\n\r\nOK\r\n"
+        },
+        {
+          "command": [
+            "C:/Python314/python.exe",
+            "-X",
+            "utf8",
+            "-B",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts",
+            "-p",
+            "test_check_workflows.py",
+            "-v"
+          ],
+          "returncode": 0,
+          "methods": 11,
+          "output": "test_corrupt_archive_is_rejected_before_parsing (test_check_workflows.WorkflowGateTests.test_corrupt_archive_is_rejected_before_parsing) ... ok\r\ntest_failed_atomic_install_removes_temporary_file (test_check_workflows.WorkflowGateTests.test_failed_atomic_install_removes_temporary_file) ... ok\r\ntest_missing_or_empty_inventory_refuses_before_network (test_check_workflows.WorkflowGateTests.test_missing_or_empty_inventory_refuses_before_network) ... ok\r\ntest_network_failure_is_failure (test_check_workflows.WorkflowGateTests.test_network_failure_is_failure) ... ok\r\ntest_new_yaml_and_yml_are_included (test_check_workflows.WorkflowGateTests.test_new_yaml_and_yml_are_included) ... ok\r\ntest_nonzero_lint_and_timeout_are_failures (test_check_workflows.WorkflowGateTests.test_nonzero_lint_and_timeout_are_failures) ... ok\r\ntest_unknown_cached_binary_is_not_overwritten_or_executed (test_check_workflows.WorkflowGateTests.test_unknown_cached_binary_is_not_overwritten_or_executed) ... ok\r\ntest_unsupported_platform_is_rejected (test_check_workflows.WorkflowGateTests.test_unsupported_platform_is_rejected) ... ok\r\ntest_valid_archive_installs_and_reuses_without_network (test_check_workflows.WorkflowGateTests.test_valid_archive_installs_and_reuses_without_network) ... ok\r\ntest_workflow_directory_named_yaml_is_rejected (test_check_workflows.WorkflowGateTests.test_workflow_directory_named_yaml_is_rejected) ... ok\r\ntest_wrong_extracted_binary_is_rejected (test_check_workflows.WorkflowGateTests.test_wrong_extracted_binary_is_rejected) ... ok\r\n\r\n----------------------------------------------------------------------\r\nRan 11 tests in 0.080s\r\n\r\nOK\r\n"
+        }
+      ],
+      "actionlint": {
+        "command": [
+          "C:/Python314/python.exe",
+          "-X",
+          "utf8",
+          "-B",
+          "scripts/check_workflows.py",
+          "--actionlint",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-fuzz-context-20261009\\actionlint.exe"
+        ],
+        "returncode": 0,
+        "output": "actionlint 1.7.12: 4 workflows PASS (Actions semantics only)\r\n"
+      },
+      "initial_failure": "Tracked-file policy read a staged deletion before commit; retained initial log, committed file inventory now excludes retired helper",
+      "scope": "Real filesystem, controlled lipo; no full payload/signature/Mac runtime"
+    },
+    "linux": {
+      "status": "PASS_FINAL11_LINUX_METHODS",
+      "tests": 11,
+      "producer_commit": "79c27424865733af8152d46dc5515adbdde43cf5",
+      "source_archive_sha256": "9ba8cbcfdb55167830309cf1fd142ad0c9b6695fec47eaadb5dc6240799f5806",
+      "qualified_files_sha256": {
+        "scripts/test_macos_universal.py": "db44dba03fa50d24137474f2d81c716a3290ef5e125ff271a56759cf2c0d3670",
+        "scripts/build_mac_universal.py": "e294601c91c510aed3fd8a8fcf69d1c13341d5bdfb75d822a10b87f517f7d3fa"
+      },
+      "harness_files_sha256": {
+        "scripts/check_macos_universal_lipo.py": "2e8dfe6880f658c648e053d6375167ddbf7fed5e6a64439e7049199ce4639f7a"
+      },
+      "llvm_tool": "llvm-lipo\nDebian LLVM version 19.1.7\n  Optimized build.",
+      "cleanup": {
+        "status": "PASS_KNOWN_FILES_SHA_CLEANUP",
+        "root": "/var/tmp/qeli-mac-universal.QccXYWMF",
+        "files": 4,
+        "process_fd_references": [],
+        "mount_guard": "PASS"
+      },
+      "original_service_unchanged": true,
+      "commands": [
+        {
+          "command": "systemctl is-active qeli; systemctl show qeli -p MainPID; sha256sum /usr/bin/qeli; pgrep -x qeli | sort -n",
+          "returncode": 0,
+          "log": "linux-before.log"
+        },
+        {
+          "command": "mktemp -d /var/tmp/qeli-mac-universal.XXXXXXXX",
+          "returncode": 0,
+          "log": "linux-root.log"
+        },
+        {
+          "command": "sha256sum /var/tmp/qeli-mac-universal.QccXYWMF/source.tar",
+          "returncode": 0,
+          "log": "linux-upload-sha.log"
+        },
+        {
+          "command": "tar -xf /var/tmp/qeli-mac-universal.QccXYWMF/source.tar -C /var/tmp/qeli-mac-universal.QccXYWMF",
+          "returncode": 0,
+          "log": "linux-extract.log"
+        },
+        {
+          "command": "/usr/bin/llvm-lipo-19 --version",
+          "returncode": 0,
+          "log": "linux-lipo-version.log"
+        },
+        {
+          "command": "cd /var/tmp/qeli-mac-universal.QccXYWMF/scripts && QELI_TEST_LIPO=/usr/bin/llvm-lipo-19 python3 -B -m unittest -v test_macos_universal.AssemblyTests check_macos_universal_lipo.LipoIntegrationTests",
+          "returncode": 0,
+          "log": "linux-11-tests.log"
+        },
+        {
+          "command": "python3 -B -c 'from pathlib import Path\nimport os,re,json,hashlib\nroot=Path('\"'\"'/var/tmp/qeli-mac-universal.QccXYWMF'\"'\"');files={'\"'\"'scripts/test_macos_universal.py'\"'\"': '\"'\"'db44dba03fa50d24137474f2d81c716a3290ef5e125ff271a56759cf2c0d3670'\"'\"', '\"'\"'scripts/build_mac_universal.py'\"'\"': '\"'\"'e294601c91c510aed3fd8a8fcf69d1c13341d5bdfb75d822a10b87f517f7d3fa'\"'\"', '\"'\"'scripts/check_macos_universal_lipo.py'\"'\"': '\"'\"'2e8dfe6880f658c648e053d6375167ddbf7fed5e6a64439e7049199ce4639f7a'\"'\"', '\"'\"'source.tar'\"'\"': '\"'\"'9ba8cbcfdb55167830309cf1fd142ad0c9b6695fec47eaadb5dc6240799f5806'\"'\"'}\nassert root.resolve()==root and root.parent==Path('\"'\"'/var/tmp'\"'\"') and re.fullmatch(r'\"'\"'qeli-mac-universal\\.[A-Za-z0-9]{8}'\"'\"',root.name)\nentries=list(root.rglob('\"'\"'*'\"'\"'))\nassert {f.relative_to(root).as_posix() for f in entries}==set(files)|{'\"'\"'scripts'\"'\"'}\nassert not any(f.is_symlink() for f in entries)\nfor name,sha in files.items():\n f=root/name;assert f.is_file()\n with f.open('\"'\"'rb'\"'\"') as incoming:assert hashlib.file_digest(incoming,'\"'\"'sha256'\"'\"').hexdigest()==sha\nusers=[]\nfor proc in Path('\"'\"'/proc'\"'\"').iterdir():\n if not proc.name.isdigit() or int(proc.name)==os.getpid():continue\n try:entries=[proc/name for name in ['\"'\"'cwd'\"'\"','\"'\"'exe'\"'\"','\"'\"'root'\"'\"']]+list((proc/'\"'\"'fd'\"'\"').iterdir())\n except OSError:continue\n for f in entries:\n  try:link=os.readlink(f).removesuffix('\"'\"' (deleted)'\"'\"')\n  except OSError:continue\n  if link==str(root) or link.startswith(str(root)+'\"'\"'/'\"'\"'):users.append([proc.name,f.name,link])\nassert not users,users\nfor line in Path('\"'\"'/proc/self/mountinfo'\"'\"').read_text().splitlines():\n point=re.sub(r'\"'\"'\\\\([0-7]{3})'\"'\"',lambda m:chr(int(m[1],8)),line.split()[4]);assert point!=str(root) and not point.startswith(str(root)+'\"'\"'/'\"'\"'),point\nfor name in files:(root/name).unlink()\nfor name in ['\"'\"'scripts'\"'\"']:(root/name).rmdir()\nroot.rmdir()\nprint(json.dumps(dict(status='\"'\"'PASS_KNOWN_FILES_SHA_CLEANUP'\"'\"',root=str(root),files=len(files),process_fd_references=users,mount_guard='\"'\"'PASS'\"'\"')))\n'",
+          "returncode": 0,
+          "log": "linux-cleanup.log"
+        },
+        {
+          "command": "systemctl is-active qeli; systemctl show qeli -p MainPID; sha256sum /usr/bin/qeli; pgrep -x qeli | sort -n",
+          "returncode": 0,
+          "log": "linux-after.log"
+        }
+      ],
+      "scope": "Actual production assembly function and filesystem,9controlled-lipo tests plus2actualLLVM tests with synthetic Mach-O headers; no full payload/signature/Mac runtime;.10unused"
+    },
+    "local": {
+      "status": "PASS",
+      "product_paths": [
+        ".github/workflows/ci.yml",
+        "docs/eng/plans/AUDIT-DEBT.md",
+        "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/eng/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "docs/ru/plans/AUDIT-DEBT.md",
+        "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+        "docs/ru/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+        "qeli-mac/README.md",
+        "scripts/build_mac_dist_resign.py",
+        "scripts/build_mac_universal.py",
+        "scripts/test_macos_universal.py"
+      ],
+      "removed_paths": [
+        "scripts/build_mac_dist_resign.py"
+      ],
+      "qualified_paths": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "96f45a73aca4fd1140b9b3874a538739feccd64a4b0a6ad07bbfcf1b32875b11",
+          "normalization": "LF"
+        },
+        {
+          "path": "qeli-mac/README.md",
+          "sha256": "f4c16b797322df309cd6dd52ddcd7c416530a7034df718fce2fa3ed8eac784e3",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/build_mac_universal.py",
+          "sha256": "e294601c91c510aed3fd8a8fcf69d1c13341d5bdfb75d822a10b87f517f7d3fa",
+          "normalization": "LF"
+        },
+        {
+          "path": "scripts/test_macos_universal.py",
+          "sha256": "db44dba03fa50d24137474f2d81c716a3290ef5e125ff271a56759cf2c0d3670",
+          "normalization": "LF"
+        }
+      ],
+      "checks": [
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        }
+      ],
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    },
+    "unchanged_inputs": {
+      "status": "PASS",
+      "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+      "native_artifacts": 14,
+      "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "protected_hashes": {
+        "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+        "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+      },
+      "app_css": "unchanged",
+      "existing_openwrt_source_gate": "PASS unchanged cut; no rebuild",
+      "scope": "Current hashes/gates checked; previous execution qualification inherited, not rerun"
+    },
+    "legacy_resign": {
+      "status": "REPRODUCED_IGNORED_SIGNER_STATUS",
+      "cases": [
+        {
+          "source_expression": "f\"cd {RDIR} && {RCS} sign \\\"{m}\\\" 2>&1 | tail -1\"",
+          "command": "cd /tmp/qeli-old-resign-b9ylrcgs && false sign \"controlled.bin\" 2>&1 | tail -1",
+          "returncode": 0,
+          "stdout": "",
+          "signer": "false returns1; pipeline tail reports0",
+          "interpretation": "Old per-file empty output counted as success; bundle command also unchecked"
+        },
+        {
+          "source_expression": "f\"cd {RDIR} && {RCS} sign Qeli.app 2>&1 | tail -2\"",
+          "command": "cd /tmp/qeli-old-resign-b9ylrcgs && false sign Qeli.app 2>&1 | tail -2",
+          "returncode": 0,
+          "stdout": "",
+          "signer": "false returns1; pipeline tail reports0",
+          "interpretation": "Old per-file empty output counted as success; bundle command also unchecked"
+        }
+      ],
+      "scope": "Exact old f-string sign command expressions only; controlled false instead of signer, actual Bash/tail, no old module import/SSH or signature operation",
+      "callers": "No current nonarchive production caller found; historical archive mentions retained",
+      "action": "Remove retired unsafe duplicate; current universal packager retains checked signing and verified artifact download"
+    },
+    "retained_harness_failure": {
+      "status": "HARNESS_ERROR_REPAIRED",
+      "error": "tarfile append at EOF: empty header",
+      "stage": "local source archive construction before any SSH connection/allocation/upload",
+      "fix": "seek(0) before opening BytesIO TAR in append mode",
+      "scope": "No product/runtime failure; no lab mutation occurred"
+    }
+  },
+  "raw_packet": {
+    "name": "q34-mac-universal-20261009",
+    "files": 43,
+    "bytes": 1267910,
+    "manifest_sha256": "b9629520955cf7076a8d2d1c9db288a8b397af85a93132fe654e83844588ef5f",
+    "runtime_status": "PASS_Q34_MAC_UNIVERSAL_ASSEMBLY_SCOPED",
+    "path": "audit-debt-20260924/q34-mac-universal-20261009",
+    "status": "SEALED"
+  },
+  "scope": "Q34F497/Q34-F051 universal assembly fail-open closed andF498/Q34-F052 obsolete unchecked resignhelper retired. Old exactREMOTE_PY withonlyfixedworkspace/tool assignments adapted toownedfixtures:9methods7expectedfailures2positive. Fullinput MachOgraph beforebundlereplacement, requiredapphost/canonicaluniversalnative, thinarm64 requires thinx86_64partner, x64only/symlink/malformed/wrongarches refuse; noarm64copy onlipofailure/timeout; eachoutput requires exactarm64+x86_64. Laterassemblyfailure canleavepartialbundle; atomic/concurrency notclaimed. Removedbuild_mac_dist_resign withnocurrentnonarchiveproductioncaller:SSHimport/fixedworkspace/ignoredexit/SHAunverifieddownload. Both exactoldsignfstrings withcontrolledfalse/realBash+tail returned0; oldmodule/labexecution notrun. Currentcheckeduniversal signer/download remains,README migration updated,historicalarchive mentionsretained.58Windows9assembly38native11workflow and11Linux9controlled+2genuineLLVM19 methodsPASS; actualminimalMachOheaders merge+archadmission andwrongpartneroldbundlepreservation. No full.NETpayload,signature/Mac/Intelruntime. AssemblyCIadded,actionlintall4PASS. Linux2Gitinputs+harness+TAR SHAqualified,4knownfiles guardedcleaned; .11service777/845CLI75bc unchanged,.10unused. Nativee3fb14SHA/qelitree/protected/OpenWrtcut unchanged; priorqualification inheritedwithoutrebuild.724Markdown9checksPASS. Stageddeletioninventory/TARappend harness failures retained; immutablepacket postsealpathspec128 andENOSPC docscommit refusals recordedseparately; recoveredonly1716oldownsource/runtimecopies971172970bytes afterallSHA/exactset+SEALEDrecoveryZIP3250e5/path/reparse/processguards,ZIP/SEALED/sharedcaches retained, corrected signedlocaldocscommit.41cases98priorsupplements preservedmodulosourcedigestbookkeeping;append99. Q34IN_PROGRESS30/37DONE81.1percent7remain,otheropen/accepted/USER_EXCLUDED retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE",
+  "post_seal_note": {
+    "path": "audit-debt-20260924/q34-mac-universal-post-seal-note.json",
+    "sha256": "33b984d7eb151435a557fd2274689a7c694da7923e45f1bb5d9f38417f611580",
+    "details": {
+      "status": "PASS_RESUMED_DOCS_COMMIT_AFTER_HARNESS_PATHSPEC_REFUSAL",
+      "error": "Seal helper staged an already-committed removed path and got pathspec128; corrected docs-only staging then refused index write due to diskfree0",
+      "stage": "after immutable packet seal and report anchors, before docs commit; product fix/tests/source qualification unaffected",
+      "fix": "Stage only exact6dirty docs; retain immutable packet; free only archive-matched own scratch source/runtime copies, then diff/docs checks and signed local commit",
+      "local_recovery_cleanup": {
+        "status": "PASS_EXACT_ARCHIVE_MATCHED_RECOVERY_CLEANUP",
+        "targets": [
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-scratch-20261008\\q34-sdk-locks\\source",
+          "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-scratch-20261008\\q34-sdk-locks\\runtime-inventory"
+        ],
+        "files": 1716,
+        "bytes": 971172970,
+        "archive_sha256": "3250e5022c900140f1516d649c474f3eca82c8d4126b4eb821efed840167733b",
+        "retained_archive": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q34-sdk-locks-20261008\\windows-recoverable.zip",
+        "checks": "SEALED manifest SHA and recovery ZIP SHA; every file SHA and exact file sets; resolved absolute containment; no reparse or process references",
+        "scope": "Only old owned source/runtime-inventory copies; SEALED archive/packet/shared caches retained"
+      },
+      "sealed_manifest_sha256": "b9629520955cf7076a8d2d1c9db288a8b397af85a93132fe654e83844588ef5f",
+      "all_sealed_payload_sha256": "PASS unchanged",
+      "docs_commit": "50bd2114ccec8dae30b2113953a92a5128220282",
+      "checks": [
+        {
+          "command": [
+            "git",
+            "add",
+            "--",
+            "docs/eng/plans/AUDIT-DEBT.md",
+            "docs/eng/plans/FULL-SYSTEM-AUDIT.md",
+            "docs/eng/reports/AUDIT-Q34-PUBLICATION-GATES.md",
+            "docs/ru/plans/AUDIT-DEBT.md",
+            "docs/ru/plans/FULL-SYSTEM-AUDIT.md",
+            "docs/ru/reports/AUDIT-Q34-PUBLICATION-GATES.md"
+          ],
+          "returncode": 0,
+          "output": ""
+        },
+        {
+          "command": [
+            "git",
+            "diff",
+            "--cached",
+            "--check"
+          ],
+          "returncode": 0,
+          "output": ""
+        },
+        {
+          "command": [
+            "C:\\Python314\\python.exe",
+            "-B",
+            "scripts/check_docs.py"
+          ],
+          "returncode": 0,
+          "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+        }
+      ],
+      "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+id	version	content_hash
+microsoft.netcore.app.runtime.osx-arm64	10.0.12	5s6w7DIq8/3bAQkgst/wiBfrYOPKu3Pn9yxH5OXof/QY7KCQD+6KjPiFYWxltRy/uqQv+l7uPVRVvVp83pDfCQ==
+microsoft.netcore.app.runtime.osx-x64	10.0.12	80gxc+0jeVj/vT1LZuhSZDQdNt3Tou0VCwpdc2KcRHxiptuYn3L3yyBmOOzOmAR3UOaI0AeQQlO0HSSiJCxeCw==
+microsoft.netcore.app.runtime.win-x64	10.0.12	H3eh1w8Yevp6yO2+R3zbOPfwJ1vs2c/5PKa1ez7igGCF8EIycnzZr8gTjeVBAKjCPbyGuOdMSazLUnNqMsfTkw==
+microsoft.windowsdesktop.app.runtime.win-x64	10.0.12	VsVtDEmt6l3gyhSs1G6B2u5BJoW2a7p9S4Kllui9YZv8jEwnlfpxpcZm9U3Wuc29zvw7iQ7bwddsc36KvGtwwg==

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS",
+  "source_digest": "68659eb29697ea7e9e2cb6961aca8f9ba7c1bfeddfaf5f0b28ced37b30e70db3",
+  "qualification_source_commit": "94c18ee5e030ac4e868eec043100b8ee5741f4c1",
+  "product_source_commit": "94c18ee5e030ac4e868eec043100b8ee5741f4c1",
+  "verification_id": "Q35-V006",
+  "findings_closed": [
+    "F512/Q35-F010 release soak false admission"
+  ],
+  "verification": {
+    "baseline_false_pass_seconds": 0.063602673006244,
+    "silent_children": 8,
+    "linux_contract_tests": 7,
+    "minimum_seconds": 28800,
+    "candidate_sha256": "792dd499097949384694f575c91fade0d605876cb7fe627ca59a2e273f47d2f5",
+    "cleanup": {
+      "status": "PASS",
+      "root_absent": true
+    },
+    "host_preserved": true
+  },
+  "raw_packet": {
+    "name": "q35-release-soak-admission-20261010",
+    "files": 27,
+    "bytes": 1169207,
+    "manifest_sha256": "d41ebb971bc1eb0e59c35b77521ab9414727827504e1819173ab0345bf8658c6",
+    "runtime_status": "PASS",
+    "path": "audit-debt-20260924/q35-release-soak-admission-20261010",
+    "status": "SEALED"
+  },
+  "scope": "F512/Q35-F010 release-soak admission false PASS reproduced in0.064s with8silent children; gate now requires each child result, final TCP10k/UDP10k+3x1k checkpoints and monotonic >=28800s. Actual Bash syntax and7 Linux contract methods PASS including no-op, missing checkpoint and 8h-minus-1ns refusal; binary SHA checks/order retained. Private lab fixture SHA backed up then guarded cleanup, .11 service777/845 and CLI SHA preserved. No actual8h VPN run, new compiler build, full Q35, hosted CI or release claim. Q35 IN_PROGRESS,30/37 DONE; historical F459/D06/USER_EXCLUDED retained. LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

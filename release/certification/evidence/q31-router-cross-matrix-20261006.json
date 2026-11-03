@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "status": "SCOPED_Q31_F344_F346_ROUTER_CROSS_BUILD_PORTABILITY_CI_PASS_Q31_IN_PROGRESS",
+  "executed_at": "2026-10-06T19:17:04.508570+00:00",
+  "base_commit": "f7c8357a2d423e79385065117981b9f264ddf205",
+  "source_digest": "b4bc1db442082a7dbc3c87cfc170367b0e81fac0ba7d8a076915e35023fe41d3",
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-router-cross-matrix-20261006",
+  "raw_seal_sha256": "f794e552e021d726fe4c42472c36e4f2f23d120ea045957e8a1cb831bc469ceb",
+  "artifacts": [
+    {
+      "arch": "aarch64",
+      "target": "aarch64-unknown-linux-musl",
+      "command": "cd /var/tmp/qeli-router-openwrt-R8L058 && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' RUSTFLAGS='' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-R8L058/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target aarch64-unknown-linux-musl 2>&1",
+      "rc": 0,
+      "started_at": "2026-10-06T19:00:24.532104+00:00",
+      "elapsed_seconds": 122.61504,
+      "size": 4818040,
+      "sha256": "60641ddcdb447c347240e173a341923d3eadc34b9f72fb30954fc4ff00327351",
+      "readelf_rc": 0
+    },
+    {
+      "arch": "x86_64",
+      "target": "x86_64-unknown-linux-musl",
+      "command": "cd /var/tmp/qeli-router-openwrt-R8L058 && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' RUSTFLAGS='' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-R8L058/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target x86_64-unknown-linux-musl 2>&1",
+      "rc": 0,
+      "started_at": "2026-10-06T19:03:12.044893+00:00",
+      "elapsed_seconds": 122.859547,
+      "size": 5574984,
+      "sha256": "ec567377e46cd8a2ed629bccfb83318fba4e19bf26905df3f49ca77c254a5925",
+      "readelf_rc": 0
+    },
+    {
+      "arch": "mipsel",
+      "target": "mipsel-unknown-linux-musl",
+      "command": "cd /var/tmp/qeli-router-openwrt-R8L058 && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' RUSTFLAGS='-C link-arg=-msoft-float' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-R8L058/target CARGO_INCREMENTAL=0 cargo +nightly-2026-06-10 zigbuild -Z build-std=std,panic_abort --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target mipsel-unknown-linux-musl 2>&1",
+      "rc": 0,
+      "started_at": "2026-10-06T19:06:07.379359+00:00",
+      "elapsed_seconds": 142.454017,
+      "size": 6846056,
+      "sha256": "b365638cfc715086052b04ee6a3f5ad3e826077a858387bfc28d3f0d3c8faeaa",
+      "readelf_rc": 0
+    },
+    {
+      "arch": "armv7",
+      "target": "armv7-unknown-linux-musleabihf",
+      "command": "cd /var/tmp/qeli-router-openwrt-R8L058 && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' RUSTFLAGS='' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-R8L058/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target armv7-unknown-linux-musleabihf 2>&1",
+      "rc": 0,
+      "started_at": "2026-10-06T19:09:33.594327+00:00",
+      "elapsed_seconds": 112.513186,
+      "size": 4981980,
+      "sha256": "ba223fb91a931aad1c631ae71b111f568cdcb8830a69ece684854e03c591910f",
+      "readelf_rc": 0
+    }
+  ],
+  "baseline": [
+    {
+      "arch": "x86_64",
+      "target": "x86_64-unknown-linux-musl",
+      "command": "cd /var/tmp/qeli-router-openwrt-R8L058 && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' RUSTFLAGS='' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-R8L058/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target x86_64-unknown-linux-musl 2>&1",
+      "rc": 101,
+      "started_at": "2026-10-06T18:52:13.093857+00:00",
+      "elapsed_seconds": 73.911561
+    },
+    {
+      "arch": "aarch64",
+      "target": "aarch64-unknown-linux-musl",
+      "command": "cd /var/tmp/qeli-router-openwrt-R8L058 && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' RUSTFLAGS='' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-R8L058/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target aarch64-unknown-linux-musl 2>&1",
+      "rc": 101,
+      "started_at": "2026-10-06T18:53:27.007691+00:00",
+      "elapsed_seconds": 57.931022
+    },
+    {
+      "arch": "armv7",
+      "target": "armv7-unknown-linux-musleabihf",
+      "command": "cd /var/tmp/qeli-router-openwrt-R8L058 && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' RUSTFLAGS='' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-R8L058/target CARGO_INCREMENTAL=0 cargo +1.97.0 zigbuild --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target armv7-unknown-linux-musleabihf 2>&1",
+      "rc": 101,
+      "started_at": "2026-10-06T18:54:24.940207+00:00",
+      "elapsed_seconds": 57.312518
+    },
+    {
+      "arch": "mipsel",
+      "target": "mipsel-unknown-linux-musl",
+      "command": "cd /var/tmp/qeli-router-openwrt-R8L058 && env -u CARGO_ENCODED_RUSTFLAGS -u RUSTC -u CARGO_BUILD_RUSTC -u CARGO_BUILD_RUSTFLAGS RUSTC_WRAPPER='' RUSTC_WORKSPACE_WRAPPER='' RUSTFLAGS='-C link-arg=-msoft-float' CARGO_TARGET_DIR=/var/tmp/qeli-router-openwrt-R8L058/target CARGO_INCREMENTAL=0 cargo +nightly-2026-06-10 zigbuild -Z build-std=std,panic_abort --locked --jobs 1 --release --bin qeli-client --no-default-features --features client-bin --target mipsel-unknown-linux-musl 2>&1",
+      "rc": 101,
+      "started_at": "2026-10-06T18:55:53.384068+00:00",
+      "elapsed_seconds": 106.173563
+    }
+  ],
+  "checks": {
+    "host": [
+      {
+        "id": "gnu-build",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006 && CARGO_TARGET_DIR=/var/tmp/qeli-q31-router-cross-host-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 build --locked --offline --jobs 1 --bin qeli-client --no-default-features --features client-bin",
+        "rc": 0
+      },
+      {
+        "id": "gnu-sysctl-units",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006 && CARGO_TARGET_DIR=/var/tmp/qeli-q31-router-cross-host-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 test --locked --offline --jobs 1 --lib --no-default-features --features client-bin client::sysctl",
+        "rc": 101
+      },
+      {
+        "id": "gnu-sysctl-native",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006 && CARGO_TARGET_DIR=/var/tmp/qeli-q31-router-cross-host-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 test --locked --offline --jobs 1 --lib --no-default-features --features client-bin native_descriptor_refuses_recreated_interface_with_reused_index -- --ignored",
+        "rc": 101
+      },
+      {
+        "id": "gnu-clippy",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006 && CARGO_TARGET_DIR=/var/tmp/qeli-q31-router-cross-host-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 clippy --locked --offline --jobs 1 --bin qeli-client --no-default-features --features client-bin -- -D warnings",
+        "rc": 0
+      },
+      {
+        "id": "gnu-fmt",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006 && CARGO_TARGET_DIR=/var/tmp/qeli-q31-router-cross-host-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 fmt -- --check",
+        "rc": 0
+      }
+    ],
+    "host_qualified": [
+      {
+        "id": "gnu-sysctl-units",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006/qeli && CARGO_TARGET_DIR=/var/tmp/qeli-q31-router-cross-host-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 test --locked --offline --jobs 1 --lib --no-default-features --features client-bin client::sysctl",
+        "rc": 0,
+        "qualification": "NOT_RUN_ZERO_MATCHING_TESTS"
+      },
+      {
+        "id": "gnu-sysctl-native",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006/qeli && CARGO_TARGET_DIR=/var/tmp/qeli-q31-router-cross-host-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 test --locked --offline --jobs 1 --lib --no-default-features --features client-bin native_descriptor_refuses_recreated_interface_with_reused_index -- --ignored",
+        "rc": 0
+      },
+      {
+        "id": "gnu-roam-rpf-units",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006/qeli && CARGO_TARGET_DIR=/var/tmp/qeli-q31-router-cross-host-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 test --locked --offline --jobs 1 --lib --no-default-features --features client-bin roam_rpf",
+        "rc": 0,
+        "qualification": "NOT_RUN_ZERO_MATCHING_TESTS"
+      },
+      {
+        "id": "gnu-sysctl-final",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006/qeli && CARGO_TARGET_DIR=/var/tmp/qeli-q31-router-cross-host-20261006/target CARGO_INCREMENTAL=0 /root/.cargo/bin/cargo +1.97.0 test --locked --offline --jobs 1 --lib --no-default-features --features client-bin sysctl:: -- --test-threads=1",
+        "rc": 0
+      }
+    ],
+    "router_linux": [
+      {
+        "id": "router-linux",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006/router-tests && python3 -m unittest discover -s scripts -p 'test_router*.py' -v",
+        "rc": 0
+      },
+      {
+        "id": "ci-bash-syntax",
+        "command": "cd /var/tmp/qeli-q31-router-cross-host-20261006/router-tests && for file in ci-syntax/*.sh; do bash -n \"$file\" || exit; done; echo 16-rendered-CI-shell-steps-PASS",
+        "rc": 0
+      }
+    ],
+    "static_gateway": [
+      {
+        "id": "dash",
+        "command": "cd /var/tmp/qeli-router-openwrt-R8L058/fixtures && QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-router-openwrt-R8L058/target/x86_64-unknown-linux-musl/release/qeli-client QELI_ROUTER_TEST_SHELL=/bin/dash python3 -m unittest discover -s scripts -p 'test_keenetic_gateway_owner.py' -v",
+        "rc": 0
+      },
+      {
+        "id": "busybox",
+        "command": "cd /var/tmp/qeli-router-openwrt-R8L058/fixtures && QELI_GATEWAY_INSPECTOR=/var/tmp/qeli-router-openwrt-R8L058/target/x86_64-unknown-linux-musl/release/qeli-client QELI_ROUTER_TEST_SHELL='/usr/bin/busybox ash' python3 -m unittest discover -s scripts -p 'test_keenetic_gateway_owner.py' -v",
+        "rc": 0
+      }
+    ],
+    "ci_elf": [
+      {
+        "arch": "aarch64",
+        "case": "valid",
+        "rc": 0,
+        "expected_success": true
+      },
+      {
+        "arch": "aarch64",
+        "case": "truncated",
+        "rc": 1,
+        "expected_success": false
+      },
+      {
+        "arch": "x86_64",
+        "case": "valid",
+        "rc": 0,
+        "expected_success": true
+      },
+      {
+        "arch": "x86_64",
+        "case": "truncated",
+        "rc": 1,
+        "expected_success": false
+      },
+      {
+        "arch": "mipsel",
+        "case": "valid",
+        "rc": 0,
+        "expected_success": true
+      },
+      {
+        "arch": "mipsel",
+        "case": "truncated",
+        "rc": 1,
+        "expected_success": false
+      },
+      {
+        "arch": "armv7",
+        "case": "valid",
+        "rc": 0,
+        "expected_success": true
+      },
+      {
+        "arch": "armv7",
+        "case": "truncated",
+        "rc": 1,
+        "expected_success": false
+      }
+    ],
+    "local": [
+      {
+        "id": "recipes",
+        "command": [
+          "python",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_native_recipes.py",
+          "-v"
+        ],
+        "rc": 0
+      },
+      {
+        "id": "router-tests",
+        "command": [
+          "python",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts",
+          "-p",
+          "test_router*.py",
+          "-v"
+        ],
+        "rc": 0
+      },
+      {
+        "id": "bindings",
+        "command": [
+          "python",
+          "scripts/gen_config_bindings.py",
+          "--check"
+        ],
+        "rc": 0
+      },
+      {
+        "id": "docs",
+        "command": [
+          "python",
+          "scripts/check_docs.py"
+        ],
+        "rc": 0
+      },
+      {
+        "id": "diff",
+        "command": [
+          "git",
+          "diff",
+          "--cached",
+          "--check"
+        ],
+        "rc": 0
+      }
+    ]
+  },
+  "input_proof": [
+    {
+      "host": "10.66.116.10",
+      "inputs": 325,
+      "verified": true
+    },
+    {
+      "host": "10.66.116.11",
+      "inputs": 662,
+      "verified": true
+    }
+  ],
+  "scope": "Q31F344-F346 actual four-target baseline compile FAIL fixed four client-only release builds/ELF PASS; statfs signed/unsigned lossless comparison and MIPS portableAtomicU64 lease fix.317 exact Git compile inputs/private rlib manifest, Rust1.97.0/MIPSnightly-2026-06-10/Zig0.13.0/cargo-zigbuild0.23.0;ARM EABI5hardfloat,MIPS O32/MIPS32r2softfloat declarations. GNUbuild/strictClippy/fmt,79sysctl(3inheritedignored)+1private native descriptor,24static gateway tests each ash/dash(56actual metadata cells each),52Linux helpers no skips,37recipes/docs/bindings PASS.CI namedpins/jobs1/flag isolation/commonELF;PyYAML6.0.3/16bash syntax/8actual ELF cells PASS,GitHubActionsNOT_RUN.Initial inferredcastFAIL/missingconformanceFAIL/zero filtersNOT_RUN/Windows10POSIXskips retained. .10owned builds/namedtools installed,defaults/services unchanged;.11owned GNU/netns;no deploy/artifactrefresh/push. Shared Linux compile code changed;no freshFFI/SDK/firmware/A-B/fullABI/hermeticity/runtime qualification. ucode/rpcd/platform APIs/config preflight-generation/ABA/SIGKILLmanual recovery remain.41historiccases/dates/artifacts/acceptance except source digest preserved,Q29SIGKILLFAIL/ENONET,Q30drainOPEN/Appleexclusions,D06ACCEPTED;Q31IN_PROGRESS28/37(75.7%),9remain.",
+  "remaining": [
+    "actual ucode/rpcd/UCI/procd SDK",
+    "preflight config generation/core plan ABA",
+    "SIGKILL/powerloss manual recovery",
+    "firmware USER_EXCLUDED",
+    "clean A/B and hermetic tool/cache isolation",
+    "FFI/native release refresh NOT_RUN"
+  ]
+}

@@ -1,0 +1,1016 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "status": "PASS_F509_SHORT_PRIVATE_CONTROL_AND_FAULT_CONCURRENCY",
+  "source_digest": "e51d49fcabea10b3c5e31704ebbe2fc6587b4fe1ac49825be552c5ff1e3205b6",
+  "qualification_source_commit": "3fed968e3546d97f9dbc78779d79db80dadff23f",
+  "product_source_commit": "3fed968e3546d97f9dbc78779d79db80dadff23f",
+  "verification_id": "Q35-V002",
+  "findings_closed": [
+    "F509/Q35-F006"
+  ],
+  "verification": {
+    "elapsed_seconds": 331.9541960139759,
+    "started": {
+      "started": 1791597562.7470016,
+      "monotonic": 739903.545667649
+    },
+    "finished": {
+      "finished": 1791597894.7011979,
+      "monotonic": 740235.499863663,
+      "return_code": 0
+    },
+    "assertions": 320,
+    "cases": [
+      {
+        "name": "tcp-success-a",
+        "transport": "tcp",
+        "case": "success",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "success",
+          "fake-tls"
+        ],
+        "started_monotonic": 739907.311035725,
+        "return_code": 0,
+        "finished_monotonic": 739944.328275779,
+        "result_matches": [
+          [
+            "fake-tls/success/tun/single",
+            "20",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "tcp-success-b",
+        "transport": "tcp",
+        "case": "success",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "success",
+          "fake-tls"
+        ],
+        "started_monotonic": 739907.311594264,
+        "return_code": 0,
+        "finished_monotonic": 739944.328673176,
+        "result_matches": [
+          [
+            "fake-tls/success/tun/single",
+            "20",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "tcp-resume",
+        "transport": "tcp",
+        "case": "resume",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "resume",
+          "fake-tls"
+        ],
+        "started_monotonic": 739944.32906357,
+        "return_code": 0,
+        "finished_monotonic": 739983.351306027,
+        "result_matches": [
+          [
+            "fake-tls/resume/tun/single",
+            "20",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "udp-rollback",
+        "transport": "udp",
+        "case": "rollback",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_udp_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "rollback"
+        ],
+        "started_monotonic": 739944.329756859,
+        "return_code": 0,
+        "finished_monotonic": 739983.351532149,
+        "result_matches": [
+          [
+            "quic/rollback/tun",
+            "23",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "tcp-grace-expiry",
+        "transport": "tcp",
+        "case": "grace-expiry",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "grace-expiry",
+          "fake-tls"
+        ],
+        "started_monotonic": 739983.352205038,
+        "return_code": 0,
+        "finished_monotonic": 740040.877864439,
+        "result_matches": [
+          [
+            "fake-tls/grace-expiry/tun/single",
+            "19",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "udp-commit-race",
+        "transport": "udp",
+        "case": "commit-race",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_udp_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "commit-race"
+        ],
+        "started_monotonic": 739983.352848774,
+        "return_code": 0,
+        "finished_monotonic": 740040.878055679,
+        "result_matches": [
+          [
+            "quic/commit-race/tun",
+            "28",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "tcp-starvation",
+        "transport": "tcp",
+        "case": "starvation",
+        "multipath": "fixed",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "starvation",
+          "fake-tls"
+        ],
+        "started_monotonic": 740040.878687462,
+        "return_code": 0,
+        "finished_monotonic": 740092.903294152,
+        "result_matches": [
+          [
+            "fake-tls/starvation/tun/fixed",
+            "19",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "udp-supersede",
+        "transport": "udp",
+        "case": "supersede",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_udp_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "supersede"
+        ],
+        "started_monotonic": 740040.879330964,
+        "return_code": 0,
+        "finished_monotonic": 740092.903482097,
+        "result_matches": [
+          [
+            "quic/supersede/tun",
+            "28",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "udp-family-switch",
+        "transport": "udp",
+        "case": "family-switch",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_udp_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "family-switch"
+        ],
+        "started_monotonic": 740092.904163603,
+        "return_code": 0,
+        "finished_monotonic": 740153.439331957,
+        "result_matches": [
+          [
+            "quic/family-switch/tun",
+            "35",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "udp-loss-replay",
+        "transport": "udp",
+        "case": "loss-replay",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_udp_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "loss-replay"
+        ],
+        "started_monotonic": 740092.904780009,
+        "return_code": 0,
+        "finished_monotonic": 740153.439514935,
+        "result_matches": [
+          [
+            "quic/loss-replay/tun",
+            "21",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "tcp-soak-smoke",
+        "transport": "tcp",
+        "case": "soak",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "soak",
+          "fake-tls"
+        ],
+        "started_monotonic": 740153.440298609,
+        "return_code": 0,
+        "finished_monotonic": 740173.953244057,
+        "result_matches": [
+          [
+            "fake-tls/soak/tun/single",
+            "16",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "udp-soak-smoke",
+        "transport": "udp",
+        "case": "soak",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_udp_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "soak"
+        ],
+        "started_monotonic": 740153.440896975,
+        "return_code": 0,
+        "finished_monotonic": 740173.953416284,
+        "result_matches": [
+          [
+            "quic/soak/tun",
+            "17",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "tcp-bonding",
+        "transport": "tcp",
+        "case": "bonding",
+        "multipath": "fixed",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "bonding",
+          "fake-tls"
+        ],
+        "started_monotonic": 740173.953901045,
+        "return_code": 0,
+        "finished_monotonic": 740235.475858577,
+        "result_matches": [
+          [
+            "fake-tls/bonding/tun/fixed",
+            "26",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      },
+      {
+        "name": "tcp-multinode",
+        "transport": "tcp",
+        "case": "multinode",
+        "multipath": "single",
+        "command": [
+          "timeout",
+          "--signal=KILL",
+          "180s",
+          "bash",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/scripts/roaming_netns_e2e.sh",
+          "/var/tmp/qeli-runtime-isolation.3zrYVCsk/qeli",
+          "multinode",
+          "fake-tls"
+        ],
+        "started_monotonic": 740173.95446673,
+        "return_code": 0,
+        "finished_monotonic": 740235.476110559,
+        "result_matches": [
+          [
+            "fake-tls/multinode/tun/single",
+            "28",
+            "0"
+          ]
+        ],
+        "concurrent_authenticated_snapshot": true
+      }
+    ],
+    "concurrency": [
+      {
+        "batch": 1,
+        "cases": [
+          "tcp-success-a",
+          "tcp-success-b"
+        ],
+        "monotonic": 739908.314517164,
+        "processes": [
+          {
+            "pid": 978,
+            "role": "_worker",
+            "case": "tcp-success-b",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-success-b/qeli-roaming-netns-obhBWg/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532829]",
+              "net": "net:[4026532697]",
+              "pid": "pid:[4026532376]"
+            }
+          },
+          {
+            "pid": 999,
+            "role": "_worker",
+            "case": "tcp-success-a",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-success-a/qeli-roaming-netns-t33Wis/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532832]",
+              "net": "net:[4026532758]",
+              "pid": "pid:[4026532328]"
+            }
+          },
+          {
+            "pid": 1178,
+            "role": "client",
+            "case": "tcp-success-b",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-success-b/qeli-roaming-netns-obhBWg/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532835]",
+              "net": "net:[4026532453]",
+              "pid": "pid:[4026532376]"
+            }
+          },
+          {
+            "pid": 1192,
+            "role": "client",
+            "case": "tcp-success-a",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-success-a/qeli-roaming-netns-t33Wis/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532836]",
+              "net": "net:[4026532486]",
+              "pid": "pid:[4026532328]"
+            }
+          }
+        ],
+        "pid_namespaces": {
+          "tcp-success-a": [
+            "pid:[4026532328]"
+          ],
+          "tcp-success-b": [
+            "pid:[4026532376]"
+          ]
+        }
+      },
+      {
+        "batch": 2,
+        "cases": [
+          "tcp-resume",
+          "udp-rollback"
+        ],
+        "monotonic": 739946.338156597,
+        "processes": [
+          {
+            "pid": 1993,
+            "role": "_worker",
+            "case": "tcp-resume",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-resume/qeli-roaming-netns-t6nR50/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532886]",
+              "net": "net:[4026532819]",
+              "pid": "pid:[4026532341]"
+            }
+          },
+          {
+            "pid": 2091,
+            "role": "client",
+            "case": "tcp-resume",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-resume/qeli-roaming-netns-t6nR50/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532888]",
+              "net": "net:[4026532575]",
+              "pid": "pid:[4026532341]"
+            }
+          },
+          {
+            "pid": 2231,
+            "role": "_worker",
+            "case": "udp-rollback",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-rollback/qeli-roaming-udp-netns-MWWVio/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026533082]",
+              "net": "net:[4026533013]",
+              "pid": "pid:[4026532329]"
+            }
+          },
+          {
+            "pid": 2329,
+            "role": "client",
+            "case": "udp-rollback",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-rollback/qeli-roaming-udp-netns-MWWVio/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026533084]",
+              "net": "net:[4026532891]",
+              "pid": "pid:[4026532329]"
+            }
+          }
+        ],
+        "pid_namespaces": {
+          "tcp-resume": [
+            "pid:[4026532341]"
+          ],
+          "udp-rollback": [
+            "pid:[4026532329]"
+          ]
+        }
+      },
+      {
+        "batch": 3,
+        "cases": [
+          "tcp-grace-expiry",
+          "udp-commit-race"
+        ],
+        "monotonic": 739985.357274684,
+        "processes": [
+          {
+            "pid": 3056,
+            "role": "_worker",
+            "case": "tcp-grace-expiry",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-grace-expiry/qeli-roaming-netns-0sQrTZ/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532886]",
+              "net": "net:[4026532819]",
+              "pid": "pid:[4026532329]"
+            }
+          },
+          {
+            "pid": 3154,
+            "role": "client",
+            "case": "tcp-grace-expiry",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-grace-expiry/qeli-roaming-netns-0sQrTZ/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532888]",
+              "net": "net:[4026532575]",
+              "pid": "pid:[4026532329]"
+            }
+          },
+          {
+            "pid": 3299,
+            "role": "_worker",
+            "case": "udp-commit-race",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-commit-race/qeli-roaming-udp-netns-SsWxwc/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026533082]",
+              "net": "net:[4026533013]",
+              "pid": "pid:[4026532339]"
+            }
+          },
+          {
+            "pid": 3401,
+            "role": "client",
+            "case": "udp-commit-race",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-commit-race/qeli-roaming-udp-netns-SsWxwc/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026533084]",
+              "net": "net:[4026532891]",
+              "pid": "pid:[4026532339]"
+            }
+          }
+        ],
+        "pid_namespaces": {
+          "tcp-grace-expiry": [
+            "pid:[4026532329]"
+          ],
+          "udp-commit-race": [
+            "pid:[4026532339]"
+          ]
+        }
+      },
+      {
+        "batch": 4,
+        "cases": [
+          "tcp-starvation",
+          "udp-supersede"
+        ],
+        "monotonic": 740042.884325185,
+        "processes": [
+          {
+            "pid": 5058,
+            "role": "_worker",
+            "case": "tcp-starvation",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-starvation/qeli-roaming-netns-2tQsqW/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532642]",
+              "net": "net:[4026532575]",
+              "pid": "pid:[4026532329]"
+            }
+          },
+          {
+            "pid": 5156,
+            "role": "client",
+            "case": "tcp-starvation",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-starvation/qeli-roaming-netns-2tQsqW/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532644]",
+              "net": "net:[4026532453]",
+              "pid": "pid:[4026532329]"
+            }
+          },
+          {
+            "pid": 5301,
+            "role": "_worker",
+            "case": "udp-supersede",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-supersede/qeli-roaming-udp-netns-j9oo50/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532960]",
+              "net": "net:[4026532891]",
+              "pid": "pid:[4026532341]"
+            }
+          },
+          {
+            "pid": 5399,
+            "role": "client",
+            "case": "udp-supersede",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-supersede/qeli-roaming-udp-netns-j9oo50/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532962]",
+              "net": "net:[4026532647]",
+              "pid": "pid:[4026532341]"
+            }
+          }
+        ],
+        "pid_namespaces": {
+          "tcp-starvation": [
+            "pid:[4026532329]"
+          ],
+          "udp-supersede": [
+            "pid:[4026532341]"
+          ]
+        }
+      },
+      {
+        "batch": 5,
+        "cases": [
+          "udp-family-switch",
+          "udp-loss-replay"
+        ],
+        "monotonic": 740097.417448045,
+        "processes": [
+          {
+            "pid": 6468,
+            "role": "_worker",
+            "case": "udp-loss-replay",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-loss-replay/qeli-roaming-udp-netns-x9q7Oa/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532837]",
+              "net": "net:[4026532730]",
+              "pid": "pid:[4026532335]"
+            }
+          },
+          {
+            "pid": 6569,
+            "role": "client",
+            "case": "udp-loss-replay",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-loss-replay/qeli-roaming-udp-netns-x9q7Oa/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532836]",
+              "net": "net:[4026532454]",
+              "pid": "pid:[4026532335]"
+            }
+          },
+          {
+            "pid": 6701,
+            "role": "_worker",
+            "case": "udp-family-switch",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-family-switch/qeli-roaming-udp-netns-J56DIJ/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532840]",
+              "net": "net:[4026532697]",
+              "pid": "pid:[4026532329]"
+            }
+          },
+          {
+            "pid": 6809,
+            "role": "client",
+            "case": "udp-family-switch",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-family-switch/qeli-roaming-udp-netns-J56DIJ/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532842]",
+              "net": "net:[4026532453]",
+              "pid": "pid:[4026532329]"
+            }
+          }
+        ],
+        "pid_namespaces": {
+          "udp-family-switch": [
+            "pid:[4026532329]"
+          ],
+          "udp-loss-replay": [
+            "pid:[4026532335]"
+          ]
+        }
+      },
+      {
+        "batch": 6,
+        "cases": [
+          "tcp-soak-smoke",
+          "udp-soak-smoke"
+        ],
+        "monotonic": 740155.446205147,
+        "processes": [
+          {
+            "pid": 8077,
+            "role": "_worker",
+            "case": "tcp-soak-smoke",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-soak-smoke/qeli-roaming-netns-Tk7PS1/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532642]",
+              "net": "net:[4026532575]",
+              "pid": "pid:[4026532329]"
+            }
+          },
+          {
+            "pid": 8175,
+            "role": "client",
+            "case": "tcp-soak-smoke",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-soak-smoke/qeli-roaming-netns-Tk7PS1/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532644]",
+              "net": "net:[4026532453]",
+              "pid": "pid:[4026532329]"
+            }
+          },
+          {
+            "pid": 8315,
+            "role": "_worker",
+            "case": "udp-soak-smoke",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-soak-smoke/qeli-roaming-udp-netns-WUAON9/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532838]",
+              "net": "net:[4026532769]",
+              "pid": "pid:[4026532335]"
+            }
+          },
+          {
+            "pid": 8413,
+            "role": "client",
+            "case": "udp-soak-smoke",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/udp-soak-smoke/qeli-roaming-udp-netns-WUAON9/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532840]",
+              "net": "net:[4026532647]",
+              "pid": "pid:[4026532335]"
+            }
+          }
+        ],
+        "pid_namespaces": {
+          "tcp-soak-smoke": [
+            "pid:[4026532329]"
+          ],
+          "udp-soak-smoke": [
+            "pid:[4026532335]"
+          ]
+        }
+      },
+      {
+        "batch": 7,
+        "cases": [
+          "tcp-bonding",
+          "tcp-multinode"
+        ],
+        "monotonic": 740175.459323189,
+        "processes": [
+          {
+            "pid": 9503,
+            "role": "_worker",
+            "case": "tcp-multinode",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-multinode/qeli-roaming-netns-n1quC2/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532951]",
+              "net": "net:[4026532819]",
+              "pid": "pid:[4026532363]"
+            }
+          },
+          {
+            "pid": 9529,
+            "role": "_worker",
+            "case": "tcp-bonding",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-bonding/qeli-roaming-netns-4lq4TS/server.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026532956]",
+              "net": "net:[4026532880]",
+              "pid": "pid:[4026532328]"
+            }
+          },
+          {
+            "pid": 9712,
+            "role": "client",
+            "case": "tcp-bonding",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-bonding/qeli-roaming-netns-4lq4TS/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026533018]",
+              "net": "net:[4026532636]",
+              "pid": "pid:[4026532328]"
+            }
+          },
+          {
+            "pid": 9777,
+            "role": "_worker",
+            "case": "tcp-multinode",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-multinode/qeli-roaming-netns-n1quC2/server-secondary.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026533023]",
+              "net": "net:[4026532957]",
+              "pid": "pid:[4026532363]"
+            }
+          },
+          {
+            "pid": 9901,
+            "role": "client",
+            "case": "tcp-multinode",
+            "config": "/var/tmp/qeli-runtime-isolation.3zrYVCsk/retry-job/runtime/tcp-multinode/qeli-roaming-netns-n1quC2/client.conf",
+            "namespaces": {
+              "mnt": "mnt:[4026533025]",
+              "net": "net:[4026532514]",
+              "pid": "pid:[4026532363]"
+            }
+          }
+        ],
+        "pid_namespaces": {
+          "tcp-bonding": [
+            "pid:[4026532328]"
+          ],
+          "tcp-multinode": [
+            "pid:[4026532363]"
+          ]
+        }
+      }
+    ],
+    "linux_units": 35,
+    "kernel_methods": 7,
+    "initial_failure": {
+      "finished": 1791597403.0314283,
+      "monotonic": 739743.830093575,
+      "return_code": 1
+    },
+    "qualified_input_sha256": {
+      "scripts/roaming_android_sleep_wake_gate.py": "1146d19a20109516e3412026391b584489e32f3283901b3fc27dd045b00c631c",
+      "scripts/roaming_android_udp_grace_expiry_gate.py": "5ab15289688e7f45a4078f7c1a0783a0410b413e4139167de8490b7597d33a61",
+      "scripts/roaming_bonding_udp_probe.py": "422f61c4fe3eb6d162d6821dcfc11e768a3b0950ca225d941e40b0f8e9f514c0",
+      "scripts/roaming_control_stats.py": "cc7a454a07e6e92ae8b003a8a1fdc3088acb222328e8846549559236e3e55b57",
+      "scripts/roaming_exit_node_netns_e2e.sh": "55628b66c818cf93ef98502fa71ece8327299ab8ed3fd217b83ae18960691c07",
+      "scripts/roaming_exit_node_udp_all_modes_netns_e2e.sh": "ee7fcdcb061d6624407abe9c1e6aa3a155b213c8ab6dae2725f695686250000d",
+      "scripts/roaming_mixed_version_netns_e2e.sh": "88b9f2afd8d872b5fa33e4200e0a142756561ab670c6c82213393f018bbd2f97",
+      "scripts/roaming_netns_e2e.sh": "fca54d80506cec70e82f2a59ffb1f163eca81b0748b62ab66175c0c0e14bc731",
+      "scripts/roaming_netns_isolation.sh": "8c92dd50bb2376fb448f8f3f2591acbb350e1af535de845ad3a9945e08cb48f6",
+      "scripts/roaming_netns_supervisor.py": "480aef283101a434cc7de0885873e7184463fc1b25cab45b623464b746c13ed8",
+      "scripts/roaming_process_probe.sh": "38f937792c40e8112da4f51163d664708757bb1f3b6292cd7092fc695a38c261",
+      "scripts/roaming_resource_release_gate.sh": "9d976819505b02d4a8ed702bd8b3ac0f18e909e05170c1ef35a2410d56a78d5d",
+      "scripts/roaming_soak_parameters.sh": "e044320fe7ea072ad617e1aecf0f611263144702287310de20067201ae9ed14c",
+      "scripts/roaming_tcp_all_modes_netns_e2e.sh": "9ef742fd7d0788718ce4ef9288583f4e364adeb40bc2fb06ea79fd5799ec223c",
+      "scripts/roaming_tcp_bonding_netns_case.sh": "62c10c92034c4bca9b3aebd597f940185a9b06441bbe5b683274c0123d32b6cf",
+      "scripts/roaming_tcp_multinode_netns_case.sh": "fde68810a2dc9c56861c34bdfe34117debca095c603d7ad015593138f1d3f638",
+      "scripts/roaming_tcp_netns_perf_case.sh": "2a80fe5ee9acf7f11797f91e5781da173eb209dbdf354bea2c83a2da37dc85d5",
+      "scripts/roaming_tcp_netns_soak_case.sh": "1dd133e33f3ee847d410e21e9ffdb6961c3d6da66e7f9e19aa5d52b0cee18e7e",
+      "scripts/roaming_tcp_perf_netns_gate.sh": "e91a29d0d247159ec9d1634f20923a46cc6ffc7fbb14dd40d6020974db0443f9",
+      "scripts/roaming_tcp_resume_netns_case.sh": "c6b6d5404a6a8a4af876ddb4734118f7ba7d8610952124dcc977a917cf6ebc2c",
+      "scripts/roaming_tcp_starvation_netns_case.sh": "e44df32d5b2b573f0566def715ca0fbc1e27e71f08361717ed3c23e23233ea7b",
+      "scripts/roaming_udp_all_modes_netns_e2e.sh": "9a682b5440a8408c42468f95c8d3d68746606a17e1651e6c92ca6605057a0e9f",
+      "scripts/roaming_udp_netns_drain_case.sh": "8c8c200c707da4ce63a78b2d6f81944f09057cbbf0948240b19cea1dea6e3c6c",
+      "scripts/roaming_udp_netns_e2e.sh": "1bdca757a71bf89c6326d6f204dc4073ca6fd4e0003e61283820d30a32275d0a",
+      "scripts/roaming_udp_netns_family_case.sh": "43b2103473ed6ebc1802c9a8a36cceb011d62c057e6c5ae1497029c09859e7a2",
+      "scripts/roaming_udp_netns_frag_loss_case.sh": "9f7152e353d529b0405c7aad6f4783ea712bd7be99f4e10a40549c5a275fa092",
+      "scripts/roaming_udp_netns_nat_rebind_case.sh": "02d944f79a14793dae022e95287f28fb8406398f9655be3a0104a5645115d95c",
+      "scripts/roaming_udp_netns_soak_case.sh": "6209dbbb28e8b0b48afb88262048f74e102ce803450e8b0316504a65f9490a05",
+      "scripts/roaming_udp_resource_soak_netns_gate.sh": "f405bb673345d2c7d74c0ade6fa5fbb1a88e540bb6c1f6cbffb79aba92c06242",
+      "scripts/linux_roaming_release_soak.sh": "b176ed09a53b68638c635452d86407458134b23c6f9181ebbc2178f58603e8ed",
+      "qeli": "98335046d0c16b2126b22334102011ecfaff8390e0a3b09be5e6c7df87104bc2",
+      "outer.sh": "b5a00f48857791571887212aff16a0a0603d28cac057baab1f357e3ef1fdab83",
+      "fault-matrix.py": "3e86765ce766163cbfe054a3bf0e8d74cfc26bf612572f1bef67cbffdf4d3a74",
+      "fault-matrix-retry.py": "1d3ab3875455fbd80ba3ac9cb642a008ac8b6d01cf7b0d2fca07d98c5126e7f3",
+      "outer-retry.sh": "0b8ab6af6f8b4bce6a132c1ecf6c982ff29b09ac1eb12167b758a40fa67e6de7",
+      "scripts/test_roaming_netns_isolation_kernel.py": "a27cdc658386cf0c22aae6d94af16577c380c7607cc8134a004501bbe57ff817",
+      "scripts/test_roaming_netns_isolation.py": "56d561db17f8b44cf1ea6199d8a63bc8a178c1699fdc6622ef6f1ca6ce33ac82",
+      "scripts/test_roaming_soak_parameters.py": "ffdcbecd3dd0d13dffdb28865e6ad17682feac612c35674fb767b40511646661",
+      "scripts/test_roaming_udp_resource_soak_netns_gate.py": "6f1c8088aff196a3abaffed37b40d81240fa79cce857a4b771c83cc9e531c2c9",
+      "scripts/test_roaming_resource_release_gate.py": "8733cc5bae6181e3999540fe171cb997b55b8ee6566f5d0b609ba31b241c70a9",
+      "scripts/test_roaming_process_probe.py": "a68ad45999efbe406d465cce1ebbf3393fdd46067e24c8b3fe7cbf2ad49af9ec",
+      "scripts/test_roaming_control_stats.py": "a58f20a8cd2436e61ea4fc3246a570616b0d49ce03973de5c9a8fd9f587e8174",
+      "inputs.tar": "89405cacf3923c8c8b4caccae701b0e6650d694250630cccd0e9a0034e977617"
+    },
+    "host_preserved": true,
+    "normalization": "Only builtin firewall packet/byte chain counters; raw snapshots/diff retained.",
+    "service_unchanged": true,
+    "service_receipt": "777\n777\n845\n75bc593e2c661c6e23eaae22c08e033e38e97a837c1655d30ecf9ea100c30f0a  /usr/bin/qeli",
+    "cleanup": {
+      "status": "PASS_SHA_BACKED_EXACT_OWNED_CLEANUP",
+      "regular_files": 450,
+      "stale_sockets": 5,
+      "dirs": 78,
+      "root_absent": true
+    },
+    "source_binding": {
+      "status": "PASS_EXISTING_REAL_COMPILER_BUILD_REUSE",
+      "binary_sha256": "98335046d0c16b2126b22334102011ecfaff8390e0a3b09be5e6c7df87104bc2",
+      "source_commit": "3ed8d1fba97b154d357d7ba5f4b05704a52c3280",
+      "current_qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+      "compiler_inputs_byte_checked": 318,
+      "source_archive_sha256": "4e9718ca2bec0434796e1b97eb67eecbdde386f02af381ad281676bab3bd955c",
+      "sealed_original_manifest_sha256": "24bd8604eb638e667f9e14d871a7b4e2bc72340086f018050043898dde5d2799",
+      "scope": "Original full Docker release build reused; identical effective Docker compiler Cargo/src bytes; broader qeli tree differs only independent fuzz Cargo.lock/README, excluded by actual COPY recipe. No compiler/native rebuild; new launcher/VPN execution to follow.",
+      "current_runner_commit": "5276d040550b87f5a974f695ca02d8bad5479cb1",
+      "inheritance": "Previous SEALED source-binding plus unchanged qeli tree/current scripts exact TAR byte match; no new compiler build."
+    }
+  },
+  "documentation_check": {
+    "status": "PASS",
+    "command": [
+      "python",
+      "-X",
+      "utf8",
+      "-B",
+      "scripts/check_docs.py"
+    ],
+    "return_code": 0,
+    "output": "checking 724 tracked Markdown files\u2026\r\nOK \u2014 all 9 checks pass (links, index, parity, config keys [server + client + prefixes], sources, placeholders, anchors, sync, version).\r\n"
+  },
+  "unchanged_inputs": {
+    "status": "PASS",
+    "native_source_digest": "e3fb04a80fc8c2e7334fa5187dacb497ca47b2a79954fcddae45b5d5a533052c",
+    "native_artifacts": [
+      {
+        "path": "native-libs/android/arm64-v8a/libqeli.so",
+        "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so",
+        "sha256": "26758d5fa44f43d07c20bde9eba8e6fe00ffd53b95120e858f5a757a36336af0"
+      },
+      {
+        "path": "native-libs/android/x86_64/libqeli.so",
+        "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+      },
+      {
+        "path": "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so",
+        "sha256": "7346dd50da9d3c070a05bac97acaa78d2f425b08ae3d6487e4a051b6d79f0634"
+      },
+      {
+        "path": "native-libs/windows-x64/qeli.dll",
+        "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+      },
+      {
+        "path": "qeli-win/QeliWin/native/qeli.dll",
+        "sha256": "52879871ac91b4487f560b9aa8442917a81de9f465174b2bc094c64e92222efc"
+      },
+      {
+        "path": "native-libs/macos-universal/libqeli.dylib",
+        "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+      },
+      {
+        "path": "qeli-mac/QeliMac/native/libqeli.dylib",
+        "sha256": "ad8c1dacfbcbf68004aec86612579c4561fc1d837a3a5f86ee8f08b48e6d5b86"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "qeli-win/QeliWin/wintun/wintun.dll",
+        "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert.dll",
+        "sha256": "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+      },
+      {
+        "path": "native-libs/third-party/windows-x64/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      },
+      {
+        "path": "qeli-win/QeliWin/windivert/WinDivert64.sys",
+        "sha256": "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
+      }
+    ],
+    "protected_hashes": {
+      "CHANGELOG.md": "a90befc3868cb8a2445786edd3f8f7e1be68abd623dc7c810f59adf2d9e87680",
+      "qeli/src/web/templates/users.html": "fab37661d833b3a07bfcca89488c3db8051382970276831e2ebc547128009a1a"
+    },
+    "qeli_tree": "817feacd721f871926f7cf96650a9adca8539b5b",
+    "openwrt_cut": "Existing qualified mirrorSHA9b4b unchanged; execution inherited",
+    "scope": "Native source digest14 artifacts/protected SHA/qeli tree/existing SDK cut SHA reverified. Existing core/native/11Windows/actionlint4 qualification inherited on identical inputs; changed source actually35Linuxscript/7kernel/14VPNcases in7concurrent pairs plus9docs qualified.",
+    "inherited_packet": "q35-isolation-20261010",
+    "new_builds": 0,
+    "free_disk_bytes": 14224633856
+  },
+  "raw_packet": {
+    "name": "q35-fault-concurrency-20261010",
+    "files": 486,
+    "bytes": 2884066,
+    "manifest_sha256": "bbc5177343dd68a617e36a48929f6afd9b3dfd6d103329e4fc30ab0feb285c6a",
+    "runtime_status": "PASS_F509_SHORT_PRIVATE_CONTROL_AND_FAULT_CONCURRENCY",
+    "path": "audit-debt-20260924/q35-fault-concurrency-20261010",
+    "status": "SEALED"
+  },
+  "scope": "F509/Q35-F006 actual UDPfamily baseline worker SUN_LEN due long TMPDIR/WORK control socket, client refused connection and case timeout137; initial9other cases PASS but initialmatrixexit1 retained. Shared isolation creates0700private /run/qeli-roaming-control aftertmpfs; primary/secondary controls separate short names. TCP/UDPmain+soakstats+bondingbandwidth/revoke use shared short paths;7scriptchanges incl actual kernel concurrent shortAFUNIXlisteners. No core/INI/ABI/native compiler input changes. Initial external observer TCP-only authmarker missingUDP corrected; earlier read-only retry refused unfinished job beforemutation. Exact current changedscript SHA bound+original inputarchive/reference reused no14MBbinary/TAR duplication. Actual patched35Linuxscript/7kernelmethods,14VPNcase executions in7max-two concurrentpairs all assertionsPASS/exits0 and7live authenticated client/worker proc snapshots separate PIDns. TCPsuccess2/resume/grace/starvationfixed,UDProllback/commit-race/supersede/family/loss-replay,TCP+UDP3flipsoakcontrolsmoke,bondingfixed,multinodesecondary. Deep retry WORK exceeds original SUN_LEN paths; actual F509 failure corrected. No newbounded100/10k/30min/8h/continuouspeaks/tasks/wholeDoS/otheradapters/throughput/hostedCI claim. SHA-backed exactregular originals/TAR+generated backups and typedstalesockets,proc/cwd/exe/root/fd/argv/mount guards/absenceconfirm; .11service777/845/CLI75bc,routes/links/firewall/sysctl/mounts/hosts/resolver preserved,builtin packetbyte counters onlynormalized raw retained,.10unused,no package changes.9docs724Markdown PASS; unchanged nativee3fb14/protected/qelitree/SDKcutSHA reverified;oldcore/native/11Windows/actionlint4execution inherited.41cases106prior supplements preserve modulo sourcedigest,append107.74SEALEDmanifestanchors/newpayloadSHA verified,oldpayloads inherited.15productdocs+2cert transferred localdev;current module inventory37rows reconciled from existing per-section closure evidence to30DONE/7pending29,30,31,34,35,36,37 without claiming new closure. Q34/Q35IN_PROGRESS,Q36TODO30/37DONE81.1percent7remain,Q29/Q30/Q31/F459/D06accepted/USER_EXCLUDED unchanged.LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE.",
+  "actions": "LOCAL_DEV_COMMIT;NO_PUSH_DEPLOY_RELEASE"
+}

@@ -297,11 +297,10 @@ By making a contribution to this project, I certify that:
 
 ### Тулчейн и системные пререквизиты
 
-- **Rust stable.** Заведомо рабочая версия — **rustc 1.96.0** (на ней собирается лаба);
-  CI берёт актуальный `stable`. `rust-version` (MSRV) в `qeli/Cargo.toml` не объявлен,
+- **Rust 1.97.0.** Эту версию используют основные CI jobs и reviewed native recipes. `rust-version` (MSRV) в `qeli/Cargo.toml` не объявлен,
   так что «older stable» не гарантирован — если собираете на более старом тулчейне и
   что-то не компилируется, обновитесь, прежде чем заводить issue.
-- **Nightly** нужен только для двух вещей: fuzz-харнесов (`cargo +nightly fuzz`) и
+- **Nightly** нужен только для двух вещей: fuzz-харнесов (`cargo +nightly-2026-06-10 fuzz`) и
   кросс-сборки под mipsel (tier-3, `-Zbuild-std`). Для обычной работы не требуется.
 - **Сборка `.deb`** (`qeli/debian/Makefile`) — Debian/Ubuntu-хост и **`dpkg-deb`**.
   Для публикуемых пакетов цель одна — **`make deb-portable`**, а ей нужны **`zig`** и
@@ -313,8 +312,8 @@ By making a contribution to this project, I certify that:
 
 ### Команды
 
-- Сервер/ядро (Linux), в `qeli/`: `cargo build --release --features jemalloc` +
-  `cargo test --workspace` + `cargo clippy --all-targets -- -D warnings`.
+- Сервер/ядро (Linux), в `qeli/`: `cargo +1.97.0 build --locked --release --features jemalloc` +
+  `cargo +1.97.0 test --locked --workspace` + `cargo +1.97.0 clippy --locked --all-targets -- -D warnings`.
   **`--features jemalloc` для СЕРВЕРНОГО бинаря обязателен**: без него RSS воркера
   упирается в ~180 МБ под churn'ом хендшейков (glibc держит освобождённые арены)
   вместо ~40–60 МБ с jemalloc — см.
@@ -336,3 +335,7 @@ By making a contribution to this project, I certify that:
   Без `--write` скрипт только проверяет и ничего не пишет; это же делает CI.
 - Всё локально одной командой: `scripts/ci-check.sh` (доки + сборка + тесты + clippy).
 - Перед PR: убедитесь, что сборка/тесты/линт зелёные и каждый коммит подписан (`-s`).
+
+CI runs for every push and pull request, including root build policy changes. Release admission requires the latest successful push CI run on the exact source commit; PR merge tests, manual and scheduled runs do not replace that evidence. Check this before tagging or publication with `python scripts/release_preflight.py dev`.
+
+CI запускается для каждого push/PR, включая корневые build policy files. Допуск релиза требует последнего успешного push CI на точном source commit; PR merge, manual и scheduled runs не заменяют это evidence. Перед тегом/публикацией используйте `python scripts/release_preflight.py dev`.

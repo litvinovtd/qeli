@@ -1,0 +1,238 @@
+{
+  "status": "ACTUAL_SOURCE_CLANG_COMPILER_SDK_IPK_7_OPKG_9_USERSPACE_AND_CLEANUP_QUALIFIED",
+  "qualification": {
+    "status": "ACTUAL_SOURCE_CLANG_COMPILER_SDK_IPK_7_OPKG_9_USERSPACE_AND_CLEANUP_QUALIFIED",
+    "observed_unix": 1792069494.352733,
+    "consumer_source_commit": "60a0321f35a9a281c90f3e6e346e5859d2ffd5e3",
+    "source_archive_commit": "ee2b74aafb2a57a2613541223c5522908cb71f71",
+    "source_archive_sha256": "6c82f2162ba9b4939c8d40393a157d5483ccdc6796e41706f0ec2672ee95fb16",
+    "qeli_tree": "8c50631e7c253ab6cacd0056098ecad83f393487",
+    "compiler_packet": "q31-clean-lab-source-r3-20261015",
+    "consumer_packet": "q31-clean-lab-consumer-r13-20261015",
+    "source_compiler_PASS": true,
+    "cold_SDK_graph_PASS": true,
+    "ipk": {
+      "path": "sdk/bin/packages/x86_64/base/qeli_0.8.2-r1_x86_64.ipk",
+      "sha256": "85c7b94498e438f0b598d03d2fbb9b4a0a7bc699c1b56a46ff70127865998574",
+      "bytes": 2703647
+    },
+    "binary_sha256": "865c7118dd34927963b32a51d1f8efcec3c42eed483caf8c9a336aa1f5fa04a7",
+    "host_preserved": true,
+    "runtime_root_removed": true,
+    "compiler_root_retained": true,
+    "compiler_reuse_qualified": false,
+    "Q31_closed": false,
+    "remaining": [
+      "Explicit compiler/cache disposition after final outcome qualification",
+      "Public source pin and hosted release qualification",
+      "Physical router USER_EXCLUDED"
+    ],
+    "no_push_deploy_release": true,
+    "raw_files": {
+      "q31-clean-lab-source-r3-20261015/completion.json": "f7317f3544753d096b2a297ae260d8d07fc25b10e9724b47430fb49f14411f03",
+      "q31-clean-lab-source-r3-20261015/result.json": "9eecb2bf9d999d0e56ceb386222d194a09cfa62902d24d1479ba2018484ab8c0",
+      "q31-clean-lab-source-r3-20261015/runtime.tar.gz": "ef043101e59363cc1bc267727561cbaeab2676627c4fc34b26482bd976e91654",
+      "q31-clean-lab-source-r3-20261015/cleanup.json": "e684e1953601ce6bf11af65c9fd0ad882ab95f7c60cc3b3a00977926b923921a",
+      "q31-clean-lab-consumer-r13-20261015/completion.json": "4e7e791e6bff704b5c536a0c8949552a1847565ab565bc6514935dee41204ad8",
+      "q31-clean-lab-consumer-r13-20261015/runtime.tar.gz": "398985101642cef476bb86f0d4b9f1f7c3147b7ec67568b3bf24301beee4d151",
+      "q31-clean-lab-consumer-r13-20261015/cleanup.json": "2259ab8d9471f5f5812541423ab4cbbacb0bc9792c90d6a0edd313eef297f0ea",
+      "q31-clean-lab-consumer-r13-20261015/archive.json": "3c266bab4c63ede19e18a9720960ca0c42c3ecc019f211ef668459dba9d97d08",
+      "q31-clean-lab-consumer-r13-20261015/finished-unit.json": "0ddc9721e1531efe84e435d98de98381c5e11739d2623c840b390320fdd13b8e",
+      "q31-clean-lab-consumer-r13-20261015/plan.json": "11e69dad156c14923fcc8ea96e1a1ef7fdb7eee04f70b27c6319e7fbfc86a0e2",
+      "q31-clean-lab-consumer-r8-20261015/qualification.json": "3f80513dbcada461aab3387ac956ea33d3969f8ecf765970a8fd5c7ca999df3d",
+      "q31-clean-lab-consumer-r8-20261015/runtime.tar.gz": "03d93a9df90a6e111c140b64b82cb8dcccec524af4599130f726a2ca1c55dac5",
+      "q31-clean-lab-consumer-r8-20261015/collected/consumer/result.json": "057ef87b7d1d9986fe0181767cbce521441e5ae1f19bb643e0ade452b562d981",
+      "q31-clean-lab-consumer-r8-20261015/collected/consumer/logs/package-graph.log": "fd1bfb7e3c3b4a372b6abf7d235ecfb05c6ea6f8b84f0b64871dcb2b8792b0ee",
+      "q31-clean-lab-consumer-r11-20261015/qualification.json": "d4eb82c285f55a824c67da981266049a59495271001ce76202d8ed35a0255229",
+      "q31-clean-lab-consumer-r11-20261015/runtime.tar.gz": "01e9d19fd7d732e07f8cc1e9a24de72090ace4ee70a5a23bcd7b5d5d11bfec52",
+      "q31-clean-lab-consumer-r11-20261015/collected/consumer/result.json": "c342507b08f0ba7abdd395600f608c4faf35e104db5f0a4a485ea2ec189e3fc5",
+      "q31-clean-lab-consumer-r11-20261015/collected/consumer/logs/package-graph.log": "d7241bfc8991869c77fa4bfe73604b023e03af9efd46c6878b957ec636b30e7e"
+    },
+    "original_R8_failure_retained": true,
+    "cache_handoff_explicit": true,
+    "new_product_compilations": 0,
+    "cold_SDK_graph_scope": "R8 actual cold product compilation plus R9 verified installation-cache handoff and clean root-graph reuse; not first-attempt clean bootstrap-to-root-graph",
+    "runtime_only_unit": true,
+    "source_consumer_reused_from": "q31-clean-lab-consumer-r11-20261015"
+  },
+  "qualification_sha256": "24f8bb70ccd2cb8da7716909c21fab92fe7c554942ebf7074dd26de1b32ba779",
+  "resource_report": {
+    "scope": "Raw terminal unit counters only; no exact final peak or new resource-history claim.",
+    "finished_unit": {
+      "RuntimeMaxUSec": "infinity",
+      "MainPID": "0",
+      "Result": "success",
+      "ExecMainStatus": "0",
+      "MemoryPeak": "[not set]",
+      "MemorySwapPeak": "[not set]",
+      "MemoryMax": "infinity",
+      "MemorySwapMax": "infinity",
+      "KillMode": "control-group",
+      "LoadState": "not-found",
+      "ActiveState": "inactive"
+    }
+  },
+  "terminal_unit_sha256": "807386262854dbb55693fbc62bd7d5406de55869efa2c7167ae6a3817b63b043",
+  "final_compiler_cleanup": {
+    "status": "QUALIFIED_SOURCE_SDK_COMPILER_ROOT_REMOVED_HOST_PRESERVED",
+    "qualification_sha256": "24f8bb70ccd2cb8da7716909c21fab92fe7c554942ebf7074dd26de1b32ba779",
+    "root": "/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7",
+    "cookie": "2049:262153",
+    "root_removed": true,
+    "owned_bytes_removed": 7630525212,
+    "free_before": 22809939968,
+    "free_after": 30702817280,
+    "host_preserved": true,
+    "identities_preserved": true,
+    "source_unit_absent": true,
+    "consumer_unit_absent": true,
+    "observed_unix": 1792069633.168259
+  },
+  "final_compiler_cleanup_sha256": "8c67ff09926371123b8548ab0d27cde03b96f45415db78725d9d208170db080f",
+  "external_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\q31-clean-lab-consumer-r13-20261015",
+  "PATH_qualification": {
+    "cases": [
+      {
+        "case": "manager-default-usrmerge-PATH",
+        "exit": "TIMEOUT",
+        "stdout": "",
+        "stderr": "Collected errors:\n * pkg_init_from_file: Malformed package file /fixtures/qeli.ipk.\n"
+      },
+      {
+        "case": "explicit-OpenWrt-PATH",
+        "exit": 255,
+        "stdout": "Unknown package 'qeli'.\n",
+        "stderr": "Collected errors:\n * pkg_hash_check_unresolved: cannot find dependency kmod-tun for qeli\n * pkg_hash_check_unresolved: cannot find dependency ip-full for qeli\n * pkg_hash_check_unresolved: cannot find dependency iptables for qeli\n * pkg_hash_check_unresolved: cannot find dependency ip6tables for qeli\n * pkg_hash_fetch_best_installation_candidate: Packages for qeli found, but incompatible with the architectures configured\n * opkg_install_cmd: Cannot install package qeli.\n"
+      }
+    ],
+    "systemd_default_path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin",
+    "ipk_sha256": "85c7b94498e438f0b598d03d2fbb9b4a0a7bc699c1b56a46ff70127865998574",
+    "host_preserved": true,
+    "probe_removed": true,
+    "observed_unix": 1792069254.218177
+  },
+  "PATH_qualification_sha256": "792a2ef99e53805fb0e58f3c7b18f95e01b72470b58082204fc071e44ee34cda",
+  "prior_runtime_import_failure": {
+    "status": "ACTUAL_SOURCE_COMPILER_PASS_SDK_FAILURE_RUNTIME_CLEANED_COMPILER_RETAINED_VERIFIED",
+    "source_compiler_PASS": true,
+    "cold_SDK_graph_PASS": false,
+    "Q31_closed": false,
+    "execution": {
+      "status": "PACKAGE_OR_RUNTIME_FAILURE_RETAINED",
+      "started_unix": 1792067776.308831,
+      "steps": [
+        {
+          "label": "source-sdk-consumer",
+          "exit": 0,
+          "seconds": 20.02563785505481,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "label": "new-ipk-runtime",
+          "exit": 1,
+          "seconds": 2.0093926009722054,
+          "log_sha256": "66f6b9a669df574bd10e5d23add7a70e94b5f4f200a683e746b10da33261dc20"
+        }
+      ],
+      "cold_SDK_graph_PASS": false,
+      "budgets": {
+        "source_sdk_seconds": 3300,
+        "runtime_seconds": 300,
+        "total_seconds": 3600
+      },
+      "error": "new-ipk-runtime failed; original log retained",
+      "finished_unix": 1792067798.5383701,
+      "elapsed_seconds": 22.229469922138378
+    },
+    "compiler_packet": "q31-clean-lab-source-r3-20261015",
+    "consumer_packet": "q31-clean-lab-consumer-r10-20261015",
+    "original_outcome_retained": true,
+    "archive_sha256": "8e4f178e2b0c7f28f7abab65e44bf1718dfdf9d0e962b41126eeb551d1899078",
+    "cleanup_sha256": "7a9da0c6a747e091dbc08a5d4adff9f419f7d941740318d75681e75646252754",
+    "observed_unix": 1792067825.6637323
+  },
+  "prior_runtime_import_failure_sha256": "c31bbf5fddb7cb276fcdff227573217e7fd00fa06eeecb376848e233c9df6f34",
+  "prior_cache_check_qualification": {
+    "status": "ACTUAL_SOURCE_COMPILER_PASS_SDK_FAILURE_RUNTIME_CLEANED_COMPILER_RETAINED_VERIFIED",
+    "source_compiler_PASS": true,
+    "cold_SDK_graph_PASS": false,
+    "Q31_closed": false,
+    "execution": {
+      "status": "PACKAGE_OR_RUNTIME_FAILURE_RETAINED",
+      "started_unix": 1792067576.039697,
+      "steps": [
+        {
+          "label": "source-sdk-consumer",
+          "exit": 1,
+          "seconds": 22.011483233887702,
+          "log_sha256": "77b54352f32458ac28265fbbc16463a728c82ae0e17c9e6cf5c315ae219c5ec4"
+        }
+      ],
+      "cold_SDK_graph_PASS": false,
+      "budgets": {
+        "source_sdk_seconds": 3300,
+        "runtime_seconds": 300,
+        "total_seconds": 3600
+      },
+      "error": "source-sdk-consumer failed; original log retained",
+      "finished_unix": 1792067598.2113645,
+      "elapsed_seconds": 22.1716035020072
+    },
+    "compiler_packet": "q31-clean-lab-source-r3-20261015",
+    "consumer_packet": "q31-clean-lab-consumer-r9-20261015",
+    "original_outcome_retained": true,
+    "archive_sha256": "e51e5e34cc010585418e900ffcf2ba261ab70a0a1bce17dc0faee302be0295c9",
+    "cleanup_sha256": "9f9491d67d0a3cce5872e111ad0d376395b2ffdc4c116f8d5df2cfb796f2044a",
+    "observed_unix": 1792067626.920575
+  },
+  "prior_cache_check_qualification_sha256": "eae7cfb0176e26119f2a1f9ba93c05d09062df82bfc7d858ee39e5774c13fa8c",
+  "guard_qualification": {
+    "status": "RECURSIVE_AND_ACTUAL_SDK_NO_BOOTSTRAP_GUARD_QUALIFIED",
+    "cases": [
+      {
+        "case": "recursive-rust",
+        "exit": 2,
+        "stdout": "make --no-print-directory -C child\necho QELI_REFUSED_SECOND_RUST_BOOTSTRAP >&2; exit 86;\n",
+        "stderr": "QELI_REFUSED_SECOND_RUST_BOOTSTRAP\nmake[1]: *** [Makefile:3: all] Error 86\nmake: *** [Makefile:2: all] Error 2\n"
+      },
+      {
+        "case": "recursive-other",
+        "exit": 0,
+        "stdout": "make --no-print-directory -C child\nBUILD\n",
+        "stderr": ""
+      },
+      {
+        "case": "actual-sdk-stale-compiler-refused",
+        "exit": 2,
+        "stdout": "",
+        "stderr": "Makefile:108: WARNING: skipping rust -- package has no install section\nQELI_REFUSED_SECOND_RUST_BOOTSTRAP\nmake: *** [Makefile:107: /var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/.built] Error 86\n"
+      },
+      {
+        "case": "actual-sdk-cached-compiler-reused",
+        "exit": 0,
+        "stdout": "",
+        "stderr": "Makefile:108: WARNING: skipping rust -- package has no install section\n"
+      },
+      {
+        "case": "actual-sdk-defconfig-normal-prerequisites",
+        "exit": 0,
+        "stdout": "Checking 'true'... ok.\nChecking 'false'... ok.\nChecking 'working-make'... ok.\nChecking 'case-sensitive-fs'... ok.\nChecking 'proper-umask'... ok.\nChecking 'gcc'... updated.\nChecking 'working-gcc'... ok.\nChecking 'g++'... updated.\nChecking 'working-g++'... ok.\nChecking 'ncurses.h'... ok.\nChecking 'git'... ok.\nChecking 'rsync'... ok.\nChecking 'perl-data-dumper'... ok.\nChecking 'perl-findbin'... ok.\nChecking 'perl-file-copy'... ok.\nChecking 'perl-file-compare'... ok.\nChecking 'perl-thread-queue'... ok.\nChecking 'perl-ipc-cmd'... ok.\nChecking 'tar'... ok.\nChecking 'find'... ok.\nChecking 'bash'... updated.\nChecking 'xargs'... ok.\nChecking 'patch'... ok.\nChecking 'diff'... ok.\nChecking 'cp'... updated.\nChecking 'seq'... ok.\nChecking 'awk'... ok.\nChecking 'grep'... updated.\nChecking 'egrep'... updated.\nChecking 'getopt'... ok.\nChecking 'realpath'... ok.\nChecking 'stat'... ok.\nChecking 'gzip'... updated.\nChecking 'unzip'... ok.\nChecking 'bzip2'... ok.\nChecking 'wget'... ok.\nChecking 'install'... ok.\nChecking 'perl'... ok.\nChecking 'python'... updated.\nChecking 'python3'... updated.\nChecking 'python3-distutils'... ok.\nChecking 'python3-stdlib'... ok.\nChecking 'file'... ok.\nChecking 'which'... ok.\nChecking 'argp.h'... ok.\nChecking 'fts.h'... ok.\nChecking 'obstack.h'... ok.\nChecking 'libintl.h'... ok.\nChecking 'ldconfig-stub'... ok.\nmake[1]: Entering directory '/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/scripts/config'\ncc -O2    -c -o conf.o conf.c\ncc -O2    -c -o confdata.o confdata.c\ncc -O2    -c -o expr.o expr.c\ncc -O2 -I //var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/scripts/config   -c -o lexer.lex.o lexer.lex.c\ncc -O2    -c -o menu.o menu.c\ncc -O2 -I //var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/scripts/config   -c -o parser.tab.o parser.tab.c\ncc -O2    -c -o preprocess.o preprocess.c\ncc -O2    -c -o symbol.o symbol.c\ncc -O2    -c -o util.o util.c\ncc   conf.o confdata.o expr.o lexer.lex.o menu.o parser.tab.o preprocess.o symbol.o util.o   -o conf\nmake[1]: Leaving directory '/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/scripts/config'\n\n\ntouch .config\n[ -L .config ] && export KCONFIG_OVERWRITECONFIG=1; \\\n\tscripts/config/conf  --defconfig=.config Config.in\n#\n# configuration written to .config\n#\n",
+        "stderr": "WARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'eip197-mini-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'airoha-en8811h-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'r8169-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'e100-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'bnx2-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'bnx2x-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'ar3k-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'mwifiex-sdio-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'kmod-phy-bcm-ns-usb2', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'edgeport-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'r8152-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'kmod-phy-bcm-ns-usb3', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'amdgpu-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'i915-firmware-dmc', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'radeon-firmware', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'kmod-gpio-button-hotplug', which does not exist\nWARNING: Makefile 'package/kernel/linux/Makefile' has a dependency on 'nu801', which does not exist\ntmp/.config-package.in:66:warning: ignoring type redefinition of 'PACKAGE_libc' from 'bool' to 'tristate'\ntmp/.config-package.in:93:warning: ignoring type redefinition of 'PACKAGE_libgcc' from 'bool' to 'tristate'\ntmp/.config-package.in:207:warning: ignoring type redefinition of 'PACKAGE_libpthread' from 'bool' to 'tristate'\ntmp/.config-package.in:262:warning: ignoring type redefinition of 'PACKAGE_librt' from 'bool' to 'tristate'\nConfig-build.in:1247:warning: defaults for choice values not supported\nConfig-build.in:1251:warning: defaults for choice values not supported\nConfig-build.in:1255:warning: defaults for choice values not supported\n"
+      }
+    ],
+    "guard_sha256": "5c062711226215040bf2bfcda41615ecc696e52a1f06e7fa3c4af9099eedb9f5",
+    "guard_recipe": "/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/.built: ACLOCAL_INCLUDE = $(foreach p,$(wildcard $(STAGING_DIR_HOST)/share/aclocal $(STAGING_DIR_HOST)/share/aclocal-* ),-I $(p))\n# makefile (from 'Makefile', line 107)\n/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/.built: PKG_CONFIG_PATH = $(STAGING_DIR_HOST)/lib/pkgconfig:$(HOST_BUILD_PREFIX)/lib/pkgconfig\n# makefile (from 'Makefile', line 107)\n/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/.built: PKG_CONFIG_LIBDIR = $(HOST_BUILD_PREFIX)/lib/pkgconfig\n# makefile (from 'Makefile', line 107)\n/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/.built: GIT_CEILING_DIRECTORIES = $(BUILD_DIR_HOST)\n# makefile (from 'Makefile', line 107)\n/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/.built: STAGING_PREFIX = $(HOST_BUILD_PREFIX)\n/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/.built: /var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/.configured /var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/.built_check\n#  Precious file (prerequisite of .PRECIOUS).\n#  Command line target.\n#  Implicit rule search has not been done.\n#  Last modified 2026-10-15 14:41:33.583309981\n#  File has been updated.\n#  Needs to be updated (-q is set).\n# variable set hash-table stats:\n# Load=5/32=16%, Rehash=0, Collisions=0/9=0%\n#  recipe to execute (from 'Makefile', line 107):\n\t\techo QELI_REFUSED_SECOND_RUST_BOOTSTRAP >&2; exit 86;\n\t\t\t CARGO_HOME=/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/dl/cargo TARGET_CFLAGS=\"-Os -pipe -fno-caller-saves -fno-plt -fhonour-copts -ffile-prefix-map=/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/rust-1.89.0=rust-1.89.0 -Wformat -Werror=format-security -fstack-protector -D_FORTIFY_SOURCE=1 -Wl,-z,now -Wl,-z,relro\" python3 /var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/x.py --build-dir /var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7/sdk/build_dir/target-x86_64_musl/host/rustc-1.89.0-src/build dist build-manifest rustc rust-std cargo llvm-tools rust-src\n\t\t\n\t\ttouch $@\n\n# Not a target:\n.S.o:\n#  Builtin rule\n#  Implicit rule search has not been done.\n#  Modification time never checked.\n#  File has not been updated.\n#  recipe to execute (built-in):\n\t$(COMPILE.S) -o $@ $<\n\n.NOTPARALLEL:\n#  Implicit rule search has not been done.",
+    "compiler_stamps_unchanged": true,
+    "compiler_tools_unchanged": true,
+    "SDK_restored_from_qualified_copy": true,
+    "bootstrap_executions": 0,
+    "observed_unix": 1792066487.2462416,
+    "host_preserved": true,
+    "root": "/var/tmp/qeli-q31-long-bootstrap-a769b5261c154f97a480f699a182c8e7",
+    "cookie": "2049:262153",
+    "compiler_result_sha256": "9eecb2bf9d999d0e56ceb386222d194a09cfa62902d24d1479ba2018484ab8c0",
+    "SDK_restored_after_guard_tests": true
+  },
+  "guard_qualification_sha256": "3b813cf74079d2328006209783c2c04169cc2aa1023edf4c5c55a691b55c7f85",
+  "no_push_deploy_release": true
+}

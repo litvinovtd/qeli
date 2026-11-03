@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "status": "SCOPED_DOCS_RECONCILIATION_NATIVE_DEBT_OPEN_APPROVAL_PENDING",
+  "source_digest": "2c1e4943d62d5ebc9f1dfa3fb42d78c04d7b87e5164c76fb3175dd321f0e3c08",
+  "scope": "Documentation-only October7 current debt reconciliation: original October3 register14DONE+D06accepted applies to historical candidate; after subsequent native source/recipe changes D11/D15 reopened IN_PROGRESS,12DONE+D06accepted for current tree. STALE native provenance actually observed; no artifact/digest/evidence substitution. Both old verified backups retained; auto-review rejected eight-root cleanup because general close-debt request was not explicit exact-path approval. Explicit async approval requested,not received; no cleanup or native builds performed. Bounded private/offline Cargo/Zig cache audit driver prepared locally,not executed. Q29SIGKILL minimal-platform-control FAIL remains;Q30 noncancellable callback drain real Apple qualification NOT_RUN/user-excluded;Q31 SDK/release pipeline remains audit IN_PROGRESS. No arbitrary watchdog/unlock/BPF/release-tag workaround. No TODO/FIXME/unimplemented found in inspected primary production roots; this is not complete absence-of-bugs proof. Docs9/bindings/diff PASS,production inputs unchanged; no new runtime/tests claimed.41historic cases/acceptance and40prior supplements preserved except source_digest. Overall full audit28/37 unchanged; original exclusions/D06/Q29/Q30/Q31 scopes retained. No services/network/firewall/globaltools changes,no push/deploy.",
+  "base_worktree_commit": "062eebc7fce40e065906d983b92e2992e1f51731",
+  "base_dev_commit": "b0bdb096745d90bc184f4406dbb7ab2f4c2abfc5",
+  "checks": {
+    "docs": 9,
+    "bindings": "PASS",
+    "diff": "PASS",
+    "native_provenance": "STALE",
+    "native_builds_executed": false,
+    "cleanup_executed": false,
+    "explicit_reply_received": false
+  },
+  "raw_packet": "C:\\Users\\litvi\\OneDrive\\Documents\\qeli\\audit-debt-20260924\\native-debt-close-20261007",
+  "raw_seal_sha256": "f16ba4effe63228858506d8bee0dfae0b8081eaac30b1c7d0d7009f267c8d945",
+  "raw_sealed_files": 9
+}
