@@ -1,207 +1,207 @@
 {
   "schema_version": 1,
   "release_version": "0.8.4",
-  "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+  "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
   "cases": [
     {
       "id": "linux.outer4.inner4.tcp.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer4.inner6.tcp.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer6.inner4.tcp.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer6.inner6.tcp.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer4.inner4.udp-fake-tls.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer4.inner6.udp-fake-tls.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer6.inner4.udp-fake-tls.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer6.inner6.udp-fake-tls.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer4.inner4.udp-quic.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer4.inner6.udp-quic.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer6.inner4.udp-quic.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.outer6.inner6.udp-quic.full",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.dual.tcp.split",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.dual.udp.split",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.dns.ipv4-ipv6",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.mtu.1280-pmtu-ptb",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.leak.ipv4-ipv6",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.tap.ndp-ra",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.legacy-peer",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "linux.roaming-flap-soak",
       "kind": "automated",
       "status": "passed",
-      "source_digest": "913d5a1742758a0e21fadd143e148377176cb1477b6c2684f2a1669a1de617a1",
+      "source_digest": "291315622dc22cd573f776c9ec069eb25a075ee2dc914bf437d1c1ba6d6f94b2",
       "artifact_sha256": "5cc237e1ce465eed4b6112aa6a1b353ab2a0433238c436998efd1b7296835cc7",
-      "executed_at": "2026-11-02T21:16:14.661918+00:00",
+      "executed_at": "2026-11-03T10:24:04.544036+00:00",
       "environment": "debian | Linux-6.12.105+deb13-amd64-x86_64-with-glibc2.41",
-      "evidence": "release/certification/evidence/ipv6-linux-084-android-wifi-20261102.json"
+      "evidence": "release/certification/evidence/ipv6-linux-084-wintun-recreate-20261103.json"
     },
     {
       "id": "android.wifi-to-cellular",
