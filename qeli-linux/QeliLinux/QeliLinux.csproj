@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.20" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.20" />
+    <ProjectReference Include="../../qeli-shared/QeliShared/QeliShared.csproj" />
+    <AvaloniaResource Include="../../assets/branding/qeli-logo.png" Link="Assets/qeli-logo.png" />
+  </ItemGroup>
+</Project>

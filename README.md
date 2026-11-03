@@ -101,6 +101,7 @@ Something went wrong? → **[Troubleshooting (EN)](docs/eng/manuals/TROUBLESHOOT
 |------|------------|
 | `qeli/` | Rust daemon: server, client CLI, protocol core, web panel |
 | `qeli-win/`, `qeli-mac/` | Desktop GUI clients (C#/.NET, shared core in `qeli-shared/`) — [Windows](qeli-win/README.md) · [macOS](qeli-mac/README.md) |
+| `qeli-linux/` | Initial Linux desktop GUI (Avalonia/.NET, existing Rust CLI data plane) — [Linux](qeli-linux/README.md) |
 | `qeli-android/` | Android client (Kotlin) — [README](qeli-android/README.md) |
 | `qeli-ios/` | iOS client (Swift), feature-complete but untested on a device — [README](qeli-ios/README.md) · [MDM](qeli-ios/MDM/README.md) |
 | `qeli-openwrt/` | Router build (Keenetic / OpenWrt) — [README](qeli-openwrt/README.md) |

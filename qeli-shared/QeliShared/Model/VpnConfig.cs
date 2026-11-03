@@ -589,9 +589,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             sb.AppendLine($"jmax = {AwgJmax}");
         }
         if (QuicEnabled) sb.AppendLine("quic = true");
-        // Routing: emit `gateway = false` only for split-tunnel so the choice survives
-        // a save/export round-trip (mirrors the Rust/Android client's `gateway` key).
-        if (!IsFullTunnel) sb.AppendLine("gateway = false");
+        sb.AppendLine($"gateway = {IsFullTunnel.ToString().ToLowerInvariant()}");
         if (!Ipv6Policy.Equals("auto", StringComparison.OrdinalIgnoreCase))
             sb.AppendLine($"ipv6 = {IniSafe(Ipv6Policy.ToLowerInvariant())}");
         if (!RoamingPolicy.Equals("auto", StringComparison.OrdinalIgnoreCase))

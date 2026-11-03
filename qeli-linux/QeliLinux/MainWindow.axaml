@@ -1,0 +1,66 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="QeliLinux.MainWindow"
+        Title="Qeli · Quick Easy Link IP" Width="980" Height="660"
+        MinWidth="760" MinHeight="560" WindowStartupLocation="CenterScreen">
+  <Window.Styles>
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="Margin" Value="0,0,8,8" />
+    </Style>
+  </Window.Styles>
+  <Grid Margin="16" ColumnDefinitions="300,16,*">
+    <Grid RowDefinitions="62,Auto,*,Auto">
+      <Grid ColumnDefinitions="32,*" ColumnSpacing="11">
+        <Image Source="avares://QeliLinux/Assets/qeli-logo.png"
+               Width="32" Height="32" />
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+          <TextBlock Text="Qeli" FontSize="19" FontWeight="SemiBold" />
+          <TextBlock Text="Quick Easy Link IP" FontSize="11" Opacity="0.6" />
+        </StackPanel>
+      </Grid>
+      <TextBlock Grid.Row="1" Classes="section" Text="Profiles" Margin="10,4,0,12" />
+      <ListBox Grid.Row="2" x:Name="Profiles" Padding="6" CornerRadius="8"
+               BorderThickness="1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+      <Button Grid.Row="3" x:Name="DeleteProfile" Content="Delete profile"
+              HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,14,0,0" />
+    </Grid>
+    <GridSplitter Grid.Column="1" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
+                  HorizontalAlignment="Stretch" Background="Transparent" />
+    <Grid Grid.Column="2" RowDefinitions="Auto,14,*">
+      <Grid ColumnDefinitions="*,Auto" MinHeight="102" Margin="6,0">
+        <StackPanel VerticalAlignment="Center" Spacing="6" Margin="0,0,16,0">
+          <TextBlock Classes="section" Text="VPN" />
+          <TextBlock x:Name="Status" Text="Stopped" FontSize="21" FontWeight="Bold" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
+          <Button x:Name="StartVpn" Content="Start VPN" Classes="accent" Padding="24,10"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+          <Button x:Name="StopVpn" Content="Stop VPN" IsEnabled="False"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+        </StackPanel>
+      </Grid>
+      <TabControl Grid.Row="2">
+        <TabItem Header="Configuration">
+          <Grid RowDefinitions="Auto,*,Auto" Margin="0,12,0,0">
+            <TextBox x:Name="ProfileName" Watermark="Profile name" Margin="0,0,0,12" />
+            <TextBox Grid.Row="1" x:Name="Editor" AcceptsReturn="True" TextWrapping="Wrap"
+                     FontFamily="Cascadia Mono, DejaVu Sans Mono, monospace" FontSize="12" Padding="12"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+            <Button Grid.Row="2" x:Name="SaveProfile" Content="Save profile" Classes="accent"
+                    HorizontalAlignment="Right" Padding="20,8" Margin="0,12,0,0" />
+          </Grid>
+        </TabItem>
+        <TabItem Header="Journal">
+          <TextBox x:Name="Journal" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                   FontFamily="Cascadia Mono, DejaVu Sans Mono, monospace" FontSize="12" Padding="12"
+                   Margin="0,12,0,0" ScrollViewer.VerticalScrollBarVisibility="Auto" />
+        </TabItem>
+      </TabControl>
+    </Grid>
+  </Grid>
+</Window>

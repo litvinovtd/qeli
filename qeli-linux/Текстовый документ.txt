@@ -1,0 +1,1 @@
+qeli://linux:qwer@104.222.177.184:443?proto=tcp&mode=reality-tls&key=3b79244cfe5eb44a42aebf6f2543dce1ba8236b856064c8edd00418fb8b43221&sni=www.microsoft.com&rsid=f0e25b580a49eb69#linux

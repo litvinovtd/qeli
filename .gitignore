@@ -103,3 +103,7 @@ release/qeli-*-amd64
 qeli-android/*.apk
 # Local compact source snapshots used for offline review
 /qeli-compact-src.tar.gz
+
+qeli-linux/dist/
+qeli-linux/packages/
+

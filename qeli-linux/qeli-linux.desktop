@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Qeli
+Comment=Qeli VPN client
+Exec=/opt/qeli-linux/QeliLinux
+Icon=qeli
+Terminal=false
+Categories=Network;

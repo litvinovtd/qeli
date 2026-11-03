@@ -104,7 +104,11 @@ fn init_logging(level: &str, file: Option<&str>, time_format: &str) {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let (level, log_file, time_format) = peek_logging(&cli.config);
+    let (level, log_file, time_format) = if cli.config == std::path::Path::new("/dev/stdin") {
+        ("info".to_string(), None, "datetime".to_string())
+    } else {
+        peek_logging(&cli.config)
+    };
     init_logging(&level, log_file.as_deref(), &time_format);
 
     let config_str = cli.config.to_str().ok_or_else(|| {
