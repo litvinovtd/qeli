@@ -209,6 +209,10 @@ pub(crate) struct TcpRoamingSession {
     initial_transport_attached: std::sync::atomic::AtomicBool,
     retained_bytes: usize,
     handover_enabled: bool,
+    #[cfg(target_os = "linux")]
+    slot_health: std::sync::Mutex<super::tcp_slot::Health>,
+    #[cfg(target_os = "linux")]
+    probe_enabled: std::sync::atomic::AtomicBool,
 }
 #[cfg(feature = "experimental-roaming")]
 #[derive(Clone, Copy)]
@@ -244,7 +248,16 @@ impl TcpRoamingSession {
             // records, so the profile-wide byte cap is conservative and deterministic.
             retained_bytes: SERVER_WIRE_BUFFER_BYTES,
             handover_enabled: policy.handover_enabled,
+            #[cfg(target_os = "linux")]
+            slot_health: Default::default(),
+            #[cfg(target_os = "linux")]
+            probe_enabled: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn ready_carrier(&self, slot: u32) -> Option<u64> {
+        lock_or_recover(&self.lifecycle, "tcp_slot::ready_carrier").ready_transport(slot)
     }
 
     fn mark_initial_transport_attached(&self) {
@@ -737,6 +750,48 @@ impl SessionShared {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    fn observe_tcp_slot(&self, slot: u32, window: super::tcp_slot::DeliveryWindow) {
+        let Some(roaming) = &self.tcp_roaming else {
+            return;
+        };
+        if self.is_revoked()
+            || self.bandwidth_limit_mbps.load(Ordering::Relaxed) != 0
+            || !roaming.probe_enabled.load(Ordering::Relaxed)
+            || roaming.ready_carrier(slot) != Some(window.carrier)
+        {
+            return;
+        }
+        let request =
+            lock_or_recover(&roaming.slot_health, "tcp_slot::record").record(slot, window);
+        let Some(request) = request else { return };
+        let Ok(frame) = request.encode() else { return };
+        // Send the request on another ready carrier. The slow socket may have
+        // an arbitrarily long backlog. A failed request leaves that socket alone.
+        let streams = lock_or_recover(&self.streams, "tcp_slot::request");
+        for stream in streams
+            .iter()
+            .filter(|s| s.ready && s.logical_slot_id != slot)
+        {
+            let (sent, _) = tokio::sync::oneshot::channel();
+            if stream
+                .terminal_management
+                .try_send(TerminalManagementWrite {
+                    frames: vec![frame.clone()],
+                    repetitions: 1,
+                    sent,
+                })
+                .is_ok()
+            {
+                log::info!(
+                    "TCP_SLOT_CANDIDATE_REQUEST session={} slot={slot}",
+                    self.session_id
+                );
+                break;
+            }
+        }
+    }
+
     /// All streams' kick channels (used by control-plane kick / supersede).
     ///
     /// Also raises `revoked`, which is what actually stops the UDP INGRESS — the stream
@@ -891,7 +946,7 @@ enum StreamAttach {
 }
 
 impl StreamAttach {
-    #[cfg(feature = "experimental-roaming")]
+    #[cfg(any(feature = "experimental-roaming", target_os = "linux"))]
     fn logical_slot_id(self) -> u32 {
         match self {
             Self::Primary => 0,
@@ -1409,6 +1464,23 @@ where
             {
                 profile.pool.lock().await.release(&dkey);
                 return Err(error.context("cannot register usage counters"));
+            }
+            #[cfg(target_os = "linux")]
+            if let Some(roaming) = &session.tcp_roaming {
+                use crate::protocol::capabilities::client_capability::TCP_SLOT_PROBE_V1;
+                // Probe records use the profile padding and normalization. Shaping
+                // promises a timing policy that a delivery burst cannot preserve.
+                roaming.probe_enabled.store(
+                    super::tcp_slot::experimental_enabled()
+                        && max_streams > 1
+                        && matches!(
+                            pcfg.obfuscation.mode.as_str(),
+                            "plain" | "fake-tls" | "reality-tls"
+                        )
+                        && !pcfg.obfuscation.traffic_shaping.enabled
+                        && capabilities.is_some_and(|caps| caps.core_bits & TCP_SLOT_PROBE_V1 != 0),
+                    Ordering::Relaxed,
+                );
             }
             let mut replaced_session = None;
             let mut replaced_routes = Vec::new();
@@ -2336,6 +2408,102 @@ pub(crate) fn encrypt_server_stream_payload(
         .is_ok()
 }
 
+#[cfg(target_os = "linux")]
+#[allow(clippy::too_many_arguments)]
+async fn check_tcp_slot_candidate<R, W>(
+    pcfg: &crate::config::server::ProfileConfig,
+    session: &SessionShared,
+    slot: u32,
+    nonce: u64,
+    reader: &mut R,
+    writer: &mut W,
+    tx: &std::sync::Mutex<PacketCodec>,
+    rx: &mut PacketCodec,
+    framing: Framing,
+) -> anyhow::Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    use crate::protocol::tcp_slot_probe::{Request, BUDGET, CHUNK, CHUNKS};
+    let roaming = session
+        .tcp_roaming
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("missing resume state"))?;
+    let candidate = lock_or_recover(&roaming.slot_health, "tcp_slot::claim")
+        .claim(Request { slot, nonce })
+        .ok_or_else(|| anyhow::anyhow!("stale or unknown TCP slot probe request"))?;
+    if session.bandwidth_limit_mbps.load(Ordering::Relaxed) != 0
+        || roaming.ready_carrier(slot) != Some(candidate.old_carrier)
+    {
+        anyhow::bail!("TCP slot probe is no longer eligible");
+    }
+    static ACTIVE_PROBES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+    let _probe_permit = ACTIVE_PROBES.try_acquire()?;
+    let mut payload = vec![0u8; CHUNK];
+    let receipt: [u8; 16] = rand::random();
+    let mut record = Vec::new();
+    let mut padding = Vec::new();
+    const RECORD_BUDGET: usize = 1500;
+    let mut burst = Vec::with_capacity(CHUNKS * RECORD_BUDGET);
+    for index in 0..CHUNKS {
+        if index + 1 == CHUNKS {
+            payload[..receipt.len()].copy_from_slice(&receipt);
+        }
+        anyhow::ensure!(
+            encrypt_server_stream_payload(
+                tx,
+                &payload,
+                RECORD_BUDGET,
+                pcfg,
+                &mut record,
+                &mut padding
+            ),
+            "TCP slot probe record could not be encrypted"
+        );
+        burst.extend_from_slice(&record);
+    }
+    log::debug!(
+        "TCP_SLOT_CANDIDATE_PROBING session={} slot={slot}",
+        session.session_id
+    );
+    // The start record from the client acknowledges JOINOK. The authenticated
+    // receipt proves all probe records reached its decoder. Compare TCP wire
+    // bytes for both carriers, including padding and transport wrappers.
+    let ack_before = super::tcp_slot::acknowledged_bytes();
+    let start = tokio::time::Instant::now();
+    tokio::time::timeout(BUDGET, async {
+        writer.write_all_flush(&burst).await?;
+        let answer = rx.decrypt_packet(&read_record(reader, framing).await?)?;
+        anyhow::ensure!(answer == receipt, "TCP slot probe receipt mismatch");
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    let elapsed = start.elapsed();
+    let delivered = ack_before
+        .zip(super::tcp_slot::acknowledged_bytes())
+        .and_then(|(before, after)| after.checked_sub(before))
+        .filter(|bytes| *bytes >= burst.len() as u64)
+        .ok_or_else(|| anyhow::anyhow!("TCP slot probe lacks kernel delivery evidence"))?;
+    let current_bps =
+        lock_or_recover(&roaming.slot_health, "tcp_slot::compare").current_rate(candidate);
+    if session.bandwidth_limit_mbps.load(Ordering::Relaxed) != 0
+        || roaming.ready_carrier(slot) != Some(candidate.old_carrier)
+        || !candidate.improves(delivered, elapsed, current_bps)
+    {
+        anyhow::bail!(
+            "TCP slot candidate did not improve delivery: wire_bytes={delivered} elapsed_ms={} old_recent_Bps={current_bps}",
+            elapsed.as_millis()
+        );
+    }
+    log::info!(
+        "TCP_SLOT_CANDIDATE_VALIDATED session={} slot={slot} elapsed_ms={} wire_bytes={delivered}",
+        session.session_id,
+        elapsed.as_millis()
+    );
+    Ok(())
+}
+
 /// Run one bonded connection (stream) of a session: a reader task (decrypt →
 /// TUN) and the writer/heartbeat/idle loop. Adds itself to the session on entry
 /// and detaches on exit, tearing the session down when it was the last stream.
@@ -2472,7 +2640,28 @@ async fn run_stream<R, W>(
                 )
                 .await
                 .map_err(|_| anyhow::anyhow!("client commit confirmation timed out"))??;
-                let plaintext = server_rx.decrypt_packet(&record)?;
+                let mut plaintext = server_rx.decrypt_packet(&record)?;
+                #[cfg(target_os = "linux")]
+                if let Some(nonce) = crate::protocol::tcp_slot_probe::probe_nonce(&plaintext) {
+                    check_tcp_slot_candidate(
+                        pcfg,
+                        &session,
+                        reservation.logical_slot_id(),
+                        nonce,
+                        &mut read_half,
+                        &mut write_half,
+                        &server_tx,
+                        &mut server_rx,
+                        framing,
+                    )
+                    .await?;
+                    let record = tokio::time::timeout(
+                        crate::protocol::tcp_slot_probe::BUDGET,
+                        read_record(&mut read_half, framing),
+                    )
+                    .await??;
+                    plaintext = server_rx.decrypt_packet(&record)?;
+                }
                 if plaintext != crate::protocol::roaming::TCP_RESUME_COMMIT {
                     anyhow::bail!("unexpected TCP resume commit confirmation");
                 }
@@ -2806,6 +2995,22 @@ async fn run_stream<R, W>(
         }
     };
     {
+        #[cfg(target_os = "linux")]
+        let dequeued = AtomicU64::new(0);
+        #[cfg(target_os = "linux")]
+        let observe_slot = super::tcp_slot::active();
+        #[cfg(target_os = "linux")]
+        let slot_observation = super::tcp_slot::observe(
+            &profile.name,
+            session.session_id,
+            stream_attach.logical_slot_id(),
+            stream_id,
+            addr,
+            &dequeued,
+            |window| session.observe_tcp_slot(stream_attach.logical_slot_id(), window),
+        );
+        #[cfg(not(target_os = "linux"))]
+        let slot_observation = std::future::pending::<()>();
         let pump = async {
             'writer: loop {
                 let mux_deadline = recordizer
@@ -2893,6 +3098,10 @@ async fn run_stream<R, W>(
                         // flow stops looking like a line-rate bulk download.
                         let priority_control =
                             crate::protocol::control_v2::is_control_v2(packet.as_ref());
+                        #[cfg(target_os = "linux")]
+                        if observe_slot && !priority_control {
+                            dequeued.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                        }
                         let bw = session.bandwidth_limit_mbps.load(Ordering::Relaxed);
                         let limit = if shaping_on && shaper.stealth() {
                             let sr = shaper.stealth_rate_mbps();
@@ -3107,12 +3316,15 @@ async fn run_stream<R, W>(
             _ = kick_rx.recv() => {},
             _ = dead_rx.recv() => {},
             _ = health => {},
+            _ = slot_observation => {},
             _ = pump => {},
         }
     }
 
     // Cancellation may interrupt a partially written encrypted record. Close both
     // halves terminally; never reuse this writer or retry the record on a sibling.
+    #[cfg(target_os = "linux")]
+    super::tcp_slot::release();
     drop(write_half);
     let _ = shutdown_tx.send(true);
     if let Some(reader) = reader_abort {

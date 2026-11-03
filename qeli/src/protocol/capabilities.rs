@@ -34,6 +34,7 @@ pub mod server_capability {
     pub const TCP_RESUME_V2: u64 = 1 << 9;
     pub const TCP_HANDOVER_V2: u64 = 1 << 10;
     pub const MANAGEMENT_V1: u64 = 1 << 11;
+    pub const TCP_SLOT_PROBE_V1: u64 = 1 << 12;
     pub const ROAMING_RESERVED: u64 =
         UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1 | TCP_RESUME_V2 | TCP_HANDOVER_V2;
 }
@@ -53,6 +54,7 @@ pub mod client_capability {
     pub const TCP_RESUME_V2: u64 = 1 << 8;
     pub const TCP_HANDOVER_V2: u64 = 1 << 9;
     pub const MANAGEMENT_V1: u64 = 1 << 10;
+    pub const TCP_SLOT_PROBE_V1: u64 = 1 << 11;
     pub const ROAMING_RESERVED: u64 =
         UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1 | TCP_RESUME_V2 | TCP_HANDOVER_V2;
 }
@@ -100,6 +102,8 @@ pub const fn implemented_server_capabilities() -> ServerCapabilities {
         | server_capability::MANAGEMENT_V1
         | server_capability::TCP_RESUME_V2
         | server_capability::TCP_HANDOVER_V2;
+    #[cfg(all(feature = "experimental-roaming", target_os = "linux"))]
+    let bits = bits | server_capability::TCP_SLOT_PROBE_V1;
     ServerCapabilities { bits }
 }
 
@@ -107,7 +111,8 @@ pub const fn implemented_server_capabilities() -> ServerCapabilities {
 pub const fn server_capabilities_for_profile(roaming_enabled: bool) -> ServerCapabilities {
     let mut capabilities = implemented_server_capabilities();
     if !roaming_enabled {
-        capabilities.bits &= !server_capability::ROAMING_RESERVED;
+        capabilities.bits &=
+            !(server_capability::ROAMING_RESERVED | server_capability::TCP_SLOT_PROBE_V1);
     }
     capabilities
 }
@@ -120,7 +125,8 @@ pub const fn implemented_udp_server_capabilities() -> ServerCapabilities {
     #[cfg(feature = "experimental-roaming")]
     {
         ServerCapabilities {
-            bits: capabilities.bits | server_capability::UDP_ROAM_V1,
+            bits: (capabilities.bits & !server_capability::TCP_SLOT_PROBE_V1)
+                | server_capability::UDP_ROAM_V1,
         }
     }
     #[cfg(not(feature = "experimental-roaming"))]
@@ -133,7 +139,8 @@ pub const fn implemented_udp_server_capabilities() -> ServerCapabilities {
 pub const fn udp_server_capabilities_for_profile(roaming_enabled: bool) -> ServerCapabilities {
     let mut capabilities = implemented_udp_server_capabilities();
     if !roaming_enabled {
-        capabilities.bits &= !server_capability::ROAMING_RESERVED;
+        capabilities.bits &=
+            !(server_capability::ROAMING_RESERVED | server_capability::TCP_SLOT_PROBE_V1);
     }
     capabilities
 }
@@ -385,6 +392,15 @@ pub fn negotiate_client_capabilities(
                 "roaming is required but this client core is missing capabilities 0x{missing_core:x}"
             );
         }
+    }
+
+    #[cfg(feature = "experimental-roaming")]
+    if config.server.protocol == "tcp"
+        && config.server.local_port == 0
+        && core_bits & client_capability::TCP_RESUME_V2 != 0
+        && server.contains(server_capability::TCP_RESUME_V2 | server_capability::TCP_SLOT_PROBE_V1)
+    {
+        core_bits |= client_capability::TCP_SLOT_PROBE_V1;
     }
 
     if config.routing.ipv6 == ClientIpv6Policy::Required {

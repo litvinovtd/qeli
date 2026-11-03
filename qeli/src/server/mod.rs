@@ -5,6 +5,8 @@ mod control_socket;
 pub mod dhcp;
 pub mod dns;
 mod network_lease;
+#[cfg(target_os = "linux")]
+mod tcp_slot;
 pub(crate) use crate::profile_tasks::{ProfileServices, ProfileTasks};
 pub mod handler;
 pub mod metrics;
@@ -7427,7 +7429,9 @@ async fn run_profile_generation(
                             jmax: pcfg.obfuscation.awg.jmax,
                         };
                         let name_conn = profile_clone.name.clone();
-                        profile_tasks.spawn(async move {
+                        #[cfg(target_os = "linux")]
+                        let observation = tcp_slot::capture(&stream);
+                        let connection = async move {
                             // Socket options on the raw TcpStream before any obfs wrapping.
                             let _ = stream.set_nodelay(nodelay);
                             if let Err(error) = set_tcp_keepalive(&stream, keepalive) {
@@ -7515,7 +7519,11 @@ async fn run_profile_generation(
                                     );
                                 }
                             }
-                        });
+                        };
+                        #[cfg(target_os = "linux")]
+                        let connection = tcp_slot::SOCKET
+                            .scope(std::cell::RefCell::new(observation), connection);
+                        profile_tasks.spawn(connection);
                     }
                 }
                 TransportProtocol::Udp => {

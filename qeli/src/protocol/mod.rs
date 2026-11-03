@@ -18,6 +18,8 @@ pub mod recordizer;
 pub mod roaming;
 pub mod shaper;
 pub(crate) mod stream_io;
+#[cfg(feature = "experimental-roaming")]
+pub(crate) mod tcp_slot_probe;
 pub mod tls;
 pub mod udp_frag;
 

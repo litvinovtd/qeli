@@ -4334,8 +4334,13 @@ async fn connect_and_run_tcp_owned(
 
 /// Immutable per-stream pump config (data-phase obfuscation + liveness), cheaply
 /// cloned into every bonded stream's tasks.
+#[cfg(feature = "experimental-roaming")]
+type SlotProbeRequest = Arc<std::sync::Mutex<Option<crate::protocol::tcp_slot_probe::Request>>>;
+
 #[derive(Clone)]
 struct StreamPump {
+    #[cfg(feature = "experimental-roaming")]
+    slot_probe: Option<SlotProbeRequest>,
     framing: Framing,
     /// Authenticated address-family contract for both TUN directions.  Uplink validation alone
     /// is insufficient: a stale or incompatible peer must not inject an opposite-family packet
@@ -5157,6 +5162,8 @@ struct ClientTcpRxMetrics<'a> {
 
 #[derive(Clone, Copy)]
 struct ClientManagementRx<'a> {
+    #[cfg(feature = "experimental-roaming")]
+    slot_probe: Option<&'a SlotProbeRequest>,
     negotiated: bool,
     reassembler: &'a std::sync::Mutex<crate::protocol::control_v2::Reassembler>,
     sender: &'a tokio::sync::watch::Sender<Option<crate::protocol::control_v2::ManagementEvent>>,
@@ -5175,6 +5182,16 @@ fn deliver_client_tcp_plaintext(
         .last_rx
         .store(metrics.base.elapsed().as_millis() as u64, Ordering::Relaxed);
     if record.is_empty() {
+        return true;
+    }
+    #[cfg(feature = "experimental-roaming")]
+    if let Some(request) = crate::protocol::tcp_slot_probe::Request::decode(record.as_ref()) {
+        if let Some(slot_probe) = management.slot_probe {
+            let mut pending = crate::util::lock_or_recover(slot_probe, "tcp_slot::client_request");
+            if pending.is_none() {
+                *pending = Some(request);
+            }
+        }
         return true;
     }
     // Terminal management bypasses the recordizer's morphology queue. Consume that direct,
@@ -5338,6 +5355,8 @@ mod tcp_downlink_tests {
             tun,
             crate::transport_core::NetworkFamilyMode::Ipv4,
             ClientManagementRx {
+                #[cfg(feature = "experimental-roaming")]
+                slot_probe: None,
                 negotiated: false,
                 reassembler: &reassembler,
                 sender: &sender,
@@ -5658,6 +5677,8 @@ where
         let record_pool = tun_write_tx.clone();
         let recordizer_config = cfg.recordizer.clone();
         let management_v1 = cfg.management_v1;
+        #[cfg(feature = "experimental-roaming")]
+        let slot_probe = cfg.slot_probe.clone();
         let management_reassembler = cfg.management_reassembler.clone();
         let management_tx = cfg.management_tx.clone();
         let management_terminal_tx = terminal_tx.clone();
@@ -5696,6 +5717,8 @@ where
             let inner_management_terminal_tx = management_terminal_tx.clone();
             // Stage B: inner ChaCha decrypt → TUN. Ends when the reader drops
             // `rec_tx`. Never blocks (the TUN send is drop-on-full), so it always
+            #[cfg(feature = "experimental-roaming")]
+            let inner_slot_probe = cfg.slot_probe.clone();
             // drains the FIFO — the reader's backpressure send can therefore
             // always make progress (no deadlock).
             tasks.spawn(async move {
@@ -5713,6 +5736,8 @@ where
                                     reassembler: &inner_management_reassembler,
                                     sender: &inner_management_tx,
                                     terminal_sender: &inner_management_terminal_tx,
+                                    #[cfg(feature = "experimental-roaming")]
+                                    slot_probe: inner_slot_probe.as_ref(),
                                 },
                                 ClientTcpRxMetrics {
                                     last_rx: &inner_last_rx,
@@ -5773,6 +5798,8 @@ where
                                                 reassembler: &management_reassembler,
                                                 sender: &management_tx,
                                                 terminal_sender: &management_terminal_tx,
+                                                #[cfg(feature = "experimental-roaming")]
+                                                slot_probe: slot_probe.as_ref(),
                                             },
                                             ClientTcpRxMetrics {
                                                 last_rx: &last_rx,
@@ -6657,6 +6684,9 @@ where
         crate::protocol::control_v2::Reassembler::new(),
     ));
     let pump = StreamPump {
+        #[cfg(feature = "experimental-roaming")]
+        slot_probe: (tcp_resume.is_some() && config.server.local_port == 0)
+            .then(|| Arc::new(std::sync::Mutex::new(None))),
         framing,
         family_mode: negotiated_family_mode,
         heartbeat_enabled,
@@ -6984,7 +7014,25 @@ where
                     break;
                 }
                 let desired = desired_m.load(Ordering::Acquire).min(target);
-                if live_m.load(Ordering::Acquire) >= desired {
+                let complete = live_m.load(Ordering::Acquire) >= desired;
+                #[cfg(feature = "experimental-roaming")]
+                let probe = if complete {
+                    pump_m
+                        .slot_probe
+                        .as_ref()
+                        .and_then(|pending| {
+                            crate::util::lock_or_recover(pending, "tcp_slot::take_request").take()
+                        })
+                        .filter(|request| request.slot < desired as u32)
+                } else {
+                    None
+                };
+                #[cfg(feature = "experimental-roaming")]
+                if complete && probe.is_none() {
+                    continue;
+                }
+                #[cfg(not(feature = "experimental-roaming"))]
+                if complete {
                     continue;
                 }
                 if joining_m
@@ -7001,6 +7049,11 @@ where
                     let active = crate::util::lock_or_recover(active_slots, "client::active_slots");
                     let missing = (0..u32::try_from(desired).unwrap_or(u32::MAX))
                         .find(|slot| !active.contains_key(slot));
+                    #[cfg(feature = "experimental-roaming")]
+                    let missing = match probe {
+                        Some(request) => active.contains_key(&request.slot).then_some(request.slot),
+                        None => missing,
+                    };
                     drop(active);
                     let Some(missing) = missing else {
                         joining_m.store(false, Ordering::Release);
@@ -7023,15 +7076,35 @@ where
                     let mut stream = conn_m(StreamConnectRequest::default()).await?;
                     let (rx, tx) = tokio::time::timeout(
                         Duration::from_secs(cfg_m.server.connection_timeout_secs.max(1)),
-                        tcp_attach_handshake(
-                            &mut stream,
-                            &cfg_m,
-                            &token_m,
-                            logical_slot_id,
-                            resume_m.as_deref(),
-                            false,
-                            identity_m.clone(),
-                        ),
+                        async {
+                            #[allow(unused_mut)]
+                            let mut pending = tcp_prepare_attach_handshake(
+                                &mut stream,
+                                &cfg_m,
+                                &token_m,
+                                logical_slot_id,
+                                resume_m.as_deref(),
+                                false,
+                                identity_m.clone(),
+                            )
+                            .await?;
+                            #[cfg(feature = "experimental-roaming")]
+                            if let Some(request) = probe {
+                                use crate::protocol::tcp_slot_probe::{self, BUDGET};
+                                tokio::time::timeout(
+                                    BUDGET,
+                                    tcp_slot_probe::receive(
+                                        &mut stream,
+                                        pending.framing,
+                                        &mut pending.tx,
+                                        &mut pending.rx,
+                                        request,
+                                    ),
+                                )
+                                .await??;
+                            }
+                            finish_tcp_secondary_handshake(&mut stream, pending).await
+                        },
                     )
                     .await
                     .map_err(|_| anyhow::anyhow!("TCP attach handshake timed out"))??;
@@ -14396,6 +14469,8 @@ mod tcp_task_shutdown_tests {
             None,
             tasks.spawner(),
             StreamPump {
+                #[cfg(feature = "experimental-roaming")]
+                slot_probe: None,
                 framing: Framing::Raw,
                 family_mode: crate::transport_core::NetworkFamilyMode::Ipv4,
                 heartbeat_enabled: false,
