@@ -4382,10 +4382,13 @@ across reconnects, whereas this option keeps only the installed device after Sto
 The first connection attempt can install the device during prewarm, even if auth
 later fails. Later connections reuse the protected ownership receipt, PnP marker,
 device instance, exact interface GUID and an exclusive cross-process lease. A
-matching name alone is never adopted. If a previously installed device is missing
-or its identity changed, Qeli refuses rather than silently changing its GUID. The
-OS interface alias can differ from the Wintun internal name; firewall setup resolves
-the actual alias. Do not change the name/GUID while a connection is running.
+matching name alone is never adopted. If an adapter is deleted after a clean
+disconnect, Qeli checks that its previous PnP instance is absent and recreates it
+with a new GUID on the next connection for the same mode or profile. No console
+command is needed. An existing device with mismatched ownership/GUID, a failed
+PnP lookup, or a pending recovery journal blocks replacement and preserves the
+receipt. The OS interface alias can differ from the Wintun internal name; firewall
+setup resolves the actual alias. Do not change the name/GUID while connected.
 
 Before L3 setup, Qeli durably records the previous addresses/routes/DNS and the
 intended session entries under `%ProgramData%\QeliWin\persistent-adapters`, with

@@ -55,6 +55,17 @@ internal sealed class PersistentWintunNative : PersistentWintunDevice.IPlatform
     [DllImport("iphlpapi.dll")] private static extern uint ConvertInterfaceLuidToGuid(in ulong luid,out Guid guid);
     [DllImport("iphlpapi.dll",CharSet=CharSet.Unicode)] private static extern uint ConvertInterfaceLuidToAlias(in ulong luid,StringBuilder alias,UIntPtr length);
 
+    public bool IsDevicePresent(string deviceId)
+    {
+        const uint CrSuccess=0, CrNoSuchDevnode=0xD, LocateNormal=0;
+        return CM_Locate_DevNodeW(out _,deviceId,LocateNormal) switch
+        {
+            CrSuccess => true,
+            CrNoSuchDevnode => false,
+            uint error => throw new InvalidOperationException($"Cannot verify previous persistent Wintun PnP identity (CONFIGRET 0x{error:X})"),
+        };
+    }
+
     public PersistentWintunDevice.Node? Find(string name)
     {
         var list=SetupDiGetClassDevsW(NetClass,"SWD\\Wintun",IntPtr.Zero,2); // DIGCF_PRESENT: phantom registry nodes are not live devices.

@@ -2,8 +2,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using QeliWin.Vpn;
 
-// No PnP, adapter, route, DNS or administrator operations. Invoke only the actual
-// DLL trampoline with synthetic results, as Windows would call it after creation.
+// No PnP, adapter, route or DNS mutations, and no administrator rights needed.
+// Query a nonexistent PnP identity and exercise the real DLL callback with synthetic results.
 internal static class PersistentWintunCallbackTests
 {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -16,6 +16,8 @@ internal static class PersistentWintunCallbackTests
 
     internal static void Run(Action<bool,string> check)
     {
+        check(!new PersistentWintunNative().IsDevicePresent("SWD\\WINTUN\\"+Guid.NewGuid().ToString("B")),
+            "Windows confirms an absent PnP instance without creating a device");
         var address=PersistentWintunCallbacks.Address;
         check(address!=IntPtr.Zero && address==PersistentWintunCallbacks.Address,"persistent callback address is stable");
         check(GetModuleHandleExW(6,address,out var module),"OS callback belongs to a loaded native image");

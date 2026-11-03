@@ -24,6 +24,7 @@ internal static class PersistentWintunDevice
     internal interface IPlatform
     {
         Node? Find(string name);
+        bool IsDevicePresent(string deviceId);
         (IntPtr device, string deviceId) Create(Record record);
         void SetLifetime(IntPtr device, bool persistent);
         void CloseDevice(IntPtr device);
@@ -64,6 +65,9 @@ internal static class PersistentWintunDevice
             throw new InvalidOperationException("Persistent Wintun ownership/GUID mismatch; refusing to adopt or modify this device");
     }
 
+    private static Record CreationIntent(Guid key, string name) => new()
+    { Key=key, Token=Guid.NewGuid(), Instance=Guid.NewGuid().ToString("B"), Name=name };
+
     internal static Lease Open(Guid key, string name, IStore? store = null, IPlatform? platform = null, bool allowCreate=true)
     {
         store ??= Store; platform ??= Platform;
@@ -78,7 +82,7 @@ internal static class PersistentWintunDevice
             {
                 if(!allowCreate) throw new InvalidOperationException("No persistent adapter receipt");
                 if (node != null) throw new InvalidOperationException("Adapter name is already used without a Qeli ownership receipt");
-                record = new Record {Key=key,Token=Guid.NewGuid(),Instance=Guid.NewGuid().ToString("B"),Name=name};
+                record = CreationIntent(key,name);
                 Validate(record,key);
                 store.Write(record); // Durable creation intent BEFORE the PnP mutation.
             }
@@ -86,8 +90,17 @@ internal static class PersistentWintunDevice
             if (node == null)
             {
                 if(!allowCreate) throw new InvalidOperationException("Persistent adapter is absent; recovery never creates a device");
+                if (record.Network != null)
+                    throw new InvalidOperationException("Persistent adapter is absent with pending network recovery; the recovery journal was preserved");
                 if (record.InterfaceGuid != Guid.Empty)
-                    throw new InvalidOperationException("Previously installed persistent adapter is missing; explicit removal/reinstallation is required, not a new GUID");
+                {
+                    // A missing Wintun name is not proof of device removal. Check the
+                    // recorded PnP identity too; lookup errors must not cause replacement.
+                    if (platform.IsDevicePresent(record.DeviceId))
+                        throw new InvalidOperationException("Previous persistent adapter still exists under a different identity; refusing replacement");
+                    record = CreationIntent(key,record.Name);
+                    store.Write(record); // Replace the clean receipt before creating a fresh PnP instance.
+                }
                 (device, var id) = platform.Create(record);
                 record = record with {DeviceId=id};
                 Validate(record,key);

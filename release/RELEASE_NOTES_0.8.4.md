@@ -42,6 +42,11 @@ macOS, OpenWrt и Keenetic.
   global; выбор auto/фиксированного `utunN` в macOS. Уточнены восстановление
   сетевого состояния, блокировки и диагностика ошибок; добавлены исправления
   трея, размещения окон, истории трафика и discovery bindings своего Wintun.
+- **Повторное создание Wintun:** если постоянный адаптер удалён после штатного
+  отключения, при следующем подключении Qeli может создать новый с новым GUID
+  для того же профиля или общего режима. Существующий чужой адаптер не
+  заменяется; неоднозначная проверка PnP или незавершённое восстановление
+  сетевых настроек блокируют пересоздание.
 - **macOS GUI:** программная отрисовка Avalonia/Skia (`Software`) без выбора
   OpenGL/Metal. Цель — уменьшить память аппаратного рендерера; расход 170 МБ
   не является измеренным результатом или гарантией. Фактические RAM/CPU
@@ -220,6 +225,11 @@ traffic camouflage across networks are not promised.
   auto or fixed `utunN` on macOS; recovery/ownership safeguards and improvements
   to tray information, window positioning, traffic history and Wintun discovery
   bindings.
+- **Wintun recreation:** after a clean disconnect, deleting the persistent
+  adapter allows Qeli to create a replacement with a new GUID on the next
+  connection for the same profile or global mode. An existing foreign adapter
+  is not replaced; an ambiguous PnP lookup or pending network recovery blocks
+  recreation.
 - **macOS GUI:** Avalonia/Skia software rendering (`Software`) without selecting
   OpenGL/Metal. This aims to reduce hardware-renderer memory; 170 MB is neither
   a measured result nor a guarantee. Actual RAM/CPU require testing on a Mac;

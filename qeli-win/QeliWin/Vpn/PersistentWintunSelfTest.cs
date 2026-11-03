@@ -31,10 +31,14 @@ internal static class PersistentWintunSelfTest
     private sealed class Platform : PersistentWintunDevice.IPlatform
     {
         internal PersistentWintunDevice.Node? Node;
-        internal bool Persistent,WrongHandleGuid,FailLifetime,BusyRemoval,FailClose;
+        internal bool Persistent,WrongHandleGuid,FailLifetime,BusyRemoval,FailClose,FailPresenceCheck;
+        internal string? PresentUnderAnotherName;
         internal int Creates,Closes,Removals;
         internal readonly Guid InterfaceGuid=Guid.NewGuid();
         public PersistentWintunDevice.Node? Find(string name)=>Node;
+        public bool IsDevicePresent(string deviceId) => FailPresenceCheck
+            ? throw new IOException("Mock PnP inventory unavailable")
+            : Node?.DeviceId==deviceId || PresentUnderAnotherName==deviceId;
         public (IntPtr device,string deviceId) Create(PersistentWintunDevice.Record record)
         {
             Creates++;
@@ -106,8 +110,33 @@ internal static class PersistentWintunSelfTest
         check("persistent: explicit removal changes lifetime, closes own device and clears receipt",platform.Node==null && store.Value==null && platform.Removals==1);
 
         store=new Store();platform=new Platform();lease=PersistentWintunDevice.Open(key,"Qeli-test",store,platform);lease.Dispose();
-        platform.Node=null;
-        check("persistent: missing installed adapter never silently gets a new GUID",Throws(()=>PersistentWintunDevice.Open(key,"Qeli-test",store,platform)) && platform.Creates==1);
+        var deleted=store.Value!;
+        var replacement=new Platform();
+        check("persistent: recovery-only open never recreates an absent device",Throws(()=>PersistentWintunDevice.OpenExisting(key,store,replacement))
+            && replacement.Creates==0 && store.Value==deleted);
+        replacement.PresentUnderAnotherName=deleted.DeviceId;
+        check("persistent: missing name does not replace an existing PnP node",Throws(()=>PersistentWintunDevice.Open(key,"Qeli-test",store,replacement))
+            && replacement.Creates==0 && store.Value==deleted);
+        replacement.PresentUnderAnotherName=null;replacement.FailPresenceCheck=true;
+        check("persistent: ambiguous PnP lookup preserves the receipt",Throws(()=>PersistentWintunDevice.Open(key,"Qeli-test",store,replacement))
+            && replacement.Creates==0 && store.Value==deleted);
+        replacement.FailPresenceCheck=false;
+        store.Value=deleted with {Network=state with {InterfaceGuid=deleted.InterfaceGuid}};
+        var pending=store.Value;
+        check("persistent: deleted device with pending recovery never loses its journal",Throws(()=>PersistentWintunDevice.Open(key,"Qeli-test",store,replacement))
+            && replacement.Creates==0 && store.Value==pending);
+        store.Value=deleted;store.FailWrite=true;
+        check("persistent: failed replacement intent never creates another device",Throws(()=>PersistentWintunDevice.Open(key,"Qeli-test",store,replacement))
+            && replacement.Creates==0 && store.Value==deleted && !store.Locked);
+        store.FailWrite=false;
+        using(var recreated=PersistentWintunDevice.Open(key,"ignored-new-name",store,replacement))
+            check("persistent: a deleted clean device is recreated with a fresh identity",replacement.Creates==1 && recreated.Record.Key==key
+                && recreated.Record.Name==deleted.Name && recreated.Record.Token!=deleted.Token
+                && recreated.Record.Instance!=deleted.Instance && recreated.Record.DeviceId!=deleted.DeviceId
+                && recreated.Record.InterfaceGuid!=deleted.InterfaceGuid && recreated.Record.Network==null);
+        using(var reopened=PersistentWintunDevice.Open(key,"Qeli-test",store,replacement))
+            check("persistent: reconnect reuses the replacement GUID",replacement.Creates==1 && reopened.Record.InterfaceGuid==replacement.InterfaceGuid);
+        platform=replacement;platform.Node=null;
         PersistentWintunDevice.Remove(key,_=>{},store,platform);
         check("persistent: explicit removal recovers an already absent device receipt",store.Value==null);
         store=new Store();platform=new Platform();lease=PersistentWintunDevice.Open(key,"Qeli-test",store,platform);lease.Dispose();
