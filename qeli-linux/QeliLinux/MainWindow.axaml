@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="QeliLinux.MainWindow"
         Title="Qeli · Quick Easy Link IP" Width="980" Height="660"
+        Icon="avares://QeliLinux/Assets/qeli-logo.png"
         MinWidth="760" MinHeight="560" WindowStartupLocation="CenterScreen">
   <Window.Styles>
     <Style Selector="TextBlock.section">
@@ -31,7 +32,7 @@
     </Grid>
     <GridSplitter Grid.Column="1" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
                   HorizontalAlignment="Stretch" Background="Transparent" />
-    <Grid Grid.Column="2" RowDefinitions="Auto,14,*">
+    <Grid Grid.Column="2" RowDefinitions="Auto,14,*,Auto">
       <Grid ColumnDefinitions="*,Auto" MinHeight="102" Margin="6,0">
         <StackPanel VerticalAlignment="Center" Spacing="6" Margin="0,0,16,0">
           <TextBlock Classes="section" Text="VPN" />
@@ -61,6 +62,12 @@
                    Margin="0,12,0,0" ScrollViewer.VerticalScrollBarVisibility="Auto" />
         </TabItem>
       </TabControl>
+      <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0" Spacing="12">
+        <CheckBox x:Name="CloseToTray" IsEnabled="False" IsChecked="False"
+                  Content="Keep running in tray when closing"
+                  ToolTip.Tip="Enable only after the Qeli icon appears near your clock. GNOME needs AppIndicator support. This option applies to this session." />
+        <Button x:Name="ExitApp" Content="Exit Qeli" Margin="0" />
+      </StackPanel>
     </Grid>
   </Grid>
 </Window>

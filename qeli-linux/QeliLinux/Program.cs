@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using Qeli.Shared.Model;
 using System.Diagnostics;
@@ -17,11 +18,47 @@ internal static class Program
 
 public sealed partial class App : Application
 {
+    private TrayIcon? tray;
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-            desktop.MainWindow = new MainWindow();
+        {
+            var window = new MainWindow();
+            desktop.MainWindow = window;
+            var open = new NativeMenuItem("Open Qeli");
+            var start = new NativeMenuItem("Start VPN");
+            var stop = new NativeMenuItem("Stop VPN");
+            var exit = new NativeMenuItem("Exit Qeli");
+            open.Click += (_, _) => window.ShowFromTray();
+            start.Click += async (_, _) => { window.ShowFromTray(); await window.StartAsync(); };
+            stop.Click += async (_, _) => { window.ShowFromTray(); await window.StopAsync(); };
+            exit.Click += async (_, _) => { window.ShowFromTray(); await window.RequestExitAsync(); };
+            var menu = new NativeMenu();
+            menu.Items.Add(open);
+            menu.Items.Add(new NativeMenuItemSeparator());
+            menu.Items.Add(start);
+            menu.Items.Add(stop);
+            menu.Items.Add(new NativeMenuItemSeparator());
+            menu.Items.Add(exit);
+            using var icon = AssetLoader.Open(new Uri("avares://QeliLinux/Assets/qeli-logo.png"));
+            tray = new TrayIcon { Icon = new WindowIcon(icon), Menu = menu, IsVisible = true };
+            TrayIcon.SetIcons(this, new TrayIcons { tray });
+            tray.Clicked += (_, _) => window.ShowFromTray();
+            // An exporter means the platform supports tray menus, not that the DE
+            // actually displays them (GNOME requires an extension). Hiding is opt-in.
+            window.SetTrayAvailable(tray.NativeMenuExporter is not null);
+            void UpdateTray()
+            {
+                tray.ToolTipText = "Qeli · " + window.StatusText;
+                start.IsEnabled = window.CanStart;
+                stop.IsEnabled = window.CanStop;
+            }
+            window.StateChanged += (_, _) => UpdateTray();
+            UpdateTray();
+            desktop.Exit += (_, _) => { tray.Dispose(); tray = null; };
+        }
         base.OnFrameworkInitializationCompleted();
     }
 }
@@ -38,9 +75,19 @@ public sealed partial class MainWindow : Window
     private readonly TextBox journal;
     private readonly Button start;
     private readonly Button stop;
+    private readonly CheckBox closeToTray;
     private Process? runner;
+    private Task? runningTask;
     private bool busy;
+    private bool stopping;
+    private bool exiting;
     private bool closing;
+    private bool trayAvailable;
+
+    public event EventHandler? StateChanged;
+    public bool CanStart => !busy && !stopping && !exiting && runner is null;
+    public bool CanStop => !busy && !stopping && !exiting && runner is not null;
+    public string StatusText => status.Text ?? "Stopped";
 
     public MainWindow()
     {
@@ -52,6 +99,8 @@ public sealed partial class MainWindow : Window
         journal = this.FindControl<TextBox>("Journal")!;
         start = this.FindControl<Button>("StartVpn")!;
         stop = this.FindControl<Button>("StopVpn")!;
+        closeToTray = this.FindControl<CheckBox>("CloseToTray")!;
+        this.FindControl<Button>("ExitApp")!.Click += async (_, _) => await RequestExitAsync();
         var save = this.FindControl<Button>("SaveProfile")!;
         var remove = this.FindControl<Button>("DeleteProfile")!;
         profiles.SelectionChanged += (_, _) =>
@@ -74,10 +123,10 @@ public sealed partial class MainWindow : Window
         stop.Click += async (_, _) => await StopAsync();
         Closing += async (_, args) =>
         {
-            if (closing || runner is null) return;
+            if (closing) return;
             args.Cancel = true;
-            await StopAsync();
-            if (runner is null) { closing = true; Close(); }
+            if (!exiting && trayAvailable && closeToTray.IsChecked == true) Hide();
+            else await RequestExitAsync();
         };
         TryAction(() =>
         {
@@ -85,6 +134,54 @@ public sealed partial class MainWindow : Window
             if (OperatingSystem.IsLinux()) File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             Refresh();
         });
+    }
+
+    public void SetTrayAvailable(bool available)
+    {
+        trayAvailable = available;
+        closeToTray.IsEnabled = available;
+    }
+
+    public void ShowFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    private void SetStatus(string text)
+    {
+        status.Text = text;
+        UpdateControls();
+    }
+
+    private void UpdateControls()
+    {
+        start.IsEnabled = CanStart;
+        stop.IsEnabled = CanStop;
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public async Task RequestExitAsync()
+    {
+        if (exiting) return;
+        if (busy || stopping)
+        {
+            ShowFromTray();
+            SetStatus("Wait for the current VPN operation, then exit again.");
+            return;
+        }
+        exiting = true;
+        UpdateControls();
+        if (runner is not null && !await StopAsync())
+        {
+            exiting = false;
+            ShowFromTray();
+            UpdateControls();
+            return;
+        }
+        closing = true;
+        Close();
     }
 
     private VpnConfig Parse()
@@ -112,7 +209,7 @@ public sealed partial class MainWindow : Window
         if (OperatingSystem.IsLinux()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         editor.Text = config.ToIni();
         Refresh();
-        status.Text = "Profile saved";
+        SetStatus("Profile saved");
     }
 
     private void Refresh() => profiles.ItemsSource = Directory.GetFiles(directory, "*.conf")
@@ -121,7 +218,7 @@ public sealed partial class MainWindow : Window
     private void TryAction(Action action)
     {
         try { action(); }
-        catch (Exception error) { status.Text = error.Message; }
+        catch (Exception error) { SetStatus(error.Message); }
     }
 
     private static Process CreateProcess(params string[] arguments)
@@ -135,11 +232,11 @@ public sealed partial class MainWindow : Window
         return new Process { StartInfo = info };
     }
 
-    private async Task StartAsync()
+    public async Task StartAsync()
     {
-        if (busy || runner is not null) return;
+        if (!CanStart) return;
         busy = true;
-        start.IsEnabled = false;
+        UpdateControls();
         try
         {
             if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("VPN requires Linux, systemd and polkit.");
@@ -148,30 +245,49 @@ public sealed partial class MainWindow : Window
             var clientPath = File.Exists("/usr/libexec/qeli-linux/qeli-client")
                 ? "/usr/libexec/qeli-linux/qeli-client" : "/usr/local/bin/qeli-client";
             if (!File.Exists(clientPath)) throw new FileNotFoundException("Install the qeli-linux package or qeli-client in /usr/local/bin first.");
+            const string launcherPath = "/usr/libexec/qeli-linux/launch-client";
+            if (!File.Exists(launcherPath)) throw new FileNotFoundException("Install the Qeli Linux launch-client helper first.");
             var process = CreateProcess("/usr/bin/systemd-run", "--quiet", "--pipe", "--wait", "--collect",
                 $"--unit={unit}", "--property=KillSignal=SIGINT", "--property=TimeoutStopSec=30",
-                clientPath, "--config", "/dev/stdin");
-            process.Start();
+                $"--property=RuntimeDirectory={unit}", "--property=RuntimeDirectoryMode=0700",
+                "--property=UMask=0077", launcherPath, clientPath);
+            try { process.Start(); }
+            catch { process.Dispose(); throw; }
             runner = process;
-            stop.IsEnabled = true;
-            status.Text = "Starting VPN process";
+            SetStatus("VPN process running / awaiting authorization (not tunnel readiness)");
             var output = DrainAsync(process.StandardOutput);
             var errors = DrainAsync(process.StandardError);
+            runningTask = ObserveRunnerAsync(process, output, errors);
             await process.StandardInput.WriteAsync(config.ToIni());
             process.StandardInput.Close();
-            busy = false;
-            await process.WaitForExitAsync();
-            await Task.WhenAll(output, errors);
-            status.Text = process.ExitCode == 0 ? "Stopped" : $"VPN process exited ({process.ExitCode}). See journal.";
         }
-        catch (Exception error) { status.Text = error.Message; }
+        catch (Exception error)
+        {
+            busy = false;
+            if (runner is not null) await StopAsync();
+            SetStatus(error.Message);
+        }
         finally
         {
-            runner?.Dispose();
-            runner = null;
             busy = false;
-            start.IsEnabled = true;
-            stop.IsEnabled = false;
+            UpdateControls();
+        }
+    }
+
+    private async Task ObserveRunnerAsync(Process process, Task output, Task errors)
+    {
+        try
+        {
+            await process.WaitForExitAsync();
+            await Task.WhenAll(output, errors);
+            SetStatus(process.ExitCode == 0 ? "Stopped" : $"VPN process exited ({process.ExitCode}). See journal.");
+        }
+        catch (Exception error) { SetStatus(error.Message); }
+        finally
+        {
+            process.Dispose();
+            runner = null;
+            UpdateControls();
         }
     }
 
@@ -185,12 +301,15 @@ public sealed partial class MainWindow : Window
             });
     }
 
-    private async Task StopAsync()
+    public async Task<bool> StopAsync()
     {
-        if (runner is null || busy) return;
-        stop.IsEnabled = false;
+        if (runner is null) return true;
+        if (busy || stopping) return false;
+        stopping = true;
+        UpdateControls();
         try
         {
+            var completion = runningTask;
             using var process = CreateProcess("/usr/bin/systemctl", "stop", unit + ".service");
             process.Start();
             process.StandardInput.Close();
@@ -198,11 +317,15 @@ public sealed partial class MainWindow : Window
             var errors = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
             await output;
-            if (process.ExitCode != 0) throw new InvalidOperationException(await errors);
-            var active = runner;
-            if (active is not null) await active.WaitForExitAsync();
+            var errorText = await errors;
+            // Authentication cancellation can race with an independently exiting client.
+            if (process.ExitCode != 0 && runner is not null)
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(errorText)
+                    ? $"Stopping VPN failed ({process.ExitCode})." : errorText);
+            if (completion is not null) await completion;
+            return runner is null;
         }
-        catch (Exception error) { status.Text = error.Message; }
-        finally { stop.IsEnabled = runner is not null; }
+        catch (Exception error) { SetStatus(error.Message); return false; }
+        finally { stopping = false; UpdateControls(); }
     }
 }

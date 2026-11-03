@@ -18,15 +18,20 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$output"
 dotnet publish "$root/qeli-linux/QeliLinux/QeliLinux.csproj" -c Release \
     -r "$rid" --self-contained true -o "$work/publish"
-cargo build --manifest-path "$root/qeli/Cargo.toml" --release \
+cargo build --locked --manifest-path "$root/qeli/Cargo.toml" --release \
     --bin qeli-client --no-default-features --features client-bin \
     --target-dir "$work/cargo"
+CARGO_PROFILE_RELEASE_PANIC=unwind cargo build --locked --manifest-path "$root/qeli/Cargo.toml" \
+    --release --lib --no-default-features --features transport-core-ffi \
+    --target-dir "$work/ffi"
 
 stage="$work/stage"
 mkdir -p "$stage/opt/qeli-linux" "$stage/usr/share/doc/qeli-linux"
 cp -a "$work/publish/." "$stage/opt/qeli-linux/"
+install -m0755 "$work/ffi/release/libqeli_core.so" "$stage/opt/qeli-linux/libqeli.so"
 chmod 0755 "$stage/opt/qeli-linux/QeliLinux"
 install -Dm0755 "$work/cargo/release/qeli-client" "$stage/usr/libexec/qeli-linux/qeli-client"
+install -Dm0755 "$root/qeli-linux/launch-client.sh" "$stage/usr/libexec/qeli-linux/launch-client"
 install -Dm0644 "$root/qeli-linux/qeli-linux.desktop" "$stage/usr/share/applications/qeli-linux.desktop"
 install -Dm0644 "$root/assets/branding/qeli-logo.png" "$stage/usr/share/icons/hicolor/256x256/apps/qeli.png"
 install -m0644 "$root/qeli-linux/README.md" "$root/LICENSING.md" "$stage/usr/share/doc/qeli-linux/"
