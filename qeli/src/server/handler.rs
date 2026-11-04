@@ -2505,6 +2505,7 @@ where
         session.session_id,
         confirmation_started.elapsed().as_millis()
     );
+    let candidate = candidate.with_confirmed_evidence();
     // Keep the delivery probe immediately before COMMIT. Waiting afterwards
     // would age its result and leave the new TCP carrier idle during confirmation.
     static ACTIVE_PROBES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);

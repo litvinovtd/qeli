@@ -13,6 +13,7 @@ const WINDOW: Duration = Duration::from_millis(1250);
 pub(super) const CONFIRMATION_BUDGET: Duration = Duration::from_millis(1500);
 const MAX_AGE: Duration = Duration::from_millis(2500);
 const COOLDOWN: Duration = Duration::from_secs(60);
+const UNCONFIRMED_RECOVERY_BACKOFF: Duration = Duration::from_secs(5);
 
 fn enabled_override(value: Option<&std::ffi::OsStr>) -> bool {
     value.is_none_or(|value| value == "1")
@@ -143,11 +144,18 @@ pub(super) struct Candidate {
     pub(super) old_carrier: u64,
     baseline_bps: u64,
     required_bad_windows: u8,
+    provisional: bool,
     outlier_since: Instant,
     at: Instant,
 }
 
 impl Candidate {
+    /// Once degradation is confirmed, any delivery probe consumes the full cooldown.
+    pub(super) fn with_confirmed_evidence(mut self) -> Self {
+        self.provisional = false;
+        self
+    }
+
     pub(super) fn improves(self, delivered: u64, elapsed: Duration, current_bps: u64) -> bool {
         rate(delivered, elapsed) > self.baseline_bps.max(current_bps).saturating_mul(3) / 2
     }
@@ -234,6 +242,7 @@ impl Health {
             old_carrier: window.carrier,
             baseline_bps: window.bps,
             required_bad_windows: if severe { 2 } else { 3 },
+            provisional: window.bad_windows == 1,
             outlier_since: window.bad_since.unwrap_or(window.at),
             at: window.at,
         });
@@ -258,10 +267,27 @@ impl Health {
         self.pending.take()
     }
 
-    pub(super) fn confirmation(&self, candidate: Candidate) -> Confirmation {
+    pub(super) fn confirmation(&mut self, candidate: Candidate) -> Confirmation {
         let Some(sample) = self.samples.get(&candidate.request.slot) else {
             return Confirmation::Rejected;
         };
+        // A recovered provisional observation never reached a bandwidth probe.
+        // Bound cheap preparations, but do not let this false alarm suppress a
+        // subsequent real fault for the full confirmed-probe cooldown. Match the
+        // exact request so an obsolete candidate cannot rearm a newer decision.
+        let recovered = sample.carrier == candidate.old_carrier
+            && sample.at > candidate.at
+            && sample.at.elapsed() <= MAX_AGE
+            && sample.bad_since != Some(candidate.outlier_since);
+        if candidate.provisional && recovered && self.last_request == Some(candidate.at) {
+            self.last_request = sample
+                .at
+                .checked_sub(COOLDOWN - UNCONFIRMED_RECOVERY_BACKOFF)
+                .or(Some(sample.at));
+            log::info!(target: TARGET,
+                "TCP_SLOT_RECOVERY_BACKOFF slot={} backoff_ms={}",
+                candidate.request.slot, UNCONFIRMED_RECOVERY_BACKOFF.as_millis());
+        }
         if sample.carrier != candidate.old_carrier
             || sample.at.elapsed() > MAX_AGE
             || sample.at < candidate.at
@@ -571,6 +597,53 @@ mod tests {
             )
             .is_none());
         assert_eq!(health.confirmation(candidate), Confirmation::Rejected);
+    }
+
+    #[test]
+    fn unconfirmed_recovery_allows_retry_after_backoff_but_confirmed_probes_keep_cooldown() {
+        let mut health = Health::default();
+        let base = Instant::now();
+        prime_healthy_slot(&mut health, base);
+        health.record(0, health_window(base, 10, 1_000_000, 20_000));
+        let request = health
+            .record(1, queued_health_window(base, 20, 200_000, 100_000))
+            .unwrap();
+        let candidate = health.claim(request).unwrap();
+        health.record(0, health_window(base + WINDOW, 10, 1_000_000, 20_000));
+        health.record(1, health_window(base + WINDOW, 20, 1_000_000, 20_000));
+        assert_eq!(health.confirmation(candidate), Confirmation::Rejected);
+        for n in 2..=5 {
+            let at = base + WINDOW * n;
+            health.record(0, health_window(at, 10, 1_000_000, 20_000));
+            let retry = health.record(1, queued_health_window(at, 20, 200_000, 100_000));
+            assert_eq!(retry.is_some(), n == 5, "retry time n={n}");
+        }
+
+        let mut health = Health::default();
+        prime_healthy_slot(&mut health, base);
+        health.record(0, health_window(base, 10, 1_000_000, 20_000));
+        let request = health
+            .record(1, queued_health_window(base, 20, 200_000, 100_000))
+            .unwrap();
+        let candidate = health.claim(request).unwrap();
+        health.record(0, health_window(base + WINDOW, 10, 1_000_000, 20_000));
+        health.record(1, queued_health_window(base + WINDOW, 20, 200_000, 100_000));
+        assert_eq!(
+            health.confirmation(candidate),
+            Confirmation::Confirmed(200_000)
+        );
+        let candidate = candidate.with_confirmed_evidence();
+        health.record(0, health_window(base + WINDOW * 2, 10, 1_000_000, 20_000));
+        health.record(1, health_window(base + WINDOW * 2, 20, 1_000_000, 20_000));
+        assert_eq!(health.confirmation(candidate), Confirmation::Rejected);
+        assert_eq!(health.last_request, Some(base));
+        for n in 3..9 {
+            let at = base + WINDOW * n;
+            health.record(0, health_window(at, 10, 1_000_000, 20_000));
+            assert!(health
+                .record(1, queued_health_window(at, 20, 200_000, 100_000))
+                .is_none());
+        }
     }
 
     #[test]
