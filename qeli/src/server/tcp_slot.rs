@@ -128,6 +128,7 @@ pub(super) struct DeliveryWindow {
     at: Instant,
     bps: u64,
     rtt_us: u32,
+    notsent_bytes: u32,
     busy: bool,
     delivered_under_load: bool,
     bad_windows: u8,
@@ -165,14 +166,21 @@ impl Health {
             .map(|(_, other)| (other.bps, other.rtt_us))
             .collect::<Vec<_>>();
         siblings.sort_unstable();
-        let slower = siblings
-            .get(siblings.len() / 2)
-            .is_some_and(|&(bps, rtt_us)| {
-                let elevated_rtt = rtt_us > 0
-                    && window.rtt_us >= rtt_us.saturating_mul(2)
-                    && window.rtt_us.saturating_sub(rtt_us) >= 10_000;
-                bps >= 125_000 && (window.bps < bps / 2 || elevated_rtt && window.bps < bps / 4 * 3)
-            });
+        let (slower, severe) =
+            siblings
+                .get(siblings.len() / 2)
+                .map_or((false, false), |&(bps, rtt_us)| {
+                    let elevated_rtt = rtt_us > 0
+                        && window.rtt_us >= rtt_us.saturating_mul(2)
+                        && window.rtt_us.saturating_sub(rtt_us) >= 10_000;
+                    (
+                        bps >= 125_000
+                            && (window.bps < bps / 2 || elevated_rtt && window.bps < bps / 4 * 3),
+                        bps >= 125_000
+                            && window.notsent_bytes >= 128 * 1024
+                            && window.bps.saturating_mul(3) < bps,
+                    )
+                });
         if window.busy && slower {
             window.bad_windows = self
                 .samples
@@ -180,7 +188,16 @@ impl Health {
                 .filter(|other| other.carrier == window.carrier)
                 .map_or(1, |other| other.bad_windows.saturating_add(1));
         }
-        let offer = window.bad_windows >= 3
+        // Two loaded windows plus a severe rate/queue outlier justify preparing
+        // a candidate before inner TCP exits STARTUP on the reduced bandwidth.
+        // Kernel RTT excludes time waiting in TCP's unsent queue. Require a
+        // large notsent backlog, even if RTT is high, to avoid promoting a
+        // demand/ramp fluctuation to an early replacement.
+        // Moderate degradation still needs three windows. Preparation alone
+        // never retires the old carrier: the delivery probe must still improve
+        // on both the old baseline and its current rate before COMMIT.
+        let early_probe = severe && window.bad_windows >= 2;
+        let offer = (window.bad_windows >= 3 || early_probe)
             && self
                 .last_request
                 .is_none_or(|at| window.at.duration_since(at) >= COOLDOWN);
@@ -193,6 +210,11 @@ impl Health {
             baseline_bps: window.bps,
             at: window.at,
         });
+        if offer && early_probe && window.bad_windows < 3 {
+            log::info!(target: TARGET,
+                "TCP_SLOT_EARLY_PROBE slot={} carrier={} bad_windows={} rate_Bps={} rtt_us={} notsent_bytes={}",
+                slot, window.carrier, window.bad_windows, window.bps, window.rtt_us, window.notsent_bytes);
+        }
         self.samples.insert(slot, window);
         if let Some(candidate) = next {
             self.pending = Some(candidate);
@@ -268,6 +290,7 @@ pub(super) async fn observe(
             at: now,
             bps: rate(acked, elapsed),
             rtt_us: next.rtt_us,
+            notsent_bytes: next.notsent_bytes,
             delivered_under_load: demand >= 128 * 1024 && acked >= 128 * 1024,
             busy: busy_us.is_some_and(|busy| u128::from(busy) * 3 >= elapsed.as_micros() * 2)
                 && (demand >= 16 * 1024 || next.notsent_bytes >= 16 * 1024),
@@ -317,6 +340,7 @@ mod tests {
             carrier,
             bps,
             rtt_us: if carrier == 10 { 18_000 } else { 36_000 },
+            notsent_bytes: 0,
             busy,
             delivered_under_load: busy,
             bad_windows: 0,
@@ -357,6 +381,148 @@ mod tests {
         assert!(!candidate.improves(256 * 1024, Duration::from_secs(1), 0));
         assert!(candidate.improves(256 * 1024, Duration::from_millis(100), 300_000));
         assert!(!candidate.improves(256 * 1024, Duration::from_millis(100), 2_000_000));
+    }
+
+    fn health_window(at: Instant, carrier: u64, bps: u64, rtt_us: u32) -> DeliveryWindow {
+        DeliveryWindow {
+            carrier,
+            at,
+            bps,
+            rtt_us,
+            notsent_bytes: 0,
+            busy: true,
+            delivered_under_load: u128::from(bps) * WINDOW.as_micros() / 1_000_000 >= 128 * 1024,
+            bad_windows: 0,
+        }
+    }
+
+    fn queued_health_window(at: Instant, carrier: u64, bps: u64, rtt_us: u32) -> DeliveryWindow {
+        DeliveryWindow {
+            notsent_bytes: 256 * 1024,
+            ..health_window(at, carrier, bps, rtt_us)
+        }
+    }
+
+    #[test]
+    fn severe_loaded_outlier_prepares_after_two_windows_but_keeps_quality_gate_and_cooldown() {
+        let mut health = Health::default();
+        let base = Instant::now();
+        let mut offered = None;
+        for n in 0..2 {
+            let at = base + WINDOW * n;
+            assert!(health
+                .record(0, health_window(at, 10, 1_000_000, 20_000))
+                .is_none());
+            offered = health.record(1, queued_health_window(at, 20, 200_000, 100_000));
+            assert_eq!(offered.is_some(), n == 1);
+        }
+        let candidate = health.claim(offered.unwrap()).unwrap();
+        assert!(!candidate.improves(256 * 1024, Duration::from_secs(2), 200_000));
+        assert!(!candidate.improves(256 * 1024, Duration::from_millis(100), 2_000_000));
+        assert!(candidate.improves(256 * 1024, Duration::from_millis(100), 200_000));
+        for n in 2..20 {
+            let at = base + WINDOW * n;
+            assert!(health
+                .record(0, health_window(at, 10, 1_000_000, 20_000))
+                .is_none());
+            assert!(health
+                .record(1, health_window(at, 20, 200_000, 100_000))
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn normal_network_rtt_with_a_large_kernel_send_queue_still_prepares_early() {
+        let mut health = Health::default();
+        let base = Instant::now();
+        for n in 0..2 {
+            let at = base + WINDOW * n;
+            assert!(health
+                .record(0, health_window(at, 10, 1_000_000, 20_000))
+                .is_none());
+            let mut queued = health_window(at, 20, 200_000, 25_000);
+            queued.notsent_bytes = 256 * 1024;
+            let request = health.record(1, queued);
+            assert_eq!(request.is_some(), n == 1);
+        }
+    }
+
+    #[test]
+    fn low_rate_without_unsent_backlog_or_moderate_loss_of_rate_keeps_three_window_hysteresis() {
+        for (bps, rtt) in [(200_000, 25_000), (200_000, 100_000), (650_000, 100_000)] {
+            let mut health = Health::default();
+            let base = Instant::now();
+            for n in 0..3 {
+                let at = base + WINDOW * n;
+                assert!(health
+                    .record(0, health_window(at, 10, 1_000_000, 20_000))
+                    .is_none());
+                let request = health.record(1, health_window(at, 20, bps, rtt));
+                assert_eq!(request.is_some(), n == 2);
+            }
+        }
+    }
+
+    #[test]
+    fn a_transient_severe_window_does_not_reserve_a_candidate_or_accumulate_through_recovery() {
+        let mut health = Health::default();
+        let base = Instant::now();
+        for (n, bps, rtt) in [
+            (0, 200_000, 100_000),
+            (1, 1_000_000, 20_000),
+            (2, 200_000, 100_000),
+        ] {
+            let at = base + WINDOW * n;
+            assert!(health
+                .record(0, health_window(at, 10, 1_000_000, 20_000))
+                .is_none());
+            assert!(health
+                .record(1, queued_health_window(at, 20, bps, rtt))
+                .is_none());
+            assert!(health.pending.is_none());
+            assert!(health.last_request.is_none());
+        }
+        let at = base + WINDOW * 3;
+        assert!(health
+            .record(0, health_window(at, 10, 1_000_000, 20_000))
+            .is_none());
+        assert!(health
+            .record(1, queued_health_window(at, 20, 200_000, 100_000))
+            .is_some());
+    }
+
+    #[test]
+    fn early_probe_does_not_carry_bad_windows_into_another_carrier_generation() {
+        let mut health = Health::default();
+        let base = Instant::now();
+        for (n, carrier) in [(0, 20), (1, 21), (2, 21)] {
+            let at = base + WINDOW * n;
+            assert!(health
+                .record(0, health_window(at, 10, 1_000_000, 20_000))
+                .is_none());
+            let request = health.record(1, queued_health_window(at, carrier, 200_000, 100_000));
+            assert_eq!(request.is_some(), n == 2);
+        }
+    }
+
+    #[test]
+    fn early_probe_requires_the_unsent_threshold_even_when_rtt_is_high() {
+        for backlog in [128 * 1024 - 1, 128 * 1024] {
+            let mut health = Health::default();
+            let base = Instant::now();
+            for n in 0..2 {
+                let at = base + WINDOW * n;
+                assert!(health
+                    .record(0, health_window(at, 10, 1_000_000, 20_000))
+                    .is_none());
+                let mut queued = health_window(at, 20, 200_000, 100_000);
+                queued.notsent_bytes = backlog;
+                assert_eq!(
+                    health.record(1, queued).is_some(),
+                    n == 1 && backlog >= 128 * 1024
+                );
+            }
+        }
     }
 
     #[tokio::test]

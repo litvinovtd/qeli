@@ -27,8 +27,6 @@ use crate::protocol::obfs::{AwgParams, ObfsStream};
 use serde::Deserialize;
 use socket2::Socket;
 use std::net::{IpAddr, SocketAddr};
-#[cfg(unix)]
-use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -157,7 +155,7 @@ impl NativeCoreAdapter {
         {
             let mut result = {
                 let mut core = self.lock();
-                let (_, result) = core.request_socket_protect(_socket.as_raw_fd())?;
+                let (_, result) = core.request_owned_socket_protect(_socket.try_clone()?)?;
                 result
             };
             loop {

@@ -982,6 +982,17 @@ impl Default for CoreOptions {
     }
 }
 
+struct PendingSocketProtect {
+    sender: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    // A cancelled dial may close its original fd while the platform still handles this
+    // event. Keep a distinct duplicate until ACK (or core destruction after platform workers
+    // have joined), never a stale number. Stop cannot reclaim a descriptor already delivered.
+    socket: Option<socket2::Socket>,
+    delivered: bool,
+}
+
+const MAX_PENDING_SOCKET_PROTECT: usize = 8;
+
 /// State owned by one future transport/data-plane instance.
 ///
 /// Deliberately does not implement `Debug`: it owns the parsed client config, including
@@ -995,7 +1006,7 @@ pub struct ClientCore {
     event_capacity: usize,
     next_sequence: u64,
     pending_plan: Option<u64>,
-    pending_socket_protect: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
+    pending_socket_protect: BTreeMap<u64, PendingSocketProtect>,
     pending_server_identity: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
     pending_path_command:
         BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), PathCommandFailure>>>,
@@ -1177,7 +1188,7 @@ impl ClientCore {
         self.require_event_slots(1)?;
 
         self.pending_plan = None;
-        self.pending_socket_protect.clear();
+        self.clear_socket_protect_requests();
         self.pending_server_identity.clear();
         self.pending_path_command.clear();
         self.path_candidate = None;
@@ -1711,6 +1722,26 @@ impl ClientCore {
         &mut self,
         fd: i32,
     ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
+        self.request_socket_protect_inner(fd, None)
+    }
+
+    /// The runtime gives the platform its own duplicate rather than a borrowed dial fd.
+    /// A normal timeout can then cancel the waiter without recycling the event's descriptor.
+    #[cfg(unix)]
+    #[allow(dead_code)] // Used by Android/Apple runtime; also exercised on the Linux test host.
+    pub(crate) fn request_owned_socket_protect(
+        &mut self,
+        socket: socket2::Socket,
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
+        use std::os::fd::AsRawFd;
+        self.request_socket_protect_inner(socket.as_raw_fd(), Some(socket))
+    }
+
+    fn request_socket_protect_inner(
+        &mut self,
+        fd: i32,
+        socket: Option<socket2::Socket>,
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
         if self.platform_capabilities & platform_capability::SOCKET_PROTECT == 0 {
             return Err(CoreError::MissingCapability {
                 missing: platform_capability::SOCKET_PROTECT,
@@ -1728,6 +1759,9 @@ impl ClientCore {
             ));
         }
         self.require_event_slots(1)?;
+        if self.pending_socket_protect.len() >= MAX_PENDING_SOCKET_PROTECT {
+            return Err(CoreError::EventQueueFull);
+        }
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let sequence = self.push_event(
             EventKind::SocketProtect,
@@ -1736,7 +1770,14 @@ impl ClientCore {
             None,
             None,
         );
-        let replaced = self.pending_socket_protect.insert(sequence, sender);
+        let replaced = self.pending_socket_protect.insert(
+            sequence,
+            PendingSocketProtect {
+                sender: Some(sender),
+                socket,
+                delivered: false,
+            },
+        );
         debug_assert!(replaced.is_none());
         Ok((sequence, receiver))
     }
@@ -1747,7 +1788,7 @@ impl ClientCore {
         protected: bool,
         reason: Option<&str>,
     ) -> Result<(), CoreError> {
-        let sender = self
+        let pending = self
             .pending_socket_protect
             .remove(&request_sequence)
             .ok_or(CoreError::StaleRequest {
@@ -1762,10 +1803,34 @@ impl ClientCore {
                 .take(MAX_PLATFORM_ERROR_CHARS)
                 .collect())
         };
-        sender.send(result).map_err(|_| CoreError::StaleRequest {
-            got: request_sequence,
-        })?;
+        let owned = pending.socket.is_some();
+        if let Some(sender) = pending.sender {
+            if sender.send(result).is_err() && !owned {
+                return Err(CoreError::StaleRequest {
+                    got: request_sequence,
+                });
+            }
+        }
+        // For an owned request, a late ACK after a dial timeout is successful cleanup.
+        // Its duplicate closes here; duplicate ACKs still fail as stale above.
         Ok(())
+    }
+
+    fn clear_socket_protect_requests(&mut self) {
+        self.events
+            .retain(|event| event.kind != EventKind::SocketProtect);
+        // An undelivered event can be cancelled atomically under the core mutex. A platform
+        // may still be synchronously using a delivered fd; retain that bounded owner until ACK.
+        self.pending_socket_protect.retain(|_, pending| {
+            if pending.socket.is_some() && pending.delivered {
+                // Stop must wake the dial immediately, even though the platform still owns
+                // the borrowed event fd. A later ACK only releases that retained descriptor.
+                pending.sender.take();
+                true
+            } else {
+                false
+            }
+        });
     }
 
     /// Ask the platform trust store to accept a server identity that already passed the
@@ -2443,7 +2508,7 @@ impl ClientCore {
         self.require_event_slots(2)?;
         self.runtime_active = false;
         self.pending_plan = None;
-        self.pending_socket_protect.clear();
+        self.clear_socket_protect_requests();
         self.pending_server_identity.clear();
         self.pending_path_command.clear();
         if self.path_candidate.is_some() {
@@ -2488,7 +2553,13 @@ impl ClientCore {
     }
 
     pub fn poll_event(&mut self) -> Option<ClientEvent> {
-        self.events.pop_front()
+        let event = self.events.pop_front()?;
+        if event.kind == EventKind::SocketProtect {
+            if let Some(pending) = self.pending_socket_protect.get_mut(&event.sequence) {
+                pending.delivered = true;
+            }
+        }
+        Some(event)
     }
 
     /// Publish the terminal state of a native runtime generation.
@@ -2515,7 +2586,7 @@ impl ClientCore {
             self.events.pop_front();
         }
         self.pending_plan = None;
-        self.pending_socket_protect.clear();
+        self.clear_socket_protect_requests();
         self.pending_server_identity.clear();
         self.pending_path_command.clear();
         if self.path_candidate.is_some() {
@@ -3245,6 +3316,121 @@ mod tests {
             cancelled.try_recv(),
             Err(tokio::sync::oneshot::error::TryRecvError::Closed)
         ));
+    }
+
+    #[cfg(unix)]
+    fn owned_protect_core() -> ClientCore {
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: TEST_SYSTEM_PLAN_CAPABILITIES
+                    | platform_capability::SOCKET_PROTECT,
+                ..CoreOptions::default()
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        core.poll_event();
+        core
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn cancelled_owned_socket_protect_keeps_the_event_fd_until_its_late_ack() {
+        use std::io::Read;
+        use std::os::fd::AsRawFd;
+        use std::time::Duration;
+        let mut core = owned_protect_core();
+        let (stream, mut peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let socket = socket2::Socket::from(stream);
+        let owned = socket.try_clone().unwrap();
+        let event_fd = owned.as_raw_fd();
+        assert_ne!(event_fd, socket.as_raw_fd());
+        let (sequence, result) = core.request_owned_socket_protect(owned).unwrap();
+        let event = core.poll_event().unwrap();
+        assert_eq!(event.socket_protect.unwrap().fd, event_fd);
+        drop(result);
+        drop(socket);
+        peer.set_read_timeout(Some(Duration::from_millis(20)))
+            .unwrap();
+        let error = peer.read(&mut [0]).unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ));
+        core.ack_socket_protect(sequence, true, None).unwrap();
+        assert_eq!(peer.read(&mut [0]).unwrap(), 0);
+        assert!(matches!(
+            core.ack_socket_protect(sequence, true, None),
+            Err(CoreError::StaleRequest { .. })
+        ));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn stop_keeps_a_delivered_protect_fd_alive_but_discards_undelivered_requests() {
+        use std::io::Read;
+        use std::time::Duration;
+        let mut core = owned_protect_core();
+        let (delivered, mut peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (sequence, mut result) = core
+            .request_owned_socket_protect(socket2::Socket::from(delivered))
+            .unwrap();
+        core.poll_event().unwrap();
+        let (queued, mut queued_peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (_queued_sequence, queued_result) = core
+            .request_owned_socket_protect(socket2::Socket::from(queued))
+            .unwrap();
+        drop(queued_result);
+        core.stop().unwrap();
+        assert!(matches!(
+            result.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        ));
+        while let Some(event) = core.poll_event() {
+            assert_ne!(event.kind, EventKind::SocketProtect);
+        }
+        queued_peer
+            .set_read_timeout(Some(Duration::from_millis(20)))
+            .unwrap();
+        assert_eq!(queued_peer.read(&mut [0]).unwrap(), 0);
+        peer.set_read_timeout(Some(Duration::from_millis(20)))
+            .unwrap();
+        let error = peer.read(&mut [0]).unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ));
+        core.ack_socket_protect(sequence, false, Some("cancelled generation"))
+            .unwrap();
+        assert_eq!(peer.read(&mut [0]).unwrap(), 0);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn unacknowledged_owned_socket_requests_are_bounded_even_after_events_are_drained() {
+        let mut core = owned_protect_core();
+        let mut peers = Vec::new();
+        for _ in 0..MAX_PENDING_SOCKET_PROTECT {
+            let (socket, peer) = std::os::unix::net::UnixStream::pair().unwrap();
+            peers.push(peer);
+            let (_, result) = core
+                .request_owned_socket_protect(socket2::Socket::from(socket))
+                .unwrap();
+            drop(result);
+            core.poll_event().unwrap();
+        }
+        let (socket, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        assert!(matches!(
+            core.request_owned_socket_protect(socket2::Socket::from(socket)),
+            Err(CoreError::EventQueueFull)
+        ));
+        assert!(core.poll_event().is_none());
+        assert_eq!(
+            core.pending_socket_protect.len(),
+            MAX_PENDING_SOCKET_PROTECT
+        );
     }
 
     #[test]

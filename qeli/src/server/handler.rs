@@ -39,6 +39,8 @@ pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
 #[cfg(feature = "experimental-roaming")]
 const TCP_RESUME_COMMIT_TIMEOUT: Duration =
     Duration::from_secs(crate::protocol::roaming::TCP_RESUME_SERVER_COMMIT_TIMEOUT_SECS);
+#[cfg(feature = "experimental-roaming")]
+const TCP_CARRIER_DRAIN_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Per-session encrypted-record budget for server→client traffic. The pool is shared by
 /// every bonded stream, so multipath cannot multiply queued memory by its stream count.
@@ -188,6 +190,10 @@ pub struct StreamHandle {
     #[cfg(feature = "experimental-roaming")]
     pub(crate) terminal_management: mpsc::Sender<TerminalManagementWrite>,
     pub kick_tx: mpsc::Sender<()>,
+    /// Replaced carriers finish queued records and half-close before retirement.
+    /// Revocation still uses the immediate kick/shutdown lanes below.
+    #[cfg(feature = "experimental-roaming")]
+    pub(crate) retire_tx: tokio::sync::watch::Sender<bool>,
     /// Stops the READER half. `kick_tx` only reaches the writer, so a kicked or
     /// superseded client kept uploading into the TUN until it chose to close the
     /// socket — and the reaper tasks that would have timed it out live in the
@@ -199,6 +205,39 @@ pub struct StreamHandle {
     /// raised before the reader parks is still observed, so there is no lost-wakeup
     /// race with a client that is mid-`read_record`.
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
+}
+
+#[cfg(feature = "experimental-roaming")]
+impl StreamHandle {
+    fn retire(&mut self) -> tokio::sync::watch::Receiver<bool> {
+        let finished = self.retire_tx.subscribe();
+        self.ready = false;
+        let _ = self.retire_tx.send(true);
+        finished
+    }
+}
+
+#[cfg(feature = "experimental-roaming")]
+async fn tcp_retirement_deadline(
+    mut receiver: tokio::sync::watch::Receiver<bool>,
+    budget: Duration,
+) {
+    if receiver.wait_for(|retired| *retired).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+    tokio::time::sleep(budget).await;
+}
+
+#[cfg(feature = "experimental-roaming")]
+async fn wait_for_tcp_carrier_drain(
+    mut receiver: tokio::sync::watch::Receiver<bool>,
+    budget: Duration,
+) -> bool {
+    // The sole sender belongs to the old StreamHandle and is dropped only after
+    // both halves have stopped and detach_stream has removed that exact carrier.
+    tokio::time::timeout(budget, async { while receiver.changed().await.is_ok() {} })
+        .await
+        .is_ok()
 }
 
 #[cfg(feature = "experimental-roaming")]
@@ -866,24 +905,28 @@ impl SessionShared {
     }
 
     #[cfg(feature = "experimental-roaming")]
-    fn activate_resume_stream(&self, new_transport: u64, outcome: CommitOutcome) {
+    fn activate_resume_stream(
+        &self,
+        new_transport: u64,
+        outcome: CommitOutcome,
+    ) -> Option<tokio::sync::watch::Receiver<bool>> {
         let mut streams = lock_or_recover(&self.streams, "activate_resume_stream");
         if self.revoked.load(std::sync::atomic::Ordering::Acquire)
             || self.closing.load(std::sync::atomic::Ordering::Acquire)
         {
-            return;
+            return None;
         }
 
+        let mut old_finished = None;
         for stream in streams.iter_mut() {
             if stream.stream_id == new_transport {
                 stream.ready = true;
             }
             if Some(stream.stream_id) == outcome.drain_transport {
-                stream.ready = false;
-                let _ = stream.kick_tx.try_send(());
-                let _ = stream.shutdown_tx.send(true);
+                old_finished = Some(stream.retire());
             }
         }
+        old_finished
     }
 
     #[cfg(feature = "experimental-roaming")]
@@ -2547,6 +2590,12 @@ async fn run_stream<R, W>(
     let (terminal_management_tx, mut terminal_management_rx) = mpsc::channel(1);
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    #[cfg(feature = "experimental-roaming")]
+    let (retire_tx, mut retire_rx) = tokio::sync::watch::channel(false);
+    #[cfg(feature = "experimental-roaming")]
+    let retire_deadline_rx = retire_rx.clone();
+    #[cfg(feature = "experimental-roaming")]
+    let mut drain_before_downlink = None;
     if !session.try_add_stream(
         StreamHandle {
             #[cfg(feature = "experimental-roaming")]
@@ -2559,6 +2608,8 @@ async fn run_stream<R, W>(
             #[cfg(feature = "experimental-roaming")]
             terminal_management: terminal_management_tx,
             kick_tx,
+            #[cfg(feature = "experimental-roaming")]
+            retire_tx,
             shutdown_tx: shutdown_tx.clone(),
         },
         stream_attach.authenticated_resume_overflow(),
@@ -2701,7 +2752,7 @@ async fn run_stream<R, W>(
             };
             // This is the only point that retires the old carrier: the new socket completed its
             // handshake, JOINOK reached the client, and COMMIT_PATH succeeded on the platform.
-            session.activate_resume_stream(stream_id, outcome);
+            drain_before_downlink = session.activate_resume_stream(stream_id, outcome);
             let commit_ack = {
                 let mut codec = lock_or_recover(&server_tx, "handler::join_commit_ack");
                 codec.encrypt_packet(crate::protocol::roaming::TCP_RESUME_COMMIT_ACK, &[])
@@ -3012,7 +3063,42 @@ async fn run_stream<R, W>(
         #[cfg(not(target_os = "linux"))]
         let slot_observation = std::future::pending::<()>();
         let pump = async {
+            #[cfg(feature = "experimental-roaming")]
+            if let Some(previous) = drain_before_downlink {
+                let drain_started = std::time::Instant::now();
+                // Admit packets to the replacement immediately, but keep their
+                // downlink behind the old carrier's final records. Otherwise a
+                // healthy new socket overtakes the old tail and triggers inner
+                // TCP retransmission/recovery even when the tail is delivered.
+                if !wait_for_tcp_carrier_drain(
+                    previous,
+                    TCP_CARRIER_DRAIN_TIMEOUT + Duration::from_secs(2),
+                )
+                .await
+                {
+                    log::error!(
+                        "TCP slot handoff could not retire its old carrier; fencing session {}",
+                        session.session_id
+                    );
+                    session.kick_all();
+                    return;
+                }
+                log::info!(
+                    "TCP_SLOT_DRAIN_COMPLETE session={} slot={} elapsed_ms={}",
+                    session.session_id,
+                    stream_attach.logical_slot_id(),
+                    drain_started.elapsed().as_millis()
+                );
+            }
             'writer: loop {
+                #[cfg(feature = "experimental-roaming")]
+                let retiring = *retire_rx.borrow();
+                #[cfg(feature = "experimental-roaming")]
+                if retiring {
+                    // No new flow selects this carrier after the atomic slot swap.
+                    // Close admission at a record boundary, preserving accepted packets.
+                    rx.close();
+                }
                 let mux_deadline = recordizer
                     .as_ref()
                     .and_then(|mux| mux.deadline())
@@ -3023,8 +3109,20 @@ async fn run_stream<R, W>(
                 #[cfg(not(feature = "experimental-roaming"))]
                 let terminal_management = std::future::pending::<()>();
                 tokio::pin!(terminal_management);
+                #[cfg(feature = "experimental-roaming")]
+                let wait_retirement = !*retire_rx.borrow();
+                #[cfg(not(feature = "experimental-roaming"))]
+                let wait_retirement = false;
+                #[cfg(feature = "experimental-roaming")]
+                let retirement_event = retire_rx.changed();
+                #[cfg(not(feature = "experimental-roaming"))]
+                let retirement_event = std::future::pending::<()>();
                 tokio::select! {
                     biased;
+
+                    _ = retirement_event, if wait_retirement => {
+                        rx.close();
+                    }
 
                     control = std::future::poll_fn(|cx| crate::protocol::obfs::CarrierWriteControl::poll_control(&mut write_half,cx)) => {
                         if control.is_err() {break;}
@@ -3069,7 +3167,40 @@ async fn run_stream<R, W>(
                         unreachable!("disabled terminal-management future is pending");
                     }
 
-                    Some(packet) = rx.recv() => {
+                    packet = rx.recv() => {
+                        let Some(packet) = packet else {
+                            #[cfg(feature = "experimental-roaming")]
+                            if retiring {
+                                if let Some(payload) = recordizer.as_mut().and_then(|mux| mux.flush()) {
+                                    if !encrypt_server_stream_payload(
+                                        &server_tx,
+                                        &payload,
+                                        crate::protocol::packet::MAX_TUNNEL_MTU,
+                                        pcfg,
+                                        &mut wire_record,
+                                        &mut padding,
+                                    ) || write_half.write_all_flush(&wire_record).await.is_err()
+                                    {
+                                        break 'writer;
+                                    }
+                                }
+                                if write_half.shutdown().await.is_err() {
+                                    break 'writer;
+                                }
+                                log::info!(
+                                    "TCP_SLOT_DRAIN_HALF_CLOSED session={} slot={} carrier={}",
+                                    session.session_id,
+                                    stream_attach.logical_slot_id(),
+                                    stream_id
+                                );
+                                // TCP ACK alone does not prove the peer decoded its final records.
+                                // Its reader consumes our EOF and closes its write half; dead_rx
+                                // then completes the normal cleanup. The outer deadline bounds a
+                                // black-holed or non-cooperating peer without blocking the new slot.
+                                std::future::pending::<()>().await;
+                            }
+                            break 'writer;
+                        };
                         let opportunistic = session.recordizer.as_ref().is_some_and(|mux| mux.batch.mode == "opportunistic");
                         let mut packets = Vec::new();
                         if opportunistic && !shaper.stealth() && session.bandwidth_limit_mbps.load(Ordering::Relaxed) == 0 {
@@ -3311,12 +3442,25 @@ async fn run_stream<R, W>(
                 }
             }
         };
+        #[cfg(feature = "experimental-roaming")]
+        let retirement_deadline = async {
+            tcp_retirement_deadline(retire_deadline_rx, TCP_CARRIER_DRAIN_TIMEOUT).await;
+            log::warn!(
+                "TCP_SLOT_DRAIN_TIMEOUT session={} slot={} carrier={}",
+                session.session_id,
+                stream_attach.logical_slot_id(),
+                stream_id
+            );
+        };
+        #[cfg(not(feature = "experimental-roaming"))]
+        let retirement_deadline = std::future::pending::<()>();
         tokio::select! {
             biased;
             _ = kick_rx.recv() => {},
             _ = dead_rx.recv() => {},
             _ = health => {},
             _ = slot_observation => {},
+            _ = retirement_deadline => {},
             _ = pump => {},
         }
     }
@@ -5569,5 +5713,91 @@ mod handshake_deadline_tests {
             }
             _ => panic!("legacy AUTH changed classification"),
         }
+    }
+}
+
+#[cfg(all(test, feature = "experimental-roaming"))]
+mod tcp_retirement_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_retirement_request_does_not_release_new_downlink_before_old_eof() {
+        let (sender, receiver) = tokio::sync::watch::channel(false);
+        let finished = wait_for_tcp_carrier_drain(receiver, Duration::from_secs(1));
+        tokio::pin!(finished);
+        sender.send(true).unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut finished)
+                .await
+                .is_err()
+        );
+        drop(sender);
+        assert!(finished.await);
+    }
+
+    #[tokio::test]
+    async fn downlink_handoff_refuses_an_unbounded_old_carrier() {
+        let (_sender, receiver) = tokio::sync::watch::channel(true);
+        assert!(!wait_for_tcp_carrier_drain(receiver, Duration::from_millis(20)).await);
+    }
+
+    #[test]
+    fn retirement_stops_admission_without_cancelling_the_live_carrier() {
+        let (writer, _packets) = mpsc::channel(1);
+        let (terminal_management, _terminal) = mpsc::channel(1);
+        let (kick_tx, mut kicks) = mpsc::channel(1);
+        let (shutdown_tx, shutdown) = tokio::sync::watch::channel(false);
+        let (retire_tx, retirement) = tokio::sync::watch::channel(false);
+        let mut stream = StreamHandle {
+            logical_slot_id: 1,
+            ready: true,
+            stream_id: 7,
+            codec: Arc::new(std::sync::Mutex::new(PacketCodec::new([0; 32]))),
+            writer,
+            terminal_management,
+            kick_tx,
+            retire_tx,
+            shutdown_tx,
+        };
+        stream.retire();
+        assert!(!stream.ready);
+        assert!(*retirement.borrow());
+        assert!(
+            !*shutdown.borrow(),
+            "the reader must finish its accepted records"
+        );
+        assert!(matches!(
+            kicks.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+        assert!(!stream.writer.is_closed());
+    }
+
+    #[tokio::test]
+    async fn retirement_deadline_starts_at_retirement_not_at_connection_start() {
+        let (sender, receiver) = tokio::sync::watch::channel(false);
+        let deadline = tcp_retirement_deadline(receiver, Duration::from_millis(20));
+        tokio::pin!(deadline);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), &mut deadline)
+                .await
+                .is_err()
+        );
+        sender.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), &mut deadline)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_dropped_retirement_sender_does_not_act_as_a_retirement_request() {
+        let (sender, receiver) = tokio::sync::watch::channel(false);
+        drop(sender);
+        assert!(tokio::time::timeout(
+            Duration::from_millis(20),
+            tcp_retirement_deadline(receiver, Duration::ZERO)
+        )
+        .await
+        .is_err());
     }
 }

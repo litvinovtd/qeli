@@ -4931,6 +4931,8 @@ async fn handle_udp_auth(
             #[cfg(feature = "experimental-roaming")]
             terminal_management: terminal_management_tx,
             kick_tx,
+            #[cfg(feature = "experimental-roaming")]
+            retire_tx: tokio::sync::watch::channel(false).0,
             // UDP has no long-lived reader task to stop: every inbound datagram is
             // re-matched against the sessions map, so removing the session already
             // cuts ingress at the next packet. The field exists for the TCP reader;
