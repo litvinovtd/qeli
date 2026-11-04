@@ -168,8 +168,17 @@
           </div>
         </section>
         <section>
-          <div class="flex items-center justify-between gap-2 mb-2"><h4 class="text-sm font-semibold">Recent client log</h4><button class="btn btn-ghost btn-sm" @click="loadClientLog()" :disabled="logLoading">Refresh log</button></div>
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <h4 class="text-sm font-semibold">Recent client log</h4>
+            <div class="flex flex-wrap gap-2">
+              <button class="btn btn-ghost btn-sm" @click="copyClientLog()" :disabled="logLoading || logCopying || !!logError || !logText">Copy shown log</button>
+              <button class="btn btn-ghost btn-sm" @click="downloadFullLog()" :disabled="logDownloading" x-text="logDownloading ? qeliT('Downloading log…') : qeliT('Download full log')"></button>
+              <button class="btn btn-ghost btn-sm" @click="loadClientLog()" :disabled="logLoading">Refresh log</button>
+            </div>
+          </div>
           <p class="text-xs text-slate-400 mb-2">Last 120 lines, at most 64 KiB. Refreshing does not reconnect or change network settings.</p>
+          <p class="text-xs text-slate-400 mb-2">Copy includes only the shown fragment. Download includes the whole current log file, not rotated archives. Review server addresses and usernames before sharing.</p>
+          <p class="text-xs text-red-400" role="alert" x-show="logActionError" x-text="logActionError"></p>
           <p class="text-xs text-red-400" role="alert" x-show="logError" x-text="logError"></p>
           <p class="text-xs text-slate-400" x-show="!logLoading && !logError && !logText">Client log unavailable or empty.</p>
           <pre class="card p-4 text-xs font-mono overflow-auto whitespace-pre-wrap" style="max-height:320px" x-show="logText" x-text="logText"></pre>
@@ -355,6 +364,7 @@ function clientPage() {
     destroy() {
       this.destroyed = true; this.loadSequence++; this.editorSequence++; this.importSequence++;
       this.logSequence++;
+      this.resetLogActions();
       this.loading = false;
       qeliStopPoll(this.timer); this.timer = null;
       for (const timer of this.connectTimers) clearTimeout(timer);
@@ -363,6 +373,73 @@ function clientPage() {
     importOpen: false, importLink: '', importName: '', importGateway: false,
     diagOpen: false, diagProfile: null,
     logText: '', logError: '', logLoading: false, logSequence: 0,
+    logCopying: false, logDownloading: false, logActionError: '', logActionSequence: 0, downloadController: null,
+    resetLogActions() {
+      this.logActionSequence++;
+      this.downloadController?.abort();this.downloadController=null;
+      this.logCopying=false;this.logDownloading=false;this.logActionError='';
+    },
+    logActionCurrent(name, sequence) { return !this.destroyed && this.diagOpen && this.diagProfile?.name === name && this.logActionSequence === sequence; },
+    async copyClientLog() {
+      if (!this.diagOpen || !this.diagProfile || this.destroyed || this.logLoading || this.logCopying || this.logError || !this.logText) return;
+      const text=this.logText, name=this.diagProfile.name, sequence=this.logActionSequence;
+      this.logCopying=true;this.logActionError='';
+      try {
+        if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+        else {
+          // Non-HTTPS panels cannot use Clipboard API. Keep a user-initiated
+          // browser fallback without changing browser permissions or policies.
+          const previous=document.activeElement, input=document.createElement('textarea');
+          input.value=text;input.style.cssText='position:fixed;left:0;top:0;width:1px;height:1px;opacity:0';
+          try {
+            document.body.appendChild(input);input.focus();input.select();
+            if (!document.execCommand('copy')) throw new Error('Clipboard unavailable');
+          } finally { input.remove();previous?.focus?.({preventScroll:true}); }
+        }
+        if(this.logActionCurrent(name,sequence))this.notify(this.qeliT('Shown log copied'));
+      } catch {
+        if(this.logActionCurrent(name,sequence))this.logActionError=this.qeliT('Could not copy the log. Select the text and copy it manually.');
+      } finally { if(this.logActionCurrent(name,sequence))this.logCopying=false; }
+    },
+    saveLogBlob(blob, name) {
+      const url=URL.createObjectURL(blob),link=document.createElement('a');
+      let started=false;
+      try {
+        link.href=url;link.download='qeli-client-'+name.replace(/[^a-zA-Z0-9._-]/g,'_')+'.log';
+        document.body.appendChild(link);link.click();started=true;
+      } finally {
+        link.remove();
+        if(started)setTimeout(()=>URL.revokeObjectURL(url),1000);
+        else URL.revokeObjectURL(url);
+      }
+    },
+    async downloadFullLog() {
+      if(!this.diagOpen || !this.diagProfile || this.destroyed || this.logDownloading)return;
+      const name=this.diagProfile.name,sequence=this.logActionSequence,controller=new AbortController();
+      this.downloadController=controller;this.logDownloading=true;this.logActionError='';
+      try {
+        const r=await fetch('api/client/profiles/'+encodeURIComponent(name)+'/log/download',{
+          credentials:'same-origin',cache:'no-store',redirect:'error',signal:controller.signal,
+        });
+        if(!this.logActionCurrent(name,sequence))return;
+        if(!r.ok) {
+          if(r.status===401)throw new Error(this.qeliT('Session expired. Reload the page.'));
+          let detail;try{detail=await r.json();}catch{}
+          throw new Error(detail?.error || this.qeliT('Could not download the full log.'));
+        }
+        // Never save a login/error page under a .log filename.
+        if(!r.headers.get('Content-Type')?.toLowerCase().startsWith('text/plain') ||
+           !r.headers.get('Content-Disposition')?.toLowerCase().startsWith('attachment;'))throw new Error(this.qeliT('Unexpected log download response.'));
+        const blob=await r.blob();
+        if(!this.logActionCurrent(name,sequence))return;
+        this.saveLogBlob(blob,name);
+        this.notify(this.qeliT('Full log download started'));
+      } catch(error) {
+        if(this.logActionCurrent(name,sequence))this.logActionError=error.message || this.qeliT('Could not download the full log.');
+      } finally {
+        if(this.logActionCurrent(name,sequence)){this.logDownloading=false;this.downloadController=null;}
+      }
+    },
     formOpen: false,
     formConverting: false,
     onClientTransportChange() { if (this.form.proto !== 'udp') this.form.quic = false; },
@@ -444,8 +521,8 @@ function clientPage() {
       const retry = this.valueAt(profile,'retry_in_secs',null);
       return this.qeliT('Reconnects') + ': ' + this.valueAt(profile,'reconnects') + (retry !== null ? ' · ' + this.qeliT('Retry delay (seconds)') + ': ' + retry : '');
     },
-    openDiagnostics(profile) { this.diagProfile = profile; this.diagOpen = true; this.logText='';this.logError='';return this.loadClientLog(); },
-    closeDiagnostics() { this.diagOpen=false;this.logSequence++;this.logLoading=false; },
+    openDiagnostics(profile) { this.resetLogActions();this.diagProfile = profile; this.diagOpen = true; this.logText='';this.logError='';return this.loadClientLog(); },
+    closeDiagnostics() { this.resetLogActions();this.diagOpen=false;this.logSequence++;this.logLoading=false; },
     async loadClientLog() {
       if (!this.diagOpen || !this.diagProfile || this.destroyed) return;
       const name=this.diagProfile.name, sequence=++this.logSequence;

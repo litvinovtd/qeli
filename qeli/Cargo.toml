@@ -55,7 +55,7 @@ default = ["server", "client"]
 # the web stack. A client-only build (`--no-default-features --features client-bin`)
 # excludes all of these and cross-compiles to mipsel/aarch64.
 # Every server build includes session roaming: shipped profiles and Quick Start enable it.
-server = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots", "dep:rcgen", "dep:axum", "dep:axum-server", "dep:qrcode", "experimental-roaming"]
+server = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots", "dep:rcgen", "dep:axum", "dep:axum-server", "dep:qrcode", "dep:tokio-util", "tokio/fs", "experimental-roaming"]
 client = []
 # Standard standalone and FFI clients carry the same roaming state machine. Runtime
 # capability negotiation still falls back safely on unsupported platforms and peers.
@@ -145,6 +145,8 @@ socket2 = { version = "0.6", features = ["all"] }
 # Web admin stack — server-only (feature = "server"). `ring` (pulled via rcgen/
 # rustls below) has no MIPS backend, so these stay out of the client-only build.
 axum = { version = "0.8", features = ["macros"], optional = true }
+# Stream complete diagnostics files without buffering them in the panel process.
+tokio-util = { version = "0.7", features = ["io"], optional = true }
 # HTTPS for the panel on a public bind. `tls-rustls-no-provider` (NOT `tls-rustls`)
 # so it does NOT pull aws-lc-rs (needs cmake — the lab has none); we supply the
 # `ring` provider ourselves via the existing rustls `ring` feature.

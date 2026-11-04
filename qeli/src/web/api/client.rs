@@ -127,6 +127,102 @@ pub async fn get_profile_log(_g: auth::AuthGuard, Path(name): Path<String>) -> J
         Err(error) => Json(super::err_json(format!("Client log unavailable: {error}"))),
     }
 }
+
+/// Open only this profile's regular log, never a caller-supplied path or a
+/// symlink/device/FIFO. O_NONBLOCK prevents a replaced FIFO from blocking open.
+fn open_download_log(path: &FsPath) -> std::io::Result<(std::fs::File, u64)> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Not a regular client log",
+        ));
+    }
+    Ok((file, metadata.len()))
+}
+
+fn download_log_response(
+    file: std::fs::File,
+    length: u64,
+    name: &str,
+) -> std::io::Result<axum::response::Response> {
+    use axum::body::Body;
+    use axum::http::{header, HeaderValue};
+    use tokio::io::AsyncReadExt;
+    // Freeze the extent, not the writer: appended bytes belong to the next export.
+    // Keeping the opened file also makes rotation harmless.
+    let stream = tokio_util::io::ReaderStream::with_capacity(
+        tokio::fs::File::from_std(file).take(length),
+        16 * 1024,
+    );
+    let mut response = axum::response::Response::new(Body::from_stream(stream));
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&length.to_string()).unwrap(),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!(
+            "attachment; filename=\"qeli-client-{}.log\"",
+            sanitize_name(name)
+        ))
+        .map_err(std::io::Error::other)?,
+    );
+    Ok(response)
+}
+
+pub async fn download_profile_log(
+    _g: auth::AuthGuard,
+    Path(name): Path<String>,
+) -> axum::response::Response {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    if !ClientManager::valid_name(&name) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(super::err_json("invalid name")),
+        )
+            .into_response();
+    }
+    let path = ClientManager::log_path(&name);
+    // Filesystem access stays off the async executor, including unusual filesystems.
+    let file = tokio::task::spawn_blocking(move || open_download_log(FsPath::new(&path))).await;
+    match file {
+        Ok(Ok((file, length))) => match download_log_response(file, length, &name) {
+            Ok(response) => response,
+            Err(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(super::err_json("Client log unavailable")),
+            )
+                .into_response(),
+        },
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => (
+            StatusCode::NOT_FOUND,
+            Json(super::err_json("Client log not found")),
+        )
+            .into_response(),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(super::err_json("Client log unavailable")),
+        )
+            .into_response(),
+    }
+}
 /// Real connection state from the client's log tail. A live child process is NOT the
 /// same as an up tunnel: a mis-configured client (e.g. reality-tls without a short_id)
 /// loops on reconnect while the process stays alive, which showed a misleading
@@ -821,6 +917,123 @@ pub async fn disconnect(
 
 #[cfg(test)]
 mod diagnostic_tests {
+    #[tokio::test]
+    async fn full_log_download_preserves_all_bytes_and_freezes_extent_across_rotation() {
+        use axum::body::to_bytes;
+        use axum::http::header;
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-full-log-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("client.log");
+        let original = (0..4000)
+            .map(|n| format!("{n}: diagnostic fixture\n"))
+            .collect::<String>();
+        assert!(original.len() > 64 * 1024);
+        std::fs::write(&path, &original).unwrap();
+        let (file, length) = open_download_log(&path).unwrap();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"next snapshot\n")
+            .unwrap();
+        let response = download_log_response(file, length, "fixture").unwrap();
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/plain; charset=utf-8"
+        );
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(
+            response.headers()[header::CONTENT_DISPOSITION],
+            "attachment; filename=\"qeli-client-fixture.log\""
+        );
+        assert_eq!(
+            response.headers()[header::CONTENT_LENGTH],
+            original.len().to_string()
+        );
+        std::fs::rename(&path, dir.join("rotated.log")).unwrap();
+        std::fs::write(&path, "replacement log").unwrap();
+        let bytes = to_bytes(response.into_body(), original.len() + 1)
+            .await
+            .unwrap();
+        assert_eq!(bytes.as_ref(), original.as_bytes());
+        assert_eq!(bytes.split(|byte| *byte == b'\n').count(), 4001);
+        std::fs::remove_file(dir.join("rotated.log")).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn full_log_download_rejects_untrusted_names_and_non_regular_files() {
+        use axum::http::StatusCode;
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-log-path-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let target = dir.join("target");
+        std::fs::write(&target, "fixture").unwrap();
+        let link = dir.join("link");
+        symlink(&target, &link).unwrap();
+        assert!(open_download_log(&link).is_err());
+        assert!(open_download_log(&dir).is_err());
+        assert_eq!(
+            open_download_log(&dir.join("missing")).unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        let empty = dir.join("empty");
+        std::fs::write(&empty, "").unwrap();
+        let (file, length) = open_download_log(&empty).unwrap();
+        let response = download_log_response(file, length, "empty").unwrap();
+        assert_eq!(
+            axum::body::to_bytes(response.into_body(), 1)
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+        for name in ["../users", "..", "bad\r\nheader", "a/b"] {
+            let response = download_profile_log(auth::AuthGuard, Path(name.into())).await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert!(!response.headers().contains_key("content-disposition"));
+        }
+        std::fs::remove_file(link).unwrap();
+        std::fs::remove_file(target).unwrap();
+        std::fs::remove_file(empty).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn full_log_route_requires_panel_authentication() {
+        use tower::ServiceExt;
+        let mut config = crate::config::server::ServerConfig::default();
+        config.web.password_hash = "authentication-required".into();
+        config.web.insecure_no_auth = false;
+        let state = crate::server::test_api_state(
+            config,
+            &std::env::temp_dir().join("qeli-download-auth-fixture.conf"),
+        );
+        let router = axum::Router::new()
+            .route("/logs/{name}", axum::routing::get(download_profile_log))
+            .with_state(state);
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/logs/fixture")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+        assert!(!response.headers().contains_key("content-disposition"));
+    }
     #[tokio::test]
     async fn preview_uses_the_save_serializer_and_log_rejects_untrusted_names() {
         let fields = json!({"server":"fixture.invalid:443","pass":"fixture","gateway":false,

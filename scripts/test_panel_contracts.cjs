@@ -113,6 +113,56 @@ async function main() {
     context.apiFetch=()=>new Promise(r=>finish=r);const pending=model.loadClientLog();model.closeDiagnostics();finish({ok:true,raw:'obsolete'});await pending;assert.equal(model.logText,'new log');
     model.diagOpen=true;context.apiFetch=async()=>({ok:true,profiles:[]});await model.refresh();assert(!model.diagOpen);
   });
+  await check('copy writes exactly the displayed fragment and handles denied clipboard access', async () => {
+    let copied;const {model,context}=component('client.html','clientPage',{navigator:{clipboard:{writeText:async text=>{copied=text;}}}});
+    model.diagOpen=true;model.diagProfile={name:'fixture'};model.logText='first\nsecond';
+    await model.copyClientLog();assert.equal(copied,'first\nsecond');assert(!model.logCopying);assert.equal(model.logActionError,'');
+    context.navigator.clipboard.writeText=async()=>{throw Error('denied');};
+    await model.copyClientLog();assert.match(model.logActionError,/Could not copy/);assert.equal(model.logText,'first\nsecond');
+    copied=null;model.logError='unavailable';await model.copyClientLog();assert.equal(copied,null);
+  });
+  await check('HTTP clipboard fallback restores focus and removes its temporary textarea on success or failure', async () => {
+    let input,removed=0,focused=0,selected=0,works=true;
+    const {model}=component('client.html','clientPage',{navigator:{},document:{
+      readyState:'loading',addEventListener(){},activeElement:{focus(){focused++;}},
+      body:{appendChild(value){input=value;}},createElement(){return {style:{},focus(){},select(){selected++;},remove(){removed++;}};},
+      execCommand(command){assert.equal(command,'copy');return works;},
+    }});
+    model.diagOpen=true;model.diagProfile={name:'fixture'};model.logText='shown fragment';
+    await model.copyClientLog();assert.equal(input.value,'shown fragment');assert.equal(selected,1);assert.equal(removed,1);assert.equal(focused,1);
+    works=false;await model.copyClientLog();assert.equal(removed,2);assert.equal(focused,2);assert(model.logActionError);
+  });
+  await check('download saves the complete response, validates headers, and refuses HTTP errors and login pages', async () => {
+    const full='line\n'.repeat(20000),saved=[];let response;
+    const ok=()=>({ok:true,status:200,headers:{get:key=>key==='Content-Type'?'text/plain; charset=utf-8':'attachment; filename="fixture.log"'},blob:async()=>full});
+    const {model,context}=component('client.html','clientPage',{AbortController,fetch:async()=>response});
+    model.diagOpen=true;model.diagProfile={name:'fixture'};model.logText='only preview';
+    model.saveLogBlob=(blob,name)=>saved.push([blob,name]);response=ok();await model.downloadFullLog();
+    assert.deepEqual(saved,[[full,'fixture']]);assert(!model.logDownloading);
+    for(const bad of [
+      {ok:false,status:404,json:async()=>({error:'Client log not found'})},
+      {ok:false,status:401},
+      {ok:true,status:200,headers:{get:()=> 'text/html'},blob:async()=>'<html>login</html>'},
+    ]){response=bad;await model.downloadFullLog();assert.equal(saved.length,1);assert(model.logActionError);assert(!model.logDownloading);}
+    context.fetch=async()=>{throw Error('network unavailable');};await model.downloadFullLog();assert.equal(saved.length,1);assert.match(model.logActionError,/network/);
+  });
+  await check('closing diagnostics aborts a download and a late response cannot save another profile log', async () => {
+    let finish,signal,saved=0;
+    const {model,context}=component('client.html','clientPage',{AbortController,fetch:async(u,o)=>{signal=o.signal;return new Promise(r=>finish=r);}});
+    model.saveLogBlob=()=>{saved++;};model.diagOpen=true;model.diagProfile={name:'old'};
+    const pending=model.downloadFullLog();await model.downloadFullLog();model.closeDiagnostics();assert(signal.aborted);
+    model.diagOpen=true;model.diagProfile={name:'new'};
+    finish({ok:true});await pending;assert.equal(saved,0);assert(!model.logDownloading);assert.equal(model.logActionError,'');
+  });
+  await check('download links have a safe filename and object URLs are released after click and on failure', () => {
+    let link,released=[],cleanup,fail=false;
+    const {model}=component('client.html','clientPage',{URL:{createObjectURL:()=> 'blob:fixture',revokeObjectURL:url=>released.push(url)},
+      setTimeout:fn=>{cleanup=fn;},document:{readyState:'loading',addEventListener(){},body:{appendChild(){}},
+      createElement:()=>link={click(){if(fail)throw Error('click failed');},remove(){}}}});
+    model.saveLogBlob('fixture','name/unsafe');assert.equal(link.download,'qeli-client-name_unsafe.log');assert.equal(released.length,0);
+    cleanup();assert.deepEqual(released,['blob:fixture']);
+    fail=true;assert.throws(()=>model.saveLogBlob('fixture','name'),/click failed/);assert.deepEqual(released,['blob:fixture','blob:fixture']);
+  });
   console.log('Panel contract regressions: '+passed+' passed');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
