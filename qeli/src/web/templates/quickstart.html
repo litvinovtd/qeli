@@ -219,10 +219,11 @@ function quickstartPage() {
         const effectivePort = existingProfile?.bind?.port ?? m.port;
         const effectiveTransport = existingProfile?.bind?.transport || m.transport;
         const effectiveTag = `${String(effectiveTransport).toUpperCase()} · ${effectivePort}`;
-        const clash = cfg.profiles.find(p => p.name !== m.id &&
-          Number(p.bind?.port) === Number(effectivePort) &&
-          (p.bind?.transport || 'tcp') === effectiveTransport);
-        if (clash) { this.portClash = { port: effectivePort, profile: clash.name }; return; }
+        // Kernel socket overlap depends on addresses, wildcards and extra listeners,
+        // not just the port number. The server uses the same validator again on write.
+        const preview = await apiFetch('api/config/quickstart/' + encodeURIComponent(m.id) + '?ip_mode=' + encodeURIComponent(ipMode), {cache:'no-store'});
+        if (this.destroyed) return;
+        if (!preview || preview.ok !== true || !preview.profile || preview.profile.name !== m.id) throw new Error(preview?.error || 'Quick Start preview unavailable');
 
         if (!await qeliConfirm('Set up and restart',
               qeliTf('Set up the "{}" server ({}) and restart now?', m.id, effectiveTag) + '\n\n'

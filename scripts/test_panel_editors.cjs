@@ -747,12 +747,12 @@ async function main() {
   await check('quickstart captures IP mode before reading and confirming, with one build/restart',async()=>{
     let read,confirm,writes=0,restarts=0,sent,prompt;
     const {model}=component('quickstart.html','quickstartPage',{
-      apiFetch:(url,opts)=>opts?.method ? (writes++,sent=JSON.parse(opts.body),Promise.resolve(builtReply('plain'))) : new Promise(r=>read=r),
+      apiFetch:(url,opts)=>url.startsWith('api/config/quickstart/') && !opts?.method ? Promise.resolve(builtReply('plain')) : opts?.method ? (writes++,sent=JSON.parse(opts.body),Promise.resolve(builtReply('plain'))) : new Promise(r=>read=r),
       qeliConfirm:(title,text)=>{prompt=text;return new Promise(r=>confirm=r);},restartServer:async()=>{restarts++;return true;},
     });
     model.ipMode='ipv4';const pending=model.quickStart(model.modes.find(m=>m.id==='plain'));
     model.ipMode='dual';await model.quickStart(model.modes[0]);read(quickReply());
-    while(!confirm)await Promise.resolve();assert.match(prompt,/ipv4$/);model.ipMode='ipv6';confirm(true);await pending;
+    for(let n=0;n<100&&!confirm;n++)await Promise.resolve();assert(confirm,'confirmation not reached');assert.match(prompt,/ipv4$/);model.ipMode='ipv6';confirm(true);await pending;
     assert.equal(sent.ip_mode,'ipv4');assert.equal(sent.expected_revision,'r1');assert.equal(writes,1);assert.equal(restarts,1);assert.equal(model.qs.busy,null);
     assert.equal(model.qs.done.ok,true);
   });
@@ -763,23 +763,24 @@ async function main() {
   await check('quickstart cancellation, stale revision and malformed build never restart',async()=>{
     for(const variant of ['cancel','conflict','bad build']){
       let writes=0,restarts=0;const {model}=component('quickstart.html','quickstartPage',{
-        apiFetch:async(url,opts)=>opts?.method?(writes++,variant==='conflict'?{ok:false,kind:'config_conflict',error:'stale'}:{ok:true,profile:null}):quickReply(),
+        apiFetch:async(url,opts)=>opts?.method?(writes++,variant==='conflict'?{ok:false,kind:'config_conflict',error:'stale'}:{ok:true,profile:null}):url.startsWith('api/config/quickstart/')?builtReply('reality-tls'):quickReply(),
         qeliConfirm:async()=>variant!=='cancel',restartServer:async()=>{restarts++;return true;},
       });
       await model.quickStart(model.modes[0]);assert.equal(writes,variant==='cancel'?0:1);assert.equal(restarts,0);assert.equal(model.qs.busy,null);
     }
   });
-  await check('quickstart checks existing manual bind and permits opposite transport',async()=>{
+  await check('quickstart delegates socket overlap to the server preview and never writes a rejected plan',async()=>{
     let writes=0;const {model,context}=component('quickstart.html','quickstartPage');
     const profiles=[{name:'plain',bind:{port:9443,transport:'udp'}},{name:'other',bind:{port:9443,transport:'udp'}}];
-    context.apiFetch=async(url,opts)=>opts?.method?(writes++,builtReply('plain')):{ok:true,revision:'r1',config:{profiles}};
-    context.restartServer=async()=>true;await model.quickStart(model.modes.find(m=>m.id==='plain'));assert.equal(model.portClash.port,9443);assert.equal(writes,0);
+    context.apiFetch=async(url,opts)=>opts?.method?(writes++,builtReply('plain')):url.startsWith('api/config/quickstart/')?{ok:false,error:'socket overlap'}:{ok:true,revision:'r1',config:{profiles}};
+    context.restartServer=async()=>true;await model.quickStart(model.modes.find(m=>m.id==='plain'));assert.equal(writes,0);
+    context.apiFetch=async(url,opts)=>opts?.method?(writes++,builtReply('plain')):url.startsWith('api/config/quickstart/')?builtReply('plain'):{ok:true,revision:'r1',config:{profiles}};
     profiles[1].bind.transport='tcp';await model.quickStart(model.modes.find(m=>m.id==='plain'));assert.equal(writes,1);assert.equal(model.portClash,null);
     assert(model.modes.every(m=>Object.keys(m).every(k=>['id','name','transport','port','tag','flag','desc'].includes(k))));
   });
   await check('quickstart restart failure retains saved/unconfirmed result and clipboard failures are visible',async()=>{
     for(const failure of [false,'throw']){
-      const {model,context,events}=component('quickstart.html','quickstartPage',{apiFetch:async(url,opts)=>opts?.method?builtReply('plain'):quickReply(),restartServer:async()=>{if(failure==='throw')throw Error('rejected');return false;},navigator:{}});
+      const {model,context,events}=component('quickstart.html','quickstartPage',{apiFetch:async(url,opts)=>opts?.method||url.startsWith('api/config/quickstart/')?builtReply('plain'):quickReply(),restartServer:async()=>{if(failure==='throw')throw Error('rejected');return false;},navigator:{}});
       await model.quickStart(model.modes.find(m=>m.id==='plain'));assert.equal(model.qs.done.ok,false);assert.equal(events.at(-1)[1].type,'warn');
       await model.copy('fixture');assert.equal(events.at(-1)[1].msg,'Copy failed');
       context.navigator.clipboard={writeText:async()=>{throw Error('permission');}};await model.copy('fixture');assert.equal(events.at(-1)[1].msg,'Copy failed');
@@ -789,7 +790,7 @@ async function main() {
   await check('destroyed quickstart stops after read, confirmation or build without restart',async()=>{
     for(const stop of ['read','confirm','build']){
       let finish,writes=0,restarts=0;const {model}=component('quickstart.html','quickstartPage',{
-        apiFetch:async(url,opts)=>opts?.method?(writes++,stop==='build'?new Promise(r=>finish=()=>r(builtReply('plain'))):builtReply('plain')):stop==='read'?new Promise(r=>finish=()=>r(quickReply())):quickReply(),
+        apiFetch:async(url,opts)=>opts?.method?(writes++,stop==='build'?new Promise(r=>finish=()=>r(builtReply('plain'))):builtReply('plain')):url.startsWith('api/config/quickstart/')?builtReply('plain'):stop==='read'?new Promise(r=>finish=()=>r(quickReply())):quickReply(),
         qeliConfirm:async()=>stop==='confirm'?new Promise(r=>finish=()=>r(true)):true,restartServer:async()=>{restarts++;return true;},
       });
       const pending=model.quickStart(model.modes.find(m=>m.id==='plain'));for(let n=0;n<100&&!finish;n++)await Promise.resolve();assert(finish,'fixture request did not start');model.destroy();finish();await pending;

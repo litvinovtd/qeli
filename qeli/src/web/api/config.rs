@@ -4,7 +4,7 @@ use super::paths::{
 };
 use crate::server::web::auth::{self, AuthError};
 use crate::server::ServerState;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -1116,6 +1116,7 @@ fn quickstart_profile_for_current(
 pub async fn get_quickstart_profile(
     State(state): State<Arc<ServerState>>,
     Path(mode): Path<String>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
     let current = match super::current_server_config(&state).await {
@@ -1126,20 +1127,42 @@ pub async fn get_quickstart_profile(
         Ok(observed) => observed,
         Err(error) => return Ok(Json(super::err_json(error))),
     };
+    let requested = match QuickStartIpMode::parse_body(
+        &query
+            .get("ip_mode")
+            .map(|mode| json!({"ip_mode":mode}))
+            .unwrap_or_else(|| json!({})),
+    ) {
+        Ok(mode) => mode,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     match quickstart_profile_for_current(
         &mode,
         &current,
         observed.host.as_ref(),
         observed.ipv6_firewall_available,
-        None,
+        requested,
     ) {
-        Ok((profile, short_id, obfs_key, reused)) => Ok(Json(json!({
+        Ok((profile, short_id, obfs_key, reused)) => {
+            let mut candidate = current.clone();
+            candidate.profiles.retain(|item| item.name != profile.name);
+            candidate.profiles.push(profile.clone());
+            if let Err(error) = crate::server::validate_profiles(&candidate) {
+                return Ok(Json(super::err_json(format!(
+                    "Quick Start config would be rejected at startup: {error}"
+                ))));
+            }
+            if let Err(error) = observed.check(&candidate) {
+                return Ok(Json(super::err_json(error.to_string())));
+            }
+            Ok(Json(json!({
             "ok": true,
             "profile": profile,
             "sid": short_id,
             "obfs_key": obfs_key,
             "reused": reused,
-        }))),
+            })))
+        }
         Err(error) => Ok(Json(super::err_json(error))),
     }
 }
@@ -2868,8 +2891,8 @@ mod raw_secret_tests {
             ),
             "relaunch collision check drifted back to the card's default transport"
         );
-        assert!(page.contains("Number(p.bind?.port) === Number(effectivePort)"));
-        assert!(page.contains("(p.bind?.transport || 'tcp') === effectiveTransport"));
+        assert!(page.contains("api/config/quickstart/"));
+        assert!(!page.contains("const clash = cfg.profiles.find"));
     }
 
     #[test]

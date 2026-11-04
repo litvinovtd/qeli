@@ -61,6 +61,58 @@ async function main() {
     p.tun.ip_mode='dual';model.onIpModeChange(0);assert(p.routing.nat.enabled);assert(p.dhcp.enabled);
     assert(!JSON.stringify(model.cfg).includes('networkDraft'));
   });
+  await check('Quick Start accepts a server-approved same-port bind and rejects unavailable preview', async () => {
+    let writes=0,previews=0;const {model,context}=component('quickstart.html','quickstartPage',{restartServer:async()=>true,
+      apiFetch:async(u,o)=>{
+        if(o?.method){writes++;return {ok:true,profile:{name:'plain',bind:{address:'192.0.2.10',port:8447,transport:'tcp'}}};}
+        if(u.startsWith('api/config/quickstart/')){previews++;return {ok:true,profile:{name:'plain'}};}
+        return {ok:true,revision:'r1',config:{profiles:[{name:'plain',bind:{address:'192.0.2.10',port:8447,transport:'tcp'}},{name:'other',bind:{address:'192.0.2.11',port:8447,transport:'tcp'}}]}};
+      }});
+    await model.quickStart(model.modes.find(m=>m.id==='plain'));assert.equal(previews,1);assert.equal(writes,1);
+    context.apiFetch=async(u,o)=>u.startsWith('api/config/quickstart/')?{ok:false,error:'wildcard conflict'}:{ok:true,revision:'r1',config:{profiles:[]}};
+    await model.quickStart(model.modes[0]);assert.equal(writes,1);assert.equal(model.qs.done,null);
+  });
+  await check('partial VPN block-list failure retains VPN snapshot while panel journal updates', async () => {
+    const {model}=component('blocked.html','blockedPage',{apiFetch:async()=>({ok:true,vpn_available:false,vpn_error:'worker unavailable',blocked:{vpn:null,panel:[{ip:'192.0.2.1'}]}})});
+    model.blocked.vpn=[{ip:'192.0.2.2',unblock_in_secs:90}];await model.load();
+    assert.equal(model.blocked.vpn[0].ip,'192.0.2.2');assert.equal(model.blocked.panel[0].ip,'192.0.2.1');assert.match(model.error,/unavailable/);
+  });
+  await check('saving an explicit network mode releases rollback-only drafts', async () => {
+    const {model}=component('config.html','configPage',{apiFetch:async()=>({ok:true,revision:'r2'})});
+    model.loaded=true;model.revision='r1';model.view='form';
+    model.cfg={profiles:[{routing:{ipv6:{mode:'route',ndp_proxy:'auto',ndp_proxy_interface:'ens3'}}}]};
+    model._original=JSON.stringify(model.cfg);const p=model.cfg.profiles[0];p.routing.ipv6.mode='nat66';model.onIpv6RoutingModeChange(0);
+    assert(model.suspendedNdp(0));await model.save();assert(!model.suspendedNdp(0));
+    p.routing.ipv6.mode='route';model.onIpv6RoutingModeChange(0);assert.equal(p.routing.ipv6.ndp_proxy,'off');
+  });
+  await check('client distinguishes active, outdated, missing and stopped diagnostics without inventing zeroes', () => {
+    const {model,context}=component('client.html','clientPage');const now=1793790900000;
+    context.Date=class extends Date{static now(){return now;}};
+    const profile={name:'fixture',connected:true,state:'up',diagnostics:{state:'running',updated_at_ms:now,stats:{tx_bytes:0},plan:{full_tunnel:false,mtu:1400}}};
+    model.diagProfile=profile;assert.equal(model.displayState(profile),'up');assert.equal(model.diagBoolean('plan.full_tunnel'),'Disabled');
+    assert.equal(model.diagBytes('stats.tx_bytes'),'0');assert.equal(model.diagBytes('stats.rx_bytes'),'—');assert.equal(model.diagBoolean('plan.kill_switch'),'—');
+    profile.diagnostics.updated_at_ms-=16000;assert.equal(model.displayState(profile),'unknown');
+    profile.connected=false;assert.equal(model.displayState(profile),'down');assert.match(model.snapshotLabel(profile),/Last session/);
+    assert.equal(model.displayState({connected:true,state:'up'}),'connecting');
+  });
+  await check('outbound table has localized mobile labels and scoped stacked layout', () => {
+    const {html}=component('client.html','clientPage');
+    for(const label of ['Profile','Server','Mode','Status','Traffic and network','Actions'])assert(html.includes(':data-label="qeliT(\''+label+'\')"'));
+    const css=require('node:fs').readFileSync(require('node:path').join(__dirname,'../qeli/web-assets/input.css'),'utf8');
+    assert(css.includes('.client-profile-table tbody tr{display:block;'));
+    assert(css.includes('.card>table.client-profile-table{min-width:0}'));
+    assert(css.includes('.client-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))'));
+  });
+  await check('client diagnostics follow polls and late log responses cannot cross profiles', async () => {
+    let finish;const finishes=[];const {model,context}=component('client.html','clientPage',{apiFetch:()=>new Promise(r=>{finish=r;finishes.push(r);})});
+    const old=model.openDiagnostics({name:'old'}), latest=model.openDiagnostics({name:'new'});
+    finishes[1]({ok:true,raw:'new log'});await latest;finishes[0]({ok:true,raw:'old log'});await old;
+    assert.equal(model.logText,'new log');assert.equal(model.diagProfile.name,'new');
+    context.apiFetch=async()=>({ok:true,profiles:[{name:'new',connected:true,diagnostics:{state:'retrying',reconnects:3}}]});
+    await model.refresh();assert.equal(model.diagValue('reconnects'),3);
+    context.apiFetch=()=>new Promise(r=>finish=r);const pending=model.loadClientLog();model.closeDiagnostics();finish({ok:true,raw:'obsolete'});await pending;assert.equal(model.logText,'new log');
+    model.diagOpen=true;context.apiFetch=async()=>({ok:true,profiles:[]});await model.refresh();assert(!model.diagOpen);
+  });
   console.log('Panel contract regressions: '+passed+' passed');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

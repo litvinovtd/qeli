@@ -323,7 +323,8 @@
 
         <!-- Allowed networks -->
         <div>
-          <label class="block text-xs font-medium text-slate-400 mb-1.5">Allowed networks <span class="text-slate-600">(CIDR allow-list; empty = unrestricted)</span></label>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5">Allowed networks</label>
+          <p class="text-xs text-slate-500 mb-2">Empty inherits the group networks. Access is unrestricted only if neither the user nor the group restricts it.</p>
           <div class="space-y-2">
             <template x-for="(net, i) in form.allowed_networks" :key="i">
               <div class="flex gap-2">
@@ -828,7 +829,12 @@ function usersPage() {
         const r = await apiFetch(`api/usage/${encodeURIComponent(f.username)}/limit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         if (this.destroyed || this.usageForm !== owner || this.modal !== 'usage') return;
         this.modalSaving = false;
-        if (r.ok) { if (JSON.stringify(owner) === draft) this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
+        if (r.ok) {
+          const user = this.users.find(user => user.username === f.username);
+          if (user) Object.assign(user, body);
+          if (JSON.stringify(owner) === draft) this.modal = null;
+          this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage();
+        }
         else this.modalError = r.error || 'Failed';
       } catch (e) {
         if (!this.destroyed && this.usageForm === owner && this.modal === 'usage') this.modalError = e.message;

@@ -123,7 +123,7 @@
       <h3 class="text-sm font-semibold text-white">Panel login <span class="text-xs font-normal text-slate-500" x-text="'(' + blocked.panel.length + ')'"></span></h3>
       <button class="btn btn-danger btn-sm" @click="clearAll('panel')" x-show="blocked.panel.length > 0">Clear all</button>
     </div>
-    <div x-show="loaded && !loading && !error && blocked.panel.length === 0" class="card text-center text-slate-600 text-sm py-10">
+    <div x-show="loaded && !loading && blocked.panel.length === 0" class="card text-center text-slate-600 text-sm py-10">
       No blocked IPs.
     </div>
     <div class="card overflow-hidden" x-show="blocked.panel.length > 0">
@@ -199,9 +199,10 @@ function blockedPage() {
         const d = await apiFetch('api/blocked');
         if (this.destroyed || sequence !== this.loadSequence) return;
         if (!d.ok || !d.blocked) throw new Error(d.error || this.t('Request failed'));
-        this.blocked = { vpn: d.blocked.vpn || [], panel: d.blocked.panel || [] };
+        if (!Array.isArray(d.blocked.panel) || (d.vpn_available !== false && !Array.isArray(d.blocked.vpn))) throw new Error(this.t('Request failed'));
+        this.blocked = { vpn: d.vpn_available === false ? this.blocked.vpn : d.blocked.vpn, panel: d.blocked.panel };
         this.loaded = true;
-        this.error = '';
+        this.error = d.vpn_available === false ? (d.vpn_error || this.t('VPN block list unavailable; showing the last snapshot')) : '';
       } catch (e) {
         if (!this.destroyed && sequence === this.loadSequence) this.error = e.message;
       } finally {

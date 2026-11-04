@@ -1236,9 +1236,15 @@ mod tests {
         };
         state.live_auth_config.write().await.users = vec![new_user.clone()];
         state.users_db.write().await.users = vec![new_user];
-        for cmd in ["enable-user", "disable-user", "set-limit", "set-bandwidth"] {
+        for cmd in [
+            "enable-user",
+            "disable-user",
+            "set-limit",
+            "set-bandwidth",
+            "patch-limit",
+        ] {
             let request = parse(&format!(
-                r#"{{"cmd":"{cmd}","username":"removed-inline","mbps":7,"data_limit_gb":9}}"#
+                r#"{{"cmd":"{cmd}","username":"removed-inline","mbps":7,"data_limit_gb":9,"limit_patch":{{"data_limit_gb":9}}}}"#
             ))
             .unwrap();
             assert!(
@@ -1251,7 +1257,7 @@ mod tests {
                 .iter()
                 .any(|u| u.username == "removed-inline"));
             let request = parse(&format!(
-                r#"{{"cmd":"{cmd}","username":"new-inline","mbps":7,"data_limit_gb":9}}"#
+                r#"{{"cmd":"{cmd}","username":"new-inline","mbps":7,"data_limit_gb":9,"limit_patch":{{"data_limit_gb":9}}}}"#
             ))
             .unwrap();
             assert!(
@@ -1265,6 +1271,28 @@ mod tests {
         assert!(!user.enabled);
         assert_eq!(user.data_limit_gb, 9);
         assert_eq!(user.bandwidth.limit_mbps, 7);
+        // The next patch must merge the file's latest value, not the worker's
+        // earlier in-memory copy or the browser's old form.
+        let mut fresh = db.clone();
+        fresh.users[0].expire_at = Some(1800000000);
+        std::fs::write(&users_file, fresh.to_ini_string()).unwrap();
+        let request = parse(
+            r#"{"cmd":"patch-limit","username":"new-inline","limit_patch":{"data_limit_gb":11}}"#,
+        )
+        .unwrap();
+        assert!(dispatch(request, &state).await.ok);
+        let mut fresh = UsersDb::load(&users_file).unwrap();
+        assert_eq!(fresh.users[0].expire_at, Some(1800000000));
+        fresh.users[0].data_limit_gb = 99;
+        std::fs::write(&users_file, fresh.to_ini_string()).unwrap();
+        let request = parse(
+            r#"{"cmd":"patch-limit","username":"new-inline","limit_patch":{"expire_at":null}}"#,
+        )
+        .unwrap();
+        assert!(dispatch(request, &state).await.ok);
+        let fresh = UsersDb::load(&users_file).unwrap();
+        assert_eq!(fresh.users[0].data_limit_gb, 99);
+        assert_eq!(fresh.users[0].expire_at, None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

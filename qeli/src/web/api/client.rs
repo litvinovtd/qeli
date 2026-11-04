@@ -90,20 +90,20 @@ fn sanitize_name(s: &str) -> String {
 /// KiB) so a pathologically large log can't OOM the panel — we only ever show the
 /// last `n` lines. (audit 3.5)
 fn tail_lines(path: &str, n: usize) -> String {
+    read_log_tail(path, n).unwrap_or_default()
+}
+
+fn read_log_tail(path: &str, n: usize) -> std::io::Result<String> {
     use std::io::{Read, Seek, SeekFrom};
     const CAP: u64 = 64 * 1024;
-    let Ok(mut f) = std::fs::File::open(path) else {
-        return String::new();
-    };
-    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut f = std::fs::File::open(path)?;
+    let len = f.metadata()?.len();
     let start = len.saturating_sub(CAP);
-    if start > 0 && f.seek(SeekFrom::Start(start)).is_err() {
-        return String::new();
+    if start > 0 {
+        f.seek(SeekFrom::Start(start))?;
     }
     let mut bytes = Vec::new();
-    if f.take(CAP).read_to_end(&mut bytes).is_err() {
-        return String::new();
-    }
+    f.take(CAP).read_to_end(&mut bytes)?;
     let buf = String::from_utf8_lossy(&bytes);
     // If we seeked into the middle of a line, drop the partial first line.
     let txt = if start > 0 {
@@ -112,9 +112,21 @@ fn tail_lines(path: &str, n: usize) -> String {
         &buf
     };
     let lines: Vec<&str> = txt.lines().collect();
-    lines[lines.len().saturating_sub(n)..].join("\n")
+    Ok(lines[lines.len().saturating_sub(n)..].join("\n"))
 }
 
+pub async fn get_profile_log(_g: auth::AuthGuard, Path(name): Path<String>) -> Json<Value> {
+    if !ClientManager::valid_name(&name) {
+        return Json(super::err_json("invalid name"));
+    }
+    match read_log_tail(&ClientManager::log_path(&name), 120) {
+        Ok(raw) => Json(json!({"ok":true,"available":true,"raw":raw})),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Json(json!({"ok":true,"available":false,"raw":""}))
+        }
+        Err(error) => Json(super::err_json(format!("Client log unavailable: {error}"))),
+    }
+}
 /// Real connection state from the client's log tail. A live child process is NOT the
 /// same as an up tunnel: a mis-configured client (e.g. reality-tls without a short_id)
 /// loops on reconnect while the process stays alive, which showed a misleading
@@ -253,6 +265,7 @@ pub async fn list_profiles(
                 s["diagnostics"] = diagnostics;
             }
         }
+        s["log_tail"] = json!(tail_lines(&ClientManager::log_path(&name), 8));
         out.push(s);
     }
     Ok(Json(json!({ "ok": true, "profiles": out })))
@@ -545,10 +558,7 @@ fn validate_panel_profile(ini: &str) -> anyhow::Result<()> {
 }
 
 /// Same serializer as form save, without assigning a device or writing a profile.
-pub async fn preview_profile(
-    _g: auth::AuthGuard,
-    Json(body): Json<Value>,
-) -> Json<Value> {
+pub async fn preview_profile(_g: auth::AuthGuard, Json(body): Json<Value>) -> Json<Value> {
     let ini = ini_from_fields(&body);
     match validate_panel_profile(&ini) {
         Ok(()) => Json(json!({"ok":true,"raw":ini})),
@@ -811,6 +821,48 @@ pub async fn disconnect(
 
 #[cfg(test)]
 mod diagnostic_tests {
+    #[tokio::test]
+    async fn preview_uses_the_save_serializer_and_log_rejects_untrusted_names() {
+        let fields = json!({"server":"fixture.invalid:443","pass":"fixture","gateway":false,
+            "mode":"fake-tls","proto":"tcp","awg":false,"jc":5,"front":"none"});
+        let reply = preview_profile(auth::AuthGuard, Json(fields.clone()))
+            .await
+            .0;
+        assert_eq!(reply["ok"], true);
+        assert_eq!(reply["raw"].as_str().unwrap(), ini_from_fields(&fields));
+        let forbidden = preview_profile(
+            auth::AuthGuard,
+            Json(json!({
+                "server":"fixture.invalid:443","_extraQeli":["post_up = forbidden"]
+            })),
+        )
+        .await
+        .0;
+        assert_eq!(forbidden["ok"], false);
+        let invalid = get_profile_log(auth::AuthGuard, Path("../users".into()))
+            .await
+            .0;
+        assert_eq!(invalid["ok"], false);
+    }
+    #[test]
+    fn log_reader_is_bounded_and_reports_absence_instead_of_inventing_empty_success() {
+        let path = std::env::temp_dir().join(format!(
+            "qeli-panel-log-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        let absent = read_log_tail(path.to_str().unwrap(), 120).unwrap_err();
+        assert_eq!(absent.kind(), std::io::ErrorKind::NotFound);
+        let data = (0..3000)
+            .map(|n| format!("{n}: {}\n", "x".repeat(80)))
+            .collect::<String>();
+        std::fs::write(&path, data).unwrap();
+        let output = read_log_tail(path.to_str().unwrap(), 120).unwrap();
+        assert_eq!(output.lines().count(), 120);
+        assert!(output.len() <= 64 * 1024);
+        assert!(output.lines().next().unwrap().starts_with("2880:"));
+        std::fs::remove_file(path).unwrap();
+    }
     use super::*;
     use crate::config::format::IniDoc;
 
@@ -1064,6 +1116,7 @@ mod diagnostic_tests {
         assert!(ini.contains("allow_ipv4_leak = true\n"));
         assert!(ini.contains("allow_ipv6_leak = true\n"));
     }
+
     #[test]
     fn field_serializer_preserves_dormant_front_and_awg_values_and_gates_quic() {
         for proto in ["tcp", "udp"] {

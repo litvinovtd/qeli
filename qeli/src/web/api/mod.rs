@@ -139,6 +139,7 @@ pub fn routes() -> Router<Arc<ServerState>> {
         .route("/client/import", post(client::import_link))
         .route("/client/preview", post(client::preview_profile))
         .route("/client/profiles/{name}", get(client::get_profile))
+        .route("/client/profiles/{name}/log", get(client::get_profile_log))
         .route("/client/profiles/{name}", delete(client::delete_profile))
         .route("/client/profiles/{name}/connect", post(client::connect))
         .route(

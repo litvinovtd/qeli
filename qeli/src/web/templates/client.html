@@ -7,7 +7,7 @@
       <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
       <span class="text-sm text-slate-500" x-text="profiles.length + ' outbound profile(s)'"></span>
     </div>
-    <div class="flex gap-2">
+    <div class="flex flex-wrap gap-2">
       <button class="btn btn-ghost" @click="openImport()">Import qeli:// link</button>
       <button class="btn btn-ghost" @click="openRaw()">Paste INI config</button>
       <button class="btn btn-primary" @click="openCreate()">
@@ -17,55 +17,71 @@
     </div>
   </div>
 
+  <div class="client-summary mb-4" aria-label="Outbound connection summary">
+    <div class="card p-4"><div class="text-xs text-slate-400">Profiles</div><div class="text-xl font-semibold" x-text="profiles.length"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400">Connected</div><div class="text-xl font-semibold" x-text="profileCount('up')"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400">Connecting</div><div class="text-xl font-semibold" x-text="profileCount('connecting')"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400">Needs attention</div><div class="text-xl font-semibold text-amber-400" x-text="attentionCount()"></div></div>
+  </div>
+
   <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs mb-4" style="background:var(--bg-2);border:1px solid var(--line);color:var(--txt-mut)">
     <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
     <span>Outbound connections: this box dials out to other qeli servers (a client role). Add one by importing a qeli:// link, filling the form, or pasting a full INI config, then Connect.</span>
   </div>
 
-  <div class="card">
+  <div class="card overflow-x-auto">
     <div x-show="loaded && !loading && !loadError && profiles.length === 0" class="py-16 text-center text-slate-600 text-sm">
       <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
       No client profiles yet — Import a qeli:// link or Add one manually.
     </div>
-    <table class="w-full" x-show="profiles.length > 0">
+    <table class="w-full client-profile-table" x-show="profiles.length > 0">
       <thead>
         <tr>
           <th class="tbl-th">Profile</th>
           <th class="tbl-th">Server</th>
           <th class="tbl-th">Mode</th>
           <th class="tbl-th">Status</th>
+          <th class="tbl-th">Traffic and network</th>
           <th class="tbl-th text-right">Actions</th>
         </tr>
       </thead>
       <tbody>
         <template x-for="p in profiles" :key="p.name">
           <tr>
-            <td class="tbl-td">
-              <div class="font-semibold text-white" x-text="p.name"></div>
+            <td class="tbl-td" :data-label="qeliT('Profile')">
+              <div class="font-semibold text-white whitespace-nowrap" x-text="p.name"></div>
               <div class="flex items-center gap-1.5 flex-wrap mt-0.5">
                 <span class="text-[10px] text-slate-500 font-mono" x-text="p.dev"></span>
-                <span x-show="p.autostart" class="badge badge-tcp text-[10px]">↻ autostart</span>
+                <span x-show="p.autostart" class="badge badge-tcp text-xs whitespace-nowrap">↻ autostart</span>
                 <span x-show="p.gateway" class="badge text-[10px]" style="background:rgba(255,176,32,.14);color:var(--amber)">⚠ full-tunnel</span>
               </div>
             </td>
-            <td class="tbl-td font-mono text-slate-300 text-xs" x-text="p.server"></td>
-            <td class="tbl-td text-xs">
-              <span class="badge badge-off" x-text="p.mode || '—'"></span>
+            <td class="tbl-td font-mono text-slate-300 text-xs" :data-label="qeliT('Server')" x-text="p.server"></td>
+            <td class="tbl-td text-xs" :data-label="qeliT('Mode')">
+              <span class="badge" :class="p.proto==='udp' ? 'badge-udp' : 'badge-tcp'" x-text="p.proto"></span>
+              <span class="badge badge-off whitespace-nowrap" x-text="p.mode || '—'"></span>
             </td>
-            <td class="tbl-td">
+            <td class="tbl-td" :data-label="qeliT('Status')">
               <span class="badge"
-                :class="(p.state||'down')==='up' ? 'badge-on' : ((p.state||'down')==='down' ? 'badge-off' : '')"
-                :style="p.state==='error' ? 'background:rgba(239,68,68,.16);color:#f87171' : (p.state==='connecting' ? 'background:rgba(255,176,32,.14);color:var(--amber)' : '')"
-                x-text="p.state==='up' ? '● Connected' : (p.state==='error' ? '⚠ Error — retrying' : (p.state==='connecting' ? '◌ Connecting…' : '○ Disconnected'))"></span>
+                :class="displayState(p)==='up' ? 'badge-on' : (displayState(p)==='down' ? 'badge-off' : '')"
+                :style="displayState(p)==='error' ? 'background:rgba(239,68,68,.16);color:#f87171' : (displayState(p)!=='up' && displayState(p)!=='down' ? 'color:var(--amber)' : '')"
+                x-text="statusLabel(p)"></span>
+              <div class="text-xs mt-1 text-slate-400" x-text="phaseLabel(p)"></div>
+              <div class="text-xs mt-1 text-slate-400" x-text="snapshotLabel(p)"></div>
               <div x-show="p.tun_ip" class="text-[11px] font-mono mt-1">
                 <span class="text-slate-500">internal IP</span> <span class="text-white" x-text="p.tun_ip"></span>
               </div>
-              <div x-show="p.state==='error' && ((p.diagnostics && p.diagnostics.last_error) || p.log_tail)"
+              <div x-show="(p.diagnostics && p.diagnostics.last_error) || (p.state==='error' && p.log_tail)"
                 class="text-[10px] font-mono mt-1 max-w-md truncate text-red-400"
                 :title="(p.diagnostics && p.diagnostics.last_error) || lastLine(p.log_tail)"
                 x-text="(p.diagnostics && p.diagnostics.last_error) || lastLine(p.log_tail)"></div>
             </td>
-            <td class="tbl-td text-right">
+            <td class="tbl-td text-xs text-slate-300" :data-label="qeliT('Traffic and network')">
+              <div x-text="trafficLabel(p)"></div>
+              <div class="mt-1" x-text="networkLabel(p)"></div>
+              <div class="text-slate-400 mt-1" x-show="p.diagnostics" x-text="reconnectLabel(p)"></div>
+            </td>
+            <td class="tbl-td text-right" :data-label="qeliT('Actions')">
               <div class="flex items-center justify-end gap-1.5">
                 <button x-show="!p.connected" class="btn btn-success btn-sm" @click="connect(p.name)">
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-5.197-3.03A1 1 0 008 9.03v5.94a1 1 0 001.555.832l5.197-3.03a1 1 0 000-1.664z"/></svg>
@@ -75,7 +91,7 @@
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" stroke-width="2"/></svg>
                   Disconnect
                 </button>
-                <button x-show="p.diagnostics" class="btn btn-ghost btn-sm" @click="openDiagnostics(p)" title="Transport diagnostics">Details</button>
+                <button class="btn btn-ghost btn-sm" @click="openDiagnostics(p)" title="Diagnostics and log">Details</button>
                 <button class="btn btn-ghost btn-sm" @click="openEdit(p.name)" title="Edit">
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                 </button>
@@ -91,23 +107,30 @@
   </div>
 
   <!-- Structured transport diagnostics; populated by the Rust client, never parsed from logs. -->
-  <div x-cloak x-show="diagOpen" class="modal-bg" @click.self="diagOpen=false" @keydown.escape.window="diagOpen=false">
+  <div x-cloak x-show="diagOpen" class="modal-bg" @click.self="closeDiagnostics()" @keydown.escape.window="closeDiagnostics()">
     <div class="modal" @click.stop style="max-width:720px" role="dialog" aria-modal="true" aria-labelledby="client-diag-title">
       <div class="flex items-center justify-between px-6 pt-5 pb-4" style="border-bottom:1px solid var(--line)">
         <div class="min-w-0">
           <h3 id="client-diag-title" class="text-base font-semibold text-white">Transport diagnostics</h3>
           <p class="text-xs font-mono truncate mt-1" style="color:var(--txt-dim)" x-text="diagProfile ? diagProfile.name : ''"></p>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm" @click="diagOpen=false" aria-label="Close">Close</button>
+        <button type="button" class="btn btn-ghost btn-sm" @click="closeDiagnostics()" aria-label="Close">Close</button>
       </div>
       <div class="p-6 max-h-[75vh] overflow-y-auto space-y-5" x-show="diagProfile">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div class="card p-3"><div class="text-[10px]" style="color:var(--txt-dim)">Last reported state</div><div class="text-sm font-semibold text-white mt-1" x-text="diagValue('state')"></div></div>
-          <div class="card p-3"><div class="text-[10px]" style="color:var(--txt-dim)">Reconnects</div><div class="text-sm font-semibold text-white mt-1" x-text="diagValue('reconnects', 0)"></div></div>
-          <div class="card p-3"><div class="text-[10px]" style="color:var(--txt-dim)">Sent</div><div class="text-sm font-semibold text-white mt-1" x-text="fmt(diagValue('stats.tx_bytes', 0))"></div></div>
-          <div class="card p-3"><div class="text-[10px]" style="color:var(--txt-dim)">Received</div><div class="text-sm font-semibold text-white mt-1" x-text="fmt(diagValue('stats.rx_bytes', 0))"></div></div>
+        <div class="card p-4 text-sm" role="status">
+          <div class="font-semibold" x-text="diagProfile ? statusLabel(diagProfile) : ''"></div>
+          <div class="text-xs mt-2 text-slate-400" x-text="diagProfile ? phaseLabel(diagProfile) : ''"></div>
+          <div class="text-xs mt-2 text-slate-400" x-text="diagProfile ? snapshotLabel(diagProfile) : ''"></div>
+          <div class="text-xs mt-2 text-amber-400" x-show="!diagProfile || !diagProfile.connected">Last session snapshot. It does not describe an active tunnel.</div>
+          <div class="text-xs mt-2 text-slate-400" x-show="!diagProfile || !diagProfile.diagnostics">Structured diagnostics unavailable. The log may contain the reason.</div>
         </div>
-        <div x-show="diagValue('last_error')" class="rounded-lg p-3 text-xs" style="background:rgba(255,93,108,.10);color:var(--red)" x-text="diagValue('last_error')"></div>
+        <div class="client-summary">
+          <div class="card p-3"><div class="text-[10px]" style="color:var(--txt-dim)">Last reported state</div><div class="text-sm font-semibold text-white mt-1" x-text="diagValue('state')"></div></div>
+          <div class="card p-3"><div class="text-xs text-slate-400">Reconnects</div><div class="text-sm font-semibold mt-1" x-text="diagValue('reconnects', '—')"></div></div>
+          <div class="card p-3"><div class="text-xs text-slate-400">Sent</div><div class="text-sm font-semibold mt-1" x-text="diagBytes('stats.tx_bytes')"></div></div>
+          <div class="card p-3"><div class="text-xs text-slate-400">Received</div><div class="text-sm font-semibold mt-1" x-text="diagBytes('stats.rx_bytes')"></div></div>
+        </div>
+        <div x-show="diagValue('last_error', '')" class="rounded-lg p-3 text-xs" style="background:rgba(255,93,108,.10);color:var(--red)" x-text="diagValue('last_error', '')"></div>
         <section>
           <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">Negotiated network plan</div>
           <dl class="diag-grid">
@@ -116,14 +139,14 @@
             <dt>Primary tunnel address</dt><dd x-text="diagValue('plan.tunnel_address', '—') + '/' + diagValue('plan.prefix_len', '—')"></dd>
             <dt>Gateway</dt><dd x-text="diagValue('plan.tunnel_gateway', '—')"></dd>
             <dt>MTU</dt><dd x-text="diagValue('plan.mtu', '—')"></dd>
-            <dt>Full tunnel</dt><dd x-text="qeliT(diagValue('plan.full_tunnel', false) ? 'Enabled' : 'Disabled')"></dd>
-            <dt>Kill switch</dt><dd x-text="qeliT(diagValue('plan.kill_switch', false) ? 'Enabled' : 'Disabled')"></dd>
-            <dt>Allow native IPv4 outside tunnel</dt><dd x-text="qeliT(diagValue('plan.allow_ipv4_leak', false) ? 'Enabled' : 'Disabled')"></dd>
-            <dt>Allow native IPv6 outside tunnel</dt><dd x-text="qeliT(diagValue('plan.allow_ipv6_leak', false) ? 'Enabled' : 'Disabled')"></dd>
-            <dt>Multipath</dt><dd x-text="diagValue('plan.max_streams', 1) + (diagValue('plan.adaptive', false) ? ' · ' + qeliT('Automatic') : '')"></dd>
-            <dt>UDP kernel drops</dt><dd x-text="diagValue('stats.udp_kernel_drops', 0)"></dd>
-            <dt>UDP internal drops</dt><dd x-text="diagValue('stats.udp_internal_drops', 0)"></dd>
-            <dt>UDP receive buffer</dt><dd x-text="fmt(diagValue('stats.udp_recv_buffer_bytes', 0))"></dd>
+            <dt>Full tunnel</dt><dd x-text="diagBoolean('plan.full_tunnel')"></dd>
+            <dt>Kill switch</dt><dd x-text="diagBoolean('plan.kill_switch')"></dd>
+            <dt>Allow native IPv4 outside tunnel</dt><dd x-text="diagBoolean('plan.allow_ipv4_leak')"></dd>
+            <dt>Allow native IPv6 outside tunnel</dt><dd x-text="diagBoolean('plan.allow_ipv6_leak')"></dd>
+            <dt>Multipath</dt><dd x-text="diagValue('plan.max_streams', '—')"></dd>
+            <dt>UDP kernel drops</dt><dd x-text="diagValue('stats.udp_kernel_drops', '—')"></dd>
+            <dt>UDP internal drops</dt><dd x-text="diagValue('stats.udp_internal_drops', '—')"></dd>
+            <dt>UDP receive buffer</dt><dd x-text="diagBytes('stats.udp_recv_buffer_bytes')"></dd>
           </dl>
         <section x-show="diagList('plan.addresses').length">
           <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">Tunnel addresses</div>
@@ -143,6 +166,13 @@
           <div class="rounded-lg p-3 text-[11px] font-mono space-y-1" style="background:var(--bg-2);color:var(--txt-mut)">
             <template x-for="line in diagList('plan.connection_log')"><div x-text="line"></div></template>
           </div>
+        </section>
+        <section>
+          <div class="flex items-center justify-between gap-2 mb-2"><h4 class="text-sm font-semibold">Recent client log</h4><button class="btn btn-ghost btn-sm" @click="loadClientLog()" :disabled="logLoading">Refresh log</button></div>
+          <p class="text-xs text-slate-400 mb-2">Last 120 lines, at most 64 KiB. Refreshing does not reconnect or change network settings.</p>
+          <p class="text-xs text-red-400" role="alert" x-show="logError" x-text="logError"></p>
+          <p class="text-xs text-slate-400" x-show="!logLoading && !logError && !logText">Client log unavailable or empty.</p>
+          <pre class="card p-4 text-xs font-mono overflow-auto whitespace-pre-wrap" style="max-height:320px" x-show="logText" x-text="logText"></pre>
         </section>
       </div>
     </div>
@@ -324,6 +354,7 @@ function clientPage() {
     },
     destroy() {
       this.destroyed = true; this.loadSequence++; this.editorSequence++; this.importSequence++;
+      this.logSequence++;
       this.loading = false;
       qeliStopPoll(this.timer); this.timer = null;
       for (const timer of this.connectTimers) clearTimeout(timer);
@@ -331,6 +362,7 @@ function clientPage() {
     },
     importOpen: false, importLink: '', importName: '', importGateway: false,
     diagOpen: false, diagProfile: null,
+    logText: '', logError: '', logLoading: false, logSequence: 0,
     formOpen: false,
     formConverting: false,
     onClientTransportChange() { if (this.form.proto !== 'udp') this.form.quic = false; },
@@ -348,6 +380,11 @@ function clientPage() {
         if (this.destroyed || sequence !== this.loadSequence) return;
         if (!r.ok || !Array.isArray(r.profiles || [])) throw new Error(r.error || qeliT('Request failed'));
         this.profiles = r.profiles || []; this.loaded = true; this.loadError = '';
+        if (this.diagOpen && this.diagProfile) {
+          const next = this.profiles.find(p => p.name === this.diagProfile.name);
+          if (next) this.diagProfile = next;
+          else this.closeDiagnostics();
+        }
       } catch (e) {
         if (!this.destroyed && sequence === this.loadSequence) this.loadError = e.message;
       } finally {
@@ -362,13 +399,74 @@ function clientPage() {
     // Keep the template expressions CSP-safe by making the shared helpers component data.
     fmt(value) { return window.fmt ? window.fmt(value) : String(value); },
     qeliT(value) { return window.qeliT ? window.qeliT(value) : value; },
-    openDiagnostics(profile) { this.diagProfile = profile; this.diagOpen = true; },
-    diagValue(path, fallback) {
+    valueAt(profile, path, fallback = '—') {
+      let value = profile?.diagnostics;
+      for (const part of path.split('.')) value = value?.[part];
+      return value === undefined || value === null ? fallback : value;
+    },
+    snapshotStale(profile) {
+      const updated = this.valueAt(profile, 'updated_at_ms', null);
+      return !Number.isFinite(updated) || updated <= 0 || updated > Date.now() + 5000 || Date.now() - updated > 15000;
+    },
+    displayState(profile) {
+      if (!profile.connected) return 'down';
+      if (this.loadError) return 'unknown';
+      if (!profile.diagnostics) return 'connecting';
+      if (this.snapshotStale(profile)) return 'unknown';
+      return profile.state || 'connecting';
+    },
+    profileCount(state) { return this.loadError || !this.loaded ? '—' : this.profiles.filter(p => this.displayState(p) === state).length; },
+    attentionCount() { return !this.loaded ? '—' : this.profiles.filter(p => ['error','unknown'].includes(this.displayState(p)) || p.invalid || this.valueAt(p,'last_error',null)).length; },
+    statusLabel(profile) {
+      return this.qeliT(({up:'Connected',down:'Disconnected',error:'Error or retrying',connecting:'Process running; connecting',unknown:'Telemetry outdated'})[this.displayState(profile)]);
+    },
+    phaseLabel(profile) {
+      const state = this.valueAt(profile,'state',null);
+      const labels = {created:'Starting client',connecting:'Connecting and authenticating',awaiting_network:'Applying network plan',running:'Tunnel running',retrying:'Waiting before retry',failed:'Connection failed',stopping:'Stopping client',stopped:'Client stopped'};
+      return this.qeliT(state ? (labels[state] || 'Unknown client state') : 'Connection stage unavailable');
+    },
+    snapshotLabel(profile) {
+      const time = this.valueAt(profile,'updated_at_ms',null);
+      if (!Number.isFinite(time) || time <= 0) return this.qeliT('No diagnostic timestamp');
+      const label = !profile.connected ? 'Last session snapshot' : (this.loadError || this.snapshotStale(profile) ? 'Stale snapshot' : 'Updated');
+      return this.qeliT(label) + ': ' + new Date(time).toLocaleString();
+    },
+    trafficLabel(profile) {
+      const tx = this.valueAt(profile,'stats.tx_bytes',null), rx = this.valueAt(profile,'stats.rx_bytes',null);
+      return this.qeliT('Session totals') + ': ↑ ' + (typeof tx === 'number' ? this.fmt(tx) : '—') + ' · ↓ ' + (typeof rx === 'number' ? this.fmt(rx) : '—');
+    },
+    networkLabel(profile) {
+      const plan = this.valueAt(profile,'plan',null);
+      if (!plan) return this.qeliT('Network plan unavailable');
+      return this.qeliT('Last reported plan') + ': ' + this.qeliT(plan.full_tunnel === true ? 'Full tunnel' : (plan.full_tunnel === false ? 'Split tunnel' : 'Unknown')) + ' · MTU ' + (plan.mtu ?? '—');
+    },
+    reconnectLabel(profile) {
+      const retry = this.valueAt(profile,'retry_in_secs',null);
+      return this.qeliT('Reconnects') + ': ' + this.valueAt(profile,'reconnects') + (retry !== null ? ' · ' + this.qeliT('Retry delay (seconds)') + ': ' + retry : '');
+    },
+    openDiagnostics(profile) { this.diagProfile = profile; this.diagOpen = true; this.logText='';this.logError='';return this.loadClientLog(); },
+    closeDiagnostics() { this.diagOpen=false;this.logSequence++;this.logLoading=false; },
+    async loadClientLog() {
+      if (!this.diagOpen || !this.diagProfile || this.destroyed) return;
+      const name=this.diagProfile.name, sequence=++this.logSequence;
+      this.logLoading=true;this.logError='';
+      try {
+        const r=await apiFetch('api/client/profiles/'+encodeURIComponent(name)+'/log',{cache:'no-store'});
+        if (this.destroyed || !this.diagOpen || sequence !== this.logSequence || this.diagProfile?.name !== name) return;
+        if (!r || r.ok !== true || typeof r.raw !== 'string') throw new Error(r?.error || 'Client log unavailable');
+        this.logText=r.raw;
+      } catch(error) {
+        if (!this.destroyed && this.diagOpen && sequence === this.logSequence) this.logError=error.message;
+      } finally { if(sequence === this.logSequence)this.logLoading=false; }
+    },
+    diagValue(path, fallback = '—') {
       let value = this.diagProfile && this.diagProfile.diagnostics;
       for (const part of path.split('.')) value = value && value[part];
       return value === undefined || value === null ? fallback : value;
     },
     diagList(path) { const value = this.diagValue(path, []); return Array.isArray(value) ? value : []; },
+    diagBoolean(path) { const value=this.diagValue(path,null);return typeof value === 'boolean' ? this.qeliT(value ? 'Enabled' : 'Disabled') : '—'; },
+    diagBytes(path) { const value=this.diagValue(path,null);return typeof value === 'number' ? this.fmt(value) : '—'; },
 
     async connect(n) {
       const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}/connect`, {method:'POST'});

@@ -697,3 +697,17 @@ html[data-theme=light] ::-webkit-scrollbar-thumb:hover{background:#aebccf}
 
 /* Preserve the shipped date editor height after the v4 native-control reset. */
 .inp[type="date"]::-webkit-datetime-edit { padding-block: 1px; }
+
+/* Outbound clients: keep state, network and actions visible on narrow screens. */
+.client-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media(min-width:768px){.client-summary{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:639px){
+  .card>table.client-profile-table{min-width:0}
+  .client-profile-table,.client-profile-table tbody{display:block;width:100%}
+  .client-profile-table thead{display:none}
+  .client-profile-table tbody tr{display:block;padding:16px;margin:12px;border:1px solid var(--line);border-radius:12px}
+  .client-profile-table td{display:block;padding:8px 0;border:0;text-align:left;overflow-wrap:anywhere}
+  .client-profile-table td::before{content:attr(data-label);display:block;margin-bottom:4px;color:var(--txt-mut);font-size:12px}
+  .client-profile-table td .whitespace-nowrap{white-space:normal}
+  .client-profile-table td:last-child>div{justify-content:flex-start;flex-wrap:wrap}
+}

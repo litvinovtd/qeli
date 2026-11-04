@@ -792,6 +792,7 @@
                 x-model="cfg.profiles[activeTab].routing.ipv6.interface" @input="markDirty()" placeholder="auto / ens18">
             </div>
             <p class="field-desc" x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4' && cfg.profiles[activeTab].routing.ipv6.mode === 'manual'">Manual IPv6 also leaves DNS firewall access and port 53 redirection to you. IPv4 settings are independent.</p>
+            <p class="text-xs text-amber-400" x-show="suspendedNdp(activeTab)">NDP is disabled in this draft mode. Saving keeps it off; switching back before saving restores your settings.</p>
             <div class="field-toggle"
               x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv4' && ['route', 'manual'].includes(cfg.profiles[activeTab].routing.ipv6.mode)">
               <div class="flex-1">
@@ -838,8 +839,8 @@
                 </div>
               </div>
               <div>
-                <div class="text-sm font-medium text-white">Forward private networks</div>
-                <div class="text-xs text-slate-500">Route traffic to 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 through VPN</div>
+                <div class="text-sm font-medium text-white">Server IPv4 transit without NAT</div>
+                <div class="text-xs text-slate-500">Enable IPv4 forwarding between the tunnel and other networks, preserving source addresses. This does not add routes on clients.</div>
               </div>
             </div>
             <div class="field-toggle" x-show="cfg.profiles[activeTab].tun.ip_mode !== 'ipv6'">
@@ -1980,6 +1981,10 @@ function configPage() {
       if (!this.networkDrafts.has(profile)) this.networkDrafts.set(profile, {});
       return this.networkDrafts.get(profile);
     },
+    suspendedNdp(pi) {
+      const draft = this.networkDrafts.get(this.cfg.profiles?.[pi]);
+      return !!(draft?.ndp || (draft?.ipv6 && draft.ipv6.ndp_proxy !== 'off'));
+    },
     onIpv6RoutingModeChange(pi) {
       const p = this.cfg.profiles?.[pi];
       if (!p) return;
@@ -2161,7 +2166,10 @@ function configPage() {
           throw new Error('Settings revision unavailable. Reload before saving.');
         }
         if (kind === 'raw') { this.rawOriginal = submitted; this.dirty = this.rawText !== submitted; }
-        else { this._original = submitted; this.dirty = JSON.stringify(this.cfg) !== submitted; }
+        else {
+          this._original = submitted; this.dirty = JSON.stringify(this.cfg) !== submitted;
+          if (!this.dirty) this.networkDrafts = new WeakMap();
+        }
         this.revision = r.revision; this.needsFullRestart = !!r.needs_full_restart;
         this.$dispatch('notify', {msg:r.message || 'Saved — restart server to apply',type:'warn'}); return true;
       } catch (e) {

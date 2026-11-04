@@ -54,8 +54,8 @@ pub struct ProfileQuery {
 }
 
 /// Send a JSON command to the data-plane worker's control socket and parse the
-/// reply. Returns None if the worker is unreachable (e.g. mid-restart) — the
-/// panel then shows an empty / offline view rather than erroring.
+/// reply. Returns None if the worker is unreachable (e.g. mid-restart).
+/// Callers must distinguish unavailable data from a successfully empty reply.
 pub(super) async fn control(cmd: Value) -> Option<Value> {
     let reply = crate::server::control::send_command(
         &crate::server::control::control_socket_path(),
@@ -82,6 +82,33 @@ pub(super) fn client_array(reply: &Option<Value>) -> Vec<Value> {
         .and_then(|c| c.as_array())
         .cloned()
         .unwrap_or_default()
+}
+
+pub(super) fn checked_client_array(reply: &Option<Value>) -> Result<Vec<Value>, String> {
+    let reply = reply
+        .as_ref()
+        .ok_or("VPN worker unavailable; live data is unknown")?;
+    if reply.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(reply
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("VPN worker rejected the query")
+            .into());
+    }
+    reply
+        .get("clients")
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or_else(|| "Invalid client list from VPN worker".into())
+}
+
+fn worker_blocked_array(reply: &Option<Value>) -> Option<Value> {
+    reply
+        .as_ref()
+        .filter(|reply| reply.get("ok").and_then(Value::as_bool) == Some(true))
+        .and_then(|reply| reply.get("message").and_then(Value::as_str))
+        .and_then(|text| serde_json::from_str::<Value>(text).ok())
+        .filter(Value::is_array)
 }
 fn roaming_profiles(reply: &Option<Value>) -> std::collections::HashMap<String, Value> {
     let Some(message) = reply
@@ -253,6 +280,32 @@ pub async fn status(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn live_lists_distinguish_missing_worker_from_empty_success() {
+        for reply in [
+            None,
+            Some(serde_json::json!({"ok":false,"clients":[]})),
+            Some(serde_json::json!({"ok":true,"clients":{}})),
+        ] {
+            assert!(super::checked_client_array(&reply).is_err());
+        }
+        assert!(
+            super::checked_client_array(&Some(serde_json::json!({"ok":true,"clients":[]})))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(super::worker_blocked_array(&None).is_none());
+        for message in ["not JSON", "{}", "null"] {
+            assert!(super::worker_blocked_array(&Some(
+                serde_json::json!({"ok":true,"message":message})
+            ))
+            .is_none());
+        }
+        assert_eq!(
+            super::worker_blocked_array(&Some(serde_json::json!({"ok":true,"message":"[]"}))),
+            Some(serde_json::json!([]))
+        );
+    }
     use super::{clean_hostname, roaming_profiles, validate_bf_edit_candidate};
 
     #[test]
@@ -392,7 +445,10 @@ pub async fn clients(
     Query(qs): Query<ProfileQuery>,
 ) -> Result<Json<Value>, AuthError> {
     let live = control(json!({"cmd": "list-clients"})).await;
-    let mut clients = client_array(&live);
+    let mut clients = match checked_client_array(&live) {
+        Ok(clients) => clients,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
     if let Some(ref filter) = qs.profile {
         clients.retain(|c| c["profile"].as_str() == Some(filter.as_str()));
     }
@@ -483,14 +539,12 @@ pub async fn blocked(
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
     let live = control(json!({"cmd": "list-blocked"})).await;
-    let vpn: Value = live
-        .as_ref()
-        .and_then(|v| v["message"].as_str())
-        .and_then(|s| serde_json::from_str::<Value>(s).ok())
-        .unwrap_or_else(|| json!([]));
+    let vpn = worker_blocked_array(&live);
     let panel = panel_blocked_json(&state).await;
     Ok(Json(json!({
         "ok": true,
+        "vpn_available": vpn.is_some(),
+        "vpn_error": if vpn.is_none() { Some("VPN worker unavailable; VPN block list is unknown") } else { None },
         "blocked": { "vpn": vpn, "panel": panel },
     })))
 }

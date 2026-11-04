@@ -472,6 +472,7 @@ jobs:
         run: |
           python3 scripts/check_panel.py
           node scripts/test_panel_editors.cjs
+          node scripts/test_panel_contracts.cjs
       - name: embedded panel CSS is current
         run: |
           cd qeli/web-assets

@@ -47,7 +47,12 @@ pub async fn get_usage(
         }
     };
 
-    let online_sessions = online_session_counts(&control(json!({ "cmd": "list-clients" })).await);
+    let live = control(json!({ "cmd": "list-clients" })).await;
+    let clients = match super::status::checked_client_array(&live) {
+        Ok(clients) => clients,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let online_sessions = online_session_counts(&Some(json!({"clients":clients})));
 
     // Join against the exact external + inline users union selected by current server.conf.
     // A read/parse failure is surfaced instead of silently serving a boot-time ACL snapshot.
