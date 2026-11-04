@@ -2481,6 +2481,32 @@ where
     {
         anyhow::bail!("TCP slot probe is no longer eligible");
     }
+    // Preparation overlaps the second observation window. A fast delivery probe
+    // alone is not permission to replace a transiently slow or already recovered slot.
+    let confirmation_started = tokio::time::Instant::now();
+    let confirmed_bps = tokio::time::timeout(super::tcp_slot::CONFIRMATION_BUDGET, async {
+        loop {
+            let confirmation =
+                lock_or_recover(&roaming.slot_health, "tcp_slot::confirm").confirmation(candidate);
+            match confirmation {
+                super::tcp_slot::Confirmation::Confirmed(rate) => return Ok(rate),
+                super::tcp_slot::Confirmation::Rejected => {
+                    anyhow::bail!("TCP slot recovered or confirmation evidence became stale");
+                }
+                super::tcp_slot::Confirmation::Waiting => {}
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("TCP slot degradation was not confirmed in time"))??;
+    log::info!(
+        "TCP_SLOT_DEGRADATION_CONFIRMED session={} slot={slot} confirmation_wait_ms={}",
+        session.session_id,
+        confirmation_started.elapsed().as_millis()
+    );
+    // Keep the delivery probe immediately before COMMIT. Waiting afterwards
+    // would age its result and leave the new TCP carrier idle during confirmation.
     static ACTIVE_PROBES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
     let _probe_permit = ACTIVE_PROBES.try_acquire()?;
     let mut payload = vec![0u8; CHUNK];
@@ -2528,8 +2554,14 @@ where
         .and_then(|(before, after)| after.checked_sub(before))
         .filter(|bytes| *bytes >= burst.len() as u64)
         .ok_or_else(|| anyhow::anyhow!("TCP slot probe lacks kernel delivery evidence"))?;
+    drop(_probe_permit);
+    // Re-check after the probe, without waiting: the evidence and its continuous
+    // degradation epoch must still hold at the cutover decision.
     let current_bps =
-        lock_or_recover(&roaming.slot_health, "tcp_slot::compare").current_rate(candidate);
+        match lock_or_recover(&roaming.slot_health, "tcp_slot::compare").confirmation(candidate) {
+            super::tcp_slot::Confirmation::Confirmed(rate) => rate.max(confirmed_bps),
+            _ => anyhow::bail!("TCP slot recovered while the replacement was being probed"),
+        };
     if session.bandwidth_limit_mbps.load(Ordering::Relaxed) != 0
         || roaming.ready_carrier(slot) != Some(candidate.old_carrier)
         || !candidate.improves(delivered, elapsed, current_bps)

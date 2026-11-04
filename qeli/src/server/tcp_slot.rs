@@ -10,6 +10,7 @@ use crate::protocol::tcp_slot_probe::{Request, REQUEST_TTL};
 
 const TARGET: &str = "qeli::tcp_slot";
 const WINDOW: Duration = Duration::from_millis(1250);
+pub(super) const CONFIRMATION_BUDGET: Duration = Duration::from_millis(1500);
 const MAX_AGE: Duration = Duration::from_millis(2500);
 const COOLDOWN: Duration = Duration::from_secs(60);
 
@@ -132,6 +133,8 @@ pub(super) struct DeliveryWindow {
     busy: bool,
     delivered_under_load: bool,
     bad_windows: u8,
+    bad_since: Option<Instant>,
+    severe: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -139,6 +142,8 @@ pub(super) struct Candidate {
     pub(super) request: Request,
     pub(super) old_carrier: u64,
     baseline_bps: u64,
+    required_bad_windows: u8,
+    outlier_since: Instant,
     at: Instant,
 }
 
@@ -146,6 +151,14 @@ impl Candidate {
     pub(super) fn improves(self, delivered: u64, elapsed: Duration, current_bps: u64) -> bool {
         rate(delivered, elapsed) > self.baseline_bps.max(current_bps).saturating_mul(3) / 2
     }
+}
+
+/// Preparing a fresh carrier does not authorize replacing the current one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Confirmation {
+    Waiting,
+    Rejected,
+    Confirmed(u64),
 }
 
 #[derive(Default)]
@@ -181,23 +194,35 @@ impl Health {
                             && window.bps.saturating_mul(3) < bps,
                     )
                 });
+        window.severe = window.busy && severe;
         if window.busy && slower {
-            window.bad_windows = self
+            let previous = self
                 .samples
                 .get(&slot)
-                .filter(|other| other.carrier == window.carrier)
-                .map_or(1, |other| other.bad_windows.saturating_add(1));
+                .filter(|other| other.carrier == window.carrier && other.bad_windows > 0);
+            window.bad_windows = previous.map_or(1, |other| other.bad_windows.saturating_add(1));
+            window.bad_since = Some(
+                previous
+                    .and_then(|other| other.bad_since)
+                    .unwrap_or(window.at),
+            );
         }
-        // Two loaded windows plus a severe rate/queue outlier justify preparing
-        // a candidate before inner TCP exits STARTUP on the reduced bandwidth.
-        // Kernel RTT excludes time waiting in TCP's unsent queue. Require a
-        // large notsent backlog, even if RTT is high, to avoid promoting a
-        // demand/ramp fluctuation to an early replacement.
-        // Moderate degradation still needs three windows. Preparation alone
-        // never retires the old carrier: the delivery probe must still improve
-        // on both the old baseline and its current rate before COMMIT.
-        let early_probe = severe && window.bad_windows >= 2;
-        let offer = (window.bad_windows >= 3 || early_probe)
+        // A loaded, severely queued outlier can begin preparation after its first
+        // bad window. Overlap the handshake with the next observation window;
+        // confirmation() still requires two consecutive bad windows before COMMIT.
+        // Moderate degradation retains three windows. The delivery probe, the
+        // old-carrier drain barrier and the global cooldown remain mandatory.
+        let was_healthy = self.samples.get(&slot).is_some_and(|previous| {
+            previous.carrier == window.carrier
+                && previous.delivered_under_load
+                && previous.bad_windows == 0
+                && siblings
+                    .get(siblings.len() / 2)
+                    .is_some_and(|&(bps, _)| previous.bps >= bps.saturating_mul(3) / 4)
+        });
+        let early_prepare =
+            severe && (window.bad_windows >= 2 || window.bad_windows == 1 && was_healthy);
+        let offer = (window.bad_windows >= 3 || early_prepare)
             && self
                 .last_request
                 .is_none_or(|at| window.at.duration_since(at) >= COOLDOWN);
@@ -208,11 +233,13 @@ impl Health {
             },
             old_carrier: window.carrier,
             baseline_bps: window.bps,
+            required_bad_windows: if severe { 2 } else { 3 },
+            outlier_since: window.bad_since.unwrap_or(window.at),
             at: window.at,
         });
-        if offer && early_probe && window.bad_windows < 3 {
+        if offer && early_prepare && window.bad_windows < 3 {
             log::info!(target: TARGET,
-                "TCP_SLOT_EARLY_PROBE slot={} carrier={} bad_windows={} rate_Bps={} rtt_us={} notsent_bytes={}",
+                "TCP_SLOT_EARLY_PREPARE slot={} carrier={} bad_windows={} rate_Bps={} rtt_us={} notsent_bytes={}",
                 slot, window.carrier, window.bad_windows, window.bps, window.rtt_us, window.notsent_bytes);
         }
         self.samples.insert(slot, window);
@@ -231,15 +258,28 @@ impl Health {
         self.pending.take()
     }
 
-    pub(super) fn current_rate(&self, candidate: Candidate) -> u64 {
-        self.samples
-            .get(&candidate.request.slot)
-            .filter(|sample| {
-                sample.carrier == candidate.old_carrier
-                    && sample.busy
-                    && sample.at.elapsed() <= MAX_AGE
-            })
-            .map_or(0, |sample| sample.bps)
+    pub(super) fn confirmation(&self, candidate: Candidate) -> Confirmation {
+        let Some(sample) = self.samples.get(&candidate.request.slot) else {
+            return Confirmation::Rejected;
+        };
+        if sample.carrier != candidate.old_carrier
+            || sample.at.elapsed() > MAX_AGE
+            || sample.at < candidate.at
+            || !sample.busy
+            || sample.bad_windows == 0
+            || sample.bad_since != Some(candidate.outlier_since)
+        {
+            return Confirmation::Rejected;
+        }
+        let required = if sample.severe {
+            candidate.required_bad_windows
+        } else {
+            3
+        };
+        if sample.bad_windows < required {
+            return Confirmation::Waiting;
+        }
+        Confirmation::Confirmed(sample.bps)
     }
 }
 
@@ -295,6 +335,8 @@ pub(super) async fn observe(
             busy: busy_us.is_some_and(|busy| u128::from(busy) * 3 >= elapsed.as_micros() * 2)
                 && (demand >= 16 * 1024 || next.notsent_bytes >= 16 * 1024),
             bad_windows: 0,
+            bad_since: None,
+            severe: false,
         });
         previous = next;
         previous_dequeued = payload;
@@ -344,6 +386,8 @@ mod tests {
             busy,
             delivered_under_load: busy,
             bad_windows: 0,
+            bad_since: None,
+            severe: false,
         };
         for number in 0..3 {
             assert!(health
@@ -393,6 +437,8 @@ mod tests {
             busy: true,
             delivered_under_load: u128::from(bps) * WINDOW.as_micros() / 1_000_000 >= 128 * 1024,
             bad_windows: 0,
+            bad_since: None,
+            severe: false,
         }
     }
 
@@ -403,20 +449,57 @@ mod tests {
         }
     }
 
+    fn prime_healthy_slot(health: &mut Health, at: Instant) {
+        assert!(health
+            .record(0, health_window(at - WINDOW, 10, 1_000_000, 20_000))
+            .is_none());
+        assert!(health
+            .record(1, health_window(at - WINDOW, 20, 1_000_000, 25_000))
+            .is_none());
+    }
+
     #[test]
-    fn severe_loaded_outlier_prepares_after_two_windows_but_keeps_quality_gate_and_cooldown() {
+    fn an_unmeasured_carrier_keeps_two_window_severe_confirmation_before_preparation() {
         let mut health = Health::default();
         let base = Instant::now();
-        let mut offered = None;
-        for n in 0..2 {
-            let at = base + WINDOW * n;
-            assert!(health
-                .record(0, health_window(at, 10, 1_000_000, 20_000))
-                .is_none());
-            offered = health.record(1, queued_health_window(at, 20, 200_000, 100_000));
-            assert_eq!(offered.is_some(), n == 1);
-        }
-        let candidate = health.claim(offered.unwrap()).unwrap();
+        health.record(0, health_window(base, 10, 1_000_000, 20_000));
+        assert!(health
+            .record(1, queued_health_window(base, 20, 200_000, 100_000))
+            .is_none());
+        health.record(0, health_window(base + WINDOW, 10, 1_000_000, 20_000));
+        let request = health
+            .record(1, queued_health_window(base + WINDOW, 20, 200_000, 100_000))
+            .unwrap();
+        let candidate = health.claim(request).unwrap();
+        assert_eq!(
+            health.confirmation(candidate),
+            Confirmation::Confirmed(200_000)
+        );
+    }
+
+    #[test]
+    fn severe_outlier_prepares_early_but_still_requires_two_windows_and_a_faster_probe() {
+        let mut health = Health::default();
+        let base = Instant::now();
+        prime_healthy_slot(&mut health, base);
+        health.record(0, health_window(base, 10, 1_000_000, 20_000));
+        let request = health
+            .record(1, queued_health_window(base, 20, 200_000, 100_000))
+            .unwrap();
+        let candidate = health.claim(request).unwrap();
+        assert_eq!(health.confirmation(candidate), Confirmation::Waiting);
+        assert!(
+            health.claim(request).is_none(),
+            "the request nonce remains single-use"
+        );
+        health.record(0, health_window(base + WINDOW, 10, 1_000_000, 20_000));
+        assert!(health
+            .record(1, queued_health_window(base + WINDOW, 20, 200_000, 100_000))
+            .is_none());
+        assert_eq!(
+            health.confirmation(candidate),
+            Confirmation::Confirmed(200_000)
+        );
         assert!(!candidate.improves(256 * 1024, Duration::from_secs(2), 200_000));
         assert!(!candidate.improves(256 * 1024, Duration::from_millis(100), 2_000_000));
         assert!(candidate.improves(256 * 1024, Duration::from_millis(100), 200_000));
@@ -426,25 +509,28 @@ mod tests {
                 .record(0, health_window(at, 10, 1_000_000, 20_000))
                 .is_none());
             assert!(health
-                .record(1, health_window(at, 20, 200_000, 100_000))
+                .record(1, queued_health_window(at, 20, 200_000, 100_000))
                 .is_none());
         }
     }
 
     #[test]
-    fn normal_network_rtt_with_a_large_kernel_send_queue_still_prepares_early() {
+    fn normal_network_rtt_with_a_large_kernel_send_queue_can_prepare_before_confirmation() {
         let mut health = Health::default();
         let base = Instant::now();
-        for n in 0..2 {
-            let at = base + WINDOW * n;
-            assert!(health
-                .record(0, health_window(at, 10, 1_000_000, 20_000))
-                .is_none());
-            let mut queued = health_window(at, 20, 200_000, 25_000);
-            queued.notsent_bytes = 256 * 1024;
-            let request = health.record(1, queued);
-            assert_eq!(request.is_some(), n == 1);
-        }
+        prime_healthy_slot(&mut health, base);
+        health.record(0, health_window(base, 10, 1_000_000, 20_000));
+        let request = health
+            .record(1, queued_health_window(base, 20, 200_000, 25_000))
+            .unwrap();
+        let candidate = health.claim(request).unwrap();
+        assert_eq!(health.confirmation(candidate), Confirmation::Waiting);
+        health.record(0, health_window(base + WINDOW, 10, 1_000_000, 20_000));
+        health.record(1, queued_health_window(base + WINDOW, 20, 200_000, 25_000));
+        assert_eq!(
+            health.confirmation(candidate),
+            Confirmation::Confirmed(200_000)
+        );
     }
 
     #[test]
@@ -452,6 +538,7 @@ mod tests {
         for (bps, rtt) in [(200_000, 25_000), (200_000, 100_000), (650_000, 100_000)] {
             let mut health = Health::default();
             let base = Instant::now();
+            prime_healthy_slot(&mut health, base);
             for n in 0..3 {
                 let at = base + WINDOW * n;
                 assert!(health
@@ -464,44 +551,72 @@ mod tests {
     }
 
     #[test]
-    fn a_transient_severe_window_does_not_reserve_a_candidate_or_accumulate_through_recovery() {
+    fn transient_recovery_rejects_prepared_carrier_and_does_not_accumulate_bad_windows() {
         let mut health = Health::default();
         let base = Instant::now();
-        for (n, bps, rtt) in [
-            (0, 200_000, 100_000),
-            (1, 1_000_000, 20_000),
-            (2, 200_000, 100_000),
-        ] {
-            let at = base + WINDOW * n;
-            assert!(health
-                .record(0, health_window(at, 10, 1_000_000, 20_000))
-                .is_none());
-            assert!(health
-                .record(1, queued_health_window(at, 20, bps, rtt))
-                .is_none());
-            assert!(health.pending.is_none());
-            assert!(health.last_request.is_none());
-        }
-        let at = base + WINDOW * 3;
+        prime_healthy_slot(&mut health, base);
+        health.record(0, health_window(base, 10, 1_000_000, 20_000));
+        let request = health
+            .record(1, queued_health_window(base, 20, 200_000, 100_000))
+            .unwrap();
+        let candidate = health.claim(request).unwrap();
+        health.record(0, health_window(base + WINDOW, 10, 1_000_000, 20_000));
+        health.record(1, health_window(base + WINDOW, 20, 1_000_000, 20_000));
+        assert_eq!(health.confirmation(candidate), Confirmation::Rejected);
+        health.record(0, health_window(base + WINDOW * 2, 10, 1_000_000, 20_000));
         assert!(health
-            .record(0, health_window(at, 10, 1_000_000, 20_000))
+            .record(
+                1,
+                queued_health_window(base + WINDOW * 2, 20, 200_000, 100_000)
+            )
             .is_none());
-        assert!(health
-            .record(1, queued_health_window(at, 20, 200_000, 100_000))
-            .is_some());
+        assert_eq!(health.confirmation(candidate), Confirmation::Rejected);
     }
 
     #[test]
-    fn early_probe_does_not_carry_bad_windows_into_another_carrier_generation() {
+    fn a_moderate_second_window_keeps_three_window_confirmation() {
         let mut health = Health::default();
         let base = Instant::now();
-        for (n, carrier) in [(0, 20), (1, 21), (2, 21)] {
+        prime_healthy_slot(&mut health, base);
+        health.record(0, health_window(base, 10, 1_000_000, 20_000));
+        let request = health
+            .record(1, queued_health_window(base, 20, 200_000, 100_000))
+            .unwrap();
+        let candidate = health.claim(request).unwrap();
+        for n in 1..3 {
             let at = base + WINDOW * n;
-            assert!(health
-                .record(0, health_window(at, 10, 1_000_000, 20_000))
-                .is_none());
-            let request = health.record(1, queued_health_window(at, carrier, 200_000, 100_000));
-            assert_eq!(request.is_some(), n == 2);
+            health.record(0, health_window(at, 10, 1_000_000, 20_000));
+            health.record(1, queued_health_window(at, 20, 650_000, 100_000));
+            assert_eq!(
+                health.confirmation(candidate),
+                if n == 1 {
+                    Confirmation::Waiting
+                } else {
+                    Confirmation::Confirmed(650_000)
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn confirmation_rejects_another_carrier_generation_stale_sample_or_idle_slot() {
+        for reason in 0..3 {
+            let mut health = Health::default();
+            let base = Instant::now();
+            prime_healthy_slot(&mut health, base);
+            health.record(0, health_window(base, 10, 1_000_000, 20_000));
+            let request = health
+                .record(1, queued_health_window(base, 20, 200_000, 100_000))
+                .unwrap();
+            let candidate = health.claim(request).unwrap();
+            let sample = health.samples.get_mut(&1).unwrap();
+            sample.bad_windows = 2;
+            match reason {
+                0 => sample.carrier += 1,
+                1 => sample.at = base - MAX_AGE - Duration::from_millis(1),
+                _ => sample.busy = false,
+            }
+            assert_eq!(health.confirmation(candidate), Confirmation::Rejected);
         }
     }
 
@@ -510,6 +625,7 @@ mod tests {
         for backlog in [128 * 1024 - 1, 128 * 1024] {
             let mut health = Health::default();
             let base = Instant::now();
+            prime_healthy_slot(&mut health, base);
             for n in 0..2 {
                 let at = base + WINDOW * n;
                 assert!(health
@@ -519,7 +635,7 @@ mod tests {
                 queued.notsent_bytes = backlog;
                 assert_eq!(
                     health.record(1, queued).is_some(),
-                    n == 1 && backlog >= 128 * 1024
+                    n == 0 && backlog >= 128 * 1024
                 );
             }
         }
