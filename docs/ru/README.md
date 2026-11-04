@@ -1,12 +1,12 @@
 # Qeli — обфусцированный VPN 
 
-> Документация кандидата **0.8.4 Beta**. Статус публикации и доступные загрузки — в [GitHub Releases](https://github.com/litvinovtd/qeli/releases). [Описание 0.8.4](../../release/RELEASE_NOTES_0.8.4.md) · [Статус аудита и границы проверок](plans/FULL-SYSTEM-AUDIT.md).
+> Документация кандидата **0.8.5 Beta**. Опубликованные пакеты — в [GitHub Releases](https://github.com/litvinovtd/qeli/releases). [Описание 0.8.5](../../release/RELEASE_NOTES_0.8.5.md) · [Статус аудита и границы проверок](plans/FULL-SYSTEM-AUDIT.md).
 
 **Qeli** (Quick Easy Link IP) — self-host VPN с собственным L4-протоколом и
 встроенной обфускацией, поверх TCP или UDP. Цель — устойчивость к пассивному/
 сигнатурному DPI при удобстве классических TUN/TAP-VPN, со встроенной веб-админкой.
 
-- **Язык**: Rust 2021, версия 0.8.4 (бета)
+- **Язык**: Rust 2021, версия 0.8.5 (бета)
 - **Криптостек**: `x25519-dalek`, `ml-kem` (PQ-гибрид X25519MLKEM768), `chacha20poly1305`, `chacha20`, `aes-gcm`, `hkdf`, `sha2`, `argon2`, `zeroize`; `rustls`/`ring` — серверная терминация настоящего TLS 1.3 в `reality-tls`
 - **Транспорт**: TCP или UDP; несколько профилей (интерфейсов) в одном демоне
 - **Wire-режимы**: `plain` · `fake-tls` · `obfs` · `reality` · `reality-tls` (REALITY TLS 1.3 + настоящий HTTP/2 carrier; `handrolled` одалживает сертификат target) · QUIC-shaped совместимость для UDP, не настоящий QUIC/HTTP3

@@ -6,17 +6,22 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
 
-use crate::protocol::tcp_slot_probe::Request;
+use crate::protocol::tcp_slot_probe::{Request, REQUEST_TTL};
 
 const TARGET: &str = "qeli::tcp_slot";
 const WINDOW: Duration = Duration::from_millis(1250);
 const MAX_AGE: Duration = Duration::from_millis(2500);
-const REQUEST_TTL: Duration = Duration::from_secs(20);
 const COOLDOWN: Duration = Duration::from_secs(60);
 
-pub(super) fn experimental_enabled() -> bool {
+fn enabled_override(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_none_or(|value| value == "1")
+}
+
+pub(super) fn enabled() -> bool {
+    // Keep the old override for existing deployments. Absence now enables
+    // qualified TCP profiles, while an explicit 0 still disables replacement.
     static ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-        std::env::var_os("QELI_EXPERIMENTAL_TCP_SLOT_PROBE").is_some_and(|value| value == "1")
+        enabled_override(std::env::var_os("QELI_EXPERIMENTAL_TCP_SLOT_PROBE").as_deref())
     });
     *ENABLED
 }
@@ -26,7 +31,7 @@ tokio::task_local! {
 }
 
 pub(super) fn capture(stream: &tokio::net::TcpStream) -> Option<OwnedFd> {
-    if !experimental_enabled() && !log::log_enabled!(target: TARGET, log::Level::Debug) {
+    if !enabled() && !log::log_enabled!(target: TARGET, log::Level::Debug) {
         return None;
     }
     match stream.as_fd().try_clone_to_owned() {
@@ -277,6 +282,16 @@ pub(super) async fn observe(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_defaults_on_and_keeps_the_existing_explicit_override() {
+        use std::ffi::OsStr;
+        assert!(enabled_override(None));
+        assert!(enabled_override(Some(OsStr::new("1"))));
+        assert!(!enabled_override(Some(OsStr::new("0"))));
+        assert!(!enabled_override(Some(OsStr::new(""))));
+        assert!(!enabled_override(Some(OsStr::new("invalid"))));
+    }
 
     #[test]
     fn tcp_info_respects_old_kernel_length_and_preserves_units() {

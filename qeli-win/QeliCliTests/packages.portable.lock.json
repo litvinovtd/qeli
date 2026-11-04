@@ -312,7 +312,7 @@
       "qeli-cli": {
         "type": "Project",
         "dependencies": {
-          "QeliWindowsRuntime": "[0.8.4, )"
+          "QeliWindowsRuntime": "[0.8.5, )"
         }
       },
       "qelishared": {
@@ -322,7 +322,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Extensions.Hosting.WindowsServices": "[10.0.12, )",
-          "QeliShared": "[0.8.4, )",
+          "QeliShared": "[0.8.5, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.12, )",
           "System.ServiceProcess.ServiceController": "[10.0.12, )"
         }

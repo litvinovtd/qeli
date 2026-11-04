@@ -23,8 +23,8 @@ enum AppConstants {
 
     /// Used only when the bundle has no version (unit tests, a stripped host). Keep in
     /// step with `qeli-ios/project.yml` if you touch it, but prefer fixing the bundle.
-    private static let fallbackVersion = "0.8.4"
-    private static let fallbackBuild = "724"
+    private static let fallbackVersion = "0.8.5"
+    private static let fallbackBuild = "725"
 
     static let defaultAppGroup = "group.ru.qeli.app"
     static let defaultTunnelBundleIdentifier = "ru.qeli.app.PacketTunnel"

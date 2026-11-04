@@ -4,7 +4,7 @@ Separate scenario: [client → A → B chain](../scenarios/CHAINED-SERVERS.md) i
 with a startup section and checks of each server's own Internet access. Repeated INI
 hooks, restarts and reboots passed [17 scenarios](../reports/CHAINED-SERVERS-HOOKS-2026-10-30.md).
 
-> **Documentation status:** current development tree **0.8.4**; planned full-IPv6 release **0.8.4**;
+> **Documentation status:** current development tree **0.8.5**; planned full-IPv6 release **0.8.5**;
 > package version covered by this guide **0.8.4**.
 > `qeli --version` reports the version of the binary actually installed.
 > See [GitHub Releases](https://github.com/litvinovtd/qeli/releases) for package availability and publication status.

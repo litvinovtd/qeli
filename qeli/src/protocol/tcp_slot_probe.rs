@@ -10,6 +10,7 @@ const REQUEST_TYPE: u8 = 0x28;
 const PROBE: &[u8] = b"QELI-TCP-SLOT-PROBE";
 pub(crate) const CHUNK: usize = 1024;
 pub(crate) const CHUNKS: usize = 256;
+pub(crate) const REQUEST_TTL: std::time::Duration = std::time::Duration::from_secs(20);
 pub(crate) const BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

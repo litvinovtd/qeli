@@ -1471,7 +1471,7 @@ where
                 // Probe records use the profile padding and normalization. Shaping
                 // promises a timing policy that a delivery burst cannot preserve.
                 roaming.probe_enabled.store(
-                    super::tcp_slot::experimental_enabled()
+                    super::tcp_slot::enabled()
                         && max_streams > 1
                         && matches!(
                             pcfg.obfuscation.mode.as_str(),

@@ -24,6 +24,7 @@ pub mod route;
 mod status_writer;
 #[cfg(target_os = "linux")]
 mod tun_recovery;
+mod tcp_attach;
 
 use crate::crypto::{
     derive_data_frag_key, derive_keys_hybrid, derive_keys_hybrid_bound, handshake_transcript_hash,
@@ -7073,38 +7074,66 @@ where
                 };
 
                 let attempt = async {
+                    let timeout = Duration::from_secs(cfg_m.server.connection_timeout_secs.max(1));
+                    #[cfg(feature = "experimental-roaming")]
+                    if let Some(request) = probe {
+                        let progress = tcp_attach::AttachProgress::default();
+                        let (mut stream, mut pending) = tcp_attach::prepare_candidate(
+                            timeout,
+                            &progress,
+                            || async {
+                                let mut stream = conn_m(StreamConnectRequest::default()).await?;
+                                let pending = tcp_prepare_attach_handshake(
+                                    &mut stream,
+                                    &cfg_m,
+                                    &token_m,
+                                    logical_slot_id,
+                                    resume_m.as_deref(),
+                                    false,
+                                    identity_m.clone(),
+                                    &progress,
+                                )
+                                .await?;
+                                Ok((stream, pending))
+                            },
+                        )
+                        .await?;
+                        // The probe nonce is single-use. Retry only preparation,
+                        // never a failed probe or an ambiguous COMMIT.
+                        tokio::time::timeout(
+                            crate::protocol::tcp_slot_probe::BUDGET,
+                            crate::protocol::tcp_slot_probe::receive(
+                                &mut stream,
+                                pending.framing,
+                                &mut pending.tx,
+                                &mut pending.rx,
+                                request,
+                            ),
+                        )
+                        .await
+                        .map_err(|_| anyhow::anyhow!("TCP candidate delivery probe timed out"))??;
+                        let (rx, tx) = tokio::time::timeout(
+                            timeout.min(tcp_attach::PREPARE_TIMEOUT),
+                            finish_tcp_secondary_handshake(&mut stream, pending, &progress),
+                        )
+                        .await
+                        .map_err(|_| anyhow::anyhow!(
+                            "TCP candidate commit timed out at {}", progress.stage()
+                        ))??;
+                        return Ok((stream, rx, tx));
+                    }
                     let mut stream = conn_m(StreamConnectRequest::default()).await?;
                     let (rx, tx) = tokio::time::timeout(
-                        Duration::from_secs(cfg_m.server.connection_timeout_secs.max(1)),
-                        async {
-                            #[allow(unused_mut)]
-                            let mut pending = tcp_prepare_attach_handshake(
-                                &mut stream,
-                                &cfg_m,
-                                &token_m,
-                                logical_slot_id,
-                                resume_m.as_deref(),
-                                false,
-                                identity_m.clone(),
-                            )
-                            .await?;
-                            #[cfg(feature = "experimental-roaming")]
-                            if let Some(request) = probe {
-                                use crate::protocol::tcp_slot_probe::{self, BUDGET};
-                                tokio::time::timeout(
-                                    BUDGET,
-                                    tcp_slot_probe::receive(
-                                        &mut stream,
-                                        pending.framing,
-                                        &mut pending.tx,
-                                        &mut pending.rx,
-                                        request,
-                                    ),
-                                )
-                                .await??;
-                            }
-                            finish_tcp_secondary_handshake(&mut stream, pending).await
-                        },
+                        timeout,
+                        tcp_attach_handshake(
+                            &mut stream,
+                            &cfg_m,
+                            &token_m,
+                            logical_slot_id,
+                            resume_m.as_deref(),
+                            false,
+                            identity_m.clone(),
+                        ),
                     )
                     .await
                     .map_err(|_| anyhow::anyhow!("TCP attach handshake timed out"))??;
@@ -7267,6 +7296,7 @@ where
                             Some(resume),
                             true,
                             identity_h.clone(),
+                            &tcp_attach::AttachProgress::default(),
                         ),
                     )
                     .await
@@ -7289,7 +7319,7 @@ where
                     }
                     let (rx, tx) = tokio::time::timeout(
                         Duration::from_secs(cfg_h.server.connection_timeout_secs.max(1)),
-                        finish_tcp_secondary_handshake(&mut stream, pending),
+                        finish_tcp_secondary_handshake(&mut stream, pending, &tcp_attach::AttachProgress::default()),
                     )
                     .await
                     .map_err(|_| anyhow::anyhow!("TCP handover peer commit timed out"))??;
@@ -7591,6 +7621,7 @@ impl TcpSecondaryAttach<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn tcp_prepare_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     config: &crate::config::client::ClientConfig,
@@ -7599,6 +7630,7 @@ async fn tcp_prepare_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     resume: Option<&TcpResumeContext>,
     handover: bool,
     identity_verifier: IdentityVerifier,
+    progress: &tcp_attach::AttachProgress,
 ) -> anyhow::Result<TcpSecondaryHandshake> {
     #[cfg(feature = "experimental-roaming")]
     if let Some(context) = resume {
@@ -7613,6 +7645,7 @@ async fn tcp_prepare_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
                 handover,
             },
             identity_verifier,
+            progress,
         )
         .await;
     }
@@ -7628,6 +7661,7 @@ async fn tcp_prepare_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             stream_index,
         },
         identity_verifier,
+        progress,
     )
     .await
 }
@@ -7641,6 +7675,7 @@ async fn tcp_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     handover: bool,
     identity_verifier: IdentityVerifier,
 ) -> anyhow::Result<(PacketCodec, PacketCodec)> {
+    let progress = tcp_attach::AttachProgress::default();
     let pending = tcp_prepare_attach_handshake(
         stream,
         config,
@@ -7649,14 +7684,16 @@ async fn tcp_attach_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         resume,
         handover,
         identity_verifier,
+        &progress,
     )
     .await?;
-    finish_tcp_secondary_handshake(stream, pending).await
+    finish_tcp_secondary_handshake(stream, pending, &progress).await
 }
 
 async fn finish_tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     mut pending: TcpSecondaryHandshake,
+    progress: &tcp_attach::AttachProgress,
 ) -> anyhow::Result<(PacketCodec, PacketCodec)> {
     if !pending.resume_pending {
         return Ok((pending.rx, pending.tx));
@@ -7664,7 +7701,9 @@ async fn finish_tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let commit = pending
         .tx
         .encrypt_packet(crate::protocol::roaming::TCP_RESUME_COMMIT, &[])?;
+    progress.set("JOIN COMMIT write");
     stream.write_all_flush(&commit).await?;
+    progress.set("JOIN COMMIT_ACK read");
     let ack_record = read_record(stream, pending.framing)
         .await
         .map_err(|error| anyhow::anyhow!("TCP resume commit acknowledgement: {error}"))?;
@@ -7684,6 +7723,7 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     config: &crate::config::client::ClientConfig,
     attach: TcpSecondaryAttach<'_>,
     identity_verifier: IdentityVerifier,
+    progress: &tcp_attach::AttachProgress,
 ) -> anyhow::Result<TcpSecondaryHandshake> {
     let client_kp = Keypair::generate();
     #[cfg(feature = "experimental-roaming")]
@@ -7694,6 +7734,7 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     // Same key exchange as primary AUTH, including mandatory INNER_PQ_V1 for
     // compact REALITY. Never leak JOIN/resume credentials via a classic retry.
     if matches!(config.obfuscation.mode.as_str(), "plain" | "reality-tls") {
+        progress.set("JOIN key exchange");
         let crate::transport_core::session::RawClientKeys {
             rx: mut client_rx,
             tx: mut client_tx,
@@ -7701,6 +7742,7 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             transcript_hash,
             ..
         } = crate::transport_core::session::raw_client_keys(stream, config, &client_kp).await?;
+        progress.set("JOIN auth proof read");
         let auth_proof_record = read_record(stream, Framing::Raw)
             .await
             .map_err(|e| anyhow::anyhow!("JOIN(plain): auth proof: {}", e))?;
@@ -7712,13 +7754,16 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             &transcript_hash,
             &config.auth.server_public_key,
         )?;
+        progress.set("JOIN identity verification");
         identity_verifier(server_static_pub_bytes).await?;
         if config.obfuscation.mode == "reality-tls" && config.obfuscation.reality_compact {
             log::info!("INNER_PQ_V1 confirmed before secondary JOIN/resume");
         }
         let join = attach.first_message(transcript_hash);
+        progress.set("JOIN proof write");
         let join_packet = client_tx.encrypt_packet(&join, &[])?;
         stream.write_all_flush(&join_packet).await?;
+        progress.set("JOIN prepared ACK read");
         let ack_record = read_record(stream, Framing::Raw)
             .await
             .map_err(|e| anyhow::anyhow!("JOIN(plain): ack: {}", e))?;
@@ -7769,7 +7814,9 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         0,
         reality_sid.as_ref(),
     );
+    progress.set("JOIN ClientHello write");
     stream.write_all_flush(&client_hello).await?;
+    progress.set("JOIN ServerHello read");
     let server_hello_record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: ServerHello: {}", e))?;
@@ -7777,18 +7824,22 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         FakeTlsHandshake::parse_server_hello_pq(&server_hello_record)
             .ok_or_else(|| anyhow::anyhow!("JOIN: parse hybrid ServerHello"))?;
     let server_pub = crate::crypto::PublicKey::from_bytes(&server_x25519);
+    progress.set("JOIN ChangeCipherSpec read");
     let ccs = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: ChangeCipherSpec: {}", e))?;
     if ccs.first() != Some(&0x14) {
         anyhow::bail!("JOIN: expected ChangeCipherSpec before the encrypted handshake flight");
     }
+    progress.set("JOIN Certificate read");
     let cert_record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: Certificate: {}", e))?;
+    progress.set("JOIN Finished read");
     let finished_record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: Finished: {}", e))?;
+    progress.set("JOIN NewSessionTicket read");
     let _nst = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: NewSessionTicket: {}", e))?;
@@ -7813,6 +7864,7 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         &cert_record,
         &finished_record,
     ]);
+    progress.set("JOIN auth proof read");
     let auth_proof_record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: auth proof: {}", e))?;
@@ -7824,13 +7876,16 @@ async fn tcp_secondary_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         &transcript_hash,
         &config.auth.server_public_key,
     )?;
+    progress.set("JOIN identity verification");
     identity_verifier(server_static_pub_bytes).await?;
 
     // Present an authenticated resume proof, or the legacy token for an old session.
     let join = attach.first_message(transcript_hash);
+    progress.set("JOIN proof write");
     let join_packet = client_tx.encrypt_packet(&join, &[])?;
     stream.write_all_flush(&join_packet).await?;
 
+    progress.set("JOIN prepared ACK read");
     let ack_record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: ack: {}", e))?;
@@ -14983,7 +15038,7 @@ mod compact_pq_secondary_tests {
                 let verifier: IdentityVerifier = Arc::new(|_| Box::pin(async { Ok(()) }));
                 let result = tokio::time::timeout(
                     Duration::from_secs(2),
-                    tcp_secondary_handshake(&mut io, &config, attach, verifier),
+                    tcp_secondary_handshake(&mut io, &config, attach, verifier, &tcp_attach::AttachProgress::default()),
                 )
                 .await
                 .unwrap();
