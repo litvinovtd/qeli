@@ -32,6 +32,10 @@ impl Budget {
     pub(super) fn check(self) -> io::Result<()> {
         self.remaining().map(|_| ())
     }
+    pub(super) fn pause(self, duration: Duration) -> io::Result<()> {
+        std::thread::sleep(self.remaining()?.min(duration));
+        self.check()
+    }
     pub(super) fn lock<T>(self, lock: &Mutex<T>) -> io::Result<MutexGuard<'_, T>> {
         loop {
             self.check()?;
@@ -77,5 +81,16 @@ mod composition_tests {
             io::ErrorKind::TimedOut
         );
         assert!(mutex.try_lock().is_ok());
+    }
+    #[test]
+    fn lock_retry_pause_cannot_refresh_an_exhausted_plan_budget() {
+        let _scope = crate::operation_budget::Scope::enter(Instant::now());
+        let budget = Budget {
+            until: Instant::now() + Duration::from_secs(15),
+        };
+        assert_eq!(
+            budget.pause(Duration::from_secs(5)).unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
     }
 }

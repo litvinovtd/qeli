@@ -34,6 +34,7 @@ struct Kernel {
     wans: [Option<String>; 2],
     fail_mark_delete: bool,
     fail_nat_add: bool,
+    nat_add_error: Option<(u32, &'static str)>,
     fail_ipv6_drop: bool,
     inventory_failure: Option<bool>,
     inventory_override: Option<(bool, Vec<u8>)>,
@@ -206,6 +207,11 @@ impl Kernel {
             return Ok(output(0, "", ""));
         }
         assert!(op == "-A" || insertion, "{args:?}");
+        if body.iter().any(|s| s == "MASQUERADE") {
+            if let Some((code, message)) = self.nat_add_error {
+                return Ok(output(code, "", message));
+            }
+        }
         if !self.lie_add && !(self.fail_nat_add && body.iter().any(|s| s == "MASQUERADE")) {
             let index = if insertion {
                 args[start + 2].parse::<usize>().unwrap() - 1
@@ -543,6 +549,39 @@ fn lying_add_is_rejected_and_partial_sysctls_are_released() {
         disengage_plan("gw_a").unwrap();
         assert!(kernel.borrow().leases.is_empty());
     });
+}
+#[test]
+fn nat_extension_failure_reaches_plan_error_and_cleanup_preserves_sibling() {
+    for ipv6 in [false, true] {
+        run(|kernel| {
+            engage_family("gw_b", false);
+            kernel.borrow_mut().nat_add_error = Some((
+                2,
+                "iptables v1.4.21: Couldn't load match `comment':No such file or directory",
+            ));
+            let error = if ipv6 {
+                engage_ipv6("gw_a", "fd20::/64", true)
+            } else {
+                engage("gw_a", "10.20.0.0/24", true)
+            }
+            .unwrap_err()
+            .to_string();
+            assert!(
+                error.contains("MASQUERADE")
+                    && error.contains("POSTROUTING")
+                    && error.contains("missing-match-or-target")
+                    && error.contains("comment"),
+                "{error}"
+            );
+            assert_eq!(kernel.borrow().count(ipv6, "gw_a"), 0);
+            cleanup("gw_a").unwrap();
+            assert_eq!(kernel.borrow().count(false, "gw_b"), 4);
+            assert!(!kernel.borrow().leases.contains_key("gw_a"));
+            assert!(kernel.borrow().leases.contains_key("gw_b"));
+            kernel.borrow_mut().nat_add_error = None;
+            cleanup("gw_b").unwrap();
+        });
+    }
 }
 #[test]
 fn permit_remains_after_first_kill_switch_jump() {

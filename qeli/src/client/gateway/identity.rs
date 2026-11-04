@@ -122,6 +122,11 @@ impl Context {
     pub(super) fn finish(&self) -> anyhow::Result<()> {
         self.check(!self.cleanup)
     }
+    pub(super) fn pause(&self, duration: std::time::Duration) -> anyhow::Result<()> {
+        self.checked(!self.cleanup, || {
+            self.budget.pause(duration).map_err(Into::into)
+        })
+    }
     fn checked<T>(
         &self,
         needs_tunnel: bool,
@@ -139,18 +144,19 @@ impl Context {
                 .output_until(self.budget.until)
                 .map_err(Into::into)
         })
-        .map_err(std::io::Error::other)
+        .map_err(|error| match error.downcast::<std::io::Error>() {
+            Ok(error) => error,
+            Err(error) => std::io::Error::other(error),
+        })
     }
     pub(super) fn present(&self, path: &str, args: &[&str]) -> anyhow::Result<bool> {
         self.checked(!self.cleanup, || {
-            let output = self.ipt(path, args)?;
-            crate::firewall_check::present(
-                &output,
-                crate::firewall_check::Query::Rule {
-                    missing_target: super::expected_qeli_chain(args),
-                },
+            super::command::present(
+                path,
+                args,
+                |args| self.ipt(path, args),
+                || self.pause(std::time::Duration::from_millis(100)),
             )
-            .map_err(|error| anyhow::anyhow!("{path} {}: {error}", args.join(" ")))
         })
     }
     pub(super) fn path(&self, binary: &str) -> anyhow::Result<Option<String>> {

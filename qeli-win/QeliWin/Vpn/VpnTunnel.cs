@@ -521,13 +521,10 @@ public sealed class VpnTunnel : VpnTunnelBase
             .ToArray();
 
         uint drv = WintunAdapter.RunningDriverVersion();
-        // Coexistence note: if another app has already loaded the shared Wintun kernel
-        // driver (OpenVPN/WireGuard/Tailscale), surface it. qeli bundles Wintun 0.14.1 —
-        // two apps on the SAME 0.14.x driver coexist fine, but a different (older) version
-        // can be disrupted by the version swap the single shared driver forces.
+        // Prewarming Qeli itself may have loaded this driver. The API reports
+        // major/minor, not the package patch; neither proves a foreign-app conflict.
         if (drv != 0)
-            Log($"NOTE: a Wintun driver ({drv >> 16}.{drv & 0xFF}) is already loaded by another app; " +
-                "qeli uses 0.14.1 — running alongside another Wintun VPN needs a matching 0.14.x on both sides.");
+            Log($"Wintun loaded driver: {AdapterSharing.DriverVersion(drv)}; bundled package 0.14.1");
         // Per-tunnel adapter identity (name + GUID) so several qeli tunnels can run on
         // ONE host without fighting over a single Wintun adapter; stable across runs of
         // the same tunnel, so the adapter is still reused rather than recreated.
@@ -551,11 +548,11 @@ public sealed class VpnTunnel : VpnTunnelBase
         if (config.WindowsDisableSharing)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            AdapterSharing.Apply(wintun, (start, operation) => RunForwardingCommand(start, operation));
+            AdapterSharing.Apply(wintun, cancellationToken, message => Log(message));
             Log("Microsoft sharing and LLDP/LLTD discovery disabled on the owned Qeli adapter (readback verified)");
         }
         var (tunIndex, alias) = _net.ResolveInterface(wintun.Luid);
-        Log($"Wintun adapter '{alias}' (if {tunIndex}, driver {drv >> 16}.{drv & 0xFF})");
+        Log($"Wintun adapter '{alias}' (if {tunIndex}, driver {AdapterSharing.DriverVersion(WintunAdapter.RunningDriverVersion())})");
         var localCaptureRoutes = config.RouteLocalNetworks
             && assigned.Any(address => address.Family == "ipv4")
             ? RouteLocalPolicy.BuildCapturePrefixes(

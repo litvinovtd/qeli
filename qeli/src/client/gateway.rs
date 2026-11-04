@@ -41,6 +41,8 @@ use identity::Context;
 #[path = "gateway/budget.rs"]
 mod budget;
 use budget::Budget;
+#[path = "gateway/command.rs"]
+mod command;
 
 #[cfg(all(target_os = "linux", feature = "client"))]
 use super::route::RouteOwner;
@@ -299,42 +301,45 @@ fn ensure_rule(
     chain: &str,
     rule: &[&str],
 ) -> bool {
+    match ensure_rule_checked(ctx, path, tun_if, table, chain, rule) {
+        Ok(()) => true,
+        Err(error) => {
+            log::error!("router firewall setup failed: {error:#}");
+            false
+        }
+    }
+}
+
+fn ensure_rule_checked(
+    ctx: &Context,
+    path: &str,
+    tun_if: &str,
+    table: &str,
+    chain: &str,
+    rule: &[&str],
+) -> anyhow::Result<()> {
     let mut check: Vec<&str> = vec!["-t", table, "-C", chain];
     check.extend_from_slice(rule);
-    let exists = match ctx.present(path, &check) {
-        Ok(exists) => exists,
-        Err(error) => {
-            log::error!("cannot inspect router rule before installation: {error}");
-            return false;
-        }
-    };
+    let exists = ctx.present(path, &check)?;
     let insert = table == "filter" && chain == "FORWARD";
     let kill_switch_chain = format!("QELI_KS_{tun_if}");
     let hooked = if insert {
-        match ctx.present(path, &["-C", "FORWARD", "-j", kill_switch_chain.as_str()]) {
-            Ok(hooked) => hooked,
-            Err(error) => {
-                log::error!("cannot inspect router kill-switch protection: {error}");
-                return false;
-            }
-        }
+        ctx.present(path, &["-C", "FORWARD", "-j", kill_switch_chain.as_str()])?
     } else {
         false
     };
     // Reconnect may reuse an existing permit, but never one ahead of our protection.
     if hooked && !kill_switch_hook_is_first(ctx, path, &kill_switch_chain) {
-        log::error!(
+        anyhow::bail!(
             "qeli kill-switch jump {kill_switch_chain} is not the first FORWARD rule; \
              refusing to install or reuse a router permit ahead of it"
         );
-        return false;
     }
     let exit_permit = insert && rule.contains(&EXIT_TAG) && rule.contains(&"ACCEPT");
     let guard_position = if exit_permit {
         let position = exit_drop_position(ctx, path, &exit_unmarked_drop(tun_if), tun_if, hooked);
         if position.is_none() {
-            log::error!("exit-node unmarked egress guard is missing or bypassed");
-            return false;
+            anyhow::bail!("exit-node unmarked egress guard is missing or bypassed");
         }
         position
     } else {
@@ -344,8 +349,7 @@ fn ensure_rule(
         && (rule == exit_unmarked_drop(tun_if).as_slice()
             || rule == exit_lockdown_drop(tun_if).as_slice());
     if hooked && (exit_permit || own_drop) {
-        log::error!("exit-node cannot protect {tun_if}: an existing kill-switch FORWARD hook may ACCEPT this TUN before the guard");
-        return false;
+        anyhow::bail!("exit-node cannot protect {tun_if}: an existing kill-switch FORWARD hook may ACCEPT this TUN before the guard");
     }
     if !exists {
         let mut add: Vec<&str> = vec!["-t", table, if insert { "-I" } else { "-A" }, chain];
@@ -356,16 +360,26 @@ fn ensure_rule(
             add.push(position.as_str());
         }
         add.extend_from_slice(rule);
-        let _ = ctx.ipt(path, &add);
+        command::install(
+            path,
+            &add,
+            &check,
+            |args| ctx.ipt(path, args),
+            || ctx.pause(std::time::Duration::from_millis(100)),
+        )?;
     }
-    match ctx.present(path, &check) {
-        Ok(true) if own_drop => exit_drop_position(ctx, path, rule, tun_if, hooked).is_some(),
-        Ok(present) => present,
-        Err(error) => {
-            log::error!("cannot verify installed router rule: {error}");
-            false
-        }
+    anyhow::ensure!(
+        ctx.present(path, &check)?,
+        "{path} {}: exact router rule missing on final verification",
+        check.join(" ")
+    );
+    if own_drop {
+        anyhow::ensure!(
+            exit_drop_position(ctx, path, rule, tun_if, hooked).is_some(),
+            "exit-node guard is not in the required position"
+        );
     }
+    Ok(())
 }
 
 /// Drop traffic from an exit TUN unless a Qeli WAN-specific mangle rule marked it.
@@ -896,14 +910,13 @@ fn remove_rule(
         }
         let mut delete: Vec<&str> = vec!["-t", table, "-D", chain];
         delete.extend_from_slice(rule);
-        ctx.ipt(path, &delete).map_err(|error| {
-            anyhow::anyhow!(
-                "cannot run {} {} while removing qeli firewall state: {}",
-                path,
-                delete.join(" "),
-                error
-            )
-        })?;
+        command::remove_one(
+            path,
+            &delete,
+            &check,
+            |args| ctx.ipt(path, args),
+            || ctx.pause(std::time::Duration::from_millis(100)),
+        )?;
     }
     if ctx.present(path, &check)? {
         anyhow::bail!(
@@ -1149,8 +1162,18 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
 
     // MASQUERADE only in NAT mode (essential there — the LAN can't reach the internet
     // without it). Routing mode (#13) preserves real source IPs, so no MASQUERADE.
-    if masquerade && !ensure("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet)) {
-        anyhow::bail!("gateway-nat: could not install MASQUERADE on {tun_if}");
+    if masquerade {
+        ensure_rule_checked(
+            ctx,
+            &path,
+            tun_if,
+            "nat",
+            "POSTROUTING",
+            &masq_rule(tun_if, lan_subnet),
+        )
+        .map_err(|error| {
+            anyhow::anyhow!("gateway-nat: could not install MASQUERADE on {tun_if}: {error:#}")
+        })?;
     }
     // FORWARD accept is conditional: on `iptables-nft` hosts the legacy `filter` FORWARD
     // chain can be incompatible (same as `server/nat.rs`); only an empty chain whose policy
@@ -1285,8 +1308,18 @@ pub fn engage_ipv6(tun_if: &str, lan_subnet_ipv6: &str, masquerade: bool) -> any
         ensure_rule(ctx, &path, tun_if, table, chain, rule)
     };
 
-    if masquerade && !ensure("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet_ipv6)) {
-        anyhow::bail!("gateway IPv6 could not install MASQUERADE on {tun_if}");
+    if masquerade {
+        ensure_rule_checked(
+            ctx,
+            &path,
+            tun_if,
+            "nat",
+            "POSTROUTING",
+            &masq_rule(tun_if, lan_subnet_ipv6),
+        )
+        .map_err(|error| {
+            anyhow::anyhow!("gateway IPv6 could not install MASQUERADE on {tun_if}: {error:#}")
+        })?;
     }
     let forward_ok = ensure("filter", "FORWARD", &fwd_out(tun_if))
         & if masquerade {
