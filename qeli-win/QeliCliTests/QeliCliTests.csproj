@@ -4,4 +4,5 @@
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../QeliCli/QeliCli.csproj" /></ItemGroup>
   <ItemGroup><Compile Include="../QeliWin/Vpn/AdapterSharingSelfTest.cs" Link="AdapterSharingSelfTest.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../QeliWin/Vpn/TunnelIpv6PolicySelfTest.cs" Link="TunnelIpv6PolicySelfTest.cs" /></ItemGroup>
 </Project>

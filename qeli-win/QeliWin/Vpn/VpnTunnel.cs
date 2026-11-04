@@ -599,7 +599,7 @@ public sealed class VpnTunnel : VpnTunnelBase
 
         if (assigned.Any(address => address.Family == "ipv6"))
         {
-            TunnelIpv6Policy.Apply(wintun);
+            TunnelIpv6Policy.Apply(wintun, cancellationToken, message => Log(message));
             Log("IPv6 router discovery, DAD and neighbor probes disabled on the owned L3 adapter");
         }
         foreach (var address in assigned)

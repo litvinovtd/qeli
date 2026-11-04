@@ -16,6 +16,7 @@ internal static class Tests
         try {
             PersistentWintunCallbackTests.Run(Check);
             QeliWin.Vpn.AdapterSharingSelfTest.Run((name, ok) => Check(ok, name));
+            QeliWin.Vpn.TunnelIpv6PolicySelfTest.Run((name, ok) => Check(ok, name));
             Check(CommandLine.Parse([]).Command=="help","empty invocation");
             Check(CommandLine.Parse(["--version","--json"]).Json,"global version/json");
             Check(CommandLine.Parse(["run","--config","C:\\РєРёСЂРёР»Р»РёС†Р° Рё РїСЂРѕР±РµР»С‹\\profile.ini"]).Config!.Contains("РєРёСЂРёР»Р»РёС†Р°"),"Unicode literal config path");
