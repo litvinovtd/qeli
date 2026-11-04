@@ -419,6 +419,7 @@ async function main() {
     const { model } = component('client.html', 'clientPage', {
       apiFetch: async (url, opts) => {
         if (!opts) return { ok: true, raw, revision: 'r1' };
+        if (url === 'api/client/preview') return {ok:true,raw};
         writes.push(JSON.parse(opts.body)); return { ok: true };
       },
     });
@@ -430,7 +431,7 @@ async function main() {
     assert.equal(writes[0].raw, undefined);
     raw += 'gateway = false\n';
     await model.openEdit('test'); assert.equal(model.form.gateway, false);
-    model.toggleRaw(); assert.match(model.form.raw, /^gateway = false$/m);
+    await model.toggleRaw(); assert.match(model.form.raw, /^gateway = false$/m);
     await model.save(); assert.match(writes[1].raw, /^gateway = false$/m);
     model.openCreate(); assert.equal(model.form.gateway, false);
     model.openRaw(); assert.match(model.form.raw, /^gateway = false$/m);
@@ -442,18 +443,18 @@ async function main() {
       const raw = model.form.raw; model.toggleRaw(); assert(model.form.rawMode); assert.equal(model.form.raw, raw);
     }
   });
-  await check('passwords survive Fields to INI to Fields exactly', () => {
-    const { model } = component('client.html', 'clientPage');
+  await check('passwords reach the shared INI serializer exactly', async () => {
+    let sent; const { model } = component('client.html', 'clientPage', {apiFetch:async(u,o)=>{sent=JSON.parse(o.body);return {ok:true,raw:'fixture response'};}});
     for (const secret of ['plain', '"secret"', ' secret ', '\tsecret\t', '\u00a0secret\u00a0', 'a\\b"c', '#;=']) {
       model.form = model.blankForm(); model.form.server = 'fixture.invalid:443'; model.form.pass = secret;
-      const ini = model.formToIni(); const f = model.blankForm(); model.parseIni(ini, f); assert.equal(f.pass, secret);
+      assert.equal(await model.formToIni(),'fixture response'); assert.equal(sent.pass,secret);
       assert.equal(model.iniValue(model.iniQuote(secret)), secret);
     }
   });
-  await check('repeated route lists and non-form sections are retained', () => {
-    const { model } = component('client.html', 'clientPage'); const f = model.blankForm();
+  await check('repeated route lists and non-form sections reach the common serializer', async () => {
+    let sent; const { model } = component('client.html', 'clientPage', {apiFetch:async(u,o)=>{sent=JSON.parse(o.body);return {ok:true,raw:'fixture response'};}}); const f = model.blankForm();
     model.parseIni('[qeli]\nserver=x:443\ninclude=10.0.0.0/8\ninclude=192.168.0.0/16\nkill_switch=true\n[logging]\nlevel=debug\n', f);
-    model.form = f; const text = model.formToIni(); assert(text.includes('include = 10.0.0.0/8, 192.168.0.0/16')); assert(text.includes('kill_switch=true')); assert(text.includes('[logging]\nlevel=debug'));
+    model.form = f; await model.formToIni(); assert.equal(sent.include,'10.0.0.0/8, 192.168.0.0/16'); assert(sent._extraQeli.includes('kill_switch=true')); assert(sent._extraSections.includes('[logging]')); assert(sent._extraSections.includes('level=debug'));
   });
   await check('changing quota preserves exact expiry; editing or clearing date remains supported', async () => {
     let sent; const { model } = component('users.html', 'usersPage', { apiFetch: async (u, opts) => { sent = JSON.parse(opts.body); return { ok: true }; } });
@@ -467,15 +468,14 @@ async function main() {
     model.openUsage('alice', { expire_at: expiry, data_limit_gb: 20 }, 'limit');
     model.usageForm.expire_date = ''; model.syncFromDate(); await model.saveLimit(); assert.equal(sent.expire_at, null);
   });
-  await check('shared Rust INI corpus survives the client editor exactly', () => {
+  await check('shared Rust INI corpus reaches the serializer without password changes', async () => {
     const cases = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'conformance', 'panel-client-ini.json'), 'utf8'));
-    const { model } = component('client.html', 'clientPage');
+    let sent; const { model } = component('client.html', 'clientPage', {apiFetch:async(u,o)=>{sent=JSON.parse(o.body);return {ok:true,raw:'fixture response'};}});
     for (const test of cases) {
       const form = model.blankForm(); model.parseIni(test.raw, form);
       assert.equal(form.pass, test.password);
       model.form = form;
-      const line = text => text.split('\n').find(row => row.startsWith('pass = '));
-      assert.equal(line(model.formToIni()), line(test.raw));
+      await model.formToIni(); assert.equal(sent.pass,test.password);
     }
   });
   await check('notifications cannot save or send a test until initial load succeeds', async () => {

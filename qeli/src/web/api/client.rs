@@ -340,21 +340,19 @@ fn ini_from_fields(b: &Value) -> String {
     // its fronting and AWG settings — the panel reported success and the client then failed to
     // handshake because the two ends disagreed about the wire. (Audit 2026-07-31, §1.)
     // `front` only when it differs from the default, mirroring the panel's own INI preview.
-    if g("mode") == "obfs" && !g("front").is_empty() && g("front") != "websocket" {
+    if !g("front").is_empty() && g("front") != "websocket" {
         s.push_str(&format!(
             "front = {}\n",
             crate::config::format::quote_if_needed(&g("front"))
         ));
     }
-    if flag("awg") {
-        s.push_str("awg = true\n");
-        for key in ["jc", "jmin", "jmax"] {
-            if let Some(v) = num(key) {
-                s.push_str(&format!("{key} = {v}\n"));
-            }
+    s.push_str(&format!("awg = {}\n", flag("awg")));
+    for key in ["jc", "jmin", "jmax"] {
+        if let Some(v) = num(key) {
+            s.push_str(&format!("{key} = {v}\n"));
         }
     }
-    if flag("quic") {
+    if flag("quic") && g("proto") == "udp" {
         s.push_str("quic = true\n");
     }
     // Manual TUN interface name (optional): a legal Linux ifname (1..=15 chars,
@@ -544,6 +542,18 @@ fn validate_panel_profile(ini: &str) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Same serializer as form save, without assigning a device or writing a profile.
+pub async fn preview_profile(
+    _g: auth::AuthGuard,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let ini = ini_from_fields(&body);
+    match validate_panel_profile(&ini) {
+        Ok(()) => Json(json!({"ok":true,"raw":ini})),
+        Err(error) => Json(super::err_json(error.to_string())),
+    }
 }
 
 /// Persist the original INI, retaining comments and assigning a TUN device if absent.
@@ -1053,6 +1063,21 @@ mod diagnostic_tests {
         assert!(ini.contains("lan_subnet_ipv6 = fd42:50::/64\n"));
         assert!(ini.contains("allow_ipv4_leak = true\n"));
         assert!(ini.contains("allow_ipv6_leak = true\n"));
+    }
+    #[test]
+    fn field_serializer_preserves_dormant_front_and_awg_values_and_gates_quic() {
+        for proto in ["tcp", "udp"] {
+            let raw = ini_from_fields(&json!({"server":"fixture.invalid:443","pass":"fixture",
+                "proto":proto,"mode":"fake-tls","front":"none","awg":false,
+                "jc":7,"jmin":0,"jmax":333,"quic":true}));
+            let config = crate::config::parse_client_config_strict(&raw).unwrap();
+            assert_eq!(config.obfuscation.fronting, "none");
+            assert!(!config.obfuscation.awg.enabled);
+            assert_eq!(config.obfuscation.awg.jc, 7);
+            assert_eq!(config.obfuscation.awg.jmin, 0);
+            assert_eq!(config.obfuscation.awg.jmax, 333);
+            assert_eq!(config.obfuscation.quic.enabled, proto == "udp");
+        }
     }
 }
 

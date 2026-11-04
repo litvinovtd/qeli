@@ -183,7 +183,7 @@
       <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#21314e]">
         <h3 class="text-base font-semibold text-white" x-text="form.editing ? 'Edit profile' : 'Add client profile'"></h3>
         <div class="flex items-center gap-2">
-          <button class="btn btn-ghost btn-sm" @click="toggleRaw()" :disabled="form.saving" x-text="form.rawMode ? '↤ Form view' : 'Raw INI ↦'"></button>
+          <button class="btn btn-ghost btn-sm" @click="toggleRaw()" :disabled="form.saving || formConverting" x-text="form.rawMode ? '↤ Form view' : 'Raw INI ↦'"></button>
           <button class="text-slate-500 hover:text-white" @click="closeForm()">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
@@ -206,7 +206,7 @@
               </div>
               <div>
                 <label class="block text-xs font-medium text-slate-400 mb-1.5">Protocol</label>
-                <select x-model="form.proto" class="inp"><option>tcp</option><option>udp</option></select>
+                <select x-model="form.proto" @change="onClientTransportChange()" class="inp"><option>tcp</option><option>udp</option></select>
               </div>
               <div>
                 <label class="block text-xs font-medium text-slate-400 mb-1.5">Wire mode</label>
@@ -332,6 +332,8 @@ function clientPage() {
     importOpen: false, importLink: '', importName: '', importGateway: false,
     diagOpen: false, diagProfile: null,
     formOpen: false,
+    formConverting: false,
+    onClientTransportChange() { if (this.form.proto !== 'udp') this.form.quic = false; },
     form: { saving:false, editing:false, rawMode:false, raw:'', revision:null, name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', include:'', exclude:'', lan_subnet_ipv6:'', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false },
     blankForm() { return { saving:false, editing:false, rawMode:false, raw:'', revision:null, name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', include:'', exclude:'', lan_subnet_ipv6:'', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false }; },
 
@@ -478,49 +480,30 @@ function clientPage() {
       Object.assign(f, next);
       return f;
     },
-    // form fields → INI text (common keys; matches the server's builder)
-    formToIni() {
-      const f = this.form; let s = '[qeli]\n';
-      s += `server = ${this.iniQuote(f.server || '')}\n`;
-      if (f.proto) s += `proto = ${this.iniQuote(f.proto)}\n`;
-      if (f.user) s += `user = ${this.iniQuote(f.user)}\n`;
-      if (f.pass) s += `pass = ${this.iniQuote(f.pass)}\n`;
-      if (f.key) s += `key = ${this.iniQuote(f.key)}\n`;
-      if (f.mode) s += `mode = ${this.iniQuote(f.mode)}\n`;
-      if (f.sni) s += `sni = ${this.iniQuote(f.sni)}\n`;
-      if (f.rsid) s += `reality_sid = ${this.iniQuote(f.rsid)}\n`;
-      if (f.obfs_key) s += `obfs_key = ${this.iniQuote(f.obfs_key)}\n`;
-      // `dev` is a managed field (parseIni consumes it into form.dev, so it is NOT kept in
-      // _extraQeli) — emit it here or a Field→Raw toggle silently drops the TUN device name.
-      if (f.dev) s += `dev = ${this.iniQuote(f.dev)}\n`;
-      if (f.include) s += `include = ${this.iniQuote(f.include)}\n`;
-      if (f.exclude) s += `exclude = ${this.iniQuote(f.exclude)}\n`;
-      if (f.lan_subnet_ipv6) s += `lan_subnet_ipv6 = ${this.iniQuote(f.lan_subnet_ipv6)}\n`;
-      if (f.mode==='obfs' && f.front && f.front!=='websocket') s += `front = ${this.iniQuote(f.front)}\n`;
-      if (f.mode==='obfs' && f.awg) { s += 'awg = true\n'; s += `jc = ${f.jc||0}\n`; s += `jmin = ${f.jmin||0}\n`; s += `jmax = ${f.jmax||0}\n`; }
-      if (f.ipv6) s += `ipv6 = ${this.iniQuote(f.ipv6)}\n`;
-      // QUIC is UDP-only (its checkbox is x-show'd for proto=udp); gate the emit on proto so
-      // enabling it then switching udp→tcp doesn't leave a stale quic=true on a TCP profile.
-      if (f.quic && f.proto==='udp') s += 'quic = true\n';
-      if (f.allow_ipv4_leak) s += 'allow_ipv4_leak = true\n';
-      if (f.allow_ipv6_leak) s += 'allow_ipv6_leak = true\n';
-      if (f.route_local) s += 'route_local = true\n';
-      s += `gateway = ${f.gateway ? 'true' : 'false'}\n`;
-      if (f.autostart) s += 'autostart = true\n';
-      // Re-emit any [qeli] keys the form doesn't manage + other sections (e.g. [logging]),
-      // captured verbatim in parseIni, so a Field-view save is lossless.
-      if (f._extraQeli && f._extraQeli.length) s += f._extraQeli.join('\n') + '\n';
-      if (f._extraSections && f._extraSections.length) s += f._extraSections.join('\n') + '\n';
-      return s;
+    async formToIni() {
+      const body = Object.assign({}, this.form);
+      delete body.raw; delete body.saving;
+      const r = await apiFetch('api/client/preview', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if (!r || r.ok !== true || typeof r.raw !== 'string') throw new Error(r?.error || 'INI preview unavailable');
+      return r.raw;
     },
-    toggleRaw() {
-      if (!this.form.rawMode) { this.form.raw = this.formToIni(); this.form.rawMode = true; }
-      else {
+    async toggleRaw() {
+      if (this.formConverting || this.form.saving) return;
+      if (!this.form.rawMode) {
+        const owner = this.form, sequence = this.editorSequence, draft = JSON.stringify(owner);
+        this.formConverting = true;
+        try {
+          const raw = await this.formToIni();
+          if (!this.destroyed && sequence === this.editorSequence && this.form === owner && JSON.stringify(owner) === draft) {
+            owner.raw = raw; owner.rawMode = true;
+          }
+        } catch (error) { if (!this.destroyed && this.form === owner) this.notify(error.message, 'error'); }
+        finally { this.formConverting = false; }
+      } else {
         try { this.parseIni(this.form.raw, this.form); this.form.rawMode = false; }
         catch (error) { this.notify(error.message, 'error'); }
       }
     },
-
     closeForm() { this.editorSequence++; this.formOpen = false; },
     openCreate() { this.editorSequence++; this.form = this.blankForm(); this.formOpen = true; },
     openRaw() {
@@ -541,7 +524,7 @@ function clientPage() {
     },
     async save() {
       const form = this.form;
-      if (this.destroyed || !this.formOpen || form.saving) return;
+      if (this.destroyed || !this.formOpen || form.saving || this.formConverting) return;
       const draft = JSON.stringify(Object.assign({}, form, {saving:false}));
       form.saving = true;
       try {

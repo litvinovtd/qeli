@@ -1975,12 +1975,26 @@ function configPage() {
       const value = this.cfg.profiles?.[pi]?.routing?.ipv6?.ndp_proxy_announce_interval_secs;
       return Number.isInteger(value) && (value === 0 || (value >= 10 && value <= 86400));
     },
+    networkDrafts: new WeakMap(),
+    networkDraft(profile) {
+      if (!this.networkDrafts.has(profile)) this.networkDrafts.set(profile, {});
+      return this.networkDrafts.get(profile);
+    },
     onIpv6RoutingModeChange(pi) {
       const p = this.cfg.profiles?.[pi];
       if (!p) return;
       if (!['route', 'manual'].includes(p.routing.ipv6.mode)) {
+        const draft = this.networkDraft(p);
+        if (p.routing.ipv6.ndp_proxy !== 'off') draft.ndp = {mode:p.routing.ipv6.ndp_proxy, interface:p.routing.ipv6.ndp_proxy_interface};
         p.routing.ipv6.ndp_proxy = 'off';
         p.routing.ipv6.ndp_proxy_interface = '';
+      } else {
+        const draft = this.networkDraft(p);
+        if (draft.ndp && p.routing.ipv6.ndp_proxy === 'off') {
+          p.routing.ipv6.ndp_proxy = draft.ndp.mode;
+          p.routing.ipv6.ndp_proxy_interface = draft.ndp.interface;
+          delete draft.ndp;
+        }
       }
       this.markDirty();
     },
@@ -1989,15 +2003,22 @@ function configPage() {
       const p = this.cfg.profiles?.[pi];
       if (!p) return;
       const mode = p.tun.ip_mode;
+      const draft = this.networkDraft(p);
       if (mode === 'ipv4') {
+        if (!draft.ipv6) draft.ipv6 = JSON.parse(JSON.stringify(p.routing.ipv6));
         p.routing.ipv6 = p.routing.ipv6 || {};
         p.routing.ipv6.mode = 'off';
         p.routing.ipv6.ndp_proxy = 'off';
         p.routing.ipv6.ndp_proxy_interface = '';
       } else if (mode === 'ipv6') {
+        if (!draft.ipv4) draft.ipv4 = {nat:p.routing.nat?.enabled, dhcp:p.dhcp.enabled};
         p.routing.nat = p.routing.nat || {};
         p.routing.nat.enabled = false;
         p.dhcp.enabled = false;
+      }
+      if (mode !== 'ipv4' && draft.ipv6) { p.routing.ipv6 = draft.ipv6; delete draft.ipv6; }
+      if (mode !== 'ipv6' && draft.ipv4) {
+        p.routing.nat.enabled = draft.ipv4.nat; p.dhcp.enabled = draft.ipv4.dhcp; delete draft.ipv4;
       }
       this.markDirty();
     },
