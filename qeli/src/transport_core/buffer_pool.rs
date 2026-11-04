@@ -9,8 +9,6 @@
 use std::io;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex, MutexGuard};
-#[cfg(any(test, feature = "server"))]
-use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 
 /// Reserve room for the other carriers and one temporary resume candidate.
@@ -28,46 +26,22 @@ pub(crate) struct BufferPool {
 }
 
 struct PoolInner {
-    available: Mutex<BufferCache>,
+    available: Mutex<Vec<Vec<u8>>>,
     permits: Arc<Semaphore>,
     buffer_count: usize,
     buffer_capacity: usize,
 }
 
-struct BufferCache {
-    buffers: Vec<Vec<u8>>,
-    // Updated under the existing free-list lock, without a clock read on the packet path.
-    activity: u64,
-}
-
-/// Reserved slots stay unavailable until their retired allocations have been freed.
-/// Field drop order is intentional: allocations first, semaphore permits second.
-#[cfg(any(test, feature = "server"))]
-pub(crate) struct RetiredBuffers {
-    _buffers: Vec<Vec<u8>>,
-    _permits: tokio::sync::OwnedSemaphorePermit,
-}
-
-#[cfg(any(test, feature = "server"))]
-pub(crate) struct PoolIdleTracker {
-    activity: u64,
-    changed_at: Instant,
-}
-
 impl PoolInner {
-    fn available(&self) -> MutexGuard<'_, BufferCache> {
+    fn available(&self) -> MutexGuard<'_, Vec<Vec<u8>>> {
         self.available
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn take_buffer(&self) -> io::Result<Vec<u8>> {
-        {
-            let mut cache = self.available();
-            cache.activity = cache.activity.wrapping_add(1);
-            if let Some(buffer) = cache.buffers.pop() {
-                return Ok(buffer);
-            }
+        if let Some(buffer) = self.available().pop() {
+            return Ok(buffer);
         }
         // A held permit reserves a slot even when its buffer has not been allocated yet.
         // Allocation failure returns the permit through its guard; it cannot lose capacity.
@@ -97,83 +71,12 @@ impl BufferPool {
         Self::with_initial_buffers(buffer_count, buffer_capacity, 0)
     }
 
-    /// Allocate and touch only a small initial reserve; retain the original slot budget.
-    #[cfg(any(test, feature = "server"))]
-    pub(crate) fn new_warm(
-        buffer_count: usize,
-        buffer_capacity: usize,
-        warm_buffers: usize,
-    ) -> io::Result<Self> {
-        let pool = Self::with_initial_buffers(buffer_count, buffer_capacity, warm_buffers)?;
-        for buffer in &mut pool.inner.available().buffers {
-            buffer.resize(buffer_capacity, 0);
-            buffer.clear();
-        }
-        Ok(pool)
-    }
-
-    #[cfg(any(test, feature = "server"))]
-    pub(crate) fn idle_tracker(&self, now: Instant) -> PoolIdleTracker {
-        PoolIdleTracker {
-            activity: self.inner.available().activity,
-            changed_at: now,
-        }
-    }
-
-    /// Retire only cached allocations after sustained inactivity. Never touches borrowed
-    /// packets. The caller frees the bounded batch off the packet-processing executor.
-    #[cfg(any(test, feature = "server"))]
-    pub(crate) fn retire_idle(
-        &self,
-        tracker: &mut PoolIdleTracker,
-        now: Instant,
-        idle: Duration,
-        warm_buffers: usize,
-        batch_limit: usize,
-    ) -> Option<(usize, RetiredBuffers)> {
-        let mut cache = self.inner.available();
-        if tracker.activity != cache.activity {
-            tracker.activity = cache.activity;
-            tracker.changed_at = now;
-            return None;
-        }
-        if now.saturating_duration_since(tracker.changed_at) < idle {
-            return None;
-        }
-        let count = cache
-            .buffers
-            .len()
-            .saturating_sub(warm_buffers)
-            .min(batch_limit);
-        let count = u32::try_from(count).ok().filter(|count| *count > 0)?;
-        // New arrivals may already hold permits while waiting for this lock. Skip this
-        // pass rather than stealing their slots or transiently exceeding the byte budget.
-        let permits = self
-            .inner
-            .permits
-            .clone()
-            .try_acquire_many_owned(count)
-            .ok()?;
-        let keep = cache.buffers.len() - count as usize;
-        let buffers = cache.buffers.split_off(keep);
-        Some((
-            count as usize,
-            RetiredBuffers {
-                _buffers: buffers,
-                _permits: permits,
-            },
-        ))
-    }
-
     fn with_initial_buffers(
         buffer_count: usize,
         buffer_capacity: usize,
         initial_buffers: usize,
     ) -> io::Result<Self> {
-        if buffer_count == 0
-            || buffer_count > Semaphore::MAX_PERMITS
-            || initial_buffers > buffer_count
-        {
+        if buffer_count == 0 || buffer_count > Semaphore::MAX_PERMITS {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "buffer pool count must fit the semaphore and be non-zero",
@@ -202,10 +105,7 @@ impl BufferPool {
 
         Ok(Self {
             inner: Arc::new(PoolInner {
-                available: Mutex::new(BufferCache {
-                    buffers: available,
-                    activity: 0,
-                }),
+                available: Mutex::new(available),
                 permits: Arc::new(Semaphore::new(buffer_count)),
                 buffer_count,
                 buffer_capacity,
@@ -315,9 +215,8 @@ impl Drop for PooledBuffer {
             buffer.clear();
             {
                 let mut available = self.pool.available();
-                debug_assert!(available.buffers.len() < self.pool.buffer_count);
-                available.activity = available.activity.wrapping_add(1);
-                available.buffers.push(buffer);
+                debug_assert!(available.len() < self.pool.buffer_count);
+                available.push(buffer);
             }
             self.pool.permits.add_permits(1);
         }
@@ -400,18 +299,18 @@ mod tests {
     #[test]
     fn lazy_pool_allocates_only_borrowed_slots_and_reuses_them() {
         let pool = BufferPool::new_lazy(4096, 2048).unwrap();
-        assert!(pool.inner.available().buffers.is_empty());
+        assert!(pool.inner.available().is_empty());
         assert_eq!(pool.inner.permits.available_permits(), 4096);
         let mut packet = pool.try_acquire().unwrap();
         packet.as_vec_mut().extend_from_slice(b"packet");
         let allocation = packet.as_ptr();
         drop(packet);
-        assert_eq!(pool.inner.available().buffers.len(), 1);
+        assert_eq!(pool.inner.available().len(), 1);
         let packet = pool.try_acquire().unwrap();
         assert_eq!(packet.as_ptr(), allocation);
         assert!(packet.is_empty());
         drop(packet);
-        assert_eq!(pool.inner.available().buffers.len(), 1);
+        assert_eq!(pool.inner.available().len(), 1);
     }
 
     #[test]
@@ -421,7 +320,7 @@ mod tests {
             .try_acquire_with(|| Err(io::Error::other("injected allocation failure")))
             .is_none());
         assert_eq!(pool.inner.permits.available_permits(), 1);
-        assert!(pool.inner.available().buffers.is_empty());
+        assert!(pool.inner.available().is_empty());
         let packet = pool.try_acquire().unwrap();
         assert!(pool.try_acquire().is_none());
         drop(packet);
@@ -448,7 +347,7 @@ mod tests {
             task.await.unwrap();
         }
         assert_eq!(pool.inner.permits.available_permits(), 3);
-        assert!(pool.inner.available().buffers.len() <= 3);
+        assert!(pool.inner.available().len() <= 3);
     }
 
     #[tokio::test]
@@ -476,109 +375,5 @@ mod tests {
         assert!(BufferPool::new_lazy(4, 0).is_err());
         assert!(BufferPool::new_lazy(usize::MAX, 128).is_err());
         assert!(BufferPool::new_lazy(4, usize::MAX).is_err());
-        assert!(BufferPool::new_warm(4, 128, 5).is_err());
-    }
-
-    #[test]
-    fn warm_pool_retains_full_budget_without_eager_full_allocation() {
-        let pool = BufferPool::new_warm(16, 128, 3).unwrap();
-        assert_eq!(pool.inner.available().buffers.len(), 3);
-        let packets: Vec<_> = (0..16).map(|_| pool.try_acquire().unwrap()).collect();
-        assert!(pool.try_acquire().is_none());
-        assert!(packets
-            .iter()
-            .all(|packet| packet.is_empty() && packet.capacity() >= 128));
-        drop(packets);
-        assert_eq!(pool.inner.permits.available_permits(), 16);
-    }
-
-    #[test]
-    fn idle_trim_is_bounded_preserves_warm_floor_and_reserves_retired_slots() {
-        let pool = BufferPool::new_warm(8, 128, 2).unwrap();
-        let packets: Vec<_> = (0..8).map(|_| pool.try_acquire().unwrap()).collect();
-        drop(packets);
-        let now = Instant::now();
-        let idle = Duration::from_secs(30);
-        let mut tracker = pool.idle_tracker(now);
-        assert!(pool.retire_idle(&mut tracker, now, idle, 2, 3).is_none());
-        let (count, retired) = pool
-            .retire_idle(&mut tracker, now + idle, idle, 2, 3)
-            .unwrap();
-        assert_eq!(count, 3);
-        assert_eq!(pool.inner.available().buffers.len(), 5);
-        assert_eq!(pool.inner.permits.available_permits(), 5);
-        drop(retired);
-        assert_eq!(pool.inner.permits.available_permits(), 8);
-        let (_, retired) = pool
-            .retire_idle(&mut tracker, now + idle, idle, 2, 99)
-            .unwrap();
-        assert_eq!(pool.inner.available().buffers.len(), 2);
-        drop(retired);
-        assert!(pool
-            .retire_idle(&mut tracker, now + idle, idle, 2, 99)
-            .is_none());
-        let packets: Vec<_> = (0..8).map(|_| pool.try_acquire().unwrap()).collect();
-        drop(packets);
-        assert_eq!(pool.inner.permits.available_permits(), 8);
-    }
-
-    #[test]
-    fn traffic_restarts_idle_timer_and_borrowed_packets_are_never_trimmed() {
-        let pool = BufferPool::new_warm(8, 128, 2).unwrap();
-        let mut held = pool.try_acquire().unwrap();
-        held.as_vec_mut().extend_from_slice(b"in flight");
-        let others: Vec<_> = (0..7).map(|_| pool.try_acquire().unwrap()).collect();
-        drop(others);
-        let now = Instant::now();
-        let idle = Duration::from_secs(30);
-        let mut tracker = pool.idle_tracker(now);
-        drop(pool.try_acquire().unwrap());
-        assert!(pool
-            .retire_idle(&mut tracker, now + idle, idle, 2, 32)
-            .is_none());
-        assert!(pool
-            .retire_idle(&mut tracker, now + idle + idle / 2, idle, 2, 32)
-            .is_none());
-        let (count, retired) = pool
-            .retire_idle(&mut tracker, now + idle * 2, idle, 2, 32)
-            .unwrap();
-        assert_eq!(count, 5);
-        assert_eq!(held.as_ref(), b"in flight");
-        drop(retired);
-        drop(held);
-        assert_eq!(pool.inner.permits.available_permits(), 8);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn concurrent_trim_and_traffic_preserve_packets_and_permits() {
-        let pool = BufferPool::new_warm(16, 128, 2).unwrap();
-        let trimmer = {
-            let pool = pool.clone();
-            tokio::spawn(async move {
-                let mut tracker = pool.idle_tracker(Instant::now());
-                for _ in 0..256 {
-                    drop(pool.retire_idle(&mut tracker, Instant::now(), Duration::ZERO, 2, 4));
-                    tokio::task::yield_now().await;
-                }
-            })
-        };
-        let mut tasks = Vec::new();
-        for id in 0..8u8 {
-            let pool = pool.clone();
-            tasks.push(tokio::spawn(async move {
-                for _ in 0..128 {
-                    let mut packet = pool.acquire().await.unwrap();
-                    packet.as_vec_mut().extend_from_slice(&[id; 128]);
-                    tokio::task::yield_now().await;
-                    assert_eq!(packet.as_ref(), &[id; 128]);
-                }
-            }));
-        }
-        for task in tasks {
-            task.await.unwrap();
-        }
-        trimmer.await.unwrap();
-        assert_eq!(pool.inner.permits.available_permits(), 16);
-        assert!(pool.inner.available().buffers.len() <= 16);
     }
 }

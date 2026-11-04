@@ -6055,85 +6055,36 @@ async fn run_profile_generation(
     // packet already removed from the kernel.
     let tun_buf_size = pcfg.performance.tun.read_buffer_size;
     let tun_read_buffer_count = server_tun_read_buffer_count(queues.len(), tun_buf_size);
-    let warm_buffers = queues.len().saturating_mul(8).max(32);
-    let tun_read_warm = warm_buffers.min(tun_read_buffer_count);
-    let tun_read_pool = BufferPool::new_warm(tun_read_buffer_count, tun_buf_size, tun_read_warm).map_err(|error| {
+    let tun_read_pool = BufferPool::new(tun_read_buffer_count, tun_buf_size).map_err(|error| {
         anyhow::anyhow!(
             "profile '{name}': cannot allocate bounded TUN read pool ({tun_read_buffer_count} x {tun_buf_size} bytes): {error}"
         )
     })?;
     log::info!(
-        "Profile '{}': bounded TUN read pool = {} buffers x {} bytes ({:.1} MiB), warm {}",
+        "Profile '{}': bounded TUN read pool = {} buffers x {} bytes ({:.1} MiB)",
         name,
         tun_read_buffer_count,
         tun_buf_size,
-        tun_read_buffer_count.saturating_mul(tun_buf_size) as f64 / (1024.0 * 1024.0),
-        tun_read_warm
+        tun_read_buffer_count.saturating_mul(tun_buf_size) as f64 / (1024.0 * 1024.0)
     );
     let tun_write_buffer_capacity =
         crate::protocol::packet::TLS_RECORD_HEADER + crate::protocol::packet::MAX_RECORD_SIZE;
     let tun_write_buffer_count = (SERVER_TUN_WRITE_POOL_BYTES / tun_write_buffer_capacity)
         .max(queues.len())
         .max(1);
-    let tun_write_warm = warm_buffers.min(tun_write_buffer_count);
-    let tun_write_pool = BufferPool::new_warm(tun_write_buffer_count, tun_write_buffer_capacity, tun_write_warm)
+    let tun_write_pool = BufferPool::new(tun_write_buffer_count, tun_write_buffer_capacity)
         .map_err(|error| {
             anyhow::anyhow!(
                 "profile '{name}': cannot allocate bounded TUN write pool ({tun_write_buffer_count} x {tun_write_buffer_capacity} bytes): {error}"
             )
         })?;
     log::info!(
-        "Profile '{}': bounded TUN write pool = {} buffers x {} bytes ({:.1} MiB), warm {}",
+        "Profile '{}': bounded TUN write pool = {} buffers x {} bytes ({:.1} MiB)",
         name,
         tun_write_buffer_count,
         tun_write_buffer_capacity,
-        tun_write_buffer_count.saturating_mul(tun_write_buffer_capacity) as f64 / (1024.0 * 1024.0),
-        tun_write_warm
+        tun_write_buffer_count.saturating_mul(tun_write_buffer_capacity) as f64 / (1024.0 * 1024.0)
     );
-
-    // Owned by this profile generation: shutdown/reload aborts and joins maintenance,
-    // including an in-progress free batch. No clocks or frees on the TUN packet path.
-    let read_pool = tun_read_pool.clone();
-    let write_pool = tun_write_pool.clone();
-    let pool_profile = name.clone();
-    service_set.spawn(async move {
-        let mut read_idle = read_pool.idle_tracker(std::time::Instant::now());
-        let mut write_idle = write_pool.idle_tracker(std::time::Instant::now());
-        let mut tick = tokio::time::interval(Duration::from_secs(5));
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            tick.tick().await;
-            let now = std::time::Instant::now();
-            let read = read_pool.retire_idle(
-                &mut read_idle,
-                now,
-                Duration::from_secs(30),
-                tun_read_warm,
-                32,
-            );
-            let write = write_pool.retire_idle(
-                &mut write_idle,
-                now,
-                Duration::from_secs(30),
-                tun_write_warm,
-                32,
-            );
-            let count =
-                read.as_ref().map_or(0, |(n, _)| *n) + write.as_ref().map_or(0, |(n, _)| *n);
-            if count > 0 {
-                if let Err(error) =
-                    crate::profile_teardown::blocking("qeli-tun-pool-trim", move || {
-                        drop((read, write))
-                    })
-                    .await
-                {
-                    log::warn!("Profile '{pool_profile}': TUN pool trim failed: {error}");
-                } else {
-                    log::debug!("Profile '{pool_profile}': retired {count} idle TUN pool buffers");
-                }
-            }
-        }
-    });
 
     // Per-queue reader/writer fds (dup'd so the blocking reader and writer threads each
     // own a closable fd for their queue). Teardown keeps one original afterward, so even
