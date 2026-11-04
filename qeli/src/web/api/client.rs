@@ -382,10 +382,8 @@ fn ini_from_fields(b: &Value) -> String {
     if flag("allow_ipv6_leak") {
         s.push_str("allow_ipv6_leak = true\n");
     }
-    // Routing (file-only; not in a qeli:// link). gateway defaults OFF (split-tunnel).
-    if flag("gateway") {
-        s.push_str("gateway = true\n");
-    }
+    // New panel forms default to split; the core treats an absent key as full.
+    s.push_str(&format!("gateway = {}\n", flag("gateway")));
     if flag("route_local") {
         s.push_str("route_local = true\n");
     }
@@ -957,6 +955,31 @@ mod diagnostic_tests {
             let config = crate::config::parse_client_config_strict(&ini).unwrap();
             assert_eq!(config.auth.password.as_deref(), Some(password));
             assert_eq!(config.obfuscation.obfs_key, password);
+        }
+    }
+
+    #[test]
+    fn field_form_preserves_split_and_full_without_changing_the_core_default() {
+        let parse_full = |ini: &str| {
+            let config = crate::config::parse_client_config_strict(ini).unwrap();
+            crate::transport_core::network::is_full_tunnel(&config)
+        };
+        let fields = json!({"server": "fixture.invalid:443", "pass": "fixture-password"});
+        assert!(parse_full(
+            "[qeli]\nserver = fixture.invalid:443\npass = fixture-password\n"
+        ));
+        let ini = ini_from_fields(&fields);
+        assert!(ini.lines().any(|line| line == "gateway = false"));
+        assert!(!parse_full(&ini));
+        for enabled in [false, true] {
+            let mut fields = fields.clone();
+            fields["gateway"] = json!(enabled);
+            let ini = ini_from_fields(&fields);
+            assert!(
+                ini.lines()
+                    .any(|line| line == format!("gateway = {enabled}"))
+            );
+            assert_eq!(parse_full(&ini), enabled);
         }
     }
 

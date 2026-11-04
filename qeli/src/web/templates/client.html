@@ -421,6 +421,9 @@ function clientPage() {
     },
     parseIni(raw, f) {
       const next = this.blankForm();
+      // An existing INI without gateway inherits the core default. New forms
+      // still start unchecked and serialize that choice explicitly.
+      next.gateway = '{{client_gateway_default}}' === 'true';
       next.saving = !!f.saving; next.name = f.name; next.editing = f.editing; next.raw = raw; next.rawMode = f.rawMode; next.revision = f.revision;
       const map = {server:'server',proto:'proto',user:'user',pass:'pass',dev:'dev',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front',include:'include',exclude:'exclude',lan_subnet_ipv6:'lan_subnet_ipv6',ipv6:'ipv6'};
       const flags = new Set(['awg','quic','gateway','route_local','autostart','allow_ipv4_leak','allow_ipv6_leak']);
@@ -456,7 +459,7 @@ function clientPage() {
         } else if (flags.has(k)) {
           const lower = v.toLowerCase();
           if (['true','yes','on','1'].includes(lower)) next[k] = true;
-          else if (['false','no','off','0',''].includes(lower)) next[k] = false;
+          else if (['false','no','off','0'].includes(lower) || (lower === '' && k !== 'gateway')) next[k] = false;
           else throw new Error(qeliT('Invalid INI boolean: ') + k);
         } else if (numbers.has(k)) {
           if (v !== '' && !/^\+?\d+$/.test(v)) throw new Error(qeliT('Invalid INI number: ') + k);
@@ -499,7 +502,7 @@ function clientPage() {
       if (f.allow_ipv4_leak) s += 'allow_ipv4_leak = true\n';
       if (f.allow_ipv6_leak) s += 'allow_ipv6_leak = true\n';
       if (f.route_local) s += 'route_local = true\n';
-      if (f.gateway) s += 'gateway = true\n';
+      s += `gateway = ${f.gateway ? 'true' : 'false'}\n`;
       if (f.autostart) s += 'autostart = true\n';
       // Re-emit any [qeli] keys the form doesn't manage + other sections (e.g. [logging]),
       // captured verbatim in parseIni, so a Field-view save is lossless.
@@ -520,7 +523,7 @@ function clientPage() {
     openRaw() {
       this.editorSequence++;
       this.form = this.blankForm(); this.form.rawMode = true;
-      this.form.raw = '[qeli]\nserver = vpn.example.com:443\nproto = tcp\nuser = \npass = \nkey = \nmode = fake-tls\nsni = www.microsoft.com\nipv6 = auto\n# allow_ipv4_leak = false\n# allow_ipv6_leak = false\n# dev = vpn0\n# mtu = 0\n# gateway = false\n# route_local = false\n# kill_switch = false\n# dns = tunnel\n# autostart = false\n\n[logging]\nlevel = info\n';
+      this.form.raw = '[qeli]\nserver = vpn.example.com:443\nproto = tcp\nuser = \npass = \nkey = \nmode = fake-tls\nsni = www.microsoft.com\nipv6 = auto\n# allow_ipv4_leak = false\n# allow_ipv6_leak = false\n# dev = vpn0\n# mtu = 0\ngateway = false\n# route_local = false\n# kill_switch = false\n# dns = tunnel\n# autostart = false\n\n[logging]\nlevel = info\n';
       this.formOpen = true;
     },
     async openEdit(n) {

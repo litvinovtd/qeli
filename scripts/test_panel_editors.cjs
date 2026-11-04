@@ -6,7 +6,12 @@ const assert = require('node:assert/strict');
 const templates = path.join(__dirname, '..', 'qeli', 'src', 'web', 'templates');
 let passed = 0;
 function component(file, factory, overrides = {}) {
-  const html = fs.readFileSync(path.join(templates, file), 'utf8');
+  let html = fs.readFileSync(path.join(templates, file), 'utf8');
+  if (file === 'client.html') {
+    const schema = fs.readFileSync(path.join(templates, '../../config/editor/schema.rs'), 'utf8');
+    const gatewayDefault = schema.match(/field!\("gateway",\s*"bool",\s*"(true|false)"/)[1];
+    html = html.replace('{{client_gateway_default}}', gatewayDefault);
+  }
   const events = [];
   const context = {
     clearInterval() {}, clearTimeout() {}, setTimeout() { return 0; },
@@ -404,13 +409,35 @@ async function main() {
   });
   await check('removing raw keys clears former field values', () => {
     const { model } = component('client.html', 'clientPage');
-    model.form = model.blankForm(); Object.assign(model.form, { name: 'retained', editing: true, pass: 'old', gateway: true, key: 'old-key', rawMode: true, raw: '[qeli]\nserver=fixture.invalid:443\n' });
-    model.toggleRaw(); assert.equal(model.form.pass, ''); assert(!model.form.gateway); assert.equal(model.form.key, '');
+    model.form = model.blankForm(); Object.assign(model.form, { name: 'retained', editing: true, pass: 'old', gateway: false, key: 'old-key', rawMode: true, raw: '[qeli]\nserver=fixture.invalid:443\n' });
+    model.toggleRaw(); assert.equal(model.form.pass, ''); assert.equal(model.form.gateway, true); assert.equal(model.form.key, '');
     assert.equal(model.form.name, 'retained'); assert(model.form.editing); assert(!model.form.rawMode);
+  });
+  await check('client edit displays effective gateway and saves an unchecked choice in both views', async () => {
+    let raw = '[qeli]\nserver=fixture.invalid:443\n';
+    const writes = [];
+    const { model } = component('client.html', 'clientPage', {
+      apiFetch: async (url, opts) => {
+        if (!opts) return { ok: true, raw, revision: 'r1' };
+        writes.push(JSON.parse(opts.body)); return { ok: true };
+      },
+    });
+    model.refresh = async () => {};
+    await model.openEdit('test'); assert.equal(model.form.gateway, true);
+    model.form.gateway = false;
+    await model.save();
+    assert.equal(writes[0].gateway, false);
+    assert.equal(writes[0].raw, undefined);
+    raw += 'gateway = false\n';
+    await model.openEdit('test'); assert.equal(model.form.gateway, false);
+    model.toggleRaw(); assert.match(model.form.raw, /^gateway = false$/m);
+    await model.save(); assert.match(writes[1].raw, /^gateway = false$/m);
+    model.openCreate(); assert.equal(model.form.gateway, false);
+    model.openRaw(); assert.match(model.form.raw, /^gateway = false$/m);
   });
   await check('invalid raw input preserves the draft and stays in INI', () => {
     const { model } = component('client.html', 'clientPage'); model.notify = () => {};
-    for (const extra of ['gateway=maybe', 'jc=1oops', 'jc=4294967296', 'jmin=65536', 'server=second.invalid:443', '[qeli]']) {
+    for (const extra of ['gateway=maybe', 'gateway=', 'jc=1oops', 'jc=4294967296', 'jmin=65536', 'server=second.invalid:443', '[qeli]']) {
       model.form = model.blankForm(); model.form.rawMode = true; model.form.raw = '[qeli]\nserver=fixture.invalid:443\n' + extra;
       const raw = model.form.raw; model.toggleRaw(); assert(model.form.rawMode); assert.equal(model.form.raw, raw);
     }
