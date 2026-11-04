@@ -166,6 +166,9 @@
           <label class="block text-xs font-medium text-slate-400 mb-1.5">Profile name <span class="text-slate-600">(optional)</span></label>
           <input x-model="importName" class="inp" placeholder="auto from the link">
         </div>
+        <label class="flex items-start gap-2 text-sm"><input type="checkbox" x-model="importGateway"><span>Full tunnel for this server</span></label>
+        <p class="text-xs text-amber-400" x-show="importGateway">All traffic from this host will use the VPN. Connecting can interrupt SSH and access to this panel.</p>
+        <p class="text-xs text-slate-400" x-show="!importGateway">Split tunnel: no default route is added. Server routes may still be accepted.</p>
       </div>
       <div class="px-6 pb-5 flex gap-2 justify-end border-t border-[#21314e] pt-4">
         <button class="btn btn-ghost" @click="importOpen=false">Cancel</button>
@@ -326,7 +329,7 @@ function clientPage() {
       for (const timer of this.connectTimers) clearTimeout(timer);
       this.connectTimers = [];
     },
-    importOpen: false, importLink: '', importName: '',
+    importOpen: false, importLink: '', importName: '', importGateway: false,
     diagOpen: false, diagProfile: null,
     formOpen: false,
     form: { saving:false, editing:false, rawMode:false, raw:'', revision:null, name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, ipv6:'auto', include:'', exclude:'', lan_subnet_ipv6:'', allow_ipv4_leak:false, allow_ipv6_leak:false, gateway:false, route_local:false, autostart:false },
@@ -393,14 +396,14 @@ function clientPage() {
       else { this.notify(r.error, 'error'); if (r.kind === 'config_conflict') await this.refresh(); }
     },
 
-    openImport() { this.editorSequence++; this.importSequence++; this.importSaving=false; this.importLink=''; this.importName=''; this.importOpen=true; },
+    openImport() { this.editorSequence++; this.importSequence++; this.importSaving=false; this.importLink=''; this.importName=''; this.importGateway=false; this.importOpen=true; },
     async doImport() {
       if (this.destroyed || !this.importOpen || this.importSaving) return;
       const sequence = this.importSequence;
       this.importSaving = true;
       try {
         const r = await apiFetch('api/client/import', {method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ link: this.importLink, name: this.importName })});
+          body: JSON.stringify({ link: this.importLink, name: this.importName, gateway: this.importGateway })});
         if (this.destroyed) return;
         if (r.ok) {
           if (sequence === this.importSequence) this.importOpen=false;

@@ -613,7 +613,18 @@ pub async fn save_profile(
     }
 }
 
-/// Import a `qeli://` link as a profile. Body: {link, name?}.
+fn panel_import_config(link: &ClientLink, body: &Value) -> Result<ClientConfig, String> {
+    let gateway = match body.get("gateway") {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => return Err("gateway must be a boolean".into()),
+    };
+    let mut config = ClientConfig::from_link(link);
+    config.routing.add_default_gateway = gateway;
+    Ok(config)
+}
+
+/// Import a `qeli://` link as a profile. Body: {link, name?, gateway?}.
 pub async fn import_link(
     State(state): State<Arc<ServerState>>,
     _g: auth::AuthGuard,
@@ -635,8 +646,12 @@ pub async fn import_link(
         .filter(|s| !s.trim().is_empty())
         .map(sanitize_name)
         .unwrap_or_else(|| sanitize_name(parsed.label.as_deref().unwrap_or(&parsed.host)));
-    // Links do not carry gateway; from_link applies the shared client default.
-    let cfg = ClientConfig::from_link(&parsed);
+    // The panel is often hosted on a remotely administered server. Its import
+    // policy is explicit and does not change the portable client's defaults.
+    let cfg = match panel_import_config(&parsed, &body) {
+        Ok(config) => config,
+        Err(error) => return Json(super::err_json(error)),
+    };
     let path = ClientManager::profile_path(&name);
     if let Err(error) = std::fs::create_dir_all(crate::server::client_manager::CLIENTS_DIR) {
         return Json(super::err_json(format!(
@@ -940,6 +955,23 @@ mod diagnostic_tests {
     }
 
     #[test]
+    fn panel_import_is_split_unless_explicitly_full_without_changing_link_defaults() {
+        let link = ClientLink::from_uri("qeli://alice:fixture@fixture.invalid:443").unwrap();
+        assert!(ClientConfig::from_link(&link).routing.add_default_gateway);
+        for (body, expected) in [
+            (json!({}), false),
+            (json!({"gateway":false}), false),
+            (json!({"gateway":true}), true),
+        ] {
+            let config = panel_import_config(&link, &body).unwrap();
+            let roundtrip =
+                crate::config::parse_client_config_strict(&config.to_ini_string()).unwrap();
+            assert_eq!(roundtrip.routing.add_default_gateway, expected);
+        }
+        assert!(panel_import_config(&link, &json!({"gateway":"false"})).is_err());
+    }
+
+    #[test]
     fn field_form_preserves_literal_passwords_and_obfuscation_keys() {
         for password in [
             "plain",
@@ -975,10 +1007,9 @@ mod diagnostic_tests {
             let mut fields = fields.clone();
             fields["gateway"] = json!(enabled);
             let ini = ini_from_fields(&fields);
-            assert!(
-                ini.lines()
-                    .any(|line| line == format!("gateway = {enabled}"))
-            );
+            assert!(ini
+                .lines()
+                .any(|line| line == format!("gateway = {enabled}")));
             assert_eq!(parse_full(&ini), enabled);
         }
     }

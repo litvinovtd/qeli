@@ -460,7 +460,7 @@ async function main() {
     model.loadUsage = () => {};
     const expiry = 1790847000;
     model.openUsage('alice', { expire_at: expiry, data_limit_gb: 10 }, 'limit'); model.usageForm.data_limit_gb = 20;
-    await model.saveLimit(); assert.equal(sent.expire_at, expiry); assert.equal(sent.data_limit_gb, 20);
+    await model.saveLimit(); assert(!Object.hasOwn(sent, 'expire_at')); assert.equal(sent.data_limit_gb, 20);
     model.openUsage('alice', { expire_at: expiry, data_limit_gb: 20 }, 'limit');
     model.usageForm.expire_date = '2026-10-03'; model.syncFromDate(); await model.saveLimit();
     assert.equal(sent.expire_at, Math.floor(new Date('2026-10-03T23:59:59').getTime() / 1000));
@@ -682,7 +682,7 @@ async function main() {
   for(const method of ['create','save','saveGroup','saveLimit','doReset']) for(const ok of [true,false]) await check('users '+method+' '+(ok?'success':'failure')+' preserves a newly opened modal',async()=>{
     let finish,writes=0;const {model}=component('users.html','usersPage',{apiFetch:()=>{writes++;return new Promise(r=>finish=r);}});
     model.load=async()=>{};model.loadGroups=async()=>{};model.loadUsage=async()=>{};
-    if(method==='saveGroup')model.openGroup();else if(method==='saveLimit'||method==='doReset')model.openUsage('A',{},method==='doReset'?'reset':'limit');else if(method==='save')model.openEdit({username:'A'});else model.openCreate();
+    if(method==='saveGroup')model.openGroup();else if(method==='saveLimit'||method==='doReset'){model.openUsage('A',{data_limit_gb:0,expire_at:null},method==='doReset'?'reset':'limit');model.usageForm.data_limit_gb=1;}else if(method==='save')model.openEdit({username:'A'});else model.openCreate();
     model.form.username='A';model.form.plainPassword='fixture';model.groupForm.name='A';
     const save=model[method]();await model[method]();assert.equal(writes,1);
     model.openCreate();model.form.username='B';const next=model.form;finish({ok,error:'old failure',message:'saved A'});await save;
@@ -716,7 +716,7 @@ async function main() {
   });
   for(const method of ['create','save','saveGroup','saveLimit'])await check('users '+method+' keeps edits made during a successful save',async()=>{
     let finish;const {model}=component('users.html','usersPage',{apiFetch:()=>new Promise(r=>finish=r)});model.load=async()=>{};model.loadUsage=async()=>{};model.loadGroups=async()=>{};
-    let owner;if(method==='saveGroup'){model.openGroup();model.groupForm.name='A';owner=model.groupForm;}else if(method==='saveLimit'){model.openUsage('A',{},'limit');owner=model.usageForm;}else{if(method==='save')model.openEdit({username:'A'});else model.openCreate();model.form.username='A';model.form.plainPassword='fixture';owner=model.form;}
+    let owner;if(method==='saveGroup'){model.openGroup();model.groupForm.name='A';owner=model.groupForm;}else if(method==='saveLimit'){model.openUsage('A',{data_limit_gb:0,expire_at:null},'limit');model.usageForm.data_limit_gb=1;owner=model.usageForm;}else{if(method==='save')model.openEdit({username:'A'});else model.openCreate();model.form.username='A';model.form.plainPassword='fixture';owner=model.form;}
     const pending=model[method]();owner.later_edit='retained';finish({ok:true});await pending;assert(model.modal);assert.equal(owner.later_edit,'retained');assert(!model.modalSaving);
   });
   await check('users usage errors are visible and an obsolete failure cannot clear newer addresses',async()=>{
@@ -972,4 +972,5 @@ async function main() {
 
   console.log(`Panel editor regressions: ${passed} passed`);
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = {component};
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });

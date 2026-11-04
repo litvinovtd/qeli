@@ -94,9 +94,46 @@ struct Request {
     data_limit_gb: u64,
     #[serde(default)]
     expire_at: Option<i64>,
+    /// Partial limit edit. Missing fields preserve their current value under
+    /// the users-file lock; explicit null expiry means remove the expiry.
+    #[serde(default)]
+    limit_patch: Option<serde_json::Value>,
     /// IP address argument (for unblock).
     #[serde(default)]
     ip: String,
+}
+
+pub(crate) fn validate_limit_patch(patch: &serde_json::Value) -> Result<(), String> {
+    let Some(fields) = patch.as_object() else {
+        return Err("limit patch must be an object".into());
+    };
+    if fields.is_empty()
+        || fields
+            .keys()
+            .any(|key| !matches!(key.as_str(), "data_limit_gb" | "expire_at"))
+    {
+        return Err("specify data_limit_gb and/or expire_at only".into());
+    }
+    if let Some(value) = fields.get("data_limit_gb") {
+        if value.as_u64().is_none() {
+            return Err("data_limit_gb must be a non-negative whole number; 0 = unlimited".into());
+        }
+    }
+    if let Some(value) = fields.get("expire_at") {
+        if !value.is_null() && !value.as_i64().is_some_and(|value| value > 0) {
+            return Err("expire_at must be a positive Unix timestamp; null = never expires".into());
+        }
+    }
+    Ok(())
+}
+
+fn apply_limit_patch(user: &mut crate::config::users::UserEntry, patch: &serde_json::Value) {
+    if let Some(value) = patch.get("data_limit_gb") {
+        user.data_limit_gb = value.as_u64().expect("validated limit patch");
+    }
+    if let Some(value) = patch.get("expire_at") {
+        user.expire_at = value.as_i64();
+    }
 }
 
 #[derive(Serialize)]
@@ -701,7 +738,21 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             }
         }
 
-        "set-limit" => {
+        "set-limit" | "patch-limit" => {
+            let patch = if req.cmd == "patch-limit" {
+                let patch = req.limit_patch.clone().unwrap_or(serde_json::Value::Null);
+                if let Err(error) = validate_limit_patch(&patch) {
+                    return Response {
+                        ok: false,
+                        error: Some(error),
+                        clients: None,
+                        message: None,
+                    };
+                }
+                Some(patch)
+            } else {
+                None
+            };
             if req.username.is_empty() {
                 return Response {
                     ok: false,
@@ -719,8 +770,12 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 match UsersDb::update_locked_checked(&users_file, |db| {
                     let found = match external_or_inline_user(db, &config, &req.username) {
                         Some(u) => {
-                            u.data_limit_gb = req.data_limit_gb;
-                            u.expire_at = req.expire_at;
+                            if let Some(patch) = &patch {
+                                apply_limit_patch(u, patch);
+                            } else {
+                                u.data_limit_gb = req.data_limit_gb;
+                                u.expire_at = req.expire_at;
+                            }
                             true
                         }
                         None => false,
@@ -758,10 +813,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                     ok: true,
                     error: None,
                     clients: None,
-                    message: Some(format!(
-                        "data cap for '{}' set to {} GB",
-                        req.username, req.data_limit_gb
-                    )),
+                    message: Some(format!("limits for '{}' updated", req.username)),
                 },
             }
         }
@@ -1243,6 +1295,36 @@ mod tests {
         assert_eq!(r.data_limit_gb, 0);
         assert_eq!(r.expire_at, None);
         assert_eq!(r.ip, "");
+    }
+
+    #[test]
+    fn limit_patch_preserves_unspecified_fields_and_allows_explicit_clear() {
+        let mut user = crate::config::users::UserEntry {
+            data_limit_gb: 20,
+            expire_at: Some(1800000000),
+            ..Default::default()
+        };
+        let patch = serde_json::json!({"data_limit_gb": 0});
+        validate_limit_patch(&patch).unwrap();
+        apply_limit_patch(&mut user, &patch);
+        assert_eq!(user.data_limit_gb, 0);
+        assert_eq!(user.expire_at, Some(1800000000));
+        user.data_limit_gb = 40; // another accepted edit before expiry update
+        let patch = serde_json::json!({"expire_at": null});
+        validate_limit_patch(&patch).unwrap();
+        apply_limit_patch(&mut user, &patch);
+        assert_eq!(user.data_limit_gb, 40);
+        assert_eq!(user.expire_at, None);
+        for invalid in [
+            serde_json::json!({}),
+            serde_json::json!({"data_limit_gb":null}),
+            serde_json::json!({"data_limit_gb":-1}),
+            serde_json::json!({"expire_at":"never"}),
+            serde_json::json!({"expire_at":0}),
+            serde_json::json!({"unknown":true}),
+        ] {
+            assert!(validate_limit_patch(&invalid).is_err(), "{invalid}");
+        }
     }
 
     #[test]
