@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "created_utc": "2026-11-05T11:47:35.594992+00:00",
+  "source_commit": "8371f93e17cbdb3568403e66044da2c27f2b5dd4",
+  "status": "source_committed_and_portable_builds_qualified; new_binary_not_activated; router_qualification_blocked_at_new_carrier_connect",
+  "changes": {
+    "probe": "Legacy fixed 256-record authenticated probe retained. Sample kernel ACK progress every 10ms; optional warm-tail estimate needs >=64KiB warmup, >=128KiB remaining delivery, and >=100ms observation.",
+    "admission": "Existing whole-probe >1.5x comparison remains. A still-severe loaded outlier may alternatively pass only with >1.1x whole-probe and >1.5x measured warm-tail speed. Compare against max(initial,confirmed,current old rate); require authenticated final receipt and kernel delivery evidence.",
+    "retry": "Single per-session pending/active request. Rejection/cancellation releases an RAII attempt and backs off 5,10,20,40,60s in one continuous degradation epoch. Full 60s cooldown begins at actual lifecycle COMMIT. Unclaimed requests expire after existing 20s TTL, then bounded backoff.",
+    "safety": "No wire-format or client-source changes. Existing old-carrier drain, repeated degradation confirmation, stale-nonce checks, and global four-probe concurrency bound retained."
+  },
+  "source_sha256": {
+    "qeli/src/server/tcp_slot.rs": "8c41e3cdf48f302635cf4feb4c0bd43fd58f06e6f6ba650d49f48cf89b6dd800",
+    "qeli/src/server/handler.rs": "dd8e3bb197e3f5ed614f94ac03bceee181879fd2a49cf5ea4924d960b42bc665"
+  },
+  "tests": {
+    "linux_tcp_slot": 17,
+    "linux_tcp_roaming": 14,
+    "client_only_tcp_attach": 12,
+    "total_passed": 43,
+    "failed_final": 0,
+    "compiler": "rustc 1.97.0",
+    "locked_offline": true
+  },
+  "server_candidates": [
+    {
+      "architecture": "amd64",
+      "sha256": "c80b15ea6d8c5e6492e662e4f16476fd2a66c41b38bcfbb680a487a1b3bd7018",
+      "glibc_max": "2.28",
+      "allocator": "jemalloc",
+      "abi_and_cpu_gates": "PASS"
+    },
+    {
+      "architecture": "arm64",
+      "sha256": "3b7da641cb92fb18f13bd59e67eb26e2090ec0e30e0ab6a7cb139e59e48f02f1",
+      "glibc_max": "2.28",
+      "allocator": "jemalloc",
+      "abi_and_cpu_gates": "PASS"
+    }
+  ],
+  "candidate_read_only_check_on_production_host": {
+    "executed_version": "0.8.5",
+    "current_server_config_validation": "OK",
+    "service_restarted": false
+  },
+  "router_baseline": {
+    "code": "unchanged previous server build, not source_commit above",
+    "origin": "https://proof.ovh.net/files/1Gb.dat",
+    "duration_seconds": 45,
+    "parallel": 4,
+    "interface": "qeli0",
+    "method": "One logical carrier policed to 4Mbps; all other established carriers retained. Independent fault-service RuntimeMax70s and ExecStopPost cleanup, plus separately scheduled 65s cleanup timer. Fault observer safely removed the limitation after 32s when no replacement arrived.",
+    "flows": [
+      {
+        "slot": 0,
+        "payload_bytes": 125957612,
+        "duration_s": 45.012099,
+        "average_mbps": 22.386445386605946,
+        "http_status": 200,
+        "receiver_exit": 0,
+        "expected_timed_curl_exit": 28,
+        "byte_counters_match": true
+      },
+      {
+        "slot": 1,
+        "payload_bytes": 123368940,
+        "duration_s": 45.008938,
+        "average_mbps": 21.927900631647873,
+        "http_status": 200,
+        "receiver_exit": 0,
+        "expected_timed_curl_exit": 28,
+        "byte_counters_match": true
+      },
+      {
+        "slot": 2,
+        "payload_bytes": 120862188,
+        "duration_s": 45.003179,
+        "average_mbps": 21.485093397513094,
+        "http_status": 200,
+        "receiver_exit": 0,
+        "expected_timed_curl_exit": 28,
+        "byte_counters_match": true
+      },
+      {
+        "slot": 3,
+        "payload_bytes": 26670572,
+        "duration_s": 45.00504,
+        "average_mbps": 4.7409040409696335,
+        "http_status": 200,
+        "receiver_exit": 0,
+        "expected_timed_curl_exit": 28,
+        "byte_counters_match": true
+      }
+    ],
+    "fault_removed_after_seconds": 32.10426211357117,
+    "candidate_request_seen": true,
+    "new_carrier_connected": false,
+    "client_prepare_timeouts_ms": [
+      1005,
+      5019
+    ],
+    "speed_probe_reached": false,
+    "intentional_first_candidate_speed_cap_applied": false,
+    "new_code_recovery_or_stalled_first_candidate_hardware_test": "NOT_PERFORMED",
+    "interpretation": "Real client attempted two fresh carriers but failed at carrier connect before JOIN and delivery probing. Subsequent speed recovery after removal of the test limiter is not credited to automatic replacement or the new code.",
+    "excluded_initial_attempt": "Selectel HTTP origin did not connect even directly from VPS. Zero-byte HTTP000 flows are invalid, excluded from performance conclusions."
+  },
+  "network_constraints": {
+    "main_endpoint": "Fresh diagnostic TCP and real Qeli candidates did not establish. Old four carriers and existing VPN data path remained usable. WAN-side SYN capture and no matching VPS observation suggest loss between those capture points; the responsible device/provider is not established.",
+    "lab_alternative": "Different public egress IP permits TCP setup, but the public :443 test did not reach the authorized lab VM listener. Correct public forward or gateway access is required.",
+    "next_required_input": "A verified external port leading to the authorized lab VM, or explicitly authorized gateway access / another reachable independent endpoint."
+  },
+  "final_runtime": {
+    "production_candidate_activated": false,
+    "server_binary_sha256": "897c659f19fe30224686bcc6a452aaa6e5e4b0375ff0b1a3ee359f26a3c56425",
+    "router_binary_sha256": "d359def9c2a3dc11e610ef0f9eb53f6f7851d4c0f2cc1ca76162db6b0d42702c",
+    "router_main_pid": 15665,
+    "qeli0_ifindex": 63,
+    "original_four_carriers_retained": true,
+    "cc": "bbr",
+    "pacing_caps_restored_to_unlimited": true,
+    "fresh_router_ssh_and_https_via_qeli0_verified": true,
+    "protected_router_config_hashes_unchanged": 8,
+    "router_package_set_restored": true,
+    "temporary_rules_namespaces_servers_and_lab_account_removed": true,
+    "temporary_test_directories_and_ephemeral_secrets_removed": true,
+    "post_cleanup_fresh_ssh_and_vpn_https_verified": true
+  },
+  "local_evidence": [
+    "beforefail2.results.json",
+    "invalid-selectel-source.json",
+    "runtime-validation-final.json",
+    "tests.log",
+    "build.log",
+    "build-and-tests.tar.gz"
+  ]
+}
