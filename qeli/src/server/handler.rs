@@ -2453,9 +2453,9 @@ pub(crate) fn encrypt_server_stream_payload(
 
 #[cfg(target_os = "linux")]
 #[allow(clippy::too_many_arguments)]
-async fn check_tcp_slot_candidate<R, W>(
+async fn check_tcp_slot_candidate<'a, R, W>(
     pcfg: &crate::config::server::ProfileConfig,
-    session: &SessionShared,
+    session: &'a SessionShared,
     slot: u32,
     nonce: u64,
     reader: &mut R,
@@ -2463,7 +2463,7 @@ async fn check_tcp_slot_candidate<R, W>(
     tx: &std::sync::Mutex<PacketCodec>,
     rx: &mut PacketCodec,
     framing: Framing,
-) -> anyhow::Result<()>
+) -> anyhow::Result<super::tcp_slot::Attempt<'a>>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -2473,9 +2473,9 @@ where
         .tcp_roaming
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("missing resume state"))?;
-    let candidate = lock_or_recover(&roaming.slot_health, "tcp_slot::claim")
-        .claim(Request { slot, nonce })
+    let attempt = super::tcp_slot::Attempt::claim(&roaming.slot_health, Request { slot, nonce })
         .ok_or_else(|| anyhow::anyhow!("stale or unknown TCP slot probe request"))?;
+    let candidate = attempt.candidate;
     if session.bandwidth_limit_mbps.load(Ordering::Relaxed) != 0
         || roaming.ready_carrier(slot) != Some(candidate.old_carrier)
     {
@@ -2505,7 +2505,6 @@ where
         session.session_id,
         confirmation_started.elapsed().as_millis()
     );
-    let candidate = candidate.with_confirmed_evidence();
     // Keep the delivery probe immediately before COMMIT. Waiting afterwards
     // would age its result and leave the new TCP carrier idle during confirmation.
     static ACTIVE_PROBES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
@@ -2542,11 +2541,28 @@ where
     // bytes for both carriers, including padding and transport wrappers.
     let ack_before = super::tcp_slot::acknowledged_bytes();
     let start = tokio::time::Instant::now();
+    let mut progress = super::tcp_slot::ProbeProgress::new(burst.len() as u64);
     tokio::time::timeout(BUDGET, async {
-        writer.write_all_flush(&burst).await?;
-        let answer = rx.decrypt_packet(&read_record(reader, framing).await?)?;
-        anyhow::ensure!(answer == receipt, "TCP slot probe receipt mismatch");
-        Ok::<_, anyhow::Error>(())
+        let receipt_future = async {
+            writer.write_all_flush(&burst).await?;
+            let answer = rx.decrypt_packet(&read_record(reader, framing).await?)?;
+            anyhow::ensure!(answer == receipt, "TCP slot probe receipt mismatch");
+            Ok::<_, anyhow::Error>(())
+        };
+        tokio::pin!(receipt_future);
+        let mut tick = tokio::time::interval(Duration::from_millis(10));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                result = &mut receipt_future => break result,
+                _ = tick.tick() => {
+                    if let Some(bytes) = ack_before.zip(super::tcp_slot::acknowledged_bytes())
+                        .and_then(|(before, after)| after.checked_sub(before)) {
+                        progress.record(bytes, start.elapsed());
+                    }
+                }
+            }
+        }
     })
     .await??;
     let elapsed = start.elapsed();
@@ -2555,29 +2571,35 @@ where
         .and_then(|(before, after)| after.checked_sub(before))
         .filter(|bytes| *bytes >= burst.len() as u64)
         .ok_or_else(|| anyhow::anyhow!("TCP slot probe lacks kernel delivery evidence"))?;
+    progress.record(delivered, elapsed);
+    let delivery = progress.delivery(delivered, elapsed);
     drop(_probe_permit);
     // Re-check after the probe, without waiting: the evidence and its continuous
     // degradation epoch must still hold at the cutover decision.
-    let current_bps =
-        match lock_or_recover(&roaming.slot_health, "tcp_slot::compare").confirmation(candidate) {
-            super::tcp_slot::Confirmation::Confirmed(rate) => rate.max(confirmed_bps),
+    let (current_bps, severe) = {
+        let health = lock_or_recover(&roaming.slot_health, "tcp_slot::compare");
+        match health.confirmation(candidate) {
+            super::tcp_slot::Confirmation::Confirmed(rate) => {
+                (rate.max(confirmed_bps), health.severely_degraded(candidate))
+            }
             _ => anyhow::bail!("TCP slot recovered while the replacement was being probed"),
-        };
+        }
+    };
     if session.bandwidth_limit_mbps.load(Ordering::Relaxed) != 0
         || roaming.ready_carrier(slot) != Some(candidate.old_carrier)
-        || !candidate.improves(delivered, elapsed, current_bps)
+        || !candidate.improves(&delivery, current_bps, severe)
     {
         anyhow::bail!(
-            "TCP slot candidate did not improve delivery: wire_bytes={delivered} elapsed_ms={} old_recent_Bps={current_bps}",
-            elapsed.as_millis()
+            "TCP slot candidate did not improve delivery: wire_bytes={delivered} elapsed_ms={} whole_Bps={} warm_Bps={:?} old_recent_Bps={current_bps}",
+            elapsed.as_millis(), delivery.whole_bps(), delivery.warm_bps()
         );
     }
     log::info!(
-        "TCP_SLOT_CANDIDATE_VALIDATED session={} slot={slot} elapsed_ms={} wire_bytes={delivered}",
+        "TCP_SLOT_CANDIDATE_VALIDATED session={} slot={slot} elapsed_ms={} wire_bytes={delivered} whole_Bps={} warm_Bps={:?} old_recent_Bps={current_bps}",
         session.session_id,
-        elapsed.as_millis()
+        elapsed.as_millis(), delivery.whole_bps(), delivery.warm_bps()
     );
-    Ok(())
+    Ok(attempt)
 }
 
 /// Run one bonded connection (stream) of a session: a reader task (decrypt →
@@ -2717,6 +2739,8 @@ async fn run_stream<R, W>(
 
         #[cfg(feature = "experimental-roaming")]
         if let StreamAttach::Resume { reservation } = stream_attach {
+            #[cfg(target_os = "linux")]
+            let mut slot_attempt = None;
             let client_commit = async {
                 let record = tokio::time::timeout(
                     TCP_RESUME_COMMIT_TIMEOUT,
@@ -2727,18 +2751,20 @@ async fn run_stream<R, W>(
                 let mut plaintext = server_rx.decrypt_packet(&record)?;
                 #[cfg(target_os = "linux")]
                 if let Some(nonce) = crate::protocol::tcp_slot_probe::probe_nonce(&plaintext) {
-                    check_tcp_slot_candidate(
-                        pcfg,
-                        &session,
-                        reservation.logical_slot_id(),
-                        nonce,
-                        &mut read_half,
-                        &mut write_half,
-                        &server_tx,
-                        &mut server_rx,
-                        framing,
-                    )
-                    .await?;
+                    slot_attempt = Some(
+                        check_tcp_slot_candidate(
+                            pcfg,
+                            &session,
+                            reservation.logical_slot_id(),
+                            nonce,
+                            &mut read_half,
+                            &mut write_half,
+                            &server_tx,
+                            &mut server_rx,
+                            framing,
+                        )
+                        .await?,
+                    );
                     let record = tokio::time::timeout(
                         crate::protocol::tcp_slot_probe::BUDGET,
                         read_record(&mut read_half, framing),
@@ -2786,6 +2812,10 @@ async fn run_stream<R, W>(
             // This is the only point that retires the old carrier: the new socket completed its
             // handshake, JOINOK reached the client, and COMMIT_PATH succeeded on the platform.
             drain_before_downlink = session.activate_resume_stream(stream_id, outcome);
+            #[cfg(target_os = "linux")]
+            if let Some(attempt) = slot_attempt.take() {
+                attempt.committed();
+            }
             let commit_ack = {
                 let mut codec = lock_or_recover(&server_tx, "handler::join_commit_ack");
                 codec.encrypt_packet(crate::protocol::roaming::TCP_RESUME_COMMIT_ACK, &[])

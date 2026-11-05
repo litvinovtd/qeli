@@ -13,7 +13,7 @@ const WINDOW: Duration = Duration::from_millis(1250);
 pub(super) const CONFIRMATION_BUDGET: Duration = Duration::from_millis(1500);
 const MAX_AGE: Duration = Duration::from_millis(2500);
 const COOLDOWN: Duration = Duration::from_secs(60);
-const UNCONFIRMED_RECOVERY_BACKOFF: Duration = Duration::from_secs(5);
+const RETRY_BACKOFF: Duration = Duration::from_secs(5);
 
 fn enabled_override(value: Option<&std::ffi::OsStr>) -> bool {
     value.is_none_or(|value| value == "1")
@@ -144,20 +144,126 @@ pub(super) struct Candidate {
     pub(super) old_carrier: u64,
     baseline_bps: u64,
     required_bad_windows: u8,
-    provisional: bool,
     outlier_since: Instant,
     at: Instant,
 }
 
-impl Candidate {
-    /// Once degradation is confirmed, any delivery probe consumes the full cooldown.
-    pub(super) fn with_confirmed_evidence(mut self) -> Self {
-        self.provisional = false;
-        self
+/// Preserve the legacy fixed-size probe. Kernel ACK samples separate its warm
+/// transfer from startup and the client's encrypted receipt/decoder turnaround.
+pub(super) struct ProbeDelivery {
+    bytes: u64,
+    elapsed: Duration,
+    warm_bps: Option<u64>,
+}
+
+impl ProbeDelivery {
+    pub(super) fn whole_bps(&self) -> u64 {
+        rate(self.bytes, self.elapsed)
+    }
+    pub(super) fn warm_bps(&self) -> Option<u64> {
+        self.warm_bps
+    }
+}
+
+pub(super) struct ProbeProgress {
+    wire_bytes: u64,
+    warm_start: Option<(u64, Duration)>,
+    warm_bps: Option<u64>,
+    complete: bool,
+}
+
+impl ProbeProgress {
+    pub(super) fn new(wire_bytes: u64) -> Self {
+        Self {
+            wire_bytes,
+            warm_start: None,
+            warm_bps: None,
+            complete: false,
+        }
     }
 
-    pub(super) fn improves(self, delivered: u64, elapsed: Duration, current_bps: u64) -> bool {
-        rate(delivered, elapsed) > self.baseline_bps.max(current_bps).saturating_mul(3) / 2
+    pub(super) fn record(&mut self, acked: u64, at: Duration) {
+        if self.complete {
+            return;
+        }
+        let acked = acked.min(self.wire_bytes);
+        if acked >= self.wire_bytes {
+            self.complete = true;
+            if let Some((before, start)) = self.warm_start {
+                let bytes = acked.saturating_sub(before);
+                let elapsed = at.saturating_sub(start);
+                // Do not infer capacity from one tiny, coalesced ACK burst.
+                if bytes >= 128 * 1024 && elapsed >= Duration::from_millis(100) {
+                    self.warm_bps = Some(rate(bytes, elapsed));
+                }
+            }
+        } else if self.warm_start.is_none()
+            && acked >= 64 * 1024
+            && self.wire_bytes - acked >= 128 * 1024
+        {
+            self.warm_start = Some((acked, at));
+        }
+    }
+
+    pub(super) fn delivery(self, bytes: u64, elapsed: Duration) -> ProbeDelivery {
+        ProbeDelivery {
+            bytes,
+            elapsed,
+            warm_bps: self.warm_bps,
+        }
+    }
+}
+
+impl Candidate {
+    pub(super) fn improves(self, probe: &ProbeDelivery, current_bps: u64, severe: bool) -> bool {
+        let reference = self.baseline_bps.max(current_bps);
+        let whole = u128::from(probe.whole_bps());
+        let reference = u128::from(reference);
+        whole * 2 > reference * 3
+            // A cold but accelerating carrier may have a modest whole-probe
+            // advantage. Only a still severely queued outlier may use this path:
+            // demand >10% overall gain AND >50% gain over a measured warm tail.
+            || severe && whole * 10 > reference * 11
+                && probe.warm_bps.is_some_and(|bps| u128::from(bps) * 2 > reference * 3)
+    }
+}
+
+/// Own the request through COMMIT. Cancellation, timeout, and every early return
+/// rearm a bounded retry without retiring the old carrier or stranding a lease.
+pub(super) struct Attempt<'a> {
+    health: &'a std::sync::Mutex<Health>,
+    pub(super) candidate: Candidate,
+    finished: bool,
+}
+
+impl<'a> Attempt<'a> {
+    pub(super) fn claim(health: &'a std::sync::Mutex<Health>, request: Request) -> Option<Self> {
+        let candidate = crate::util::lock_or_recover(health, "tcp_slot::claim").claim(request)?;
+        Some(Self {
+            health,
+            candidate,
+            finished: false,
+        })
+    }
+    pub(super) fn committed(mut self) {
+        crate::util::lock_or_recover(self.health, "tcp_slot::committed").complete(
+            self.candidate,
+            true,
+            Instant::now(),
+        );
+        self.finished = true;
+    }
+}
+
+impl Drop for Attempt<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            crate::util::lock_or_recover(self.health, "tcp_slot::aborted").complete(
+                self.candidate,
+                false,
+                Instant::now(),
+            );
+        }
     }
 }
 
@@ -174,10 +280,20 @@ pub(super) struct Health {
     samples: BTreeMap<u32, DeliveryWindow>,
     pending: Option<Candidate>,
     last_request: Option<Instant>,
+    request_delay: Duration,
+    active: Option<Candidate>,
+    failure_epoch: Option<(u32, u64, Instant)>,
+    failures: u8,
 }
 
 impl Health {
     pub(super) fn record(&mut self, slot: u32, mut window: DeliveryWindow) -> Option<Request> {
+        if let Some(expired) = self
+            .pending
+            .filter(|c| window.at.duration_since(c.at) > REQUEST_TTL)
+        {
+            self.complete(expired, false, window.at);
+        }
         self.samples
             .retain(|_, other| window.at.duration_since(other.at) <= MAX_AGE);
         let mut siblings = self
@@ -219,7 +335,7 @@ impl Health {
         // bad window. Overlap the handshake with the next observation window;
         // confirmation() still requires two consecutive bad windows before COMMIT.
         // Moderate degradation retains three windows. The delivery probe, the
-        // old-carrier drain barrier and the global cooldown remain mandatory.
+        // old-carrier drain barrier and bounded retry/success cooldown remain mandatory.
         let was_healthy = self.samples.get(&slot).is_some_and(|previous| {
             previous.carrier == window.carrier
                 && previous.delivered_under_load
@@ -231,9 +347,11 @@ impl Health {
         let early_prepare =
             severe && (window.bad_windows >= 2 || window.bad_windows == 1 && was_healthy);
         let offer = (window.bad_windows >= 3 || early_prepare)
+            && self.pending.is_none()
+            && self.active.is_none()
             && self
                 .last_request
-                .is_none_or(|at| window.at.duration_since(at) >= COOLDOWN);
+                .is_none_or(|at| window.at.duration_since(at) >= self.request_delay);
         let next = offer.then(|| Candidate {
             request: Request {
                 slot,
@@ -242,7 +360,6 @@ impl Health {
             old_carrier: window.carrier,
             baseline_bps: window.bps,
             required_bad_windows: if severe { 2 } else { 3 },
-            provisional: window.bad_windows == 1,
             outlier_since: window.bad_since.unwrap_or(window.at),
             at: window.at,
         });
@@ -255,6 +372,7 @@ impl Health {
         if let Some(candidate) = next {
             self.pending = Some(candidate);
             self.last_request = Some(candidate.at);
+            self.request_delay = REQUEST_TTL;
         }
         next.map(|candidate| candidate.request)
     }
@@ -264,30 +382,58 @@ impl Health {
         if candidate.request != request || candidate.at.elapsed() > REQUEST_TTL {
             return None;
         }
-        self.pending.take()
+        self.active = self.pending.take();
+        self.active
     }
 
-    pub(super) fn confirmation(&mut self, candidate: Candidate) -> Confirmation {
+    fn complete(&mut self, candidate: Candidate, committed: bool, now: Instant) {
+        let matches =
+            |other: Candidate| other.request == candidate.request && other.at == candidate.at;
+        if !self.active.is_some_and(matches) && !self.pending.is_some_and(matches) {
+            return;
+        }
+        self.active = None;
+        self.pending = None;
+        self.last_request = Some(now);
+        if committed {
+            self.failures = 0;
+            self.failure_epoch = None;
+            self.request_delay = COOLDOWN;
+        } else {
+            let epoch = (
+                candidate.request.slot,
+                candidate.old_carrier,
+                candidate.outlier_since,
+            );
+            self.failures = if self.failure_epoch == Some(epoch) {
+                self.failures.saturating_add(1)
+            } else {
+                1
+            };
+            self.failure_epoch = Some(epoch);
+            self.request_delay =
+                (RETRY_BACKOFF * (1u32 << self.failures.saturating_sub(1).min(4))).min(COOLDOWN);
+            log::info!(target: TARGET,
+                "TCP_SLOT_RETRY_BACKOFF slot={} failures={} backoff_ms={}",
+                candidate.request.slot, self.failures, self.request_delay.as_millis());
+        }
+    }
+
+    pub(super) fn severely_degraded(&self, candidate: Candidate) -> bool {
+        self.samples
+            .get(&candidate.request.slot)
+            .is_some_and(|sample| {
+                sample.carrier == candidate.old_carrier
+                    && sample.severe
+                    && sample.bad_since == Some(candidate.outlier_since)
+                    && sample.at.elapsed() <= MAX_AGE
+            })
+    }
+
+    pub(super) fn confirmation(&self, candidate: Candidate) -> Confirmation {
         let Some(sample) = self.samples.get(&candidate.request.slot) else {
             return Confirmation::Rejected;
         };
-        // A recovered provisional observation never reached a bandwidth probe.
-        // Bound cheap preparations, but do not let this false alarm suppress a
-        // subsequent real fault for the full confirmed-probe cooldown. Match the
-        // exact request so an obsolete candidate cannot rearm a newer decision.
-        let recovered = sample.carrier == candidate.old_carrier
-            && sample.at > candidate.at
-            && sample.at.elapsed() <= MAX_AGE
-            && sample.bad_since != Some(candidate.outlier_since);
-        if candidate.provisional && recovered && self.last_request == Some(candidate.at) {
-            self.last_request = sample
-                .at
-                .checked_sub(COOLDOWN - UNCONFIRMED_RECOVERY_BACKOFF)
-                .or(Some(sample.at));
-            log::info!(target: TARGET,
-                "TCP_SLOT_RECOVERY_BACKOFF slot={} backoff_ms={}",
-                candidate.request.slot, UNCONFIRMED_RECOVERY_BACKOFF.as_millis());
-        }
         if sample.carrier != candidate.old_carrier
             || sample.at.elapsed() > MAX_AGE
             || sample.at < candidate.at
@@ -448,9 +594,33 @@ mod tests {
         let candidate = health.claim(request).unwrap();
         assert!(health.claim(request).is_none());
         assert_eq!(candidate.old_carrier, 20);
-        assert!(!candidate.improves(256 * 1024, Duration::from_secs(1), 0));
-        assert!(candidate.improves(256 * 1024, Duration::from_millis(100), 300_000));
-        assert!(!candidate.improves(256 * 1024, Duration::from_millis(100), 2_000_000));
+        assert!(!candidate.improves(
+            &ProbeDelivery {
+                bytes: 256 * 1024,
+                elapsed: Duration::from_secs(1),
+                warm_bps: None
+            },
+            0,
+            false
+        ));
+        assert!(candidate.improves(
+            &ProbeDelivery {
+                bytes: 256 * 1024,
+                elapsed: Duration::from_millis(100),
+                warm_bps: None
+            },
+            300_000,
+            false
+        ));
+        assert!(!candidate.improves(
+            &ProbeDelivery {
+                bytes: 256 * 1024,
+                elapsed: Duration::from_millis(100),
+                warm_bps: None
+            },
+            2_000_000,
+            false
+        ));
     }
 
     fn health_window(at: Instant, carrier: u64, bps: u64, rtt_us: u32) -> DeliveryWindow {
@@ -526,9 +696,33 @@ mod tests {
             health.confirmation(candidate),
             Confirmation::Confirmed(200_000)
         );
-        assert!(!candidate.improves(256 * 1024, Duration::from_secs(2), 200_000));
-        assert!(!candidate.improves(256 * 1024, Duration::from_millis(100), 2_000_000));
-        assert!(candidate.improves(256 * 1024, Duration::from_millis(100), 200_000));
+        assert!(!candidate.improves(
+            &ProbeDelivery {
+                bytes: 256 * 1024,
+                elapsed: Duration::from_secs(2),
+                warm_bps: None
+            },
+            200_000,
+            false
+        ));
+        assert!(!candidate.improves(
+            &ProbeDelivery {
+                bytes: 256 * 1024,
+                elapsed: Duration::from_millis(100),
+                warm_bps: None
+            },
+            2_000_000,
+            false
+        ));
+        assert!(candidate.improves(
+            &ProbeDelivery {
+                bytes: 256 * 1024,
+                elapsed: Duration::from_millis(100),
+                warm_bps: None
+            },
+            200_000,
+            false
+        ));
         for n in 2..20 {
             let at = base + WINDOW * n;
             assert!(health
@@ -600,7 +794,7 @@ mod tests {
     }
 
     #[test]
-    fn unconfirmed_recovery_allows_retry_after_backoff_but_confirmed_probes_keep_cooldown() {
+    fn recovered_attempts_retry_after_backoff_but_only_commit_consumes_full_cooldown() {
         let mut health = Health::default();
         let base = Instant::now();
         prime_healthy_slot(&mut health, base);
@@ -612,6 +806,7 @@ mod tests {
         health.record(0, health_window(base + WINDOW, 10, 1_000_000, 20_000));
         health.record(1, health_window(base + WINDOW, 20, 1_000_000, 20_000));
         assert_eq!(health.confirmation(candidate), Confirmation::Rejected);
+        health.complete(candidate, false, base + WINDOW);
         for n in 2..=5 {
             let at = base + WINDOW * n;
             health.record(0, health_window(at, 10, 1_000_000, 20_000));
@@ -632,11 +827,11 @@ mod tests {
             health.confirmation(candidate),
             Confirmation::Confirmed(200_000)
         );
-        let candidate = candidate.with_confirmed_evidence();
+        health.complete(candidate, true, base + WINDOW);
         health.record(0, health_window(base + WINDOW * 2, 10, 1_000_000, 20_000));
         health.record(1, health_window(base + WINDOW * 2, 20, 1_000_000, 20_000));
         assert_eq!(health.confirmation(candidate), Confirmation::Rejected);
-        assert_eq!(health.last_request, Some(base));
+        assert_eq!(health.last_request, Some(base + WINDOW));
         for n in 3..9 {
             let at = base + WINDOW * n;
             health.record(0, health_window(at, 10, 1_000_000, 20_000));
@@ -712,6 +907,130 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn warm_probe_requires_measured_ack_progress_and_a_material_whole_probe_gain() {
+        let base = Instant::now();
+        let candidate = Candidate {
+            request: Request { slot: 1, nonce: 7 },
+            old_carrier: 20,
+            baseline_bps: 500_000,
+            required_bad_windows: 2,
+            outlier_since: base,
+            at: base,
+        };
+        let mut progress = ProbeProgress::new(320 * 1024);
+        progress.record(32 * 1024, Duration::from_millis(100));
+        progress.record(80 * 1024, Duration::from_millis(300));
+        progress.record(200 * 1024, Duration::from_millis(400));
+        progress.record(320 * 1024, Duration::from_millis(500));
+        let probe = progress.delivery(320 * 1024, Duration::from_millis(550));
+        assert!(probe.whole_bps() < 750_000);
+        assert_eq!(probe.warm_bps(), Some(1_228_800));
+        assert!(candidate.improves(&probe, 500_000, true));
+        assert!(
+            !candidate.improves(&probe, 500_000, false),
+            "moderate faults keep full-probe threshold"
+        );
+        assert!(
+            !candidate.improves(&probe, 1_000_000, true),
+            "old recovery raises the comparison floor"
+        );
+        let poor_whole = ProbeDelivery {
+            bytes: 320 * 1024,
+            elapsed: Duration::from_secs(1),
+            warm_bps: probe.warm_bps(),
+        };
+        assert!(!candidate.improves(&poor_whole, 500_000, true));
+    }
+
+    #[test]
+    fn coalesced_ack_or_insufficient_tail_cannot_bypass_full_probe_threshold() {
+        for events in [
+            vec![(320 * 1024, 100)],
+            vec![(250 * 1024, 100), (320 * 1024, 300)],
+            vec![(80 * 1024, 100), (320 * 1024, 150)],
+            vec![(80 * 1024, 100), (200 * 1024, 300)],
+        ] {
+            let mut progress = ProbeProgress::new(320 * 1024);
+            for (bytes, ms) in events {
+                progress.record(bytes, Duration::from_millis(ms));
+            }
+            assert_eq!(
+                progress
+                    .delivery(320 * 1024, Duration::from_secs(1))
+                    .warm_bps(),
+                None
+            );
+        }
+    }
+
+    fn offer_at(health: &mut Health, at: Instant) -> Option<Request> {
+        health.record(0, health_window(at, 10, 1_000_000, 20_000));
+        health.record(1, queued_health_window(at, 20, 200_000, 100_000))
+    }
+
+    #[test]
+    fn rejected_candidates_back_off_exponentially_and_stale_completions_do_not_rearm() {
+        let mut health = Health::default();
+        let mut at = Instant::now();
+        prime_healthy_slot(&mut health, at);
+        let first = offer_at(&mut health, at).unwrap();
+        let mut candidate = health.claim(first).unwrap();
+        let old = candidate;
+        assert!(health.claim(first).is_none());
+        for backoff in [5, 10, 20, 40, 60, 60] {
+            health.complete(candidate, false, at);
+            assert_eq!(health.request_delay, Duration::from_secs(backoff));
+            let mut next = None;
+            for step in 1..=backoff {
+                next = offer_at(&mut health, at + Duration::from_secs(step));
+                assert_eq!(next.is_some(), step == backoff);
+            }
+            at += Duration::from_secs(backoff);
+            candidate = health.claim(next.unwrap()).unwrap();
+            if candidate.request != old.request {
+                health.complete(old, false, at);
+                assert_eq!(health.active.unwrap().request, candidate.request);
+            }
+        }
+        health.complete(candidate, true, at);
+        assert_eq!(health.failures, 0);
+        assert_eq!(health.request_delay, COOLDOWN);
+        for step in 1..60 {
+            assert!(offer_at(&mut health, at + Duration::from_secs(step)).is_none());
+        }
+        assert!(offer_at(&mut health, at + COOLDOWN).is_some());
+    }
+
+    #[test]
+    fn lost_requests_expire_and_cancellation_releases_only_its_own_attempt() {
+        let at = Instant::now();
+        let mut health = Health::default();
+        prime_healthy_slot(&mut health, at);
+        let request = offer_at(&mut health, at).unwrap();
+        for step in 1..=21 {
+            assert!(offer_at(&mut health, at + Duration::from_secs(step)).is_none());
+        }
+        assert!(health.claim(request).is_none());
+        for step in 22..26 {
+            assert!(offer_at(&mut health, at + Duration::from_secs(step)).is_none());
+        }
+        assert!(offer_at(&mut health, at + Duration::from_secs(26)).is_some());
+
+        let mut health = Health::default();
+        prime_healthy_slot(&mut health, at);
+        let request = offer_at(&mut health, at).unwrap();
+        let mutex = std::sync::Mutex::new(health);
+        let attempt = Attempt::claim(&mutex, request).unwrap();
+        assert!(Attempt::claim(&mutex, request).is_none());
+        drop(attempt); // also runs when an async probe is cancelled or times out
+        let mut health = mutex.lock().unwrap();
+        assert!(health.active.is_none());
+        assert_eq!(health.request_delay, RETRY_BACKOFF);
+        assert!(offer_at(&mut health, at + Duration::from_secs(4)).is_none());
+        assert!(offer_at(&mut health, at + Duration::from_secs(6)).is_some());
     }
 
     #[tokio::test]
