@@ -1,0 +1,2386 @@
+{
+  "schema": "qeli.tcp-recovery-experiment.v1",
+  "date_utc": "2026-11-05",
+  "tested_core_commit": "32ccb9c6ba2f8f6575bf5fa90aad1191fcad9454",
+  "binaries": {
+    "server_amd64_sha256": "897c659f19fe30224686bcc6a452aaa6e5e4b0375ff0b1a3ee359f26a3c56425",
+    "router_sha256": "d359def9c2a3dc11e610ef0f9eb53f6f7851d4c0f2cc1ca76162db6b0d42702c"
+  },
+  "method": {
+    "streams": 3,
+    "rate_per_stream_mbps": 20,
+    "bytes_per_stream": 234881024,
+    "impaired_outer_slot_rate_mbps": 4,
+    "first_replacement_candidate": "stalled after SYN",
+    "application_connections": "persistent; complete numbered-body sequence verification",
+    "test_interface": "same router qeli0; same server/profile/binaries",
+    "outer_pacing": "SO_MAX_PACING_RATE on only the authenticated replacement carrier; 2x its observed probe delivery rate for 0.5s; restore previous limit",
+    "inner_cc": "diagnostic only: change the controlled HTTP sender to CUBIC for 5s, restore BBR; no system-wide setting and no socket reconnect",
+    "receiver_clock": "router realtime clock paired with /proc/uptime, using floating-point nanosecond conversion; nominal receiver sampling about 0.1s; no independent sub-millisecond clock-offset qualification",
+    "confirmation": "observed cumulative-byte endpoints wholly after writer admission; no interpolation across sample gaps"
+  },
+  "limitations": [
+    "One pair per 5-second/15-second warmup group; not a statistically qualified speedup.",
+    "A zero notsent queue at two snapshots does not exclude short bursts or prove that a pacing cap never binds.",
+    "Changing the controlled application sender algorithm is a causal diagnostic, not a VPN feature for arbitrary remote TCP senders.",
+    "This is recovery under an artificial per-outer-flow policer, not maximum VPN throughput or proof of an ISP loss mechanism."
+  ],
+  "excluded_attempts": [
+    "control1: integer nanosecond conversion made sub-second clock mapping invalid; excluded from timing comparison.",
+    "pace1: ambiguous uncommitted/stalled socket was safely rejected by the observer; no pacing applied, excluded as an intervention.",
+    "initial control3 launch: completed transient systemd unit had already unloaded; runner stopped before creating a test, excluded and retried."
+  ],
+  "decision": "No transport acceleration patch enabled: the measured outer-pacing gain in one-second confirmation is about one receiver sample and is not a qualified repeatable improvement. Commit the measurement admission and evidence instead of a default traffic limiter.",
+  "findings": [
+    "A fresh outer carrier retained a large congestion window after its idle drain wait; the observed trace did not support adding keep-warm cover traffic.",
+    "During slow recovery the outer carrier had capacity above the useful delivery rate while the controlled inner BBR sender had a low bandwidth/pacing estimate. This localizes at least part of the reproduced post-admission ramp to the inner sender.",
+    "Observed one-second recovery confirmation: control2/pace2 3.854/3.745s; control3/pace3 2.461/2.402s. These differences are comparable to the receiver sampling interval, with one pair per warmup condition.",
+    "Switching only the controlled HTTP sender to CUBIC temporarily yielded a 1.141s confirmation after admission, versus 2.461s in its 15-second-warmup control. The same peer and full uninterrupted body were preserved, and BBR was restored. This single diagnostic supports the inner-sender explanation but is not an estimate of general VPN speedup."
+  ],
+  "safety": {
+    "automatic_rollback": "armed on server and router during experiments",
+    "independent_management": "temporary TLS-wrapped SSH reverse path over WAN; restricted temporary key/rules",
+    "persistent_backups": "on server/router and AES-256-GCM encrypted copies on operator PC",
+    "administrative_network_configs": "hash-checked; unchanged",
+    "runtime_proof_file": "runtime-validation-final.json",
+    "final_checks": "all passed; rollback timers disarmed after validation, temporary WAN guard/key/rules/packages removed, backups retained",
+    "runtime_proof_sha256": "96f331acb71a430fa5b9bb7b0ca6ca43b8ef222a75298083cb9f053859253317",
+    "router_pid_unchanged": 15665,
+    "router_ifindex_unchanged": 63
+  },
+  "cases": [
+    {
+      "name": "control2",
+      "schema": "qeli.tcp-recovery.v1",
+      "threshold_mbps": 18,
+      "treatment": "control",
+      "warmup_before_fault_s": 5,
+      "events": {
+        "fault_s": 0,
+        "carrier_replaced_s": 5.702,
+        "downlink_ready_s": 5.616
+      },
+      "receiver": {
+        "expected_bytes": 234881024,
+        "received_bytes": 234881024,
+        "sequence_errors": 0,
+        "exit_status": 0,
+        "samples": [
+          {
+            "seconds": 4.730023,
+            "bytes": 14876672
+          },
+          {
+            "seconds": 4.890023,
+            "bytes": 14942208
+          },
+          {
+            "seconds": 5.040023,
+            "bytes": 15007744
+          },
+          {
+            "seconds": 5.190023,
+            "bytes": 15073280
+          },
+          {
+            "seconds": 5.380023,
+            "bytes": 15138816
+          },
+          {
+            "seconds": 5.700023,
+            "bytes": 15204352
+          },
+          {
+            "seconds": 5.820023,
+            "bytes": 15269888
+          },
+          {
+            "seconds": 5.930023,
+            "bytes": 15335424
+          },
+          {
+            "seconds": 6.030023,
+            "bytes": 15400960
+          },
+          {
+            "seconds": 6.150023,
+            "bytes": 15466496
+          },
+          {
+            "seconds": 6.300023,
+            "bytes": 15597568
+          },
+          {
+            "seconds": 6.400023,
+            "bytes": 15663104
+          },
+          {
+            "seconds": 6.540023,
+            "bytes": 15794176
+          },
+          {
+            "seconds": 6.690023,
+            "bytes": 15925248
+          },
+          {
+            "seconds": 6.820023,
+            "bytes": 16056320
+          },
+          {
+            "seconds": 6.960023,
+            "bytes": 16187392
+          },
+          {
+            "seconds": 7.080023,
+            "bytes": 16318464
+          },
+          {
+            "seconds": 7.230023,
+            "bytes": 16515072
+          },
+          {
+            "seconds": 7.370023,
+            "bytes": 16711680
+          },
+          {
+            "seconds": 7.500023,
+            "bytes": 16908288
+          },
+          {
+            "seconds": 7.650023,
+            "bytes": 17104896
+          },
+          {
+            "seconds": 7.760023,
+            "bytes": 17301504
+          },
+          {
+            "seconds": 7.890023,
+            "bytes": 17498112
+          },
+          {
+            "seconds": 8.010023,
+            "bytes": 17694720
+          },
+          {
+            "seconds": 8.130023,
+            "bytes": 17891328
+          },
+          {
+            "seconds": 8.230023,
+            "bytes": 18087936
+          },
+          {
+            "seconds": 8.350023,
+            "bytes": 18284544
+          },
+          {
+            "seconds": 8.470023,
+            "bytes": 18546688
+          },
+          {
+            "seconds": 8.590023,
+            "bytes": 18808832
+          },
+          {
+            "seconds": 8.730023,
+            "bytes": 19070976
+          },
+          {
+            "seconds": 8.850023,
+            "bytes": 19333120
+          },
+          {
+            "seconds": 8.970023,
+            "bytes": 19595264
+          },
+          {
+            "seconds": 9.080023,
+            "bytes": 19857408
+          },
+          {
+            "seconds": 9.210023,
+            "bytes": 20185088
+          },
+          {
+            "seconds": 9.350023,
+            "bytes": 20512768
+          },
+          {
+            "seconds": 9.470023,
+            "bytes": 20905984
+          },
+          {
+            "seconds": 9.590023,
+            "bytes": 21299200
+          },
+          {
+            "seconds": 9.700023,
+            "bytes": 21692416
+          },
+          {
+            "seconds": 9.810023,
+            "bytes": 22085632
+          },
+          {
+            "seconds": 9.910023,
+            "bytes": 22347776
+          },
+          {
+            "seconds": 10.030023,
+            "bytes": 22806528
+          },
+          {
+            "seconds": 10.140023,
+            "bytes": 23265280
+          },
+          {
+            "seconds": 10.250023,
+            "bytes": 23724032
+          },
+          {
+            "seconds": 10.350023,
+            "bytes": 24182784
+          },
+          {
+            "seconds": 10.460023,
+            "bytes": 24772608
+          },
+          {
+            "seconds": 10.570023,
+            "bytes": 25231360
+          },
+          {
+            "seconds": 10.680023,
+            "bytes": 25690112
+          },
+          {
+            "seconds": 10.780023,
+            "bytes": 26411008
+          },
+          {
+            "seconds": 10.890023,
+            "bytes": 27000832
+          },
+          {
+            "seconds": 11.010023,
+            "bytes": 27721728
+          },
+          {
+            "seconds": 11.110023,
+            "bytes": 28246016
+          },
+          {
+            "seconds": 11.220023,
+            "bytes": 28704768
+          },
+          {
+            "seconds": 11.340023,
+            "bytes": 29032448
+          },
+          {
+            "seconds": 11.450023,
+            "bytes": 29687808
+          },
+          {
+            "seconds": 11.560023,
+            "bytes": 30474240
+          },
+          {
+            "seconds": 11.660023,
+            "bytes": 31064064
+          },
+          {
+            "seconds": 11.770023,
+            "bytes": 31850496
+          },
+          {
+            "seconds": 11.900023,
+            "bytes": 32702464
+          },
+          {
+            "seconds": 12.020023,
+            "bytes": 33357824
+          },
+          {
+            "seconds": 12.160023,
+            "bytes": 33751040
+          },
+          {
+            "seconds": 12.280023,
+            "bytes": 34275328
+          },
+          {
+            "seconds": 12.400023,
+            "bytes": 34996224
+          },
+          {
+            "seconds": 12.540023,
+            "bytes": 35717120
+          },
+          {
+            "seconds": 12.650023,
+            "bytes": 36372480
+          },
+          {
+            "seconds": 12.760023,
+            "bytes": 37027840
+          },
+          {
+            "seconds": 12.890023,
+            "bytes": 37486592
+          },
+          {
+            "seconds": 13.030023,
+            "bytes": 38338560
+          },
+          {
+            "seconds": 13.140023,
+            "bytes": 39124992
+          },
+          {
+            "seconds": 13.250023,
+            "bytes": 39845888
+          },
+          {
+            "seconds": 13.350023,
+            "bytes": 40304640
+          },
+          {
+            "seconds": 13.480023,
+            "bytes": 40697856
+          },
+          {
+            "seconds": 13.670023,
+            "bytes": 41222144
+          },
+          {
+            "seconds": 13.790023,
+            "bytes": 41746432
+          },
+          {
+            "seconds": 13.910023,
+            "bytes": 42139648
+          },
+          {
+            "seconds": 14.030023,
+            "bytes": 42663936
+          },
+          {
+            "seconds": 14.140023,
+            "bytes": 43253760
+          },
+          {
+            "seconds": 14.260023,
+            "bytes": 43843584
+          },
+          {
+            "seconds": 14.370023,
+            "bytes": 44433408
+          },
+          {
+            "seconds": 14.490023,
+            "bytes": 45023232
+          },
+          {
+            "seconds": 14.590023,
+            "bytes": 45416448
+          }
+        ]
+      },
+      "all_three_streams_integrity_verified": true,
+      "healthy_carriers_unchanged": true,
+      "inner_retransmissions_through_ready_plus_5s": 0,
+      "raw_artifacts": {
+        "control2.json": "7815059e093df42eaff950d68e3e6db187e38dd75b5604087a63cc7d022c55b3",
+        "control2-router.json": "cae93835fb9e9bf13cf3d973d65b60a17503019d7e3d174f0133d13b701493fa"
+      },
+      "intervention_events": [
+        {
+          "event": "recovery_pacing_begin",
+          "time": 1793838077.473718,
+          "enabled": false,
+          "rate_Bps": 4095283,
+          "port": 43996,
+          "delay_from_observer_start_s": 10.82256293296814
+        },
+        {
+          "event": "recovery_pacing_end",
+          "time": 1793838077.9740708,
+          "enabled": false,
+          "port": 43996
+        }
+      ],
+      "measurement": {
+        "writer_ready_s": 5.616,
+        "threshold_mbps": 18,
+        "definition": "first complete observed receiver interval of at least the requested duration; endpoint confirms average delivery and is not recovery onset",
+        "confirmations": [
+          {
+            "requested_window_s": 1,
+            "observation": {
+              "start_s": 8.470023,
+              "end_s": 9.470023,
+              "duration_s": 1.0,
+              "mbps": 18.874368,
+              "confirmed_after_ready_s": 3.8540229999999998,
+              "largest_sample_gap_s": 0.14000000000000057
+            }
+          },
+          {
+            "requested_window_s": 5,
+            "observation": {
+              "start_s": 5.820023,
+              "end_s": 10.890023,
+              "duration_s": 5.069999999999999,
+              "mbps": 18.510365285996055,
+              "confirmed_after_ready_s": 5.274023,
+              "largest_sample_gap_s": 0.15000000000000036
+            }
+          }
+        ],
+        "carrier_replaced_after_fault_s": 5.702,
+        "writer_ready_after_fault_s": 5.616,
+        "integrity_verified": true
+      },
+      "inner_state_after_admission": [
+        {
+          "after_gate_s": -0.114,
+          "congestion": "bbr",
+          "rtt_us": 502363,
+          "cwnd": 4,
+          "unacked": 4,
+          "pacing_mbps": 3.566896,
+          "bbr_info": [
+            450365,
+            0,
+            31413,
+            256,
+            256
+          ]
+        },
+        {
+          "after_gate_s": 0.07,
+          "congestion": "bbr",
+          "rtt_us": 158468,
+          "cwnd": 46,
+          "unacked": 18,
+          "pacing_mbps": 4.458616,
+          "bbr_info": [
+            450365,
+            0,
+            26651,
+            320,
+            512
+          ]
+        },
+        {
+          "after_gate_s": 0.255,
+          "congestion": "bbr",
+          "rtt_us": 36217,
+          "cwnd": 48,
+          "unacked": 19,
+          "pacing_mbps": 4.56108,
+          "bbr_info": [
+            575894,
+            0,
+            24397,
+            256,
+            512
+          ]
+        },
+        {
+          "after_gate_s": 0.448,
+          "congestion": "bbr",
+          "rtt_us": 35954,
+          "cwnd": 54,
+          "unacked": 28,
+          "pacing_mbps": 5.63816,
+          "bbr_info": [
+            711889,
+            0,
+            23768,
+            256,
+            512
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pace2",
+      "schema": "qeli.tcp-recovery.v1",
+      "threshold_mbps": 18,
+      "treatment": "outer-pacing",
+      "warmup_before_fault_s": 5,
+      "events": {
+        "fault_s": 0,
+        "carrier_replaced_s": 2.9,
+        "downlink_ready_s": 4.059
+      },
+      "receiver": {
+        "expected_bytes": 234881024,
+        "received_bytes": 234881024,
+        "sequence_errors": 0,
+        "exit_status": 0,
+        "samples": [
+          {
+            "seconds": 3.204284,
+            "bytes": 14614528
+          },
+          {
+            "seconds": 3.364284,
+            "bytes": 14680064
+          },
+          {
+            "seconds": 3.514284,
+            "bytes": 14745600
+          },
+          {
+            "seconds": 3.674284,
+            "bytes": 14811136
+          },
+          {
+            "seconds": 3.814284,
+            "bytes": 14876672
+          },
+          {
+            "seconds": 3.964284,
+            "bytes": 14942208
+          },
+          {
+            "seconds": 4.104284,
+            "bytes": 15007744
+          },
+          {
+            "seconds": 4.214284,
+            "bytes": 15532032
+          },
+          {
+            "seconds": 4.334284,
+            "bytes": 15663104
+          },
+          {
+            "seconds": 4.484284,
+            "bytes": 15728640
+          },
+          {
+            "seconds": 4.604284,
+            "bytes": 15794176
+          },
+          {
+            "seconds": 4.794284,
+            "bytes": 15925248
+          },
+          {
+            "seconds": 4.954284,
+            "bytes": 16056320
+          },
+          {
+            "seconds": 5.084284,
+            "bytes": 16187392
+          },
+          {
+            "seconds": 5.204284,
+            "bytes": 16318464
+          },
+          {
+            "seconds": 5.304284,
+            "bytes": 16449536
+          },
+          {
+            "seconds": 5.444284,
+            "bytes": 16646144
+          },
+          {
+            "seconds": 5.584284,
+            "bytes": 16842752
+          },
+          {
+            "seconds": 5.704284,
+            "bytes": 17039360
+          },
+          {
+            "seconds": 5.814284,
+            "bytes": 17170432
+          },
+          {
+            "seconds": 5.934284,
+            "bytes": 17367040
+          },
+          {
+            "seconds": 6.064284,
+            "bytes": 17629184
+          },
+          {
+            "seconds": 6.174284,
+            "bytes": 17825792
+          },
+          {
+            "seconds": 6.294284,
+            "bytes": 18087936
+          },
+          {
+            "seconds": 6.414284,
+            "bytes": 18350080
+          },
+          {
+            "seconds": 6.524284,
+            "bytes": 18612224
+          },
+          {
+            "seconds": 6.644284,
+            "bytes": 18939904
+          },
+          {
+            "seconds": 6.744284,
+            "bytes": 19202048
+          },
+          {
+            "seconds": 6.854284,
+            "bytes": 19464192
+          },
+          {
+            "seconds": 6.984284,
+            "bytes": 19726336
+          },
+          {
+            "seconds": 7.154284,
+            "bytes": 19988480
+          },
+          {
+            "seconds": 7.314284,
+            "bytes": 20185088
+          },
+          {
+            "seconds": 7.444284,
+            "bytes": 20381696
+          },
+          {
+            "seconds": 7.574284,
+            "bytes": 20905984
+          },
+          {
+            "seconds": 7.684284,
+            "bytes": 21233664
+          },
+          {
+            "seconds": 7.804284,
+            "bytes": 21626880
+          },
+          {
+            "seconds": 7.924284,
+            "bytes": 22085632
+          },
+          {
+            "seconds": 8.044284,
+            "bytes": 22544384
+          },
+          {
+            "seconds": 8.164284,
+            "bytes": 23003136
+          },
+          {
+            "seconds": 8.274284,
+            "bytes": 23461888
+          },
+          {
+            "seconds": 8.384284,
+            "bytes": 23789568
+          },
+          {
+            "seconds": 8.494284,
+            "bytes": 24117248
+          },
+          {
+            "seconds": 8.624284,
+            "bytes": 24510464
+          },
+          {
+            "seconds": 8.734284,
+            "bytes": 24969216
+          },
+          {
+            "seconds": 8.874284,
+            "bytes": 25427968
+          },
+          {
+            "seconds": 8.984284,
+            "bytes": 25886720
+          },
+          {
+            "seconds": 9.104284,
+            "bytes": 26542080
+          },
+          {
+            "seconds": 9.214284,
+            "bytes": 27131904
+          },
+          {
+            "seconds": 9.314284,
+            "bytes": 27525120
+          },
+          {
+            "seconds": 9.444284,
+            "bytes": 28114944
+          },
+          {
+            "seconds": 9.554284,
+            "bytes": 28639232
+          },
+          {
+            "seconds": 9.664284,
+            "bytes": 29163520
+          },
+          {
+            "seconds": 9.774284,
+            "bytes": 29687808
+          },
+          {
+            "seconds": 9.884284,
+            "bytes": 30277632
+          },
+          {
+            "seconds": 9.994284,
+            "bytes": 30801920
+          },
+          {
+            "seconds": 10.114284,
+            "bytes": 31391744
+          },
+          {
+            "seconds": 10.224284,
+            "bytes": 31916032
+          },
+          {
+            "seconds": 10.334284,
+            "bytes": 32571392
+          },
+          {
+            "seconds": 10.434284,
+            "bytes": 33030144
+          },
+          {
+            "seconds": 10.554284,
+            "bytes": 33619968
+          },
+          {
+            "seconds": 10.684284,
+            "bytes": 34209792
+          },
+          {
+            "seconds": 10.794284,
+            "bytes": 34996224
+          },
+          {
+            "seconds": 10.904284,
+            "bytes": 35651584
+          },
+          {
+            "seconds": 11.014284,
+            "bytes": 36241408
+          },
+          {
+            "seconds": 11.124284,
+            "bytes": 36831232
+          },
+          {
+            "seconds": 11.234284,
+            "bytes": 37617664
+          },
+          {
+            "seconds": 11.394284,
+            "bytes": 38076416
+          },
+          {
+            "seconds": 11.494284,
+            "bytes": 38469632
+          },
+          {
+            "seconds": 11.604284,
+            "bytes": 38993920
+          },
+          {
+            "seconds": 11.714284,
+            "bytes": 39452672
+          },
+          {
+            "seconds": 11.814284,
+            "bytes": 40042496
+          },
+          {
+            "seconds": 11.944284,
+            "bytes": 40763392
+          },
+          {
+            "seconds": 12.094284,
+            "bytes": 41222144
+          },
+          {
+            "seconds": 12.194284,
+            "bytes": 41615360
+          },
+          {
+            "seconds": 12.344284,
+            "bytes": 42074112
+          },
+          {
+            "seconds": 12.454284,
+            "bytes": 42467328
+          },
+          {
+            "seconds": 12.554284,
+            "bytes": 42926080
+          },
+          {
+            "seconds": 12.664284,
+            "bytes": 43581440
+          },
+          {
+            "seconds": 12.774284,
+            "bytes": 44171264
+          },
+          {
+            "seconds": 12.884284,
+            "bytes": 44761088
+          },
+          {
+            "seconds": 13.004284,
+            "bytes": 45613056
+          }
+        ]
+      },
+      "all_three_streams_integrity_verified": true,
+      "healthy_carriers_unchanged": true,
+      "inner_retransmissions_through_ready_plus_5s": 0,
+      "raw_artifacts": {
+        "pace2.json": "31e6104cb728c4788e87e75020c408fc5cf771b6a1b1edfc102d9b0c9d20a8a6",
+        "pace2-router.json": "b992e624d4d335f340ecab303566acd2ae2d105b34abf214d5f37405ad2a8e48"
+      },
+      "intervention_events": [
+        {
+          "event": "recovery_pacing_begin",
+          "time": 1793838231.653567,
+          "enabled": true,
+          "rate_Bps": 4960631,
+          "port": 43800,
+          "delay_from_observer_start_s": 9.382506132125854
+        },
+        {
+          "event": "recovery_pacing_end",
+          "time": 1793838232.15511,
+          "enabled": true,
+          "port": 43800
+        }
+      ],
+      "measurement": {
+        "writer_ready_s": 4.059,
+        "threshold_mbps": 18,
+        "definition": "first complete observed receiver interval of at least the requested duration; endpoint confirms average delivery and is not recovery onset",
+        "confirmations": [
+          {
+            "requested_window_s": 1,
+            "observation": {
+              "start_s": 6.744284,
+              "end_s": 7.804284,
+              "duration_s": 1.0599999999999996,
+              "mbps": 18.300618867924534,
+              "confirmed_after_ready_s": 3.745284,
+              "largest_sample_gap_s": 0.16999999999999993
+            }
+          },
+          {
+            "requested_window_s": 5,
+            "observation": {
+              "start_s": 4.104284,
+              "end_s": 9.104284,
+              "duration_s": 5.0,
+              "mbps": 18.4549376,
+              "confirmed_after_ready_s": 5.045284,
+              "largest_sample_gap_s": 0.1900000000000004
+            }
+          }
+        ],
+        "carrier_replaced_after_fault_s": 2.9,
+        "writer_ready_after_fault_s": 4.059,
+        "integrity_verified": true
+      },
+      "inner_state_after_admission": [
+        {
+          "after_gate_s": -0.033,
+          "congestion": "bbr",
+          "rtt_us": 1217963,
+          "cwnd": 425,
+          "unacked": 425,
+          "pacing_mbps": 90.805448,
+          "bbr_info": [
+            440484,
+            0,
+            22048,
+            739,
+            739
+          ]
+        },
+        {
+          "after_gate_s": 0.153,
+          "congestion": "bbr",
+          "rtt_us": 1187031,
+          "cwnd": 425,
+          "unacked": 425,
+          "pacing_mbps": 90.805448,
+          "bbr_info": [
+            440484,
+            0,
+            22048,
+            739,
+            739
+          ]
+        },
+        {
+          "after_gate_s": 0.348,
+          "congestion": "bbr",
+          "rtt_us": 345118,
+          "cwnd": 72,
+          "unacked": 16,
+          "pacing_mbps": 5.257152,
+          "bbr_info": [
+            531026,
+            0,
+            22048,
+            320,
+            512
+          ]
+        },
+        {
+          "after_gate_s": 0.538,
+          "congestion": "bbr",
+          "rtt_us": 43980,
+          "cwnd": 70,
+          "unacked": 14,
+          "pacing_mbps": 4.20572,
+          "bbr_info": [
+            531026,
+            0,
+            22048,
+            256,
+            512
+          ]
+        }
+      ]
+    },
+    {
+      "name": "control3",
+      "schema": "qeli.tcp-recovery.v1",
+      "threshold_mbps": 18,
+      "treatment": "control",
+      "warmup_before_fault_s": 15,
+      "events": {
+        "fault_s": 0,
+        "carrier_replaced_s": 4.289,
+        "downlink_ready_s": 4.537
+      },
+      "receiver": {
+        "expected_bytes": 234881024,
+        "received_bytes": 234881024,
+        "sequence_errors": 0,
+        "exit_status": 0,
+        "samples": [
+          {
+            "seconds": 3.54781,
+            "bytes": 39780352
+          },
+          {
+            "seconds": 3.70781,
+            "bytes": 39845888
+          },
+          {
+            "seconds": 3.88781,
+            "bytes": 39911424
+          },
+          {
+            "seconds": 4.077811,
+            "bytes": 39976960
+          },
+          {
+            "seconds": 4.19781,
+            "bytes": 40042496
+          },
+          {
+            "seconds": 4.347811,
+            "bytes": 40108032
+          },
+          {
+            "seconds": 4.51781,
+            "bytes": 40173568
+          },
+          {
+            "seconds": 4.71781,
+            "bytes": 40304640
+          },
+          {
+            "seconds": 4.837811,
+            "bytes": 40370176
+          },
+          {
+            "seconds": 5.00781,
+            "bytes": 40501248
+          },
+          {
+            "seconds": 5.13781,
+            "bytes": 40632320
+          },
+          {
+            "seconds": 5.27781,
+            "bytes": 40763392
+          },
+          {
+            "seconds": 5.38781,
+            "bytes": 40894464
+          },
+          {
+            "seconds": 5.50781,
+            "bytes": 41091072
+          },
+          {
+            "seconds": 5.61781,
+            "bytes": 41287680
+          },
+          {
+            "seconds": 5.73781,
+            "bytes": 41418752
+          },
+          {
+            "seconds": 5.88781,
+            "bytes": 41549824
+          },
+          {
+            "seconds": 6.00781,
+            "bytes": 41811968
+          },
+          {
+            "seconds": 6.11781,
+            "bytes": 42008576
+          },
+          {
+            "seconds": 6.21781,
+            "bytes": 42205184
+          },
+          {
+            "seconds": 6.327811,
+            "bytes": 42467328
+          },
+          {
+            "seconds": 6.43781,
+            "bytes": 42663936
+          },
+          {
+            "seconds": 6.557811,
+            "bytes": 42926080
+          },
+          {
+            "seconds": 6.65781,
+            "bytes": 43188224
+          },
+          {
+            "seconds": 6.76781,
+            "bytes": 43450368
+          },
+          {
+            "seconds": 6.88781,
+            "bytes": 43778048
+          },
+          {
+            "seconds": 6.99781,
+            "bytes": 44105728
+          },
+          {
+            "seconds": 7.10781,
+            "bytes": 44433408
+          },
+          {
+            "seconds": 7.22781,
+            "bytes": 44826624
+          },
+          {
+            "seconds": 7.337811,
+            "bytes": 45219840
+          },
+          {
+            "seconds": 7.44781,
+            "bytes": 45547520
+          },
+          {
+            "seconds": 7.577811,
+            "bytes": 45875200
+          },
+          {
+            "seconds": 7.68781,
+            "bytes": 46268416
+          },
+          {
+            "seconds": 7.79781,
+            "bytes": 46727168
+          },
+          {
+            "seconds": 7.95781,
+            "bytes": 47120384
+          },
+          {
+            "seconds": 8.067811,
+            "bytes": 47775744
+          },
+          {
+            "seconds": 8.18781,
+            "bytes": 48300032
+          },
+          {
+            "seconds": 8.28781,
+            "bytes": 48627712
+          },
+          {
+            "seconds": 8.42781,
+            "bytes": 49086464
+          },
+          {
+            "seconds": 8.52781,
+            "bytes": 49545216
+          },
+          {
+            "seconds": 8.63781,
+            "bytes": 50135040
+          },
+          {
+            "seconds": 8.74781,
+            "bytes": 50462720
+          },
+          {
+            "seconds": 8.847811,
+            "bytes": 50855936
+          },
+          {
+            "seconds": 8.96781,
+            "bytes": 51445760
+          },
+          {
+            "seconds": 9.087811,
+            "bytes": 51970048
+          },
+          {
+            "seconds": 9.20781,
+            "bytes": 52428800
+          },
+          {
+            "seconds": 9.317811,
+            "bytes": 52953088
+          },
+          {
+            "seconds": 9.43781,
+            "bytes": 53411840
+          },
+          {
+            "seconds": 9.557811,
+            "bytes": 54198272
+          },
+          {
+            "seconds": 9.65781,
+            "bytes": 54788096
+          },
+          {
+            "seconds": 9.77781,
+            "bytes": 55443456
+          },
+          {
+            "seconds": 9.88781,
+            "bytes": 56033280
+          },
+          {
+            "seconds": 10.00781,
+            "bytes": 56688640
+          },
+          {
+            "seconds": 10.12781,
+            "bytes": 57344000
+          },
+          {
+            "seconds": 10.23781,
+            "bytes": 57933824
+          },
+          {
+            "seconds": 10.347811,
+            "bytes": 58523648
+          },
+          {
+            "seconds": 10.46781,
+            "bytes": 58982400
+          },
+          {
+            "seconds": 10.577811,
+            "bytes": 59310080
+          },
+          {
+            "seconds": 10.68781,
+            "bytes": 59834368
+          },
+          {
+            "seconds": 10.79781,
+            "bytes": 60162048
+          },
+          {
+            "seconds": 10.89781,
+            "bytes": 60620800
+          },
+          {
+            "seconds": 11.01781,
+            "bytes": 61210624
+          },
+          {
+            "seconds": 11.12781,
+            "bytes": 61734912
+          },
+          {
+            "seconds": 11.23781,
+            "bytes": 62324736
+          },
+          {
+            "seconds": 11.347811,
+            "bytes": 62914560
+          },
+          {
+            "seconds": 11.47781,
+            "bytes": 63635456
+          },
+          {
+            "seconds": 11.587811,
+            "bytes": 64225280
+          },
+          {
+            "seconds": 11.69781,
+            "bytes": 64815104
+          },
+          {
+            "seconds": 11.807811,
+            "bytes": 65273856
+          },
+          {
+            "seconds": 11.90781,
+            "bytes": 65667072
+          },
+          {
+            "seconds": 12.02781,
+            "bytes": 66125824
+          },
+          {
+            "seconds": 12.13781,
+            "bytes": 66387968
+          },
+          {
+            "seconds": 12.24781,
+            "bytes": 66846720
+          },
+          {
+            "seconds": 12.347811,
+            "bytes": 67502080
+          },
+          {
+            "seconds": 12.45781,
+            "bytes": 68091904
+          },
+          {
+            "seconds": 12.577811,
+            "bytes": 68812800
+          },
+          {
+            "seconds": 12.69781,
+            "bytes": 69664768
+          },
+          {
+            "seconds": 12.807811,
+            "bytes": 70254592
+          },
+          {
+            "seconds": 12.90781,
+            "bytes": 70451200
+          },
+          {
+            "seconds": 13.01781,
+            "bytes": 70778880
+          },
+          {
+            "seconds": 13.12781,
+            "bytes": 71041024
+          },
+          {
+            "seconds": 13.26781,
+            "bytes": 71368704
+          },
+          {
+            "seconds": 13.39781,
+            "bytes": 71696384
+          }
+        ]
+      },
+      "all_three_streams_integrity_verified": true,
+      "healthy_carriers_unchanged": true,
+      "inner_retransmissions_through_ready_plus_5s": 0,
+      "raw_artifacts": {
+        "control3.json": "11a94d001b4f0ecd0d0952083423b74ab3d3016d6cf9890bbbf8bc414ac140f7",
+        "control3-router.json": "045cc25f468a531f401a9a10460528e5c98db20403a4e3862448e64e751dd56d"
+      },
+      "intervention_events": [
+        {
+          "event": "recovery_pacing_begin",
+          "time": 1793838418.9791398,
+          "enabled": false,
+          "rate_Bps": 1768670,
+          "port": 43881,
+          "delay_from_observer_start_s": 19.910685062408447
+        },
+        {
+          "event": "recovery_pacing_end",
+          "time": 1793838419.4797413,
+          "enabled": false,
+          "port": 43881,
+          "elapsed_s": 0.5005627810023725,
+          "observed_max_pacing_Bps": 18446744073709551615,
+          "acked_bytes": 395082,
+          "acked_mbps": 6.314204970794701,
+          "notsent_before": 0,
+          "notsent_after": 0,
+          "restored": true
+        }
+      ],
+      "measurement": {
+        "writer_ready_s": 4.537,
+        "threshold_mbps": 18,
+        "definition": "first complete observed receiver interval of at least the requested duration; endpoint confirms average delivery and is not recovery onset",
+        "confirmations": [
+          {
+            "requested_window_s": 1,
+            "observation": {
+              "start_s": 5.88781,
+              "end_s": 6.99781,
+              "duration_s": 1.1100000000000003,
+              "mbps": 18.420929729729725,
+              "confirmed_after_ready_s": 2.4608100000000004,
+              "largest_sample_gap_s": 0.12000100000000025
+            }
+          },
+          {
+            "requested_window_s": 5,
+            "observation": {
+              "start_s": 4.71781,
+              "end_s": 9.77781,
+              "duration_s": 5.0600000000000005,
+              "mbps": 23.934886956521737,
+              "confirmed_after_ready_s": 5.240810000000001,
+              "largest_sample_gap_s": 0.1699989999999998
+            }
+          }
+        ],
+        "carrier_replaced_after_fault_s": 4.289,
+        "writer_ready_after_fault_s": 4.537,
+        "integrity_verified": true
+      },
+      "inner_state_after_admission": [
+        {
+          "after_gate_s": -0.06,
+          "congestion": "bbr",
+          "rtt_us": 774692,
+          "cwnd": 58,
+          "unacked": 58,
+          "pacing_mbps": 3.36632,
+          "bbr_info": [
+            425040,
+            0,
+            23389,
+            256,
+            512
+          ]
+        },
+        {
+          "after_gate_s": 0.131,
+          "congestion": "bbr",
+          "rtt_us": 126578,
+          "cwnd": 58,
+          "unacked": 20,
+          "pacing_mbps": 2.524736,
+          "bbr_info": [
+            425040,
+            0,
+            23389,
+            192,
+            512
+          ]
+        },
+        {
+          "after_gate_s": 0.316,
+          "congestion": "bbr",
+          "rtt_us": 28369,
+          "cwnd": 70,
+          "unacked": 16,
+          "pacing_mbps": 5.207152,
+          "bbr_info": [
+            525975,
+            0,
+            23095,
+            320,
+            512
+          ]
+        },
+        {
+          "after_gate_s": 0.507,
+          "congestion": "bbr",
+          "rtt_us": 26385,
+          "cwnd": 54,
+          "unacked": 24,
+          "pacing_mbps": 8.11348,
+          "bbr_info": [
+            1024430,
+            0,
+            22847,
+            256,
+            512
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pace3",
+      "schema": "qeli.tcp-recovery.v1",
+      "threshold_mbps": 18,
+      "treatment": "outer-pacing",
+      "warmup_before_fault_s": 15,
+      "events": {
+        "fault_s": 0,
+        "carrier_replaced_s": 4.792,
+        "downlink_ready_s": 5.977
+      },
+      "receiver": {
+        "expected_bytes": 234881024,
+        "received_bytes": 234881024,
+        "sequence_errors": 0,
+        "exit_status": 0,
+        "samples": [
+          {
+            "seconds": 5.00919,
+            "bytes": 40042496
+          },
+          {
+            "seconds": 5.16919,
+            "bytes": 40108032
+          },
+          {
+            "seconds": 5.31919,
+            "bytes": 40173568
+          },
+          {
+            "seconds": 5.47919,
+            "bytes": 40239104
+          },
+          {
+            "seconds": 5.62919,
+            "bytes": 40304640
+          },
+          {
+            "seconds": 5.76919,
+            "bytes": 40370176
+          },
+          {
+            "seconds": 5.92919,
+            "bytes": 40435712
+          },
+          {
+            "seconds": 6.03919,
+            "bytes": 40763392
+          },
+          {
+            "seconds": 6.18919,
+            "bytes": 41025536
+          },
+          {
+            "seconds": 6.33919,
+            "bytes": 41156608
+          },
+          {
+            "seconds": 6.47919,
+            "bytes": 41287680
+          },
+          {
+            "seconds": 6.60919,
+            "bytes": 41418752
+          },
+          {
+            "seconds": 6.76919,
+            "bytes": 41615360
+          },
+          {
+            "seconds": 6.91919,
+            "bytes": 41811968
+          },
+          {
+            "seconds": 7.07919,
+            "bytes": 42008576
+          },
+          {
+            "seconds": 7.21919,
+            "bytes": 42205184
+          },
+          {
+            "seconds": 7.34919,
+            "bytes": 42401792
+          },
+          {
+            "seconds": 7.46919,
+            "bytes": 42598400
+          },
+          {
+            "seconds": 7.60919,
+            "bytes": 42860544
+          },
+          {
+            "seconds": 7.71919,
+            "bytes": 43122688
+          },
+          {
+            "seconds": 7.82919,
+            "bytes": 43384832
+          },
+          {
+            "seconds": 7.93919,
+            "bytes": 43646976
+          },
+          {
+            "seconds": 8.03919,
+            "bytes": 43909120
+          },
+          {
+            "seconds": 8.15919,
+            "bytes": 44236800
+          },
+          {
+            "seconds": 8.26919,
+            "bytes": 44564480
+          },
+          {
+            "seconds": 8.37919,
+            "bytes": 44892160
+          },
+          {
+            "seconds": 8.49919,
+            "bytes": 45219840
+          },
+          {
+            "seconds": 8.62919,
+            "bytes": 45547520
+          },
+          {
+            "seconds": 8.74919,
+            "bytes": 45940736
+          },
+          {
+            "seconds": 8.84919,
+            "bytes": 46268416
+          },
+          {
+            "seconds": 8.96919,
+            "bytes": 46661632
+          },
+          {
+            "seconds": 9.08919,
+            "bytes": 46989312
+          },
+          {
+            "seconds": 9.19919,
+            "bytes": 47316992
+          },
+          {
+            "seconds": 9.29919,
+            "bytes": 47579136
+          },
+          {
+            "seconds": 9.41919,
+            "bytes": 48037888
+          },
+          {
+            "seconds": 9.53919,
+            "bytes": 48496640
+          },
+          {
+            "seconds": 9.65919,
+            "bytes": 48955392
+          },
+          {
+            "seconds": 9.76919,
+            "bytes": 49348608
+          },
+          {
+            "seconds": 9.87919,
+            "bytes": 49741824
+          },
+          {
+            "seconds": 9.99919,
+            "bytes": 50135040
+          },
+          {
+            "seconds": 10.13919,
+            "bytes": 50528256
+          },
+          {
+            "seconds": 10.26919,
+            "bytes": 50790400
+          },
+          {
+            "seconds": 10.39919,
+            "bytes": 51380224
+          },
+          {
+            "seconds": 10.50919,
+            "bytes": 51838976
+          },
+          {
+            "seconds": 10.61919,
+            "bytes": 52363264
+          },
+          {
+            "seconds": 10.71919,
+            "bytes": 52887552
+          },
+          {
+            "seconds": 10.82919,
+            "bytes": 53542912
+          },
+          {
+            "seconds": 10.92919,
+            "bytes": 54067200
+          },
+          {
+            "seconds": 11.04919,
+            "bytes": 54722560
+          },
+          {
+            "seconds": 11.15919,
+            "bytes": 55115776
+          },
+          {
+            "seconds": 11.27919,
+            "bytes": 55574528
+          },
+          {
+            "seconds": 11.38919,
+            "bytes": 56033280
+          },
+          {
+            "seconds": 11.48919,
+            "bytes": 56295424
+          },
+          {
+            "seconds": 11.66919,
+            "bytes": 56885248
+          },
+          {
+            "seconds": 11.78919,
+            "bytes": 57344000
+          },
+          {
+            "seconds": 11.91919,
+            "bytes": 57868288
+          },
+          {
+            "seconds": 12.02919,
+            "bytes": 58261504
+          },
+          {
+            "seconds": 12.13919,
+            "bytes": 58720256
+          },
+          {
+            "seconds": 12.23919,
+            "bytes": 59244544
+          },
+          {
+            "seconds": 12.35919,
+            "bytes": 59899904
+          },
+          {
+            "seconds": 12.46919,
+            "bytes": 60686336
+          },
+          {
+            "seconds": 12.57919,
+            "bytes": 61472768
+          },
+          {
+            "seconds": 12.67919,
+            "bytes": 62062592
+          },
+          {
+            "seconds": 12.78919,
+            "bytes": 62783488
+          },
+          {
+            "seconds": 12.95919,
+            "bytes": 63307776
+          },
+          {
+            "seconds": 13.06919,
+            "bytes": 64028672
+          },
+          {
+            "seconds": 13.16919,
+            "bytes": 64684032
+          },
+          {
+            "seconds": 13.27919,
+            "bytes": 65142784
+          },
+          {
+            "seconds": 13.41919,
+            "bytes": 65863680
+          },
+          {
+            "seconds": 13.53919,
+            "bytes": 66519040
+          },
+          {
+            "seconds": 13.64919,
+            "bytes": 67174400
+          },
+          {
+            "seconds": 13.75919,
+            "bytes": 67764224
+          },
+          {
+            "seconds": 13.85919,
+            "bytes": 68681728
+          },
+          {
+            "seconds": 13.96919,
+            "bytes": 69533696
+          },
+          {
+            "seconds": 14.07919,
+            "bytes": 70451200
+          },
+          {
+            "seconds": 14.18919,
+            "bytes": 71106560
+          },
+          {
+            "seconds": 14.28919,
+            "bytes": 71892992
+          },
+          {
+            "seconds": 14.39919,
+            "bytes": 72482816
+          },
+          {
+            "seconds": 14.52919,
+            "bytes": 73465856
+          },
+          {
+            "seconds": 14.63919,
+            "bytes": 74121216
+          },
+          {
+            "seconds": 14.73919,
+            "bytes": 74579968
+          },
+          {
+            "seconds": 14.85919,
+            "bytes": 74907648
+          }
+        ]
+      },
+      "all_three_streams_integrity_verified": true,
+      "healthy_carriers_unchanged": true,
+      "inner_retransmissions_through_ready_plus_5s": 0,
+      "raw_artifacts": {
+        "pace3.json": "1b31ad97457e447b8b9232df6f8edf5214f6c8da6e612bfa1fb6ddbcd2a22c05",
+        "pace3-router.json": "b6f56d0a56732b2e8cb97a5b86e3cfd66be15ea690003e5069e612ffae19f3e7"
+      },
+      "intervention_events": [
+        {
+          "event": "recovery_pacing_begin",
+          "time": 1793838608.787535,
+          "enabled": true,
+          "rate_Bps": 4618113,
+          "port": 43791,
+          "delay_from_observer_start_s": 21.17380976676941
+        },
+        {
+          "event": "recovery_pacing_end",
+          "time": 1793838609.2938595,
+          "enabled": true,
+          "port": 43791,
+          "elapsed_s": 0.5061868720222265,
+          "observed_max_pacing_Bps": 4618113,
+          "acked_bytes": 481603,
+          "acked_mbps": 7.61146567197188,
+          "notsent_before": 0,
+          "notsent_after": 0,
+          "restored": true
+        }
+      ],
+      "measurement": {
+        "writer_ready_s": 5.977,
+        "threshold_mbps": 18,
+        "definition": "first complete observed receiver interval of at least the requested duration; endpoint confirms average delivery and is not recovery onset",
+        "confirmations": [
+          {
+            "requested_window_s": 1,
+            "observation": {
+              "start_s": 7.34919,
+              "end_s": 8.37919,
+              "duration_s": 1.0299999999999994,
+              "mbps": 19.342664077669916,
+              "confirmed_after_ready_s": 2.402189999999999,
+              "largest_sample_gap_s": 0.13999999999999968
+            }
+          },
+          {
+            "requested_window_s": 5,
+            "observation": {
+              "start_s": 6.03919,
+              "end_s": 11.04919,
+              "duration_s": 5.01,
+              "mbps": 22.290088622754492,
+              "confirmed_after_ready_s": 5.072189999999999,
+              "largest_sample_gap_s": 0.16000000000000014
+            }
+          }
+        ],
+        "carrier_replaced_after_fault_s": 4.792,
+        "writer_ready_after_fault_s": 5.977,
+        "integrity_verified": true
+      },
+      "inner_state_after_admission": [
+        {
+          "after_gate_s": -0.107,
+          "congestion": "bbr",
+          "rtt_us": 1236792,
+          "cwnd": 70,
+          "unacked": 434,
+          "pacing_mbps": 1.738248,
+          "bbr_info": [
+            638475,
+            0,
+            24397,
+            88,
+            739
+          ]
+        },
+        {
+          "after_gate_s": 0.075,
+          "congestion": "bbr",
+          "rtt_us": 1247826,
+          "cwnd": 94,
+          "unacked": 287,
+          "pacing_mbps": 1.738248,
+          "bbr_info": [
+            638475,
+            0,
+            24397,
+            88,
+            739
+          ]
+        },
+        {
+          "after_gate_s": 0.258,
+          "congestion": "bbr",
+          "rtt_us": 38222,
+          "cwnd": 110,
+          "unacked": 30,
+          "pacing_mbps": 7.205672,
+          "bbr_info": [
+            909807,
+            0,
+            22867,
+            256,
+            512
+          ]
+        },
+        {
+          "after_gate_s": 0.44,
+          "congestion": "bbr",
+          "rtt_us": 32173,
+          "cwnd": 118,
+          "unacked": 40,
+          "pacing_mbps": 5.589464,
+          "bbr_info": [
+            940988,
+            0,
+            22627,
+            192,
+            512
+          ]
+        }
+      ]
+    },
+    {
+      "name": "innercc",
+      "schema": "qeli.tcp-recovery.v1",
+      "threshold_mbps": 18,
+      "treatment": "inner-sender-cubic-diagnostic",
+      "warmup_before_fault_s": 15,
+      "events": {
+        "fault_s": 0,
+        "carrier_replaced_s": 3.467,
+        "downlink_ready_s": 5.047
+      },
+      "receiver": {
+        "expected_bytes": 234881024,
+        "received_bytes": 234881024,
+        "sequence_errors": 0,
+        "exit_status": 0,
+        "samples": [
+          {
+            "seconds": 4.088,
+            "bytes": 39059456
+          },
+          {
+            "seconds": 4.248,
+            "bytes": 39124992
+          },
+          {
+            "seconds": 4.398,
+            "bytes": 39190528
+          },
+          {
+            "seconds": 4.548,
+            "bytes": 39256064
+          },
+          {
+            "seconds": 4.698,
+            "bytes": 39321600
+          },
+          {
+            "seconds": 4.848,
+            "bytes": 39387136
+          },
+          {
+            "seconds": 4.988,
+            "bytes": 39452672
+          },
+          {
+            "seconds": 5.108,
+            "bytes": 39649280
+          },
+          {
+            "seconds": 5.208,
+            "bytes": 40108032
+          },
+          {
+            "seconds": 5.318,
+            "bytes": 40566784
+          },
+          {
+            "seconds": 5.428,
+            "bytes": 41222144
+          },
+          {
+            "seconds": 5.538,
+            "bytes": 42008576
+          },
+          {
+            "seconds": 5.648,
+            "bytes": 42663936
+          },
+          {
+            "seconds": 5.758,
+            "bytes": 43319296
+          },
+          {
+            "seconds": 5.868,
+            "bytes": 43974656
+          },
+          {
+            "seconds": 5.978,
+            "bytes": 44171264
+          },
+          {
+            "seconds": 6.078,
+            "bytes": 44892160
+          },
+          {
+            "seconds": 6.188,
+            "bytes": 45481984
+          },
+          {
+            "seconds": 6.298,
+            "bytes": 46530560
+          },
+          {
+            "seconds": 6.398,
+            "bytes": 47251456
+          },
+          {
+            "seconds": 6.508,
+            "bytes": 47972352
+          },
+          {
+            "seconds": 6.628,
+            "bytes": 48562176
+          },
+          {
+            "seconds": 6.738,
+            "bytes": 49283072
+          },
+          {
+            "seconds": 6.848,
+            "bytes": 49938432
+          },
+          {
+            "seconds": 6.948,
+            "bytes": 50593792
+          },
+          {
+            "seconds": 7.058,
+            "bytes": 51183616
+          },
+          {
+            "seconds": 7.178,
+            "bytes": 51642368
+          },
+          {
+            "seconds": 7.288,
+            "bytes": 52166656
+          },
+          {
+            "seconds": 7.388,
+            "bytes": 52625408
+          },
+          {
+            "seconds": 7.498,
+            "bytes": 53280768
+          },
+          {
+            "seconds": 7.618,
+            "bytes": 54132736
+          },
+          {
+            "seconds": 7.728,
+            "bytes": 54788096
+          },
+          {
+            "seconds": 7.838,
+            "bytes": 55312384
+          },
+          {
+            "seconds": 7.938,
+            "bytes": 55705600
+          },
+          {
+            "seconds": 8.058,
+            "bytes": 56360960
+          },
+          {
+            "seconds": 8.168,
+            "bytes": 57016320
+          },
+          {
+            "seconds": 8.268,
+            "bytes": 57475072
+          },
+          {
+            "seconds": 8.378,
+            "bytes": 57737216
+          },
+          {
+            "seconds": 8.488,
+            "bytes": 58392576
+          },
+          {
+            "seconds": 8.598,
+            "bytes": 58785792
+          },
+          {
+            "seconds": 8.698,
+            "bytes": 59310080
+          },
+          {
+            "seconds": 8.808,
+            "bytes": 59899904
+          },
+          {
+            "seconds": 8.928,
+            "bytes": 60227584
+          },
+          {
+            "seconds": 9.058,
+            "bytes": 60555264
+          },
+          {
+            "seconds": 9.198,
+            "bytes": 60882944
+          },
+          {
+            "seconds": 9.308,
+            "bytes": 61210624
+          },
+          {
+            "seconds": 9.448,
+            "bytes": 61538304
+          },
+          {
+            "seconds": 9.558,
+            "bytes": 61800448
+          },
+          {
+            "seconds": 9.688,
+            "bytes": 62128128
+          },
+          {
+            "seconds": 9.818,
+            "bytes": 62455808
+          },
+          {
+            "seconds": 9.948,
+            "bytes": 62783488
+          },
+          {
+            "seconds": 10.078,
+            "bytes": 63045632
+          },
+          {
+            "seconds": 10.198,
+            "bytes": 63373312
+          },
+          {
+            "seconds": 10.328,
+            "bytes": 63700992
+          },
+          {
+            "seconds": 10.468,
+            "bytes": 64028672
+          },
+          {
+            "seconds": 10.588,
+            "bytes": 64356352
+          },
+          {
+            "seconds": 10.688,
+            "bytes": 64618496
+          },
+          {
+            "seconds": 10.818,
+            "bytes": 64946176
+          },
+          {
+            "seconds": 10.928,
+            "bytes": 65142784
+          },
+          {
+            "seconds": 11.088,
+            "bytes": 65404928
+          },
+          {
+            "seconds": 11.198,
+            "bytes": 65863680
+          },
+          {
+            "seconds": 11.318,
+            "bytes": 66191360
+          },
+          {
+            "seconds": 11.428,
+            "bytes": 66453504
+          },
+          {
+            "seconds": 11.548,
+            "bytes": 66781184
+          },
+          {
+            "seconds": 11.648,
+            "bytes": 66977792
+          },
+          {
+            "seconds": 11.788,
+            "bytes": 67305472
+          },
+          {
+            "seconds": 11.888,
+            "bytes": 67567616
+          },
+          {
+            "seconds": 12.008,
+            "bytes": 67829760
+          },
+          {
+            "seconds": 12.158,
+            "bytes": 68222976
+          },
+          {
+            "seconds": 12.258,
+            "bytes": 68485120
+          },
+          {
+            "seconds": 12.388,
+            "bytes": 68878336
+          },
+          {
+            "seconds": 12.498,
+            "bytes": 69140480
+          },
+          {
+            "seconds": 12.618,
+            "bytes": 69402624
+          },
+          {
+            "seconds": 12.738,
+            "bytes": 69730304
+          },
+          {
+            "seconds": 12.858,
+            "bytes": 70057984
+          },
+          {
+            "seconds": 12.978,
+            "bytes": 70320128
+          },
+          {
+            "seconds": 13.088,
+            "bytes": 70647808
+          },
+          {
+            "seconds": 13.198,
+            "bytes": 70844416
+          },
+          {
+            "seconds": 13.308,
+            "bytes": 71172096
+          },
+          {
+            "seconds": 13.448,
+            "bytes": 71368704
+          },
+          {
+            "seconds": 13.558,
+            "bytes": 71630848
+          },
+          {
+            "seconds": 13.688,
+            "bytes": 72089600
+          },
+          {
+            "seconds": 13.828,
+            "bytes": 72482816
+          },
+          {
+            "seconds": 13.968,
+            "bytes": 72679424
+          }
+        ]
+      },
+      "all_three_streams_integrity_verified": true,
+      "healthy_carriers_unchanged": true,
+      "inner_retransmissions_through_ready_plus_5s": 2,
+      "raw_artifacts": {
+        "innercc.json": "05ae5c8f97ee6e1a2c4e8740af3b5901a01f4c0507c341c216087e7ef24b513a",
+        "innercc-router.json": "94cd068a900c2bc09087f57f0e4cd71f6b07e04a815555dd10b3768a1f9bcca7"
+      },
+      "intervention_events": [
+        {
+          "event": "inner_cc_diagnostic_begin",
+          "time": 1793838799.0805342,
+          "identity": 65402,
+          "previous": "bbr",
+          "temporary": "cubic",
+          "peer": [
+            "10.9.2.2",
+            65402
+          ]
+        },
+        {
+          "event": "inner_cc_diagnostic_end",
+          "time": 1793838804.081269,
+          "identity": 65402,
+          "restored": true,
+          "same_peer": true
+        }
+      ],
+      "measurement": {
+        "writer_ready_s": 5.047,
+        "threshold_mbps": 18,
+        "definition": "first complete observed receiver interval of at least the requested duration; endpoint confirms average delivery and is not recovery onset",
+        "confirmations": [
+          {
+            "requested_window_s": 1,
+            "observation": {
+              "start_s": 5.108,
+              "end_s": 6.188,
+              "duration_s": 1.08,
+              "mbps": 43.205214814814816,
+              "confirmed_after_ready_s": 1.141,
+              "largest_sample_gap_s": 0.11000000000000032
+            }
+          },
+          {
+            "requested_window_s": 5,
+            "observation": {
+              "start_s": 5.108,
+              "end_s": 10.198,
+              "duration_s": 5.090000000000001,
+              "mbps": 37.28728015717092,
+              "confirmed_after_ready_s": 5.151000000000001,
+              "largest_sample_gap_s": 0.14000000000000057
+            }
+          }
+        ],
+        "carrier_replaced_after_fault_s": 3.467,
+        "writer_ready_after_fault_s": 5.047,
+        "integrity_verified": true
+      },
+      "inner_state_after_admission": [
+        {
+          "after_gate_s": -0.089,
+          "congestion": "bbr",
+          "rtt_us": 1659962,
+          "cwnd": 593,
+          "unacked": 593,
+          "pacing_mbps": 201.596704,
+          "bbr_info": [
+            4043703,
+            0,
+            22424,
+            739,
+            739
+          ]
+        },
+        {
+          "after_gate_s": 0.103,
+          "congestion": "cubic",
+          "rtt_us": 1492226,
+          "cwnd": 692,
+          "unacked": 560,
+          "pacing_mbps": 9.111488,
+          "bbr_info": null
+        },
+        {
+          "after_gate_s": 0.295,
+          "congestion": "cubic",
+          "rtt_us": 71869,
+          "cwnd": 1405,
+          "unacked": 817,
+          "pacing_mbps": 384.10708,
+          "bbr_info": null
+        },
+        {
+          "after_gate_s": 0.483,
+          "congestion": "cubic",
+          "rtt_us": 115216,
+          "cwnd": 1678,
+          "unacked": 816,
+          "pacing_mbps": 286.152168,
+          "bbr_info": null
+        }
+      ]
+    }
+  ],
+  "references": [
+    "https://raw.githubusercontent.com/torvalds/linux/v6.12/net/ipv4/tcp_bbr.c"
+  ],
+  "evidence_archive": {
+    "name": "evidence-artifacts.tar.gz",
+    "sha256": "722683ef10d826d6a58125ea081101dbcbeaa25d8d798a551fdae6d0596538b3",
+    "bytes": 1689221
+  }
+}
