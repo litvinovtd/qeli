@@ -100,7 +100,8 @@ internal static class TunnelIpv6Policy
         }
         string before = Describe(row);
         row.Advertising = 0;
-        row.NeighborUnreachability = 0;
+        // ActiveStore rejects Enabled -> Disabled NUD with ERROR_INVALID_PARAMETER.
+        // Preserve the OS value; it is not part of our automatic address/router policy.
         row.RouterDiscovery = 0; // RouterDiscoveryDisabled
         row.DadTransmits = 0;
         var requested = row;
@@ -112,11 +113,11 @@ internal static class TunnelIpv6Policy
         CheckIdentity(row, luid, "write");
         row = Read("verify");
         Admit();
-        if (!Configured(row))
+        if (!Configured(row) || row.NeighborUnreachability != requested.NeighborUnreachability)
             throw new InvalidOperationException($"Owned tunnel IPv6 discovery policy was not applied; stage=verify; API calls returned win32=0 but readback differs; expected=[{Describe(requested)}]; actual=[{Describe(row)}]");
     }
 
-    private static bool Configured(Row row) => row.Advertising == 0 && row.NeighborUnreachability == 0
+    private static bool Configured(Row row) => row.Advertising == 0
         && row.RouterDiscovery == 0 && row.DadTransmits == 0;
 
     private static string Describe(Row row) =>

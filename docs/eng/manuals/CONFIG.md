@@ -4276,8 +4276,10 @@ import dialog dimensions are stored separately in app settings and clamped to
 the current monitor/DPI. Window placement is not a VPN configuration parameter.
 
 In an IPv6 session, the Qeli-owned Wintun is an L3 link with addresses supplied
-by NetworkPlan: DAD, router discovery and NUD are disabled only on that adapter,
-with readback verification. Local NDP (RS/RA/NS/NA/Redirect with hop limit 255)
+by NetworkPlan: DAD, router discovery and advertising are disabled only on that
+adapter, with readback verification. The current NUD setting is preserved:
+Windows rejects disabling an already enabled NUD in ActiveStore.
+Local NDP (RS/RA/NS/NA/Redirect with hop limit 255)
 is not forwarded through the tunnel, including Windows NS with an invalid SLLA
 option. This rule preserves other ICMPv6, including Echo and Packet Too Big.
 Physical interfaces and WinDivert/per-app mode are not changed by this policy.
@@ -4287,7 +4289,7 @@ When true, “Disable sharing / L2 discovery on Qeli adapter” disables
 only `ms_msclient`, `ms_server`, `ms_lldp`, `ms_lltdio` and `ms_rspndr` on the Wintun created by Qeli. IPv4/IPv6 and third-party filters are not disabled. The creator
 handle and exact LUID/GUID establish ownership; CIM associations select that
 adapter's binding instances without alias wildcards. The operation has a
-5-second deadline and verifies readback and unchanged IP bindings. Failure
+separate 30-second deadline and verifies readback and unchanged IP bindings. Failure
 rejects setup and invokes normal cleanup. Physical/foreign adapters are not
 selected. Service mode uses the same profile setting; WinDivert/per-app does
 not apply it. Other clients preserve it as inactive platform policy. False does

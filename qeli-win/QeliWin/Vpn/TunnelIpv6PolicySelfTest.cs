@@ -7,6 +7,7 @@ internal static class TunnelIpv6PolicySelfTest
 {
     internal static void Run(Action<string, bool> check)
     {
+        WindowsNudConstraints(check);
         var current = new TunnelIpv6Policy.Row {
             Family = 23, Luid = 123, Advertising = 1, NeighborUnreachability = 1,
             RouterDiscovery = 1, DadTransmits = 1, Metric = 37,
@@ -21,9 +22,9 @@ internal static class TunnelIpv6PolicySelfTest
         check("IPv6 policy: requires a created owned adapter", !identityAccepted);
         adapter.Open("QeliPolicyTest", Guid.NewGuid());
         adapter.WithOwnedIdentity((luid, _) => TunnelIpv6Policy.Apply(luid, Read, Write));
-        check("IPv6 policy: disables only local discovery and preserves metric",
+        check("IPv6 policy: disables automatic discovery and preserves NUD and metric",
             writes == 1 && current.Luid == 123 && current.Family == 23 && current.Metric == 37
-            && current.Advertising == 0 && current.NeighborUnreachability == 0
+            && current.Advertising == 0 && current.NeighborUnreachability == 1
             && current.RouterDiscovery == 0 && current.DadTransmits == 0);
         bool rejected = false;
         current.Luid = 456;
@@ -31,7 +32,7 @@ internal static class TunnelIpv6PolicySelfTest
         catch (InvalidOperationException) { rejected = true; }
         check("IPv6 policy: a mismatching interface is never written", rejected && writes == 1);
         current.Luid = 123;
-        current.NeighborUnreachability = 1;
+        current.RouterDiscovery = 1;
         rejected = false;
         int Ignore(ref TunnelIpv6Policy.Row row) => 0;
         try { TunnelIpv6Policy.Apply(123, Read, Ignore); }
@@ -58,6 +59,62 @@ internal static class TunnelIpv6PolicySelfTest
     private static byte[] Bytes(TunnelIpv6Policy.Row row) =>
         MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref row, 1)).ToArray();
 
+    // ActiveStore permits enabling NUD but rejects disabling it with Win32 87.
+    // https://learn.microsoft.com/en-us/powershell/module/nettcpip/set-netipinterface#-neighborunreachabilitydetection
+    private static int ActiveNudStatus(TunnelIpv6Policy.Row before, TunnelIpv6Policy.Row requested) =>
+        before.NeighborUnreachability != 0 && requested.NeighborUnreachability == 0 ? 87 : 0;
+
+    private static void WindowsNudConstraints(Action<string, bool> check)
+    {
+        foreach(byte nud in new byte[] {0,1}) {
+            // Match the reported fresh Wintun, including its not-yet-set MTU.
+            var current=Initial();
+            current.Advertising=0; current.NeighborUnreachability=nud;
+            current.Mtu=65535; current.Metric=5; current.SupportsRouterDiscovery=1;
+            var prohibited=current; prohibited.NeighborUnreachability=0;
+            check($"IPv6 policy: ActiveStore fixture models NUD {nud} -> 0",
+                ActiveNudStatus(current,prohibited)==(nud==1 ? 87 : 0));
+            int reads=0,writes=0,rejected=0;
+            int Read(ref TunnelIpv6Policy.Row row) { reads++; row=current; return 0; }
+            int Write(ref TunnelIpv6Policy.Row row) {
+                writes++;
+                int status=ActiveNudStatus(current,row);
+                if(status!=0) { rejected++; return status; }
+                current=row; return 0;
+            }
+            var failure=Capture(() => TunnelIpv6Policy.Apply(123,Read,Write));
+            check($"IPv6 policy: ActiveStore accepts setup with NUD {nud} preserved",
+                failure==null && writes==1 && reads==2 && rejected==0 &&
+                current.NeighborUnreachability==nud && current.Advertising==0 &&
+                current.RouterDiscovery==0 && current.DadTransmits==0 &&
+                current.Mtu==65535 && current.Metric==5 && current.SupportsNeighborDiscovery==1 &&
+                current.SupportsRouterDiscovery==1);
+            failure=Capture(() => TunnelIpv6Policy.Apply(123,Read,Write));
+            check($"IPv6 policy: configured NUD {nud} needs no repeated write",
+                failure==null && writes==1 && reads==3 && current.NeighborUnreachability==nud);
+        }
+
+        foreach(string changed in new[] {"advertising","router-discovery","dad","nud"}) {
+            var current=Initial();
+            int writes=0;
+            int Read(ref TunnelIpv6Policy.Row row) { row=current; return 0; }
+            int PartialWrite(ref TunnelIpv6Policy.Row row) {
+                writes++; current=row;
+                switch(changed) {
+                    case "advertising": current.Advertising=1; break;
+                    case "router-discovery": current.RouterDiscovery=1; break;
+                    case "dad": current.DadTransmits=1; break;
+                    case "nud": current.NeighborUnreachability=0; break;
+                }
+                return 0;
+            }
+            var failure=Capture(() => TunnelIpv6Policy.Apply(123,Read,PartialWrite));
+            check("IPv6 policy: readback rejects unexpected "+changed,
+                failure is InvalidOperationException && failure.Message.Contains("stage=verify") &&
+                failure.Message.Contains("expected=[") && failure.Message.Contains("actual=[") && writes==1);
+        }
+    }
+
     private static void LayoutAndPreservation(Action<string, bool> check)
     {
         // Offsets are qualified independently against netioapi.h in Windows SDK.
@@ -78,12 +135,12 @@ internal static class TunnelIpv6PolicySelfTest
         current.Family=23; current.Luid=123;
         current.Advertising=1; current.NeighborUnreachability=1; current.RouterDiscovery=1; current.DadTransmits=1;
         var expected=current;
-        expected.Advertising=0; expected.NeighborUnreachability=0; expected.RouterDiscovery=0; expected.DadTransmits=0;
+        expected.Advertising=0; expected.RouterDiscovery=0; expected.DadTransmits=0;
         int reads=0,writes=0;
         int Read(ref TunnelIpv6Policy.Row row) { reads++; row=current; return 0; }
         int Write(ref TunnelIpv6Policy.Row row) { writes++; current=row; return 0; }
         TunnelIpv6Policy.Apply(123,Read,Write);
-        check("IPv6 policy: exactly four policy fields change, every opaque byte preserved", Bytes(current).SequenceEqual(Bytes(expected)));
+        check("IPv6 policy: exactly three policy fields change, NUD and every opaque byte preserved", Bytes(current).SequenceEqual(Bytes(expected)));
         TunnelIpv6Policy.Apply(123,Read,Write);
         check("IPv6 policy: reconnect skips redundant native write", writes==1 && reads==3);
 
