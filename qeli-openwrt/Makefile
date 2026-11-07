@@ -56,7 +56,7 @@ define Package/qeli
   URL:=https://github.com/litvinovtd/qeli
   # ip6tables providers require IPv6; an unconditional virtual dependency
   # generates a recursive Kconfig expression in the 24.10 SDK.
-  DEPENDS:=$(RUST_ARCH_DEPENDS) +kmod-tun +ip-full +iptables +IPV6:ip6tables +ca-bundle
+  DEPENDS:=$(RUST_ARCH_DEPENDS) +kmod-tun +ip-full +iptables +IPV6:ip6tables +ca-bundle +nftables-json +kmod-nft-nat
 endef
 
 define Package/qeli/description
@@ -68,6 +68,7 @@ endef
 
 define Package/qeli/conffiles
 /etc/config/qeli
+/etc/qeli/
 endef
 
 # Client-only build: no default features (drops the server, web panel and `ring`).
@@ -115,7 +116,13 @@ define Package/qeli/install
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/qeli.init $(1)/etc/init.d/qeli
+	$(INSTALL_BIN) ./files/qeli.router.init $(1)/etc/init.d/qeli-router
+	$(INSTALL_BIN) ./files/qeli.guard.init $(1)/etc/init.d/qeli-guard
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+	$(INSTALL_BIN) ./files/98-qeli-policy $(1)/etc/hotplug.d/iface/98-qeli-policy
 
+	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
+	$(INSTALL_DATA) ./files/qeli.sysupgrade $(1)/lib/upgrade/keep.d/qeli
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/qeli.config $(1)/etc/config/qeli
 

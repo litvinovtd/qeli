@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+# Protect VPN-only networks before firewall/network startup; no administrative INPUT changes.
+. /etc/init.d/qeli-router
+USE_PROCD=0
+START=17
+STOP=91
+EXTRA_COMMANDS=""
+EXTRA_HELP=""
+start() {
+    local result
+    qeli_router_prepare bootstrap
+    result=$?
+    [ "$result" != 2 ] || return 0
+    if [ "$result" != 0 ]; then
+        logger -t qeli-guard 'cannot prepare new policy; trying the last owned manifest'
+    fi
+    [ ! -L "$STATEDIR/router.owner" ] && [ -f "$STATEDIR/router.owner" ] &&
+        [ "$(cat "$STATEDIR/router.owner")" = qeli-openwrt-router-v1 ] || return 1
+    "$BIN" router guard --policy "$STATEDIR/router.json"
+}
+stop() { :; }
+reload() { start; }

@@ -23,7 +23,9 @@
 					"service_action",
 					"secret_status",
 					"set_secret",
-					"clear_secret"
+					"clear_secret",
+					"confirm_router_policy",
+					"forget_retained_secrets"
 				]
 			}
 		}

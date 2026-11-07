@@ -1,6 +1,6 @@
 #!/bin/sh
 # /opt/etc/init.d/S99qeli — запуск qeli-client на Keenetic (Entware).
-# Управление: /opt/etc/init.d/S99qeli {start|stop|restart|status}
+# Управление: /opt/etc/init.d/S99qeli {start|stop|restart|status|policy-start|policy-stop|policy-disable|policy-confirm}
 # ⚠️ ШАБЛОН: проверь LAN_IF и имя tun под свою модель/прошивку (`ip a`).
 
 BIN=/opt/bin/qeli-client
@@ -22,10 +22,20 @@ export QELI_DEVICE_ID_FILE=/opt/etc/qeli/device-id
 export QELI_KNOWN_HOSTS=/opt/etc/qeli/known_hosts
 # Published atomically only after qeli has authenticated and committed the host plan.
 export QELI_TUNIP_FILE="$PLAN_STATE"
+# Native, secret-free tunnel state is separate from the process PID record.
+STATUS_DIR=/tmp/qeli-status
+ROUTER_POLICY=/opt/etc/qeli/router.json
+export QELI_CLIENT_STATUS_FORMAT=router
 export PATH=/opt/sbin:/opt/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # One pre-launch canonical query; never parse INI in the shell.
 GATEWAY_OWNER=""
+router_policy_selected() {
+  local marker="${ROUTER_POLICY%.*}.enabled"
+  [ ! -L "$marker" ] && [ -f "$marker" ] &&
+    [ "$(stat -c '%u:%a' "$marker")" = 0:600 ] &&
+    [ "$(cat "$marker")" = qeli-router-v1 ]
+}
 load_gateway_owner() {
   GATEWAY_OWNER=""
   EXPECT_ROUTER_ATTACH=false
@@ -34,6 +44,16 @@ load_gateway_owner() {
     --expect-router-device "$TUN" --expect-router-attach "$EXPECT_ROUTER_ATTACH")" || {
     echo "qeli-client: cannot admit router interface/gateway ownership; check INI and upgrade binary/template together"; return 1;
   }
+  if router_policy_selected; then
+    policy_owner="$("$BIN" router ownership --policy "$ROUTER_POLICY")" || return 1
+    case "$policy_owner" in
+      client)
+        "$BIN" router check --policy "$ROUTER_POLICY" --client-config "${QELI_LAUNCH_CONF:-$CONF}" >/dev/null || return 1
+        GATEWAY_OWNER=core ;; # dedicated policy worker owns scoped rules
+      external) ;;
+      *) return 1 ;;
+    esac
+  fi
   case "$GATEWAY_OWNER" in
     core|legacy) return 0 ;;
     *) echo "qeli-client: invalid gateway ownership response"; return 1 ;;
@@ -154,6 +174,16 @@ nat_up() {
   [ "$GATEWAY" = yes ] || return 0
   # Современный qeli сам управляет обеими семьями, lifecycle sysctl и capability gate.
   # Внешние правила остаются только как совместимость со старыми client.conf.
+  if router_policy_selected; then
+    policy_owner="$("$BIN" router ownership --policy "$ROUTER_POLICY")" || return 1
+    case "$policy_owner" in
+      client)
+        "$BIN" router check --policy "$ROUTER_POLICY" --client-config "${QELI_LAUNCH_CONF:-$CONF}" >/dev/null || return 1
+        GATEWAY_OWNER=core ;; # dedicated policy worker owns scoped rules
+      external) ;;
+      *) return 1 ;;
+    esac
+  fi
   case "$GATEWAY_OWNER" in
     core) return 0 ;;
     legacy) ;;
@@ -341,8 +371,20 @@ start() {
   [ -e /dev/net/tun ] || { echo "нет /dev/net/tun — включи компонент VPN в KeeneticOS"; return 1; }
   qeli_export_state_directory || { echo "qeli-client: cannot resolve firmware /var state root"; return 1; }
   mkdir -p /opt/var/run /opt/var/log || return 1
+  # Resolve firmware aliases before invoking the descriptor-safe native reader.
+  [ ! -L "$STATUS_DIR" ] || return 1
+  (umask 077; mkdir -p "$STATUS_DIR") || return 1
+  [ "$(stat -c '%u:%a' "$STATUS_DIR")" = 0:700 ] || return 1
+  STATUS_DIR="$(readlink -f "$STATUS_DIR")" || return 1
+  export QELI_CLIENT_STATUS="$STATUS_DIR/status.json"
+  if [ -d /opt/etc/qeli/secrets ]; then
+    "$BIN" router restore-secrets --persistent /opt/etc/qeli/secrets --runtime "$STATUS_DIR" || return 1
+  fi
   qeli_prepare_launch_config "$CONF" || return 1
   load_gateway_owner || return 1
+  if router_policy_selected; then
+    "$BIN" router start --policy "$ROUTER_POLICY" || return 1
+  fi
   if [ -f "$SYSCTL_STATE" ]; then nat_down || return 1; fi
   rm -f "$PIDFILE" "$PLAN_STATE" || return 1
   PID_TMP="$(mktemp "$PIDFILE.XXXXXX")" || return 1
@@ -408,14 +450,28 @@ case "$1" in
   start) start ;;
   stop) stop ;;
   restart) stop && start ;;
+  policy-start) "$BIN" router start --policy "$ROUTER_POLICY" ;;
+  policy-stop) "$BIN" router stop --policy "$ROUTER_POLICY" ;;
+  policy-disable) "$BIN" router disable --policy "$ROUTER_POLICY" ;;
+  policy-confirm) "$BIN" router confirm --policy "$ROUTER_POLICY" ;;
   status)
     if [ ! -e "$PIDFILE" ]; then echo stopped; exit 3; fi
     read_pid || { echo "unverified PID record"; exit 4; }
     owned_process_status; process_status=$?
     case "$process_status" in
-      0) echo "running (pid $PROC_PID)" ;;
+      0)
+        echo "process running (pid $PROC_PID)"
+        status_root="$(readlink -f "$STATUS_DIR")" || exit 4
+        if [ -f "$status_root/status.json" ]; then
+          "$BIN" router status --file "$status_root/status.json" --pid-file "$PIDFILE" --device "$TUN" || {
+            echo '{"available":false}'; exit 4;
+          }
+        else
+          echo '{"available":false}'
+        fi
+        ;;
       1) echo stopped; exit 3 ;;
       *) echo "unverified PID identity"; exit 4 ;;
     esac ;;
-  *) echo "usage: $0 {start|stop|restart|status}"; exit 1 ;;
+  *) echo "usage: $0 {start|stop|restart|status|policy-start|policy-stop|policy-disable|policy-confirm}"; exit 1 ;;
 esac

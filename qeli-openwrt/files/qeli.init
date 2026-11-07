@@ -29,11 +29,13 @@ qeli_state_directory() {
 	printf '%s/lib/qeli' "${root%/}"
 }
 
-EXTRA_COMMANDS="set_secret clear_secrets status_enabled"
+EXTRA_COMMANDS="set_secret clear_secrets status_enabled forget_retained_secrets confirm_router"
 EXTRA_HELP="
 	set_secret <pass|obfs_key>  Read one secret line from stdin into tmpfs
 	clear_secrets [name]        Remove one or all volatile secrets
-	status_enabled              Exit 0/1 for init-visible enabled/disabled intent"
+	status_enabled              Exit 0/1 for init-visible enabled/disabled intent
+    forget_retained_secrets    Delete retained credentials (RAM values stay until cleared)
+    confirm_router             Confirm the current provisional router policy"
 
 # Strip CR/LF (and every other control character) from a UCI value.
 #
@@ -127,11 +129,38 @@ status_enabled() {
 	[ "$enabled" = 1 ]
 }
 
+ensure_state_dir() {
+    local mode
+    [ ! -L "$STATEDIR" ] && { [ ! -e "$STATEDIR" ] || [ -d "$STATEDIR" ]; } || return 1
+    (umask 077; mkdir -p "$STATEDIR") || return 1
+    [ "$(stat -c '%u' "$STATEDIR")" = 0 ] || return 1
+    mode="$(stat -c '%a' "$STATEDIR")" || return 1
+    case "$mode" in ''|*[!0-7]*) return 1 ;; esac
+    [ "$((0$mode & 022))" = 0 ] || return 1
+    chmod 700 "$STATEDIR"
+}
 set_secret() {
-	local name="$1" value
-	[ -n "$name" ] || { logger -t qeli "ERROR: usage: /etc/init.d/qeli set_secret <pass|obfs_key>"; return 2; }
-	IFS= read -r value || { logger -t qeli "ERROR: expected one secret line on stdin"; return 2; }
-	write_runtime_secret_value "$name" "$value"
+    local name="$1" value retain secret_name
+    case "$name" in pass|obfs_key) ;; *) return 2 ;; esac
+    IFS= read -r value || return 2
+    config_load qeli || return 1
+    config_get_bool retain main retain_secrets 0
+    if [ "$retain" = 1 ]; then
+        ensure_state_dir || return 1
+        secret_name=pass
+        [ "$name" != obfs_key ] || secret_name=obfs-key
+        printf '%s\n' "$value" | "$BIN" router store-secret --directory "$STATEDIR/secrets" --name "$secret_name" || return 1
+    fi
+    write_runtime_secret_value "$name" "$value"
+}
+
+forget_retained_secrets() {
+    [ -d "$STATEDIR/secrets" ] || return 0
+    "$BIN" router forget-secret --directory "$STATEDIR/secrets" --name pass || return 1
+    "$BIN" router forget-secret --directory "$STATEDIR/secrets" --name obfs-key
+}
+confirm_router() {
+    "$BIN" router confirm --policy "$STATEDIR/router.json"
 }
 
 clear_secrets() {
@@ -198,6 +227,8 @@ render_conf_file() {
 	config_get_bool quic  main quic       0
 	config_get reality_sid main reality_sid
 	config_get_bool gateway main gateway   0          # 0 = split-tunnel (safe default)
+    local router_routing
+    config_get router_routing main router_routing external
 	config_get ipv6       main ipv6       auto
 	config_get dns        main dns        off
 	dns_servers=""
@@ -254,6 +285,7 @@ render_conf_file() {
 	ini_kv reality_sid "$reality_sid" || return 1
 	# Routing: full-tunnel only on explicit opt-in (`gateway = false` => split).
 	if [ "$gateway" = 1 ]; then echo "gateway = true" >> "$CONF" || return 1; else echo "gateway = false" >> "$CONF" || return 1; fi
+    if [ "$router_routing" = client ]; then echo 'pull_routes = false' >> "$CONF" || return 1; fi
 	ini_kv ipv6 "$ipv6" || return 1
 	# Pre-IPv6 packages overloaded `dns` with either a mode OR a comma-separated resolver
 	# list. Preserve those installed configs, but render the unambiguous flat-INI keys the
@@ -445,6 +477,15 @@ qeli_start_service() {
 
 	local enabled
 	config_get_bool enabled main enabled 0
+    local router_routing router_firewall
+    config_get router_routing main router_routing external
+    config_get router_firewall main router_firewall external
+    if [ "$router_routing:$router_firewall" != external:external ] || {
+        [ ! -L "$STATEDIR/router.owner" ] && [ -f "$STATEDIR/router.owner" ] &&
+        [ "$(cat "$STATEDIR/router.owner")" = qeli-openwrt-router-v1 ];
+    }; then
+        [ -x /etc/init.d/qeli-router ] && /etc/init.d/qeli-router start || return 1
+    fi
 	[ "$enabled" = 1 ] || { logger -t qeli "service disabled (uci set qeli.main.enabled=1)"; return 0; }
 
 	[ -x "$BIN" ] || { logger -t qeli "ERROR: $BIN missing"; return 1; }
@@ -452,8 +493,26 @@ qeli_start_service() {
 	local journal_dir
 	journal_dir="$(qeli_state_directory)" || { logger -t qeli "ERROR: cannot resolve firmware /var state root"; return 1; }
 
-	render_conf || return 1
-	mkdir -p "$STATEDIR" || return 1
+    # Persistent credentials are opt-in; existing installations remain RAM-only.
+    local retain runtime_root
+    config_get_bool retain main retain_secrets 0
+    if [ "$retain" = 1 ]; then
+        ensure_runtime_dir && ensure_state_dir || return 1
+        runtime_root="$(readlink -f "$RUNDIR")" || return 1
+        # First explicit opt-in also retains an already configured RAM password.
+        # Existing retained files remain authoritative; set_secret updates both.
+        if [ -s "$PASS_FILE" ] && [ ! -e "$STATEDIR/secrets/password" ] && [ ! -L "$STATEDIR/secrets/password" ]; then
+            "$BIN" router store-secret --directory "$STATEDIR/secrets" --name pass < "$PASS_FILE" || return 1
+        fi
+        if [ -s "$OBFS_KEY_FILE" ] && [ ! -e "$STATEDIR/secrets/obfs-key" ] && [ ! -L "$STATEDIR/secrets/obfs-key" ]; then
+            "$BIN" router store-secret --directory "$STATEDIR/secrets" --name obfs-key < "$OBFS_KEY_FILE" || return 1
+        fi
+        if [ -d "$STATEDIR/secrets" ]; then
+            "$BIN" router restore-secrets --persistent "$STATEDIR/secrets" --runtime "$runtime_root" || return 1
+        fi
+    fi
+    render_conf || return 1
+    ensure_state_dir || return 1
 	sync_firewall_device || return 1
 
 	procd_open_instance qeli
@@ -469,8 +528,8 @@ qeli_start_service() {
 	procd_set_param pidfile "$RUNDIR/qeli.pid"
 	# Re-render + restart when the UCI config changes.
 	procd_add_reload_trigger qeli
-	procd_close_instance
-	logger -t qeli "started (server from uci, dev $(uci -q get qeli.main.dev || echo qeli0))"
+    procd_close_instance
+    logger -t qeli "started (server from uci, dev $(uci -q get qeli.main.dev || echo qeli0))"
 }
 
 stop_service() {
@@ -481,7 +540,10 @@ stop_service() {
 }
 
 reload_service() {
-	restart
+    # procd compares command/env/file contents. A policy-only change replaces
+    # its own instance while retaining the admitted VPN process and sockets.
+    # A changed client INI/secret still restarts that instance through procd.
+    start
 }
 
 service_triggers() {

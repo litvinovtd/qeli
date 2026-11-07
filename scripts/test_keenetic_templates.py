@@ -91,6 +91,7 @@ esac
         text=text.replace('export PATH=/opt/sbin:/opt/bin:/usr/sbin:/usr/bin:/sbin:/bin',
             'export PATH="$QELI_FIXTURE_BIN"')
         text=text.replace('/opt/',str(self.opt)+'/')
+        text=text.replace('/tmp/qeli-status',str(self.root/'qeli-status'))
         text=text.replace('/dev/net/tun',str(self.root/'tun'))
         target.write_text(text);return target
 

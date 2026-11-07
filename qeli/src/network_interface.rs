@@ -57,6 +57,23 @@ pub(crate) fn index(name: &str) -> io::Result<Option<u32>> {
     }
 }
 
+/// Link identity and UP flags in the calling namespace, including TUN interfaces.
+pub(crate) fn state(name: &str) -> io::Result<Option<(u32, u16)>> {
+    let query = Query::open()?;
+    let index = match query.index(name) {
+        Ok(value) => value,
+        Err(error) if error.raw_os_error() == Some(libc::ENODEV) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let value = query.request(name, libc::SIOCGIFFLAGS as _)?;
+    // SAFETY: successful SIOCGIFFLAGS initialized this union member.
+    let flags = unsafe { value.ifr_ifru.ifru_flags } as u16;
+    if query.index(name)? != index {
+        return Err(io::Error::other("interface changed during status query"));
+    }
+    Ok(Some((index, flags)))
+}
+
 /// Observe both fields through one socket pinned to the same namespace. The second
 /// index query detects ordinary rename/replacement during observation; it does not
 /// make a subsequent operation atomic against privileged external link changes.

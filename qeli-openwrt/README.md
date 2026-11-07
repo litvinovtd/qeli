@@ -1,5 +1,7 @@
 # qeli for OpenWrt (client)
 
+Optional router integration: [manual/client ownership, native status, rollback and limitations](../docs/eng/manuals/ROUTER-INTEGRATION.md) (experimental source feature).
+
 Installation guide: [Русский](../docs/ru/manuals/OPENWRT-INSTALL.md) · [English](../docs/eng/manuals/OPENWRT-INSTALL.md).
 
 > **0.8.3 router state fix (issue #205).** Update the binary and init script together.

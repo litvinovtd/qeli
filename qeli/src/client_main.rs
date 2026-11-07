@@ -23,6 +23,8 @@ mod embedded_licenses;
 
 #[derive(clap::Subcommand)]
 enum Command {
+    /// Optional router policy, live state and credential integration.
+    Router(qeli::router::RouterArgs),
     /// View or export original license resources without loading a VPN configuration.
     Licenses {
         #[arg(long, conflicts_with_all = ["export", "list"])]
@@ -60,9 +62,13 @@ struct Cli {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    if let Some(Command::Licenses { file, export, list }) = cli.command {
-        embedded_licenses::run(file.as_deref(), export.as_deref(), list)?;
-        return Ok(());
+    match cli.command {
+        Some(Command::Licenses { file, export, list }) => {
+            embedded_licenses::run(file.as_deref(), export.as_deref(), list)?;
+            return Ok(());
+        }
+        Some(Command::Router(args)) => return qeli::router::run(args).await,
+        None => {}
     }
     if cli.print_gateway_owner {
         let expected = cli

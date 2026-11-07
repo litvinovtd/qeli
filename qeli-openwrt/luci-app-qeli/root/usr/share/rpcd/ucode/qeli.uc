@@ -130,7 +130,7 @@ function tunnelStatus(process) {
             run_id: runtime.run_id,
             device: tunnel.device,
             retry_in_secs: type(tunnel.retry_in_secs) == 'int' && tunnel.retry_in_secs >= 0 ? tunnel.retry_in_secs : null,
-            last_error_code: type(tunnel.last_error_code) == 'string' && match(tunnel.last_error_code, /^(core_-[0-9]+|connection_failed|client_failed)$/) ? tunnel.last_error_code : null,
+            last_error_code: type(tunnel.last_error_code) == 'string' && match(tunnel.last_error_code, /^(core_-[0-9]+|connection_failed|client_failed|network_not_ready)$/) ? tunnel.last_error_code : null,
         };
     } catch (e) {
         return unavailable;
@@ -138,6 +138,18 @@ function tunnelStatus(process) {
 }
 
 const methods = {
+    confirm_router_policy: {
+        call: function() {
+            const code = system('/etc/init.d/qeli confirm_router >/dev/null 2>&1');
+            return { result: code === 0, code };
+        }
+    },
+    forget_retained_secrets: {
+        call: function() {
+            const code = system('/etc/init.d/qeli forget_retained_secrets >/dev/null 2>&1');
+            return { result: code === 0, code };
+        }
+    },
 	service_status: {
 		call: function() {
 			const code = system('/etc/init.d/qeli status_enabled >/dev/null 2>&1');

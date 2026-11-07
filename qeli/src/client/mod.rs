@@ -14,6 +14,9 @@ pub mod killswitch;
 mod network_lease;
 #[cfg(target_os = "linux")]
 mod network_task;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "openwrt_status_tests.rs"]
+mod openwrt_status_tests;
 #[cfg(target_os = "linux")]
 mod plan_publication;
 #[cfg(all(target_os = "linux", feature = "experimental-roaming"))]
@@ -22,9 +25,6 @@ mod roaming_linux;
 pub mod route;
 #[cfg(target_os = "linux")]
 mod status_writer;
-#[cfg(all(test, target_os = "linux"))]
-#[path = "openwrt_status_tests.rs"]
-mod openwrt_status_tests;
 mod tcp_attach;
 #[cfg(target_os = "linux")]
 mod tun_recovery;
@@ -1883,7 +1883,10 @@ impl ClientStatusReporter {
         let profile =
             std::env::var("QELI_CLIENT_PROFILE").unwrap_or_else(|_| "standalone".to_string());
         let (sender, writer) = match path {
-            Some(path) => match status_writer::Writer::start(move |body: serde_json::Value| {
+            Some(path) => match status_writer::Writer::start(move |mut body: serde_json::Value| {
+                // Kernel readiness is sampled on the owned writer thread, outside
+                // the transport runtime/state lock. OpkgTun addresses belong to ndm.
+                crate::router_status::project(&mut body);
                 if let Some(parent) = path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
@@ -1923,7 +1926,10 @@ impl ClientStatusReporter {
                 })),
                 identity: status_writer::ProcessIdentity::current(),
                 device: device.to_string(),
-                openwrt: std::env::var("QELI_CLIENT_STATUS_FORMAT").as_deref() == Ok("openwrt"),
+                openwrt: matches!(
+                    std::env::var("QELI_CLIENT_STATUS_FORMAT").as_deref(),
+                    Ok("openwrt" | "router")
+                ),
             },
             writer,
         )
@@ -1966,10 +1972,7 @@ impl ClientStatusReporter {
             if state == ClientState::Running {
                 current.last_error = None;
                 current.last_error_code = None;
-                current.tun_ifindex =
-                    std::fs::read_to_string(format!("/sys/class/net/{}/ifindex", self.device))
-                        .ok()
-                        .and_then(|value| value.trim().parse::<u32>().ok());
+                current.tun_ifindex = crate::network_interface::index(&self.device).ok().flatten();
             } else {
                 current.tun_ifindex = None;
                 current.tcp_live = None;
@@ -2065,6 +2068,9 @@ impl ClientStatusReporter {
                     "state": state,
                     "device": self.device,
                     "ifindex": current.tun_ifindex,
+                    "addresses": current.plan.as_ref().and_then(|plan| plan["addresses"].as_array()).map(|addresses| {
+                        addresses.iter().filter_map(|address| address["address"].as_str()?.parse::<std::net::IpAddr>().ok()).collect::<Vec<_>>()
+                    }).unwrap_or_default(),
                     "last_error_code": current.last_error_code,
                     "retry_in_secs": retry_in_secs,
                 },

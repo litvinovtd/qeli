@@ -46,6 +46,8 @@ RUNDIR="$QELI_TEST_ROOT/run"
 PASS_FILE="$RUNDIR/password"
 OBFS_KEY_FILE="$RUNDIR/obfs-key"
 logger() { :; }
+config_load() { :; }
+config_get_bool() { eval "$1=0"; }
 printf '%s\n' "$@" > "$QELI_TEST_ROOT/argv"
 cat "/proc/$PPID/cmdline" > "$QELI_TEST_ROOT/parent-argv"
 [ "${QELI_TEST_CHILD_FAIL:-0}" = 0 ] || exit "$QELI_TEST_CHILD_FAIL"

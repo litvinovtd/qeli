@@ -1,5 +1,7 @@
 # qeli-client на Keenetic (Entware) — IPv4/IPv6 деплой
 
+Optional router integration: [manual/client ownership, native status, rollback and limitations](../../docs/eng/manuals/ROUTER-INTEGRATION.md) (experimental source feature).
+
 Запуск qeli-VPN-клиента на роутере Keenetic как шлюза для всего LAN.
 **Подробный пошаговый гайд (по шагам, с проверкой туннеля) — [docs/*/manuals/KEENETIC-DEPLOY.md](../../docs/ru/manuals/KEENETIC-DEPLOY.md).**
 План и обоснование порта — [docs/*/reference/KEENETIC-PORT.md](../../docs/ru/reference/KEENETIC-PORT.md).

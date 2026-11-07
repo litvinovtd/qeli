@@ -1,0 +1,9 @@
+#!/bin/sh
+# Packaged event adapter; DHCP/PPP/interface recovery never requires a custom script.
+case "$ACTION" in
+    ifup|ifupdate)
+        /etc/init.d/qeli-router reload >/dev/null 2>&1
+        # procd retains an unchanged client command/INI; enable late/offline startup.
+        /etc/init.d/qeli reload >/dev/null 2>&1
+        ;;
+esac

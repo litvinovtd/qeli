@@ -304,3 +304,9 @@ pub mod server;
 pub mod tun;
 #[cfg(all(target_os = "linux", feature = "server"))]
 pub mod web;
+
+#[cfg(all(target_os = "linux", feature = "client-bin"))]
+pub mod router;
+
+#[cfg(all(target_os = "linux", feature = "client"))]
+mod router_status;

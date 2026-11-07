@@ -34,6 +34,13 @@ var callQeliSetSecret = rpc.declare({
 	expect: { result: false }
 });
 
+var callQeliConfirmPolicy = rpc.declare({
+    object: 'luci.qeli', method: 'confirm_router_policy', expect: { result: false }
+});
+var callQeliForgetRetained = rpc.declare({
+    object: 'luci.qeli', method: 'forget_retained_secrets', expect: { result: false }
+});
+
 var callQeliClearSecret = rpc.declare({
 	object: 'luci.qeli',
 	method: 'clear_secret',
@@ -227,8 +234,8 @@ return view.extend({
 
 		// Underscored options are intentionally not UCI-backed. UCI is persistent flash;
 		// these write through the package-owned RPC into root-only /var/run/qeli instead.
-		o = s.option(form.Value, '_runtime_pass', _('Password (volatile)'),
-			_('Stored only in tmpfs until reboot. Current state: %s. Leave empty to keep it unchanged.')
+		o = s.option(form.Value, '_runtime_pass', _('Password'),
+			_('RAM-only by default. The explicit Retain credentials option below enables persistent storage. Current state: %s. Leave empty to keep it unchanged.')
 				.format(secretStatus.pass ? _('configured') : _('missing')));
 		o.password = true;
 		o.rmempty = true;
@@ -271,8 +278,8 @@ return view.extend({
 		o = s.option(form.Value, 'reality_sid', _('REALITY short_id'));
 		o.depends('mode', 'reality-tls');
 
-		o = s.option(form.Value, '_runtime_obfs_key', _('obfs key (volatile)'),
-			_('Required for obfs and stored only in tmpfs until reboot. Current state: %s. Leave empty to keep it unchanged.')
+		o = s.option(form.Value, '_runtime_obfs_key', _('obfs key'),
+			_('Required for obfs; RAM-only unless persistent storage is explicitly enabled. Current state: %s. Leave empty to keep it unchanged.')
 				.format(secretStatus.obfs_key ? _('configured') : _('missing')));
 		o.depends('mode', 'obfs');
 		o.password = true;
@@ -364,6 +371,45 @@ return view.extend({
 		o.value('epoch', _('1782000603.259 (unix)'));
 		o.default = 'none';
 
-		return m.render();
+        s = m.section(form.NamedSection, 'main', 'qeli', _('Router integration'));
+        s.addremove = false;
+        o = s.option(form.ListValue, 'router_routing', _('Routing owner'),
+            _('External keeps your scripts, mwan3/PBR or firmware policies. Client enables explicit per-network policies from the JSON below. Disable full-tunnel and core kill-switch before using it. The first activation rolls back after 120 seconds unless confirmed.'));
+        o.value('external', _('External / manual scripts (default)'));
+        o.value('client', _('Qeli client (experimental)'));
+        o.default = 'external';
+        o = s.option(form.ListValue, 'router_firewall', _('Scoped firewall owner'));
+        o.value('external', _('External / manual scripts (default)'));
+        o.value('client', _('Qeli client (experimental)'));
+        o.default = 'external';
+        o = s.option(form.TextValue, 'router_policy', _('Advanced router policy (JSON)'),
+            _('Use qeli-client router discover and router example to select actual Linux devices, WAN probes, source subnets and all server IPs. This does not create Wi-Fi networks, alter administrative access or replace your DNS service. VPN-only requires the managed firewall. Forwarding offload must be disabled first.'));
+        o.rows = 14;
+        o.default = '{}';
+        o.validate = function(section, value) {
+            try { var p = JSON.parse(value || '{}'); return p && typeof p === 'object' && !Array.isArray(p) ? true : _('Expected a JSON object.'); }
+            catch (e) { return _('Invalid JSON.'); }
+        };
+        o = s.option(form.Flag, 'retain_secrets', _('Retain credentials across reboot'),
+            _('Opt in to root-only persistent files in /etc/qeli/secrets. Apply this choice first, then enter the password/key again. Off keeps existing RAM-only behavior; it does not erase previously retained files. Use the documented forget_retained_secrets command to delete them.'));
+        o.default = '0';
+        o = s.option(form.Button, '_confirm_router_policy', _('Confirm router policy'),
+            _('Use only after checking a fresh management connection. Otherwise the independent watchdog restores the previous policy.'));
+        o.onclick = function() {
+            return callQeliConfirmPolicy().then(function(ok) {
+                if (!ok) throw new Error(_('No current provisional policy could be confirmed.'));
+                ui.addNotification(null, E('p', _('Router policy confirmed.')), 'info');
+            });
+        };
+        o = s.option(form.Button, '_forget_retained_secrets', _('Delete retained credentials'),
+            _('Deletes persistent password/key files. Existing RAM values and the running session remain until explicitly cleared/restarted.'));
+        o.inputstyle = 'remove';
+        o.onclick = function() {
+            return callQeliForgetRetained().then(function(ok) {
+                if (!ok) throw new Error(_('Could not delete retained credentials.'));
+                ui.addNotification(null, E('p', _('Retained credentials deleted.')), 'info');
+            });
+        };
+        return m.render();
 	}
 });
