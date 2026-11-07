@@ -190,9 +190,60 @@ esac
             result=self.result(self.call('clear_secret',{'name':name}))
             self.assertFalse(result['result']);self.assertNotEqual(result['code'],0)
         self.assertEqual(self.call('clear_secret',{'name':'unknown'}).returncode,2)
+    def test_tunnel_status_validates_run_freshness_tun_and_whitelists_fields(self):
+        # Actual ucode/fs and our real Python process. Only the fixed ubus response
+        # and /sys TUN reads are mapped to owned fixtures.
+        stat = Path('/proc/self/stat').read_text()
+        start = stat[stat.rfind(')') + 1:].split()[19]
+        boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+        pid = os.getpid()
+        now = int(float(Path('/proc/uptime').read_text().split()[0]) * 1000)
+        runtime = {'pid':pid, 'start_ticks':start, 'boot_id':boot,
+                   'run_id':f'{boot}:{pid}:{start}', 'updated_boottime_ms':now}
+        report = {'schema':1, 'runtime':runtime,
+                  'tunnel':{'state':'connected', 'device':'qeli0', 'ifindex':42,
+                            'last_error_code':None, 'retry_in_secs':None},
+                  'last_error':'qeli://secret'}
+        (self.root/'ubus').write_text('#!/bin/sh\ncat "' + str(self.root/'service.json') + '"\n')
+        (self.root/'ubus').chmod(0o700)
+        service = {'qeli':{'instances':{'qeli':{'running':True, 'pid':pid}}}}
+        (self.root/'service.json').write_text(json.dumps(service))
+        link = self.root/'link'; link.mkdir()
+        (link/'ifindex').write_text('42\n'); (link/'flags').write_text('0x1001\n')
+        self.module.write_text(self.module.read_text().replace("'/sys/class/net/' + tunnel.device", repr(str(link.parent) + '/') + ' + "link"'))
+        env = {'PATH':str(self.root) + ':' + os.environ['PATH']}
+        def read(value=report):
+            (self.run/'status.json').write_text(json.dumps(value))
+            return self.result(self.call('service_status', **env))
+        valid = read()
+        self.assertTrue(valid['running'])
+        self.assertEqual(valid['tunnel']['state'], 'connected')
+        self.assertTrue(valid['tunnel']['available'])
+        self.assertNotIn('secret', json.dumps(valid))
+        for key, value in [('pid',pid+1), ('start_ticks',start+'0'), ('boot_id','old-boot'),
+                           ('run_id','old-run'), ('updated_boottime_ms',now-30000),
+                           ('updated_boottime_ms',now+30000)]:
+            with self.subTest(key=key, value=value):
+                bad = json.loads(json.dumps(report)); bad['runtime'][key] = value
+                self.assertFalse(read(bad)['tunnel']['available'])
+        for field, value in [('ifindex',43), ('device','../wan'), ('state','invented')]:
+            bad = json.loads(json.dumps(report)); bad['tunnel'][field] = value
+            self.assertFalse(read(bad)['tunnel']['available'])
+        (link/'flags').write_text('0\n')
+        self.assertFalse(read()['tunnel']['available'])
+        for state in ['connecting','reconnecting','stopped','error']:
+            report['tunnel']['state'] = state
+            self.assertEqual(read()['tunnel']['state'], state)
+        service['qeli']['instances']['qeli']['running'] = False
+        (self.root/'service.json').write_text(json.dumps(service))
+        result = read()
+        self.assertFalse(result['running']); self.assertFalse(result['tunnel']['available'])
+        (self.run/'status.json').write_text('{broken')
+        self.assertFalse(self.result(self.call('service_status', **env))['tunnel']['available'])
+
     def test_service_status_preserves_error_as_unknown(self):
         for code,wanted in [(0,True),(1,False),(2,None)]:
-            self.assertEqual(self.result(self.call('service_status',QELI_TEST_STATUS=str(code))),{'enabled':wanted})
+            self.assertEqual(self.result(self.call('service_status',QELI_TEST_STATUS=str(code)))['enabled'],wanted)
     def test_closed_service_actions_and_failure_result(self):
         for action in ['start','stop','restart','enable','disable']:
             self.assertEqual(self.result(self.call('service_action',{'action':action})),{'result':True,'code':0})

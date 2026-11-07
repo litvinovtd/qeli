@@ -6,14 +6,6 @@
 'require poll';
 'require ui';
 
-// procd/ubus: is the qeli service instance running?
-var callServiceList = rpc.declare({
-	object: 'service',
-	method: 'list',
-	params: [ 'name' ],
-	expect: { '': {} }
-});
-
 // Package-owned rpcd endpoint; unlike luci.setInitAction it cannot control other services.
 var callQeliServiceAction = rpc.declare({
 	object: 'luci.qeli',
@@ -48,16 +40,6 @@ var callQeliClearSecret = rpc.declare({
 	params: [ 'name' ],
 	expect: { result: false }
 });
-
-function getRunning() {
-	return L.resolveDefault(callServiceList('qeli'), {}).then(function (res) {
-		try {
-			var inst = res['qeli']['instances'];
-			for (var k in inst) if (inst[k].running) return true;
-		} catch (e) {}
-		return false;
-	});
-}
 
 function svc(action) {
 	return callQeliServiceAction(action).then(function (ok) {
@@ -119,35 +101,53 @@ function controlService(action) {
 	return result;
 }
 
-// Autostart intent, as the init script actually reads it. `start_service` refuses to run
-// unless `qeli.main.enabled` is 1, so the rc.d symlink alone decides nothing here — the
-// UCI flag is the real switch, and the status line has to show it or a "stopped" tunnel
-// that will silently come back on the next boot looks identical to one that will not. (C-21)
-function getEnabled() {
-	return callQeliServiceStatus().then(function (status) {
-		return status && typeof status.enabled === 'boolean' ? status.enabled : null;
-	}).catch(function () { return null; });
-}
-
 function statusText(running, enabled) {
-	if (running) return _('● connected / running');
+	if (running === null) return _('Process status unavailable');
+	if (running) return _('Process running');
 	if (enabled === null) return _('○ stopped (autostart state unavailable)');
 	return enabled ? _('○ stopped (autostart ON — starts again on boot)') : _('○ stopped');
+}
+
+function getTunnelStatus() {
+    return callQeliServiceStatus().catch(function () { return {}; });
+}
+
+function tunnelText(status) {
+    var tunnel = status && status.tunnel;
+    if (!tunnel || tunnel.available !== true) return _('Tunnel status unavailable');
+    switch (tunnel.state) {
+    case 'connected': return _('Connected');
+    case 'connecting': return _('Connecting');
+    case 'reconnecting':
+        return typeof tunnel.retry_in_secs === 'number' && tunnel.retry_in_secs > 0
+            ? _('Reconnecting in %s s').format(tunnel.retry_in_secs) : _('Reconnecting');
+    case 'stopped': return _('Stopped');
+    case 'error': return _('Error');
+    default: return _('Tunnel status unavailable');
+    }
+}
+
+function tunnelColor(status) {
+    var tunnel = status && status.tunnel;
+    if (!tunnel || tunnel.available !== true) return '#666';
+    if (tunnel.state === 'connected') return '#2e7d32';
+    if (tunnel.state === 'connecting' || tunnel.state === 'reconnecting') return '#9a6700';
+    return '#b71c1c';
 }
 
 return view.extend({
 	load: function () {
 		return Promise.all([
-			getRunning(),
-			getEnabled(),
+			getTunnelStatus(),
 			L.resolveDefault(callQeliSecretStatus(), { pass: false, obfs_key: false })
 		]);
 	},
 
 	render: function (data) {
-		var running = data[0];
-		var enabled = data[1];
-		var secretStatus = data[2] || { pass: false, obfs_key: false };
+		var status = data[0] || {};
+		var running = typeof status.running === 'boolean' ? status.running : null;
+		var enabled = typeof status.enabled === 'boolean' ? status.enabled : null;
+		var secretStatus = data[1] || { pass: false, obfs_key: false };
 		var m, s, o;
 
 		m = new form.Map('qeli', _('qeli VPN client'),
@@ -164,9 +164,10 @@ return view.extend({
 				E('h3', _('Status')),
 				E('p', {}, [
 					E('span', { style: 'font-weight:bold' },
-						E('span', { style: 'color:' + (running ? '#2e7d32' : '#b71c1c') },
-							statusText(running, enabled))),
+						E('span', { class: 'qeli-tunnel-status', style: 'color:' + tunnelColor(status) },
+							tunnelText(status))),
 				]),
+				E('p', { class: 'qeli-process-status' }, statusText(running, enabled)),
 				E('div', { class: 'cbi-section-actions' }, [
 					// Connect must set the UCI flag too: `start_service` returns immediately
 					// when `qeli.main.enabled` is 0, so enable+start alone did nothing at all
@@ -190,13 +191,17 @@ return view.extend({
 			]);
 			// live status refresh
 			poll.add(function () {
-				// Poll both: a tunnel can be stopped-but-enabled, and that difference is
-				// exactly what the old single-value status hid. (C-21)
-				return Promise.all([ getRunning(), getEnabled() ]).then(function (v) {
-					var dot = view.querySelector('span span');
-					if (!dot) return;
-					dot.textContent = statusText(v[0], v[1]);
-					dot.style.color = v[0] ? '#2e7d32' : '#b71c1c';
+				// One RPC keeps process state separate from the validated tunnel report.
+				return getTunnelStatus().then(function (status) {
+					var dot = view.querySelector('.qeli-tunnel-status');
+					var process = view.querySelector('.qeli-process-status');
+					if (dot) {
+						dot.textContent = tunnelText(status);
+						dot.style.color = tunnelColor(status);
+					}
+					if (process) process.textContent = statusText(
+						typeof status.running === 'boolean' ? status.running : null,
+						typeof status.enabled === 'boolean' ? status.enabled : null);
 				});
 			}, 5);
 			return view;

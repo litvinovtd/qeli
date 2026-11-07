@@ -40,8 +40,11 @@ function fixture(options = {}) {
         }
     });
     vm.runInContext("String.prototype.format = function(v) { return this.replace('%s',v); };", context);
-    vm.runInContext('(function(){' + source.replace('return view.extend({', 'globalThis.audit = { controlService, getEnabled, statusText, setSecret }; return view.extend({') + '\n})()', context);
-    return { control: context.audit.controlService, status: context.audit.getEnabled, text: context.audit.statusText, secret: context.audit.setSecret, events };
+    vm.runInContext('(function(){' + source.replace('return view.extend({', 'globalThis.audit = { controlService, getTunnelStatus, statusText, setSecret, tunnelText, tunnelColor }; return view.extend({') + '\n})()', context);
+    return { control: context.audit.controlService, status: async () => {
+        const value = await context.audit.getTunnelStatus();
+        return typeof value.enabled === 'boolean' ? value.enabled : null;
+    }, text: context.audit.statusText, secret: context.audit.setSecret, events, tunnelText: context.audit.tunnelText, tunnelColor: context.audit.tunnelColor };
 }
 async function flush() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
 (async () => {
@@ -116,6 +119,20 @@ async function flush() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
         assert.deepEqual(acl.read.ubus['luci.qeli'], ['service_status']);
         assert.ok(!acl.read.ubus['luci.qeli'].includes('service_action'));
         assert.deepEqual(acl.write.uci, ['qeli']);
+    });
+    await test('running process alone never implies connected tunnel', async () => {
+        const f = fixture();
+        assert.equal(f.text(true, true), 'Process running');
+        for (const status of [{}, { running: true }, { tunnel: { available: false, state: 'connected' } }]) {
+            assert.equal(f.tunnelText(status), 'Tunnel status unavailable');
+            assert.notEqual(f.tunnelColor(status), '#2e7d32');
+        }
+        for (const state of ['connecting', 'reconnecting', 'stopped', 'error']) {
+            const status = { tunnel: { available: true, state } };
+            assert.notEqual(f.tunnelColor(status), '#2e7d32');
+        }
+        assert.equal(f.tunnelText({ tunnel: { available: true, state: 'connected' } }), 'Connected');
+        assert.equal(f.tunnelText({ tunnel: { available: true, state: 'reconnecting', retry_in_secs: 4 } }), 'Reconnecting in 4 s');
     });
     await test('secret clear delegates to init and reports failure without direct unlink', async () => {
         const rpcSource = fs.readFileSync(path.join(__dirname, '../qeli-openwrt/luci-app-qeli/root/usr/share/rpcd/ucode/qeli.uc'), 'utf8');

@@ -462,7 +462,7 @@ qeli_start_service() {
 	# bytes. procd compares file contents; identical renders keep the process.
 	procd_set_param file "$CONF" "$PASS_FILE"
 	# Persistent identity/pinning across reboots (/etc and overlay survive; /var is tmpfs).
-	procd_set_param env STATE_DIRECTORY="$journal_dir" QELI_DEVICE_ID_FILE="$STATEDIR/device-id" QELI_KNOWN_HOSTS="$STATEDIR/known_hosts"
+	procd_set_param env STATE_DIRECTORY="$journal_dir" QELI_DEVICE_ID_FILE="$STATEDIR/device-id" QELI_KNOWN_HOSTS="$STATEDIR/known_hosts" QELI_CLIENT_STATUS="$RUNDIR/status.json" QELI_CLIENT_STATUS_FORMAT=openwrt
 	procd_set_param respawn 3600 5 0      # respawn: threshold 3600s, 5s delay, unlimited
 	procd_set_param stdout 1              # → logread -e qeli
 	procd_set_param stderr 1

@@ -163,14 +163,14 @@ esac
     def test_status_uses_actual_uci_session_staging_and_commit(self):
         self.configure_login()
         sid=self.login('writer')
-        self.assertEqual(self.result(self.call('service_status')),{'enabled':False})
+        self.assertEqual(self.result(self.call('service_status'))['enabled'],False)
         self.result(self.call('set',{'ubus_rpc_session':sid,'config':'qeli',
             'section':'main','values':{'enabled':'1'}},'uci'))
-        self.assertEqual(self.result(self.call('service_status')),{'enabled':False})
+        self.assertEqual(self.result(self.call('service_status'))['enabled'],False)
         self.result(self.call('commit',{'ubus_rpc_session':sid,'config':'qeli'},'uci'))
-        self.assertEqual(self.result(self.call('service_status')),{'enabled':True})
+        self.assertEqual(self.result(self.call('service_status'))['enabled'],True)
         (self.jail/'etc/config/qeli').unlink()
-        self.assertEqual(self.result(self.call('service_status')),{'enabled':None})
+        self.assertEqual(self.result(self.call('service_status'))['enabled'],None)
     @unittest.skipUnless(INSPECTOR and Path(INSPECTOR).is_file(), 'requires exact shared INI inspector')
     def test_real_uci_renderer_and_shared_ini_preserve_literal_values(self):
         self.configure_login();sid=self.login('writer')

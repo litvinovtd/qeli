@@ -83,6 +83,22 @@ qeli-openwrt/
    when both `gateway=1` and `kill_switch=1`, the renderer enables no-NAT core forwarding
    ownership so the switch protects forwarded LAN traffic as well as router-local OUTPUT.
 
+## Tunnel status in LuCI
+
+`service_status` reports process state and tunnel state separately. The init service
+enables the core's private `/var/run/qeli/status.json` projection, refreshed every two
+seconds. It contains a boot/PID/start-time run identity, `CLOCK_BOOTTIME` timestamp,
+TUN name and ifindex, a fixed error code, and the remaining reconnect delay.
+Free-form errors, credentials and connection links are excluded from this projection.
+
+LuCI displays Connecting, Connected, Reconnecting, Stopped or Error from the native
+lifecycle and existing transport liveness checks. Losing all TCP paths during resume
+grace reports Reconnecting. Idle traffic does not itself change the reported state.
+The RPC validates the procd PID, procfs start time, boot identity and TUN identity.
+A missing or invalid record, an exited/replaced process, or a record older than ten
+seconds displays “Tunnel status unavailable”. The read-only RPC exposes only these
+validated fields and works independently of mwan3.
+
 ## Quick start (on the router)
 
 ```sh

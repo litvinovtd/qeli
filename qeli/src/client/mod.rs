@@ -22,6 +22,9 @@ mod roaming_linux;
 pub mod route;
 #[cfg(target_os = "linux")]
 mod status_writer;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "openwrt_status_tests.rs"]
+mod openwrt_status_tests;
 mod tcp_attach;
 #[cfg(target_os = "linux")]
 mod tun_recovery;
@@ -1751,6 +1754,8 @@ pub(crate) trait ClientPlatform {
     fn fallback_dns_servers(&self) -> &[String];
     fn cancel_token(&self) -> Arc<AtomicBool>;
     fn counters(&self) -> Arc<RuntimeCounters>;
+    #[cfg(target_os = "linux")]
+    fn observe_tcp_paths(&self, _live: Arc<std::sync::atomic::AtomicUsize>) {}
     fn management_event(
         &mut self,
         event: &crate::protocol::control_v2::ManagementEvent,
@@ -1845,6 +1850,9 @@ struct LinuxCoreAdapter {
 struct ClientStatusReporter {
     sender: Option<status_writer::Sender<serde_json::Value>>,
     state: Arc<std::sync::Mutex<ClientDiagnosticState>>,
+    identity: Option<status_writer::ProcessIdentity>,
+    device: String,
+    openwrt: bool,
 }
 
 #[cfg(target_os = "linux")]
@@ -1856,12 +1864,17 @@ struct ClientDiagnosticState {
     reconnects: u64,
     retry_in_secs: Option<u64>,
     last_error: Option<String>,
+    last_error_code: Option<String>,
+    retry_until: Option<std::time::Instant>,
+    tcp_live: Option<Arc<std::sync::atomic::AtomicUsize>>,
+    tun_ifindex: Option<u32>,
+    terminal: bool,
     plan: Option<serde_json::Value>,
 }
 
 #[cfg(target_os = "linux")]
 impl ClientStatusReporter {
-    fn from_env() -> (Self, Option<status_writer::Writer<serde_json::Value>>) {
+    fn from_env(device: &str) -> (Self, Option<status_writer::Writer<serde_json::Value>>) {
         let path = std::env::var("QELI_CLIENT_STATUS")
             .ok()
             .map(|value| value.trim().to_string())
@@ -1901,8 +1914,16 @@ impl ClientStatusReporter {
                     reconnects: 0,
                     retry_in_secs: None,
                     last_error: None,
+                    last_error_code: None,
+                    retry_until: None,
+                    tcp_live: None,
+                    tun_ifindex: None,
+                    terminal: false,
                     plan: None,
                 })),
+                identity: status_writer::ProcessIdentity::current(),
+                device: device.to_string(),
+                openwrt: std::env::var("QELI_CLIENT_STATUS_FORMAT").as_deref() == Ok("openwrt"),
             },
             writer,
         )
@@ -1941,8 +1962,17 @@ impl ClientStatusReporter {
             current.state = Self::state_name(state).to_string();
             current.reconnects = reconnects;
             current.retry_in_secs = None;
+            current.retry_until = None;
             if state == ClientState::Running {
                 current.last_error = None;
+                current.last_error_code = None;
+                current.tun_ifindex =
+                    std::fs::read_to_string(format!("/sys/class/net/{}/ifindex", self.device))
+                        .ok()
+                        .and_then(|value| value.trim().parse::<u32>().ok());
+            } else {
+                current.tun_ifindex = None;
+                current.tcp_live = None;
             }
         }
     }
@@ -1954,9 +1984,10 @@ impl ClientStatusReporter {
         }
     }
 
-    fn update_fault(&self, message: &str) {
+    fn update_fault(&self, message: &str, code: crate::transport_core::ErrorCode) {
         if let Ok(mut current) = self.state.lock() {
             current.last_error = Some(Self::clean_error(message));
+            current.last_error_code = Some(format!("core_{}", code as i32));
         }
     }
 
@@ -1965,6 +1996,9 @@ impl ClientStatusReporter {
             current.state = "retrying".to_string();
             current.reconnects = attempt;
             current.retry_in_secs = Some(delay_secs);
+            current.retry_until =
+                std::time::Instant::now().checked_add(Duration::from_secs(delay_secs));
+            current.last_error_code = error.map(|_| "connection_failed".to_string());
             if let Some(error) = error {
                 current.last_error = Some(Self::clean_error(&error.to_string()));
             }
@@ -1973,8 +2007,14 @@ impl ClientStatusReporter {
 
     fn terminal(&self, error: Option<&anyhow::Error>) {
         if let Ok(mut current) = self.state.lock() {
+            current.terminal = true;
             current.state = if error.is_some() { "failed" } else { "stopped" }.to_string();
             current.retry_in_secs = None;
+            current.retry_until = None;
+            current.tcp_live = None;
+            if error.is_some() && current.last_error_code.is_none() {
+                current.last_error_code = Some("client_failed".to_string());
+            }
             if let Some(error) = error {
                 current.last_error = Some(Self::clean_error(&error.to_string()));
             }
@@ -1989,6 +2029,48 @@ impl ClientStatusReporter {
             Ok(current) => current,
             Err(_) => return,
         };
+        if self.openwrt {
+            let state = match current.state.as_str() {
+                "running"
+                    if current
+                        .tcp_live
+                        .as_ref()
+                        .is_some_and(|live| live.load(Ordering::Acquire) == 0) =>
+                {
+                    "reconnecting"
+                }
+                "running" => "connected",
+                "created" | "connecting" | "awaiting_network" if current.reconnects > 0 => {
+                    "reconnecting"
+                }
+                "created" | "connecting" | "awaiting_network" => "connecting",
+                "retrying" => "reconnecting",
+                "failed" if current.terminal => "error",
+                "stopping" | "stopped" if current.terminal => "stopped",
+                "failed" | "stopping" | "stopped" => "reconnecting",
+                _ => "connecting",
+            };
+            let retry_in_secs = current.retry_until.map(|until| {
+                until
+                    .saturating_duration_since(std::time::Instant::now())
+                    .as_millis()
+                    .div_ceil(1000) as u64
+            });
+            // The OpenWrt projection contains only typed fields. In particular it never
+            // copies free-form errors, server notices, credentials or connection links.
+            sender.submit(serde_json::json!({
+                "schema": 1,
+                "runtime": self.identity.as_ref().map(|identity| identity.snapshot()),
+                "tunnel": {
+                    "state": state,
+                    "device": self.device,
+                    "ifindex": current.tun_ifindex,
+                    "last_error_code": current.last_error_code,
+                    "retry_in_secs": retry_in_secs,
+                },
+            }));
+            return;
+        }
         let udp = counters.udp.snapshot();
         let updated_at_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2165,7 +2247,7 @@ impl LinuxCoreAdapter {
         } else {
             (None, None)
         };
-        let (diagnostics, diagnostic_writer) = ClientStatusReporter::from_env();
+        let (diagnostics, diagnostic_writer) = ClientStatusReporter::from_env(&config.tun.name);
         diagnostics.publish(&counters);
         Ok((
             Self {
@@ -2323,7 +2405,7 @@ impl LinuxCoreAdapter {
                 EventKind::Error => {
                     if let Some(fault) = event.fault {
                         log::warn!("transport core error {:?}: {}", fault.code, fault.message);
-                        self.diagnostics.update_fault(&fault.message);
+                        self.diagnostics.update_fault(&fault.message, fault.code);
                         self.diagnostics.publish(&self.counters);
                     }
                 }
@@ -2475,6 +2557,12 @@ impl ClientPlatform for LinuxCoreAdapter {
 
     fn counters(&self) -> Arc<RuntimeCounters> {
         self.counters.clone()
+    }
+
+    fn observe_tcp_paths(&self, live: Arc<std::sync::atomic::AtomicUsize>) {
+        if let Ok(mut current) = self.diagnostics.state.lock() {
+            current.tcp_live = Some(live);
+        }
     }
 
     fn take_post_up(&mut self) -> Option<PendingLifecycleHook> {
@@ -6698,6 +6786,8 @@ where
     // Count of streams still up. A stream's death tears the tunnel down only when
     // this reaches 0 (losing one bonded stream just degrades to the rest).
     let live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    #[cfg(target_os = "linux")]
+    core.observe_tcp_paths(live.clone());
 
     let shaping = eff_obf.traffic_shaping.to_shaping();
     let cover_budget = crate::protocol::Shaper::shared_budget(&shaping, std::time::Instant::now());

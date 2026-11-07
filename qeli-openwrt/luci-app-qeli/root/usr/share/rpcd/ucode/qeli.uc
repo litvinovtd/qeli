@@ -64,11 +64,89 @@ function secretExists(path) {
 		fs.access(path, 'r') === true;
 }
 
+// Read procd independently of the tunnel report. This fixed, one-second query
+// cannot select arbitrary services or expose the environment returned by procd.
+function processStatus() {
+    try {
+        const child = fs.popen('ubus -t 1 call service list \'{"name":"qeli"}\'', 'r');
+        if (!child)
+            return null;
+        const text = child.read(65536);
+        const code = child.close();
+        if (code !== 0 || type(text) != 'string' || length(text) >= 65536)
+            return null;
+        const instance = json(text)?.qeli?.instances?.qeli;
+        return instance && instance.running === true
+            ? { running: true, pid: instance.pid }
+            : { running: false };
+    } catch (e) {
+        return null;
+    }
+}
+
+function tunnelStatus(process) {
+    const unavailable = { available: false };
+    try {
+        if (!process || process.running !== true || type(process.pid) != 'int' || process.pid <= 0)
+            return unavailable;
+        const directory = fs.lstat(RUNDIR);
+        const entry = fs.lstat(RUNDIR + '/status.json');
+        if (directory?.type != 'directory' || directory.uid !== 0 || (directory.mode & 18) || entry?.type != 'file' || entry.size <= 0 || entry.size > 8192)
+            return unavailable;
+        const report = json(fs.readfile(RUNDIR + '/status.json'));
+        const runtime = report?.runtime;
+        const tunnel = report?.tunnel;
+        const boot = trim(fs.readfile('/proc/sys/kernel/random/boot_id') || '');
+        const stat = fs.readfile(`/proc/${process.pid}/stat`) || '';
+        const fields = split(trim(substr(stat, rindex(stat, ')') + 1)), /[[:space:]]+/);
+        const uptime = split(fs.readfile('/proc/uptime') || '', ' ');
+        const now = +uptime[0] * 1000;
+        if (report?.schema !== 1 || !runtime || !tunnel || !boot ||
+            runtime.pid !== process.pid || runtime.boot_id !== boot ||
+            type(runtime.start_ticks) != 'string' || runtime.start_ticks !== fields[19] ||
+            fields[0] == 'Z' || fields[0] == 'X' ||
+            runtime.run_id !== `${boot}:${process.pid}:${fields[19]}` ||
+            type(runtime.updated_boottime_ms) != 'int' || !now ||
+            runtime.updated_boottime_ms > now + 100 || now - runtime.updated_boottime_ms > 10000 ||
+            type(tunnel.device) != 'string' || !match(tunnel.device, /^qeli[A-Za-z0-9._-]*$/) || length(tunnel.device) > 15 ||
+            index(['connecting', 'connected', 'reconnecting', 'stopped', 'error'], tunnel.state) < 0)
+            return unavailable;
+        // Re-read identity after the report: a concurrent procd respawn must not
+        // make a predecessor's Connected record valid for the successor.
+        const again = fs.readfile(`/proc/${process.pid}/stat`) || '';
+        const identity = split(trim(substr(again, rindex(again, ')') + 1)), /[[:space:]]+/);
+        if (identity[19] !== fields[19] || identity[0] == 'Z' || identity[0] == 'X')
+            return unavailable;
+        if (tunnel.state == 'connected') {
+            const link = '/sys/class/net/' + tunnel.device;
+            if (type(tunnel.ifindex) != 'int' || tunnel.ifindex <= 0 ||
+                +(trim(fs.readfile(link + '/ifindex') || '')) !== tunnel.ifindex ||
+                !(+(trim(fs.readfile(link + '/flags') || '0')) & 1))
+                return unavailable;
+        }
+        return {
+            available: true,
+            state: tunnel.state,
+            run_id: runtime.run_id,
+            device: tunnel.device,
+            retry_in_secs: type(tunnel.retry_in_secs) == 'int' && tunnel.retry_in_secs >= 0 ? tunnel.retry_in_secs : null,
+            last_error_code: type(tunnel.last_error_code) == 'string' && match(tunnel.last_error_code, /^(core_-[0-9]+|connection_failed|client_failed)$/) ? tunnel.last_error_code : null,
+        };
+    } catch (e) {
+        return unavailable;
+    }
+}
+
 const methods = {
 	service_status: {
 		call: function() {
 			const code = system('/etc/init.d/qeli status_enabled >/dev/null 2>&1');
-			return { enabled: code === 0 ? true : (code === 1 ? false : null) };
+			const process = processStatus();
+			return {
+				enabled: code === 0 ? true : (code === 1 ? false : null),
+				running: process ? process.running : null,
+				tunnel: tunnelStatus(process),
+			};
 		}
 	},
 

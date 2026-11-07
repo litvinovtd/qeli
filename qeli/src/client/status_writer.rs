@@ -123,3 +123,50 @@ impl<T> Drop for Writer<T> {
 #[cfg(test)]
 #[path = "status_writer_tests.rs"]
 mod tests;
+
+/// PID alone can be reused, and wall time can jump when a router obtains NTP.
+/// The consumer validates this identity against procd and the same boot's procfs.
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+pub(super) struct ProcessIdentity {
+    pid: u32,
+    start_ticks: String,
+    boot_id: String,
+}
+
+#[cfg(target_os = "linux")]
+impl ProcessIdentity {
+    pub(super) fn current() -> Option<Self> {
+        let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+        let start_ticks = stat[stat.rfind(')')? + 1..]
+            .split_whitespace()
+            .nth(19)?
+            .to_string();
+        start_ticks.parse::<u64>().ok()?;
+        Some(Self {
+            pid: std::process::id(),
+            start_ticks,
+            boot_id: std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
+                .ok()?
+                .trim()
+                .to_string(),
+        })
+    }
+
+    pub(super) fn snapshot(&self) -> serde_json::Value {
+        let mut now = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // CLOCK_BOOTTIME matches /proc/uptime, including suspend, on the reader side.
+        let updated = (unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut now) } == 0)
+            .then(|| (now.tv_sec as u64).saturating_mul(1000) + now.tv_nsec as u64 / 1_000_000);
+        serde_json::json!({
+            "run_id": format!("{}:{}:{}", self.boot_id, self.pid, self.start_ticks),
+            "pid": self.pid,
+            "start_ticks": self.start_ticks,
+            "boot_id": self.boot_id,
+            "updated_boottime_ms": updated,
+        })
+    }
+}
