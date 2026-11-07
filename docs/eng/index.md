@@ -37,6 +37,7 @@ Practical installation, configuration and operations guides.
 | [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) | Step-by-step client deployment on Keenetic |
 | [WINDOWS-CLI.md](manuals/WINDOWS-CLI.md) | Windows console client: CMD, batch, PowerShell, service and exit codes |
 | [OPENWRT-INSTALL.md](manuals/OPENWRT-INSTALL.md) | OpenWrt installation, UCI/LuCI, SDK and router qualification limits |
+| [ROUTER-INTEGRATION.md](manuals/ROUTER-INTEGRATION.md) | OpenWrt/Keenetic modes: scripts or client, UCI/JSON, WAN, rollback and credentials |
 
 ## Use cases (`scenarios/`)
 

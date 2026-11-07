@@ -1,6 +1,6 @@
 # qeli for OpenWrt (client)
 
-Optional router integration: [manual/client ownership, native status, rollback and limitations](../docs/eng/manuals/ROUTER-INTEGRATION.md) (experimental source feature).
+Optional router integration: [Русский](../docs/ru/manuals/ROUTER-INTEGRATION.md) · [English](../docs/eng/manuals/ROUTER-INTEGRATION.md) — mode selection, LuCI/UCI steps, dual-WAN JSON, rollback and return to scripts (experimental source feature).
 
 Installation guide: [Русский](../docs/ru/manuals/OPENWRT-INSTALL.md) · [English](../docs/eng/manuals/OPENWRT-INSTALL.md).
 
@@ -71,9 +71,11 @@ qeli-openwrt/
 2. **Config and secrets**: non-secret settings live in **UCI** (`/etc/config/qeli`) or LuCI.
    Password and `obfs_key` are never UCI options: they are 0600 files below
    `/var/run/qeli/` (tmpfs). On start, `qeli.init` renders a 0600 flat-INI in the same
-   tmpfs and passes the password through `password_file`. Secrets therefore must be
-   provisioned again after every reboot, either in LuCI or from a trusted boot-time secret
-   provider. On first upgrade, legacy UCI secrets are moved to tmpfs and deleted from the
+   tmpfs and passes the password through `password_file`. RAM-only is the default:
+   re-enter secrets after reboot or use a trusted provider. New matching builds offer
+   explicit `retain_secrets=1` storage in root-only `/etc/qeli/secrets` files, restored
+   before launch; clearing RAM does not delete those copies. On first upgrade, legacy
+   UCI secrets are moved to tmpfs and deleted from the
    live UCI config; rotate them because flash wear levelling may retain older blocks.
 3. **Persistence**: `QELI_DEVICE_ID_FILE` + `QELI_KNOWN_HOSTS` live in `/etc/qeli/`
    (persistent overlay; `/tmp` and `/var` are tmpfs and reset on reboot) so the server
@@ -84,6 +86,22 @@ qeli-openwrt/
    — unlike raw iptables, which fw4 would flush. The qeli kill-switch is a separate layer;
    when both `gateway=1` and `kill_switch=1`, the renderer enables no-NAT core forwarding
    ownership so the switch protects forwarded LAN traffic as well as router-local OUTPUT.
+
+## Route/firewall modes
+
+Default `router_routing=external`, `router_firewall=external` retains scripts and
+mwan3/PBR. Selecting both `client` enables per-network `direct`, `vpn_only`,
+`vpn_fallback` policies via **Router integration**. Mixed ownership is supported;
+managed-route VPN-only requires managed firewall. Built-in routing requires
+split-tunnel settings, disabled forwarding offload and explicit network/WAN JSON.
+It does not provision Wi-Fi/DHCP or encrypted DNS.
+
+`qeli-router` supervises policies independently; `qeli-guard` protects before
+network startup. Verify fresh management access and confirm within 120 seconds.
+Stopping the VPN/controller retains protection; `qeli-router disable_policy`
+restores external ownership. See the linked guide for exact commands and limits.
+Check `qeli-client router --help`: old binaries and the older public feed pin
+do not gain these commands from new LuCI/templates alone.
 
 ## Tunnel status in LuCI
 
@@ -107,7 +125,7 @@ validated fields and works independently of mwan3.
 opkg install qeli luci-app-qeli      # from the feed, or `opkg install ./qeli_*.ipk`
 uci set qeli.main.server='vpn.example.com:443'
 uci set qeli.main.user='router1'
-# Read from stdin: the secret does not enter UCI, process argv or persistent flash.
+# RAM-only default (retain_secrets=0); never stored as a UCI password option.
 printf '%s\n' 'PASSWORD' | /etc/init.d/qeli set_secret pass
 uci set qeli.main.key='<server identity hex from: qeli show-identity>'
 # H-1 MUST match the server, and the server default is ON. The shipped UCI default is

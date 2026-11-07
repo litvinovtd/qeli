@@ -1,6 +1,6 @@
 # qeli-client на Keenetic (Entware) — IPv4/IPv6 деплой
 
-Optional router integration: [manual/client ownership, native status, rollback and limitations](../../docs/eng/manuals/ROUTER-INTEGRATION.md) (experimental source feature).
+Новые режимы: [пошаговая настройка на русском](../../docs/ru/manuals/ROUTER-INTEGRATION.md) · [English](../../docs/eng/manuals/ROUTER-INTEGRATION.md). Ручные скрипты/политики прошивки остаются вариантом по умолчанию; встроенный контроллер — экспериментальная функция совместимой сборки.
 
 Запуск qeli-VPN-клиента на роутере Keenetic как шлюза для всего LAN.
 **Подробный пошаговый гайд (по шагам, с проверкой туннеля) — [docs/*/manuals/KEENETIC-DEPLOY.md](../../docs/ru/manuals/KEENETIC-DEPLOY.md).**
@@ -10,6 +10,24 @@ Optional router integration: [manual/client ownership, native status, rollback a
 > Прежние аппаратные результаты не подтверждают новую сборку. Текущие проверки исходников,
 > ELF, SDK и изолированного lifecycle сохраняют свою область. Скрипты остаются
 > **шаблонами**: проверь имена интерфейсов и firewall своей модели/прошивки.
+
+## Какой режим настраивать
+
+Обычный TUN (`dev_attach=false`) и OpkgTun (`dev_attach=true`) независимо
+поддерживают выбор внешних либо встроенных маршрутов/ограничений.
+
+- **Внешние:** свои скрипты или NDM, без активации `router.enabled`. Для полностью
+  внешнего NAT используйте `GATEWAY=no` и выключенные core gateway flags.
+- **Встроенные:** `client`/`client` в отдельном JSON, `policy-start`, проверка
+  нового входа и `policy-confirm` до 120 секунд. Политики сетей — `direct`,
+  `vpn_only`, `vpn_fallback`; нужен совместимый split-tunnel INI и выключенный offload.
+- **Смешанные:** владелец routing и firewall выбирается отдельно; не дублируйте
+  владельцев одной сети. Для VPN-only нужна предусмотренная защита прошивки до Entware.
+
+`policy-stop` оставляет guard; `policy-disable` возвращает внешнее владение.
+Полная инструкция выше содержит INI, создание кандидата, JSON, пароль и диагностику.
+Проверьте `/opt/bin/qeli-client router --help`; текущий режим не квалифицирован
+на физическом Keenetic и требует доступных namespace-интерфейсов procfs.
 
 ## Предусловия на роутере
 - Установлен **Entware** (opkg, `/opt`).
@@ -127,8 +145,8 @@ Gateway fallback больше не разбирает INI в shell. При GATEW
 шаблон читает `qeli-client --config ... --print-gateway-owner`: core для
 gateway_nat/forward/exit_node, legacy при выключенных flags. Ответ/ошибка
 проверяются до запуска; старый binary без команды отказывает. Обновлять binary
-и шаблон вместе; проверка и запуск используют общую приватную копию INI. Для OpkgTun или
-GATEWAY=no этот compatibility query не нужен. [Подробности](../../docs/ru/manuals/KEENETIC-DEPLOY.md).
+и шаблон вместе; проверка и запуск используют общую приватную копию INI.
+Текущая admission-проверка интерфейса/attach выполняется также при OpkgTun и GATEWAY=no. [Подробности](../../docs/ru/manuals/KEENETIC-DEPLOY.md).
 
 ## Общий lifecycle (development0.8.2)
 

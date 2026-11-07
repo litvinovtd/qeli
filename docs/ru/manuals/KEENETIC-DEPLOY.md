@@ -76,6 +76,34 @@ cat /proc/sys/net/ipv6/conf/all/forwarding
 
 ---
 
+## Выбор ручного или встроенного управления сетями
+
+Тип интерфейса и владелец маршрутов выбираются отдельно. Обычный TUN создаёт
+клиент (`dev=vpn0`, `dev_attach=false`), а OpkgTun держит NDM
+(`dev=opkgtun0`, `dev_attach=true`). В обоих вариантах можно сохранить свои
+скрипты/политики KeeneticOS либо явно выбрать новый контроллер Qeli.
+
+| Режим | Как включить | Что учитывать |
+|---|---|---|
+| Ручной, по умолчанию | Не активировать `router.enabled`; если контроллер уже работал — `S99qeli policy-disable` | Маршруты, DNS и защита WAN остаются внешними |
+| Встроенный | `components.routing=client`, `components.firewall=client` в `/opt/etc/qeli/router.json`, затем `S99qeli policy-start` | Split-tunnel INI, отключённый offload, проверка и подтверждение до 120 с |
+| Смешанный | Один owner `external`, другой `client` | Не запускать двух владельцев одного компонента для одной сети |
+
+`S99qeli` в таблице — `/opt/etc/init.d/S99qeli`. Политики сетей: `direct`,
+`vpn_only`, `vpn_fallback`. Для VPN-only на Keenetic нужен постоянный запрет WAN
+в прошивке до запуска Entware; `persistent_guard=true` лишь подтверждает его.
+Новый контроллер требует доступных procfs network namespaces; поддержка базовым
+клиентом ядра без `CONFIG_NET_NS` не означает поддержку этого режима.
+
+**[Полная настройка обоих TUN-вариантов: INI, кандидат JSON, команды, статус и возврат](ROUTER-INTEGRATION.md#4-keenetic-обычный-tun-и-opkgtun).**
+Не перезаписывайте активную политику выводом `router example`: создавайте кандидат.
+`policy-stop` сохраняет guard, а `policy-disable` очищает собственные объекты.
+`policy-start` меняет контроллер, но не применяет новый INI работающего VPN.
+
+Шаги ниже с `gateway=true` описывают обычный full-tunnel для LAN. Для новых
+политик нужны отключённые `gateway`, `gateway_nat`, `forward`, `exit_node`,
+`kill_switch`, `route_local`, `pull_routes` и `dns=off/system`.
+
 ## Предусловия
 
 - На роутере установлен **Entware** (пакетный менеджер `opkg`, каталог `/opt`).
@@ -331,10 +359,11 @@ curl -s https://ifconfig.me ; echo
 
 ## Селективный режим (только часть трафика через VPN)
 
-Вместо full-tunnel (`gateway=true`) можно заворачивать лишь нужные адреса:
-`gateway = false` в конфиге + `ipset` + `iptables` + DNS-оверрайды на dnsmasq
-роутера (подход как у проектов `kvas` / `antizapret` для Keenetic). Это гибче и не
-режет скорость на не-VPN трафике, но настройка ручная и вне этого бандла.
+Выбор маршрутов по адресам/доменам можно оставить ручным: `gateway=false`,
+внешние правила `ipset`/`iptables`, DNS или политики KeeneticOS. Во встроенном
+экспериментальном режиме выбираются **целые существующие сети/подсети** и
+политики `direct`/`vpn_only`/`vpn_fallback`; это не автоматический список доменов.
+[Выбор владельцев и настройка](ROUTER-INTEGRATION.md).
 
 ---
 
@@ -435,8 +464,9 @@ qeli-client --config /opt/etc/qeli/client.conf --print-gateway-owner
 если включён `gateway_nat`, `forward` или `exit_node`; иначе `legacy`. Соединение,
 hooks и настройка сети не запускаются. Оба init-шаблона вызывают её один раз перед
 gateway startup. Кавычки/регистр/on/BOM обрабатываются ядром; ошибочный config или
-unsupported/invalid reply запрещает запуск. При `GATEWAY=no` или активном OpkgTun
-legacy ownership query не требуется.
+unsupported/invalid reply запрещает запуск. Текущие шаблоны проверяют также
+владельца интерфейса/attach и вызывают admission query при `GATEWAY=no` и OpkgTun;
+эти режимы не обходят проверку совместимости.
 
 Обновлять standalone binary и шаблон вместе: старый binary без команды не сможет
 запустить compatibility gateway. Core ownership отключает wrapper LAN NAT, в том

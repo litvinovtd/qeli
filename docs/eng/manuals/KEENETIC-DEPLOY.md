@@ -75,6 +75,34 @@ The bundle files — in `release/keenetic/`.
 
 ---
 
+## Choose manual or client-managed networks
+
+Interface and route ownership are independent. Ordinary TUN belongs to the
+client (`dev=vpn0`, `dev_attach=false`); OpkgTun belongs to NDM
+(`dev=opkgtun0`, `dev_attach=true`). Both can retain existing scripts/KeeneticOS
+policies or explicitly select Qeli's new controller.
+
+| Mode | Activation | Requirements |
+|---|---|---|
+| Manual, default | Do not activate `router.enabled`; if active, use `S99qeli policy-disable` | External routes, DNS and WAN protection |
+| Built-in | Set both `components` owners to `client` in `/opt/etc/qeli/router.json`, then `S99qeli policy-start` | Split-tunnel INI, disabled offload, validation and confirmation within 120 s |
+| Mixed | One external and one client owner | No duplicate owner for the same component/network |
+
+Here `S99qeli` means `/opt/etc/init.d/S99qeli`. Network policies are `direct`,
+`vpn_only`, `vpn_fallback`. Keenetic VPN-only needs a persistent firmware WAN
+block before Entware starts; `persistent_guard=true` merely acknowledges it.
+The new controller needs procfs network namespace interfaces; base-client support
+for a kernel without `CONFIG_NET_NS` does not imply support for this mode.
+
+**[Complete TUN/OpkgTun procedure: INI, candidate JSON, commands, status and return to manual](ROUTER-INTEGRATION.md#4-keenetic-ordinary-tun-and-opkgtun).**
+Generate a candidate instead of overwriting active JSON with `router example`.
+`policy-stop` retains the guard; `policy-disable` removes owned resources.
+`policy-start` changes the controller, not the running VPN's INI.
+
+The `gateway=true` steps below describe the older whole-LAN full-tunnel setup.
+New managed policies require disabled `gateway`, `gateway_nat`, `forward`,
+`exit_node`, `kill_switch`, `route_local`, `pull_routes`, and `dns=off/system`.
+
 ## Prerequisites
 
 - **Entware** is installed on the router (the `opkg` package manager, the `/opt`
@@ -327,11 +355,11 @@ curl -s https://ifconfig.me ; echo
 
 ## Selective mode (only part of the traffic via the VPN)
 
-Instead of full-tunnel (`gateway=true`) you can route only the needed addresses:
-`gateway = false` in the config + `ipset` + `iptables` + DNS overrides on the router's
-dnsmasq (an approach like the `kvas` / `antizapret` projects for Keenetic). This is more
-flexible and doesn't cut the speed on non-VPN traffic, but the setup is manual and outside
-this bundle.
+Address/domain selection can stay manual: `gateway=false`, external
+`ipset`/`iptables`, DNS or KeeneticOS policies. The experimental built-in mode
+selects **whole existing networks/source prefixes** with `direct`, `vpn_only`,
+`vpn_fallback`; it is not an automatic domain list.
+[Choose ownership and configure](ROUTER-INTEGRATION.md).
 
 ---
 
@@ -424,8 +452,9 @@ It validates the same INI grammar as runtime and prints only `core` when
 `gateway_nat`, `forward` or `exit_node` is enabled, otherwise `legacy`. It exits
 without connecting, executing hooks or configuring networking. Both init templates
 use this command once before gateway startup. Quoted/case/on/BOM values follow the
-core parser; invalid configs or unsupported/invalid replies fail startup. With
-`GATEWAY=no` or active OpkgTun, no legacy ownership query is needed.
+core parser; invalid configs or unsupported/invalid replies fail startup. Current
+templates also validate interface/attach ownership and run admission with
+`GATEWAY=no` and OpkgTun; those settings do not bypass compatibility checks.
 
 Update standalone binary and template together; an old binary without the command
 cannot start the compatibility gateway path. Core ownership suppresses wrapper

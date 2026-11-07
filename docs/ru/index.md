@@ -37,6 +37,7 @@
 | [KEENETIC-DEPLOY.md](manuals/KEENETIC-DEPLOY.md) | Пошаговый деплой клиента на Keenetic |
 | [WINDOWS-CLI.md](manuals/WINDOWS-CLI.md) | Консольный Windows-клиент: CMD, batch, PowerShell, служба и коды ошибок |
 | [OPENWRT-INSTALL.md](manuals/OPENWRT-INSTALL.md) | Установка OpenWrt, UCI/LuCI, SDK и границы проверки роутеров |
+| [ROUTER-INTEGRATION.md](manuals/ROUTER-INTEGRATION.md) | Режимы OpenWrt/Keenetic: скрипты или клиент, UCI/JSON, WAN, откат и пароль |
 
 ## Сценарии использования (`scenarios/`)
 

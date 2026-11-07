@@ -27,6 +27,34 @@ config and a procd service.
 
 ---
 
+## Choose route ownership
+
+New matching builds provide a separate **Router integration** section. Check
+`qeli-client router --help`; a version string alone does not establish support.
+This is an experimental `dev` feature, not a claim about published 0.8.4 packages
+or the currently pinned feed.
+
+| Variant | Setting | Route/restriction owner |
+|---|---|---|
+| Manual, default | `router_routing=external`, `router_firewall=external` | Your scripts, mwan3/PBR, fw4 |
+| Built-in | Both owners `client` + JSON for existing networks | Independent `qeli-router` and early `qeli-guard` |
+| Mixed | One component external, one client | Separate owners; managed-route VPN-only requires managed firewall |
+
+Per-network policies: `direct` uses WAN, `vpn_only` uses TUN and blocks WAN,
+`vpn_fallback` permits WAN when VPN fails. These differ from global `gateway=1`:
+managed routing requires `gateway=0`, `kill_switch=0`, `route_local=0`,
+`dns=off/system`; the package sets `pull_routes=false`. Configure SSID/DHCP and
+forwarding admission separately.
+
+**[Step-by-step LuCI/UCI setup, dual-WAN JSON, confirmation and return to scripts](ROUTER-INTEGRATION.md#3-openwrt-configure-through-luci).**
+The guide also covers mixed ownership, IPv6, DNS, credential storage and rollback
+limits. Confirm changes within 120 seconds after checking a new management
+connection. Stopping a process retains the guard; use
+`/etc/init.d/qeli-router disable_policy` to restore manual ownership.
+
+The basic `gateway=1` example below describes the older whole-LAN full-tunnel
+setup. Use the linked procedure for managed per-network policies.
+
 ## 0. Prerequisites (on the router)
 
 ```sh
@@ -130,8 +158,10 @@ qeli add-client router1 --link --host vpn.example.com   # prints a qeli:// link
 qeli show-identity                                       # prints the public key to pin
 ```
 
-Set non-secret options via **UCI** (or LuCI → Services → qeli VPN). Credentials are
-write-only per-boot tmpfs secrets and are deliberately never committed to UCI/flash:
+Set non-secret options via **UCI** (or LuCI → Services → qeli VPN). Credentials
+default to per-boot tmpfs files and never enter UCI. New integration supports
+explicit `retain_secrets=1` storage in root-only persistent files;
+[enable/delete retained copies](ROUTER-INTEGRATION.md#7-credentials-and-upgrades):
 
 ```sh
 uci set qeli.main.server='vpn.example.com:443'
