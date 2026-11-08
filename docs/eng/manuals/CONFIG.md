@@ -4510,5 +4510,6 @@ operator-selected behavior. Linux reservations remain process-wide: normal growt
 uses at most one eighth of `MemAvailable`; preparation of overlapping paths uses at
 most one quarter, for that preparation request only. The draining controller keeps
 its reservation until drain ends; cancellation releases the candidate reservation.
+These fractions govern admission of additional growth. Existing queues are not shrunk if available memory falls, so their retained reservations can exceed the current fraction without authorizing further growth.
 No global `rmem_max`/`wmem_max` is changed. Diagnostics report the actual OS grant
 and permission failures.

@@ -845,7 +845,7 @@ Exact-source release CI, target checks and the strict archive gate remain requir
 в нём до использования feed. CI точного среза, проверки архитектур и строгая проверка
 SDK-архива остаются обязательными.
 
-### Current 0.8.4 source cut after panel-test correction — 2 November 2026
+### Historical 0.8.4 source cut after panel-test correction — 2 November 2026
 
 The recipe pins `9aeee840963a9fe1a59c89d60733cff8ca20c86d`. It includes the
 Wintun, UDP and panel-navigation changes and corrects the obsolete selector in an
@@ -881,3 +881,28 @@ SDK и глобальные настройки не изменялись.
 роутера. Полное дерево `qeli/` должно совпадать с исходниками выпуска. Закреплённый
 коммит должен быть доступен по неизменённому публичному HTTPS URL до использования
 feed. CI точного среза, проверки архитектур и строгая проверка архива обязательны.
+
+
+### Current 0.8.5 source cut — 8 November 2026
+
+The recipe pins `724d24a493fbaba7aff29c526cf54ea3c39c7485` and includes the UDP PMTU recovery, candidate queue
+preparation before platform COMMIT_PATH, and current UCI/LuCI UDP settings.
+Its complete `qeli/` tree matches the qualified dev source. Two stock SDK 24.10.4
+downloads with empty caches and distinct private Git URLs produced identical
+`qeli-0.8.5.tar.zst` archives (29708583 bytes), SHA-256
+`e45796dc0335ca3205aa2aeeae8c75073eb12e84442beff3d6a82f447e97eca2`. All 3834 tracked files were checked
+against the commit; archive and prepared bytes and POSIX modes match. The SDK export
+scripts and global Git settings were unchanged. Production source URL remains the public
+GitHub repository. This qualifies source export/prepare, not a full SDK/IPK build
+or physical router runtime. No release was published.
+
+Рецепт закреплён на `724d24a493fbaba7aff29c526cf54ea3c39c7485`: включены восстановление PMTU на действующем UDP-сокете,
+подготовка очереди кандидата до платформенного COMMIT_PATH и актуальные настройки
+UCI/LuCI. Полное дерево `qeli/` совпадает с проверенным исходным срезом dev.
+Два экспорта штатного SDK 24.10.4 с пустыми кэшами и разными приватными Git URL дали
+одинаковые архивы с указанными размером и SHA-256. Для всех 3834
+файлов проверены содержимое и режимы Git, совпадение фактических байтов и прав
+архива/prepare. Сценарии экспорта SDK и глобальные настройки Git не менялись;
+публичный URL сохранён.
+Это проверка экспорта/подготовки исходников, а не полной SDK/IPK-сборки или нового
+физического испытания роутера. Публикация релиза не выполнялась.
