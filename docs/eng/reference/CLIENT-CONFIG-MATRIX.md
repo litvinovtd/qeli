@@ -1,6 +1,6 @@
 # Client config: current contract and the 0.7.14 → 0.7.15 migration
 
-This table records the **current 84-key `[qeli]` contract** for all five clients while
+This table records the **current 85-key `[qeli]` contract** for all five clients while
 retaining the refactor history. “Before” is released 0.7.14 behaviour; “after” began as
 the 0.7.15 shared-core contract and is extended here with current code, including
 NetworkPlan v2 and complete IPv6.
@@ -25,6 +25,7 @@ can apply it; separately exposed controls are identified in the notes.
 
 | Keys | CLI | Windows | macOS | Android | iOS | Current contract / change |
 |---|:-:|:-:|:-:|:-:|:-:|---|
+| `udp_payload_size` | N→A | N→A | N→A | N→A | N→A | 0.8.5: `0` automatic; `548..65507` manual outer UDP limit including wrappers, without active PMTU probes in either direction. Inner MTU is unchanged; TCP preserves but ignores it. Requires an updated server. |
 | `server` `proto` `user` `pass` `key` `bind_static` `mode` `sni` `obfs_key` `front` `reality_sid` `quic` `awg` `jc` `jmin` `jmax` `mtu` `mtu_probe` `gateway` `route_local` `include` `exclude` `dns` `ipv6` `allow_ipv6_leak` `allow_ipv4_leak` | A→A | A→A | A→A | A→A | A→A | IPv6 is negotiated inside authenticated capabilities/NetworkPlan v2. The `auto`, `required`, and `off` modes and symmetric leak controls are shared across all adapters. The shared `gateway` default is `true`; explicit `false` enables split tunnel. |
 | `pull_routes` | N→A | N→A | N→A | N→A | N→A | 0.8.3: default `true`; `false` ignores only server routes, preserving local routes, independent full tunnel and protected DNS. INI/URI/model parity. |
 | `windows_disable_sharing` | N→R | N→A | N→C | N→C | N→C | 0.8.3: default `false`; opt-in only for the created Windows Wintun. GUID/LUID/CIM ownership and binding readback; no effect on WinDivert or other platforms. |
@@ -91,18 +92,18 @@ ABI 1.16 native libraries; local C#/JVM checks do not replace Apple/device or re
 A/B verification. See the [migration status](../plans/CLIENT-CONFIG-CORE.md).
 
 <!-- generated-model-coverage -->
-## Model coverage: all 88 fields
+## Model coverage: all 89 fields
 
 This block is generated from `editor/schema.rs`: M is a typed model property;
 S is preserved in the core source document and/or `carriedKeys`.
 This is not a form-control inventory: fields without a dedicated UI remain available through INI.
-All 85 `[qeli]` keys and 3 `[logging]` keys are recognized by the shared parser.
+All 86 `[qeli]` keys and 3 `[logging]` keys are recognized by the shared parser.
 
-Keys mapped to typed properties: C# 65, Kotlin 59, Swift 58; remaining fields are preserved as S.
+Keys mapped to typed properties: C# 66, Kotlin 60, Swift 59; remaining fields are preserved as S.
 
 | Schema keys | C# (Windows/macOS) | Kotlin | Swift |
 |---|:-:|:-:|:-:|
-| `server` `proto` `user` `pass` `key` `bind_static` `allow_unpinned_tofu` `mode` `obfs_key` `front` `sni` `reality_sid` `quic` `awg` `jc` `jmin` `jmax` `mtu` `mtu_probe` `gateway` `pull_routes` `ipv6` `roaming` `route_local` `allow_ipv4_leak` `allow_ipv6_leak` `include` `exclude` `dns` `dns_servers` `apps_mode` `apps` `route_file` `reconnect` `reconnect_retries` `reconnect_base_delay` `reconnect_max_delay` `timeout` `padding` `padding_min` `padding_max` `heartbeat` `heartbeat_interval` `heartbeat_size` `heartbeat_jitter` `shaping` `shaping_gap_mean` `shaping_gap_min` `shaping_gap_max` `shaping_budget` `shaping_min_size` `shaping_max_size` `shaping_stealth` `shaping_stealth_mbps` `logging.level` | M | M | M |
+| `server` `proto` `user` `pass` `key` `bind_static` `allow_unpinned_tofu` `mode` `obfs_key` `front` `sni` `reality_sid` `quic` `awg` `jc` `jmin` `jmax` `mtu` `mtu_probe` `udp_payload_size` `gateway` `pull_routes` `ipv6` `roaming` `route_local` `allow_ipv4_leak` `allow_ipv6_leak` `include` `exclude` `dns` `dns_servers` `apps_mode` `apps` `route_file` `reconnect` `reconnect_retries` `reconnect_base_delay` `reconnect_max_delay` `timeout` `padding` `padding_min` `padding_max` `heartbeat` `heartbeat_interval` `heartbeat_size` `heartbeat_jitter` `shaping` `shaping_gap_mean` `shaping_gap_min` `shaping_gap_max` `shaping_budget` `shaping_min_size` `shaping_max_size` `shaping_stealth` `shaping_stealth_mbps` `logging.level` | M | M | M |
 | `name` `persist_tun` `windows_disable_sharing` `windows_persistent_adapter` `forward` `local` `lport` `metric` `dev_node` | M | S | S |
 | `kill_switch` | M | M | S |
 | `allow_lan` `logging.file` `logging.time_format` | S | M | M |

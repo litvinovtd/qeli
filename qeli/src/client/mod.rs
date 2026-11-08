@@ -10021,6 +10021,9 @@ mod udp_control_recordizer_tests {
     }
 }
 
+#[cfg(test)]
+mod manual_udp_payload_tests;
+
 #[cfg(feature = "experimental-roaming")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ClientUdpReceivePath {
@@ -10982,6 +10985,14 @@ pub(crate) async fn run_udp_tunnel(
 
     log::info!("UDP: Server identity verified");
 
+    let manual_udp_payload_size = config.tun.manual_udp_payload_size();
+    if manual_udp_payload_size.is_some() {
+        anyhow::ensure!(
+            crate::protocol::capabilities::manual_udp_payload_negotiated(server_capabilities, negotiated_capabilities),
+            "udp_payload_size requires a server supporting UDP_MANUAL_PAYLOAD_V1 and UDP_DATA_FRAG_V1; update the server or use udp_payload_size=0"
+        );
+    }
+
     let auth_plain = build_client_auth_plaintext(
         config,
         &client_kp,
@@ -11220,11 +11231,20 @@ pub(crate) async fn run_udp_tunnel(
             + if socket.peer_is_ipv6() { 40 } else { 20 },
         crate::protocol::pmtu::socket_path_mtu(socket.raw_socket(), socket.peer_is_ipv6()),
     );
-    let mut uplink_udp_payload_budget =
-        crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6());
+    let mut uplink_udp_payload_budget = manual_udp_payload_size.unwrap_or_else(|| {
+        crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6())
+    });
     let mut keep_df_after_live_probe = false;
     let mut initial_probe_confirmed = false;
-    let tun_mtu = if config.tun.mtu_probe {
+    let tun_mtu = if let Some(size) = manual_udp_payload_size {
+        anyhow::ensure!(
+            begin_mtu_probe(&socket),
+            "cannot enforce DF for manual udp_payload_size on this platform/socket"
+        );
+        keep_df_after_live_probe = true;
+        log::info!("UDP manual payload limit: {size} bytes including all wrappers, excluding UDP/IP headers; active probing disabled; inner MTU {base_mtu}");
+        base_mtu
+    } else if config.tun.udp_probing_enabled() {
         match probe_udp_mtu(
             &socket,
             udp_framing,
@@ -11290,12 +11310,14 @@ pub(crate) async fn run_udp_tunnel(
         tun_mtu as u32,
         uplink_udp_payload_budget,
         data_frag_enabled,
-        if initial_probe_confirmed {
+        if manual_udp_payload_size.is_some() {
+            "manual"
+        } else if initial_probe_confirmed {
             "probe"
         } else {
             "fallback"
         },
-        if initial_probe_confirmed {
+        if manual_udp_payload_size.is_some() || initial_probe_confirmed {
             None
         } else {
             Some(if config.tun.mtu_probe {
@@ -11623,9 +11645,12 @@ pub(crate) async fn run_udp_tunnel(
     // direction answers; an older server skips the unknown type.
     // An authenticated report also opts into server reverse confirmation. Keep it
     // absent when probing is explicitly disabled, including at the family base.
-    let mut udp_payload_budget_report_value = (data_frag_enabled && config.tun.mtu_probe)
-        .then(|| u16::try_from(uplink_udp_payload_budget).ok())
-        .flatten();
+    let mut udp_payload_budget_report_value = (data_frag_enabled
+        && config.tun.udp_probing_enabled())
+    .then(|| u16::try_from(uplink_udp_payload_budget).ok())
+    .flatten();
+    let manual_udp_payload_frame =
+        manual_udp_payload_size.map(|size| crate::protocol::ctrl::udp_manual_payload(size as u16));
     let client_info_frame = crate::protocol::ctrl::this_build();
     let mut udp_send_scratch = crate::transport_core::udp_batch::BatchScratch::new(
         crate::transport_core::udp_batch::MAX_BATCH,
@@ -11659,12 +11684,16 @@ pub(crate) async fn run_udp_tunnel(
     // socket loss must not leave the server without the path limits or the client build.
     let mut control_report_resends = if mtu_report_value.is_some()
         || udp_payload_budget_report_value.is_some()
+        || manual_udp_payload_frame.is_some()
         || client_info_frame.is_some()
     {
         UDP_CONTROL_REPORT_RESENDS
     } else {
         0
     };
+    if let Some(frame) = manual_udp_payload_frame.as_ref() {
+        let _ = send_udp_control!(frame);
+    }
     if let Some(budget) = udp_payload_budget_report_value {
         let frame = crate::protocol::ctrl::udp_payload_budget_report(budget);
         match send_udp_control!(&frame) {
@@ -11699,7 +11728,7 @@ pub(crate) async fn run_udp_tunnel(
     // carrier datagram size. A legacy peer would require rebuilding the interface/routes.
     let mut last_path_diagnostic = std::time::Instant::now();
     let mut previous_path_diagnostic = runtime_counters.udp.path.snapshot();
-    let live_mtu_reprobe_enabled = data_frag_enabled && config.tun.mtu_probe;
+    let live_mtu_reprobe_enabled = data_frag_enabled && config.tun.udp_probing_enabled();
     let mut live_mtu_probe = LiveUdpMtuProbe::default();
     let mut udp_budget_revision = 0u64;
     let mut next_mtu_growth = tokio::time::Instant::now() + crate::protocol::pmtu::GROW_INTERVAL;
@@ -12813,10 +12842,9 @@ pub(crate) async fn run_udp_tunnel(
                                 );
                                 continue 'udp;
                             }
-                            let next_payload_budget =
+                            let next_payload_budget = manual_udp_payload_size.unwrap_or_else(||
                                 crate::protocol::data_frag::conservative_udp_payload_budget(
-                                    candidate.socket.peer_is_ipv6(),
-                                );
+                                    candidate.socket.peer_is_ipv6()));
                             let next_record_budget = match crate::protocol::data_frag::unfragmented_record_budget_with_wrapper(
                                 next_payload_budget,
                                 candidate.socket.seal_overhead(),
@@ -12916,13 +12944,19 @@ pub(crate) async fn run_udp_tunnel(
                             udp_budget_revision = udp_budget_revision.wrapping_add(1);
                             next_mtu_growth = tokio::time::Instant::now();
                             uplink_udp_payload_budget = next_payload_budget;
-                            runtime_counters.udp.path.set(tun_mtu as u32, next_payload_budget, data_frag_enabled, "fallback", Some("path_changed"));
+                            runtime_counters.udp.path.set(tun_mtu as u32, next_payload_budget, data_frag_enabled,
+                                if manual_udp_payload_size.is_some() { "manual" } else { "fallback" }, Some("path_changed"));
                             data_record_budget = next_record_budget;
                             max_empty_record_padding = next_padding_budget;
                             udp_payload_budget_report_value = None;
-                            keep_df_after_live_probe = false;
+                            keep_df_after_live_probe = manual_udp_payload_size.is_some();
                             live_mtu_probe.clear();
-                            finish_mtu_probe(&socket, false);
+                            if manual_udp_payload_size.is_some() && !begin_mtu_probe(&socket) {
+                                result = Err(anyhow::anyhow!("cannot enforce DF for manual UDP payload after path change"));
+                                break 'udp;
+                            }
+                            finish_mtu_probe(&socket, keep_df_after_live_probe);
+                            control_report_resends = UDP_CONTROL_REPORT_RESENDS;
                             live_mtu_due = tokio::time::interval(UDP_MTU_REPROBE_INTERVAL);
                             live_mtu_due
                                 .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -13112,7 +13146,7 @@ pub(crate) async fn run_udp_tunnel(
                 // only after this tiny echo returns. Handle it before DATA_FRAG/PacketCodec:
                 // the probe is deliberately a bare carrier record, just like the original
                 // uplink PMTU exchange. It does not count as authenticated liveness.
-                if data_frag_enabled && !receive_is_draining {
+                if data_frag_enabled && manual_udp_payload_size.is_none() && !receive_is_draining {
                     if let Some((probe_token, probe_size)) =
                         crate::protocol::udp_frag::parse_mtu_probe_v2_request(payload)
                     {
@@ -13440,6 +13474,9 @@ pub(crate) async fn run_udp_tunnel(
                 // idempotent, and CLIENT_INFO is self-reported diagnostics rather than policy.
                 if control_report_resends > 0 {
                     control_report_resends -= 1;
+                    if let Some(frame) = manual_udp_payload_frame.as_ref() {
+                        let _ = send_udp_control!(frame);
+                    }
                     if let Some(budget) = udp_payload_budget_report_value {
                         let frame = crate::protocol::ctrl::udp_payload_budget_report(budget);
                         if let Err(error) = send_udp_control!(&frame) {

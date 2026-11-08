@@ -43,6 +43,7 @@ pub const FIELDS: &[Field] = &[
     field!("jmax", "int", "300", "AwgJmax", "awgJmax", "awgJunkMax"),
     field!("mtu", "int", "0", "Mtu", "mtu", "mtu"),
     field!("mtu_probe", "bool", "true", "MtuProbe", "mtuProbe", "mtuProbe"),
+    field!("udp_payload_size", "int", "0", "UdpPayloadSize", "udpPayloadSize", "udpPayloadSize"),
     field!("gateway", "bool", "true", "AddDefaultGateway", "addDefaultGateway", "addDefaultGateway"),
     field!("pull_routes", "bool", "true", "PullRoutes", "pullRoutes", "pullRoutes"),
     field!("ipv6", "string", "auto", "Ipv6Policy", "ipv6", "ipv6Policy"),

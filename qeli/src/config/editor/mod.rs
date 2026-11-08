@@ -111,6 +111,7 @@ fn set(doc: &mut IniDoc, key: &str, value: &Value) -> anyhow::Result<()> {
 fn bounds(key: &str) -> (i64, i64) {
     match key {
         "mtu" => (0, super::server::MTU_MAX as i64),
+        "udp_payload_size" => (0, 65507),
         "jc" => (0, 128),
         "jmin" | "jmax" | "padding_min" | "padding_max" => (0, super::MAX_PADDING_BYTES as i64),
         "metric" => (0, i32::MAX as i64),
@@ -723,3 +724,5 @@ pub fn parse_runtime(source: &str) -> anyhow::Result<ClientConfig> {
 
 #[cfg(test)]
 mod tun_queue_tests;
+#[cfg(test)]
+mod udp_payload_tests;

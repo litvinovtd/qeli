@@ -50,6 +50,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
 
     var mtu: Int = ConfigDefaults.mtu
     var mtuProbe: Bool = ConfigDefaults.mtuProbe
+    var udpPayloadSize: Int = ConfigDefaults.udpPayloadSize
     var routingMode = "full-tunnel"
     var ipv6Policy: String = ConfigDefaults.ipv6Policy
     var roamingPolicy: String = ConfigDefaults.roamingPolicy

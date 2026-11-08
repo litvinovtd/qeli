@@ -94,6 +94,7 @@ public sealed partial class VpnConfig : INotifyPropertyChanged
     // Active outer UDP path-MTU probing, independently of Mtu. Default on; false
     // disables startup/live probes. No effect on TCP (the OS performs PMTUD).
     public bool MtuProbe { get; init; } = ConfigDefaults.MtuProbe;
+    public int UdpPayloadSize { get; init; } = ConfigDefaults.UdpPayloadSize;
     // routing
     public string RoutingMode { get; init; } = "full-tunnel";
     /// <summary>Inner IPv6 negotiation policy: auto, required or off.</summary>
@@ -347,7 +348,7 @@ public sealed partial class VpnConfig : INotifyPropertyChanged
         bool? mtuProbe = null, bool? killSwitch = null, string? dnsMode = null,
         string? ipv6Policy = null, string? roamingPolicy = null,
         bool? allowIpv4Leak = null, bool? allowIpv6Leak = null, bool? pullRoutes = null, bool? windowsDisableSharing = null,
-        bool? windowsPersistentAdapter = null, string? devNode = null) => new()
+        bool? windowsPersistentAdapter = null, string? devNode = null, int? udpPayloadSize = null) => new()
     {
         // ── form-edited fields (from params) ──
         ServerAddress = serverAddress, Port = port, Protocol = protocol, WireMode = wireMode,
@@ -375,6 +376,7 @@ public sealed partial class VpnConfig : INotifyPropertyChanged
         WindowsPersistentAdapter = windowsPersistentAdapter ?? WindowsPersistentAdapter,
         WindowsAdapterMode = WindowsAdapterMode,
         MtuProbe = mtuProbe ?? MtuProbe,
+        UdpPayloadSize = udpPayloadSize ?? UdpPayloadSize,
         KillSwitch = killSwitch ?? KillSwitch,
         // ── preserved from `this` (no form control) ──
         Id = Id, NativeSource = NativeSource,
@@ -417,6 +419,7 @@ public sealed partial class VpnConfig : INotifyPropertyChanged
         // a dead end with no way out of the UI. Carried minus what the form just rewrote.
         UnparsedNumericKeys = UnparsedNumericKeys
             .Where(k => !EditorControlledNumericKeys.Contains(k))
+            .Where(k => udpPayloadSize == null || k != "udp_payload_size")
             .Where(k => connectionTimeoutSecs == null || k != "timeout")
             .Where(k => reconnectMaxRetries == null || k != "reconnect_retries")
             .ToArray(),
@@ -427,6 +430,7 @@ public sealed partial class VpnConfig : INotifyPropertyChanged
             InvalidRawValues = InvalidRawValues
             .Where(kv => !EditorControlledNumericKeys.Contains(kv.Key)
                          && !EditorControlledBooleanKeys.Contains(kv.Key))
+            .Where(kv => udpPayloadSize == null || kv.Key != "udp_payload_size")
             .Where(kv => connectionTimeoutSecs == null || kv.Key != "timeout")
             .Where(kv => reconnectMaxRetries == null || kv.Key != "reconnect_retries")
             .Where(kv => reconnectEnabled == null || kv.Key != "reconnect")

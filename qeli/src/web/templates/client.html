@@ -17,13 +17,6 @@
     </div>
   </div>
 
-  <div class="client-summary mb-4" aria-label="Outbound connection summary">
-    <div class="card p-4"><div class="text-xs text-slate-400">Profiles</div><div class="text-xl font-semibold" x-text="profiles.length"></div></div>
-    <div class="card p-4"><div class="text-xs text-slate-400">Connected</div><div class="text-xl font-semibold" x-text="profileCount('up')"></div></div>
-    <div class="card p-4"><div class="text-xs text-slate-400">Connecting</div><div class="text-xl font-semibold" x-text="profileCount('connecting')"></div></div>
-    <div class="card p-4"><div class="text-xs text-slate-400">Needs attention</div><div class="text-xl font-semibold text-amber-400" x-text="attentionCount()"></div></div>
-  </div>
-
   <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs mb-4" style="background:var(--bg-2);border:1px solid var(--line);color:var(--txt-mut)">
     <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
     <span>Outbound connections: this box dials out to other qeli servers (a client role). Add one by importing a qeli:// link, filling the form, or pasting a full INI config, then Connect.</span>
@@ -492,8 +485,6 @@ function clientPage() {
       if (this.snapshotStale(profile)) return 'unknown';
       return profile.state || 'connecting';
     },
-    profileCount(state) { return this.loadError || !this.loaded ? '—' : this.profiles.filter(p => this.displayState(p) === state).length; },
-    attentionCount() { return !this.loaded ? '—' : this.profiles.filter(p => ['error','unknown'].includes(this.displayState(p)) || p.invalid || this.valueAt(p,'last_error',null)).length; },
     statusLabel(profile) {
       return this.qeliT(({up:'Connected',down:'Disconnected',error:'Error or retrying',connecting:'Process running; connecting',unknown:'Telemetry outdated'})[this.displayState(profile)]);
     },

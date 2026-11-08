@@ -95,6 +95,36 @@ async function main() {
     profile.connected=false;assert.equal(model.displayState(profile),'down');assert.match(model.snapshotLabel(profile),/Last session/);
     assert.equal(model.displayState({connected:true,state:'up'}),'connecting');
   });
+  await check('outbound page omits redundant summary cards but keeps per-profile diagnostics and actions', () => {
+    const {model,html}=component('client.html','clientPage');
+    const page=html.split('<!-- Structured transport diagnostics;')[0];
+    assert(!page.includes('client-summary'));
+    assert(!html.includes('Outbound connection summary'));
+    assert.equal(model.profileCount,undefined);assert.equal(model.attentionCount,undefined);
+    for(const expression of ['statusLabel(p)','trafficLabel(p)','networkLabel(p)','openDiagnostics(p)','connect(p.name)','disconnect(p.name)'])assert(page.includes(expression));
+    assert(html.includes('Transport diagnostics'));
+    assert(html.includes('diagBytes(\'stats.tx_bytes\')'));
+  });
+  await check('outbound traffic and network labels follow polled diagnostics and the open dialog', async () => {
+    const {model,context}=component('client.html','clientPage');
+    context.window.fmt=value=>value+' bytes';
+    const snapshot=(tx,rx,mtu,full)=>({name:'fixture',connected:true,state:'up',diagnostics:{state:'running',updated_at_ms:Date.now(),stats:{tx_bytes:tx,rx_bytes:rx},plan:{full_tunnel:full,mtu}}});
+    model.diagOpen=true;model.diagProfile=snapshot(0,0,1400,false);
+    for(const [tx,rx,mtu,full] of [[12345,67890,1280,false],[24690,135780,1360,true]]) {
+      context.apiFetch=async()=>({ok:true,profiles:[snapshot(tx,rx,mtu,full)]});
+      await model.refresh(true);
+      assert.equal(model.trafficLabel(model.profiles[0]),`Session totals: ↑ ${tx} bytes · ↓ ${rx} bytes`);
+      assert.equal(model.networkLabel(model.profiles[0]),`Last reported plan: ${full?'Full tunnel':'Split tunnel'} · MTU ${mtu}`);
+      assert.equal(model.diagBytes('stats.tx_bytes'),tx+' bytes');
+      assert.equal(model.diagBytes('stats.rx_bytes'),rx+' bytes');
+      assert.equal(model.diagValue('plan.mtu'),mtu);
+    }
+    context.apiFetch=async()=>({ok:true,profiles:[{name:'fixture',connected:false,state:'down'}]});
+    await model.refresh(true);
+    assert.equal(model.trafficLabel(model.profiles[0]),'Session totals: ↑ — · ↓ —');
+    assert.equal(model.networkLabel(model.profiles[0]),'Network plan unavailable');
+    assert.equal(model.diagBytes('stats.tx_bytes'),'—');
+  });
   await check('outbound table has localized mobile labels and scoped stacked layout', () => {
     const {html}=component('client.html','clientPage');
     for(const label of ['Profile','Server','Mode','Status','Traffic and network','Actions'])assert(html.includes(':data-label="qeliT(\''+label+'\')"'));

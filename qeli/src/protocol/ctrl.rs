@@ -53,6 +53,25 @@ pub const CTRL_CLIENT_INFO: u8 = 2;
 /// Body: `[bytes(2 BE)]`. The server retains its family-safe conservative budget until
 /// this authenticated report arrives; peers that do not understand the type skip it.
 pub const CTRL_UDP_PAYLOAD_BUDGET: u8 = 3;
+/// Explicit operator-configured bidirectional UDP payload size, NOT probe evidence.
+/// Body: [bytes(2 BE)], 548..=65507. Requires UDP_MANUAL_PAYLOAD_V1 and DATA_FRAG.
+/// The server installs this session's manual budget without starting reverse probes.
+pub const CTRL_UDP_MANUAL_PAYLOAD: u8 = 4;
+
+pub fn udp_manual_payload(bytes: u16) -> Vec<u8> {
+    let mut frame = udp_payload_budget_report(bytes);
+    frame[2] = CTRL_UDP_MANUAL_PAYLOAD;
+    frame
+}
+
+pub fn parse_udp_manual_payload(packet: &[u8]) -> Option<u16> {
+    let (kind, body) = parse(packet)?;
+    if kind != CTRL_UDP_MANUAL_PAYLOAD || body.len() != 2 || packet.len() != CTRL_HDR_LEN + 2 {
+        return None;
+    }
+    let value = u16::from_be_bytes([body[0], body[1]]);
+    (548..=65507).contains(&value).then_some(value)
+}
 
 /// Caps for the self-reported identity. Deliberately small: the value is peer-chosen and
 /// ends up in the CLI table, the JSON API, the panel and the log, so a long one is either
@@ -227,6 +246,29 @@ pub fn parse_udp_payload_budget_report(p: &[u8]) -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_udp_payload_is_distinct_from_probe_evidence_and_bounded() {
+        assert_eq!(udp_manual_payload(1472), vec![0xc1, 0x9b, 4, 2, 0x05, 0xc0]);
+        for size in [548, 1232, 1472, 65507] {
+            let frame = udp_manual_payload(size);
+            assert_eq!(parse_udp_manual_payload(&frame), Some(size));
+            assert_eq!(parse_udp_payload_budget_report(&frame), None);
+            assert_eq!(
+                parse_udp_manual_payload(&udp_payload_budget_report(size)),
+                None
+            );
+            for cut in 0..frame.len() {
+                assert_eq!(parse_udp_manual_payload(&frame[..cut]), None);
+            }
+        }
+        for size in [0, 1, 547, 65508, 65535] {
+            assert_eq!(parse_udp_manual_payload(&udp_manual_payload(size)), None);
+        }
+        let mut extra = udp_manual_payload(1472);
+        extra.push(0);
+        assert_eq!(parse_udp_manual_payload(&extra), None);
+    }
 
     /// The exact bytes, pinned identically in the C#, Kotlin and Swift ports. A port that
     /// drifts on byte order or the magic would make the server read a nonsense MTU.

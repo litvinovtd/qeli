@@ -35,6 +35,7 @@ pub mod server_capability {
     pub const TCP_HANDOVER_V2: u64 = 1 << 10;
     pub const MANAGEMENT_V1: u64 = 1 << 11;
     pub const TCP_SLOT_PROBE_V1: u64 = 1 << 12;
+    pub const UDP_MANUAL_PAYLOAD_V1: u64 = 1 << 13;
     pub const ROAMING_RESERVED: u64 =
         UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1 | TCP_RESUME_V2 | TCP_HANDOVER_V2;
 }
@@ -55,6 +56,7 @@ pub mod client_capability {
     pub const TCP_HANDOVER_V2: u64 = 1 << 9;
     pub const MANAGEMENT_V1: u64 = 1 << 10;
     pub const TCP_SLOT_PROBE_V1: u64 = 1 << 11;
+    pub const UDP_MANUAL_PAYLOAD_V1: u64 = 1 << 12;
     pub const ROAMING_RESERVED: u64 =
         UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1 | TCP_RESUME_V2 | TCP_HANDOVER_V2;
 }
@@ -62,6 +64,19 @@ pub mod client_capability {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ServerCapabilities {
     pub bits: u64,
+}
+
+pub fn manual_udp_payload_negotiated(
+    server: Option<ServerCapabilities>,
+    client: Option<ClientCapabilities>,
+) -> bool {
+    server.is_some_and(|s| {
+        s.contains(server_capability::UDP_DATA_FRAG_V1 | server_capability::UDP_MANUAL_PAYLOAD_V1)
+    }) && client.is_some_and(|c| {
+        c.core_bits
+            & (client_capability::UDP_DATA_FRAG_V1 | client_capability::UDP_MANUAL_PAYLOAD_V1)
+            == client_capability::UDP_DATA_FRAG_V1 | client_capability::UDP_MANUAL_PAYLOAD_V1
+    })
 }
 
 impl ServerCapabilities {
@@ -121,7 +136,8 @@ pub const fn server_capabilities_for_profile(roaming_enabled: bool) -> ServerCap
 /// to the same eight-byte CID envelope; QUIC masking, fake-TLS and obfs remain handshake/profile
 /// choices rather than separate roaming implementations.
 pub const fn implemented_udp_server_capabilities() -> ServerCapabilities {
-    let capabilities = implemented_server_capabilities();
+    let mut capabilities = implemented_server_capabilities();
+    capabilities.bits |= server_capability::UDP_MANUAL_PAYLOAD_V1;
     #[cfg(feature = "experimental-roaming")]
     {
         ServerCapabilities {
@@ -218,7 +234,8 @@ pub const fn implemented_client_core_capabilities() -> u64 {
     let bits = client_capability::INNER_IPV6
         | client_capability::NETWORK_PLAN_V2
         | client_capability::UDP_DATA_FRAG_V1
-        | client_capability::PACKET_MUX_V1;
+        | client_capability::PACKET_MUX_V1
+        | client_capability::UDP_MANUAL_PAYLOAD_V1;
     // The shared supervisor owns terminal close, management events, TCP resume/handover,
     // and the UDP path actor. Negotiation below strips each migration bit unless this exact
     // transport and platform can use it.

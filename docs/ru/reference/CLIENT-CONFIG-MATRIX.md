@@ -1,6 +1,6 @@
 # Клиентский конфиг: актуальный контракт и миграция 0.7.14 → 0.7.15
 
-Эта таблица фиксирует **актуальный контракт 84 допустимых ключей** секции `[qeli]`
+Эта таблица фиксирует **актуальный контракт 85 допустимых ключей** секции `[qeli]`
 для всех пяти клиентов и сохраняет историю рефакторинга. «До» означает поведение
 выпущенной 0.7.14; «после» начиналось как контракт 0.7.15 и расширяется здесь вместе
 с текущим кодом (включая NetworkPlan v2 и полный IPv6).
@@ -25,6 +25,7 @@ fail-closed. Текущие GUI-клиенты сохраняют любой и�
 
 | Ключи | CLI | Windows | macOS | Android | iOS | Текущий контракт / изменение |
 |---|:-:|:-:|:-:|:-:|:-:|---|
+| `udp_payload_size` | N→A | N→A | N→A | N→A | N→A | 0.8.5: `0` — авто; `548..65507` — ручной внешний UDP-лимит с обёртками, без активных PMTU-проб в обе стороны. Не меняет внутренний MTU; TCP сохраняет, но не применяет. Нужен обновлённый сервер. |
 | `server` `proto` `user` `pass` `key` `bind_static` `mode` `sni` `obfs_key` `front` `reality_sid` `quic` `awg` `jc` `jmin` `jmax` `mtu` `mtu_probe` `gateway` `route_local` `include` `exclude` `dns` `ipv6` `allow_ipv6_leak` `allow_ipv4_leak` | A→A | A→A | A→A | A→A | A→A | IPv6 согласуется внутри аутентифицированных capabilities/NetworkPlan v2. Режимы `auto`, `required` и `off`, а также симметричные leak-controls едины для всех адаптеров; общий default `gateway=true`; явный `false` включает split tunnel. |
 | `pull_routes` | N→A | N→A | N→A | N→A | N→A | 0.8.3: default `true`; `false` отклоняет только серверные маршруты, сохраняя локальные, независимый full tunnel и защищённый DNS. Общий INI/URI/model контракт. |
 | `windows_disable_sharing` | N→R | N→A | N→C | N→C | N→C | 0.8.3: default `false`; opt-in только для созданного Windows Wintun. Владение GUID/LUID/CIM и readback bindings; не применяется к WinDivert и другим платформам. |
@@ -93,18 +94,18 @@ CLI применяет `level`, `file`, `time_format`. Windows/macOS испол�
 локальным C#/JVM прогоном. См. [статус переноса](../plans/CLIENT-CONFIG-CORE.md).
 
 <!-- generated-model-coverage -->
-## Покрытие моделей: все 88 полей
+## Покрытие моделей: все 89 полей
 
 Этот блок генерируется из `editor/schema.rs`; M — типизированное свойство модели,
 S — значение сохраняется в исходном документе ядра и/или `carriedKeys`.
 Это не перечень контролов формы: поле без отдельного UI остаётся доступно через INI.
-Общий парсер распознаёт ключи: `[qeli]` — 85, `[logging]` — 3.
+Общий парсер распознаёт ключи: `[qeli]` — 86, `[logging]` — 3.
 
-Ключей с типизированным представлением: C# 65, Kotlin 59, Swift 58; остальные поля сохраняются как S.
+Ключей с типизированным представлением: C# 66, Kotlin 60, Swift 59; остальные поля сохраняются как S.
 
 | Ключи схемы | C# (Windows/macOS) | Kotlin | Swift |
 |---|:-:|:-:|:-:|
-| `server` `proto` `user` `pass` `key` `bind_static` `allow_unpinned_tofu` `mode` `obfs_key` `front` `sni` `reality_sid` `quic` `awg` `jc` `jmin` `jmax` `mtu` `mtu_probe` `gateway` `pull_routes` `ipv6` `roaming` `route_local` `allow_ipv4_leak` `allow_ipv6_leak` `include` `exclude` `dns` `dns_servers` `apps_mode` `apps` `route_file` `reconnect` `reconnect_retries` `reconnect_base_delay` `reconnect_max_delay` `timeout` `padding` `padding_min` `padding_max` `heartbeat` `heartbeat_interval` `heartbeat_size` `heartbeat_jitter` `shaping` `shaping_gap_mean` `shaping_gap_min` `shaping_gap_max` `shaping_budget` `shaping_min_size` `shaping_max_size` `shaping_stealth` `shaping_stealth_mbps` `logging.level` | M | M | M |
+| `server` `proto` `user` `pass` `key` `bind_static` `allow_unpinned_tofu` `mode` `obfs_key` `front` `sni` `reality_sid` `quic` `awg` `jc` `jmin` `jmax` `mtu` `mtu_probe` `udp_payload_size` `gateway` `pull_routes` `ipv6` `roaming` `route_local` `allow_ipv4_leak` `allow_ipv6_leak` `include` `exclude` `dns` `dns_servers` `apps_mode` `apps` `route_file` `reconnect` `reconnect_retries` `reconnect_base_delay` `reconnect_max_delay` `timeout` `padding` `padding_min` `padding_max` `heartbeat` `heartbeat_interval` `heartbeat_size` `heartbeat_jitter` `shaping` `shaping_gap_mean` `shaping_gap_min` `shaping_gap_max` `shaping_budget` `shaping_min_size` `shaping_max_size` `shaping_stealth` `shaping_stealth_mbps` `logging.level` | M | M | M |
 | `name` `persist_tun` `windows_disable_sharing` `windows_persistent_adapter` `forward` `local` `lport` `metric` `dev_node` | M | S | S |
 | `kill_switch` | M | M | S |
 | `allow_lan` `logging.file` `logging.time_format` | S | M | M |

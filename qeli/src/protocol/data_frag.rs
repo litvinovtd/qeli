@@ -384,6 +384,32 @@ mod tests {
 
     const KEY: [u8; 32] = [0x42; 32];
 
+    #[test]
+    fn manual_udp_limit_includes_every_data_fragment_and_transport_wrapper() {
+        for size in [548usize, 1232, 1400, 1472, 8972, 65507] {
+            for seal in [0, 13, 24, 96] {
+                for wrapper in [0, 9, 17] {
+                    let budget =
+                        unfragmented_record_budget_with_wrapper(size, seal, wrapper).unwrap();
+                    let record = vec![0x5a; (budget + 100).min(MAX_REASSEMBLED_RECORD)];
+                    if record.len() <= budget {
+                        continue;
+                    }
+                    let parts = fragment_record(&record, &KEY, 7, budget - HEADER_LEN).unwrap();
+                    let mut reassembler = DataReassembler::new();
+                    let mut restored = None;
+                    for part in parts {
+                        assert!(part.len() + seal + wrapper <= size);
+                        if let Some(value) = reassembler.push(&part, &KEY).unwrap() {
+                            restored = Some(value);
+                        }
+                    }
+                    assert_eq!(restored, Some(record));
+                }
+            }
+        }
+    }
+
     #[cfg(any(target_os = "linux", target_os = "android"))]
     #[test]
     fn active_pmtu_probes_use_the_normal_df_mode() {

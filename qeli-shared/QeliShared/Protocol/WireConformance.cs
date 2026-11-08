@@ -2,6 +2,8 @@ using System.Text.Json;
 using Qeli.Shared.Crypto;
 using Qeli.Shared.Vpn;
 
+using Qeli.Shared.Model;
+
 namespace Qeli.Shared.Protocol;
 
 /// <summary>
@@ -510,7 +512,7 @@ public static class WireConformance
                 string key = field.GetProperty("key").GetString()!;
                 if (key.StartsWith("logging.", StringComparison.Ordinal) != (section == "logging")) continue;
                 string value = key switch { "server" => "vpn.example.com:443", "pass" => "secret",
-                    "tun.tx_queue_len" => "500", "pull_routes" => "false", "windows_disable_sharing" => "true", "windows_persistent_adapter" => "true",
+                    "tun.tx_queue_len" => "500", "udp_payload_size" => "1472", "pull_routes" => "false", "windows_disable_sharing" => "true", "windows_persistent_adapter" => "true",
                     "logging.file" => "/tmp/coverage.log", "logging.time_format" => "rfc3339",
                     _ => field.GetProperty("default").GetString()! };
                 string localKey = section == "logging" ? key["logging.".Length..] : key;
@@ -522,8 +524,9 @@ public static class WireConformance
         var coverageRaw = Model.ConfigCore.Call(new { version = 1, op = "import", source = coverageModel.ToIni() }).GetProperty("raw");
         var coverageMissing = coverageFields.Select(f => f.GetProperty("key").GetString()!)
             .Where(key => !coverageRaw.TryGetProperty(key, out _)).ToArray();
-        check("schema: all 88 fields survive clone/edit; missing=" + string.Join(",", coverageMissing),
-            coverageFields.Length == 88 && coverageMissing.Length == 0);
+        check("schema: all 89 fields survive clone/edit; missing=" + string.Join(",", coverageMissing),
+            coverageFields.Length == 89 && coverageMissing.Length == 0);
+        check("schema: manual UDP payload survives model clone", coverageRaw.GetProperty("udp_payload_size")[0].GetString() == "1472");
         check("schema: non-default route policy and sharing survive clone", coverageRaw.GetProperty("pull_routes")[0].GetString() == "false" && coverageRaw.GetProperty("windows_disable_sharing")[0].GetString() == "true");
         check("schema: persistent Windows adapter survives clone", coverageModel.WindowsPersistentAdapter && coverageRaw.GetProperty("windows_persistent_adapter")[0].GetString()=="true");
         check("schema: literal client TUN queue survives model clone", coverageRaw.GetProperty("tun.tx_queue_len")[0].GetString() == "500");
@@ -652,8 +655,27 @@ public static class WireConformance
             connectionTimeoutSecs: 45, reconnectEnabled: false, reconnectMaxRetries: 5,
             persistTun: true, mtuProbe: false, killSwitch: true, dnsMode: "system",
             ipv6Policy: "required", roamingPolicy: "required",
-            allowIpv4Leak: true, allowIpv6Leak: true);
+            allowIpv4Leak: true, allowIpv6Leak: true, udpPayloadSize: 1472);
         string extendedIni = extendedEdit.ToIni();
+        const string udpBase = "[qeli]\nserver=vpn.example.com:443\nuser=alice\npass=test\nbind_static=false\n";
+        check("ini-editor: UDP payload defaults to automatic", VpnConfig.FromIni(udpBase).UdpPayloadSize == 0);
+        foreach (int size in new[] { 548, 1232, 1472, 65507 })
+        {
+            var manual = VpnConfig.FromIni(udpBase + $"udp_payload_size={size}\n");
+            manual.Validate();
+            check($"ini-editor: manual UDP payload {size} roundtrip",
+                manual.UdpPayloadSize == size && VpnConfig.FromIni(manual.ToIni()).UdpPayloadSize == size);
+        }
+        foreach (string size in new[] { "-1", "1", "547", "65508", "abc" })
+        {
+            bool rejected = false;
+            try { VpnConfig.FromIni(udpBase + $"udp_payload_size={size}\n").Validate(); }
+            catch (Exception) { rejected = true; }
+            check($"ini-editor: invalid manual UDP payload {size} rejected", rejected);
+        }
+        check("ini-editor: manual UDP payload survives form and native INI roundtrip",
+            extendedEdit.UdpPayloadSize == 1472 && extendedIni.Contains("udp_payload_size = 1472")
+            && VpnConfig.FromIni(extendedIni).UdpPayloadSize == 1472);
         check("ini-editor: extended desktop controls persist",
             extendedEdit.ConnectionTimeoutSecs == 45 && !extendedEdit.ReconnectEnabled
             && extendedEdit.ReconnectMaxRetries == 5 && extendedEdit.PersistTun

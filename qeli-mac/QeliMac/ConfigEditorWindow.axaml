@@ -171,6 +171,11 @@
                                 <TextBlock Text="{l:Loc Ipv6PolicyHint}" TextWrapping="Wrap" Foreground="{DynamicResource FgDim}" FontSize="11.5" Margin="0,5,0,0"/>
                             </StackPanel>
                             <CheckBox x:Name="MtuProbeBox" Content="{l:Loc MtuProbe}" Margin="0,0,0,16"/>
+                            <StackPanel Margin="0,0,0,16">
+                                <TextBlock Text="{l:Loc UdpPayloadSize}" Classes="label"/>
+                                <TextBox x:Name="UdpPayloadSizeBox"/>
+                                <TextBlock Text="{l:Loc UdpPayloadHint}" TextWrapping="Wrap" Foreground="{DynamicResource FgDim}" FontSize="11.5" Margin="0,5,0,0"/>
+                            </StackPanel>
 
                             <Grid Margin="0,0,0,8" ColumnDefinitions="190,14,*">
                                 <StackPanel Grid.Column="0">

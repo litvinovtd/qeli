@@ -25,6 +25,7 @@ public sealed partial class VpnConfig {
         ["jmax"] = AwgJmax,
         ["mtu"] = Mtu,
         ["mtu_probe"] = MtuProbe,
+        ["udp_payload_size"] = UdpPayloadSize,
         ["gateway"] = AddDefaultGateway,
         ["pull_routes"] = PullRoutes,
         ["ipv6"] = Ipv6Policy ?? "",
@@ -101,6 +102,7 @@ public sealed partial class VpnConfig {
             AwgJmax = v.GetProperty("jmax").Deserialize<ushort>()!,
             Mtu = v.GetProperty("mtu").Deserialize<int>()!,
             MtuProbe = v.GetProperty("mtu_probe").Deserialize<bool>()!,
+            UdpPayloadSize = v.GetProperty("udp_payload_size").Deserialize<int>()!,
             AddDefaultGateway = v.GetProperty("gateway").Deserialize<bool>()!,
             PullRoutes = v.GetProperty("pull_routes").Deserialize<bool>()!,
             Ipv6Policy = v.GetProperty("ipv6").Deserialize<string>()!,
@@ -176,6 +178,7 @@ internal static class ConfigDefaults {
     public const ushort AwgJmax = 300;
     public const int Mtu = 0;
     public const bool MtuProbe = true;
+    public const int UdpPayloadSize = 0;
     public const bool AddDefaultGateway = true;
     public const bool PullRoutes = true;
     public const string Ipv6Policy = "auto";

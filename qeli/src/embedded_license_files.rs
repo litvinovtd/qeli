@@ -2,7 +2,7 @@
 // LZ4 block storage only; every exported byte remains canonical.
 pub const UNPACKED_LEN: usize = 4416570;
 #[rustfmt::skip]
-pub const UNPACKED_SHA256: [u8; 32] = [169, 83, 4, 119, 135, 91, 209, 207, 61, 16, 252, 124, 240, 246, 251, 56, 236, 247, 89, 2, 218, 84, 55, 34, 14, 234, 169, 142, 114, 166, 53, 104];
+pub const UNPACKED_SHA256: [u8; 32] = [45, 54, 62, 165, 135, 209, 191, 60, 114, 145, 224, 149, 8, 69, 234, 206, 181, 19, 96, 30, 255, 223, 104, 22, 238, 246, 205, 123, 15, 215, 101, 42];
 pub const PACKED: &[u8] = include_bytes!("embedded_licenses.lz4");
 #[rustfmt::skip]
 pub const FILES: &[(&str, usize, usize)] = &[

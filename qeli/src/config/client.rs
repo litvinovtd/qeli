@@ -132,6 +132,11 @@ pub struct ClientTunConfig {
     /// budget. No effect on TCP transports, where the kernel performs PMTUD.
     #[serde(default = "default_true")]
     pub mtu_probe: bool,
+    /// Complete outer UDP payload, including all Qeli/obfs/QUIC/DATA_FRAG wrappers,
+    /// excluding UDP/IP/link headers. Zero preserves automatic PMTU policy. A positive
+    /// value is an operator-supplied bidirectional budget and disables active probing.
+    #[serde(default)]
+    pub udp_payload_size: u32,
     /// Linux-owned TUN/TAP TX queue length in packets. Omitted = 1000, not an
     /// adaptive mode. Explicit values round-trip; external attach-mode devices
     /// remain under their owner's control. Other platforms preserve but ignore it.
@@ -156,6 +161,14 @@ pub const CLIENT_TUN_TX_QUEUE_LEN_DEFAULT: u32 = 1000;
 pub const CLIENT_TUN_TX_QUEUE_LEN_MAX: u32 = 32_767;
 
 impl ClientTunConfig {
+    pub fn udp_probing_enabled(&self) -> bool {
+        self.mtu_probe && self.udp_payload_size == 0
+    }
+
+    pub fn manual_udp_payload_size(&self) -> Option<usize> {
+        (self.udp_payload_size != 0).then_some(self.udp_payload_size as usize)
+    }
+
     /// Only the Linux adapter applies this policy; borrowed devices are untouched.
     pub fn owned_linux_tx_queue_len(&self) -> Option<u32> {
         if self.attach_existing {
@@ -798,6 +811,7 @@ impl ClientConfig {
         // Active outer UDP path probing, independently of mtu. Default ON — use `true`
         // explicitly (not cfg.tun.mtu_probe, which is derive-Default `false` here).
         cfg.tun.mtu_probe = q.bool_or("mtu_probe", true);
+        cfg.tun.udp_payload_size = q.parse_or("udp_payload_size", 0);
 
         // Route private/local networks (RFC1918 + server-pushed) through the VPN.
         cfg.routing.route_local_networks =
@@ -1066,6 +1080,10 @@ impl ClientConfig {
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.tun.udp_payload_size == 0 || (548..=65507).contains(&self.tun.udp_payload_size),
+            "udp_payload_size must be 0 (automatic) or 548..=65507 bytes of complete UDP payload"
+        );
         fn check(field: &str, got: &str, allowed: &[&str]) -> anyhow::Result<()> {
             if allowed.contains(&got) {
                 return Ok(());
@@ -1787,6 +1805,9 @@ impl ClientConfig {
         // Emit only the non-default (disabled); default true stays implicit.
         if !self.tun.mtu_probe {
             q.set("mtu_probe", "false");
+        }
+        if self.tun.udp_payload_size != 0 {
+            q.set("udp_payload_size", self.tun.udp_payload_size.to_string());
         }
         if self.autostart {
             q.set("autostart", "true");
@@ -3030,6 +3051,7 @@ dev_attach = true
 tun.tx_queue_len = 2000
 mtu = 1380
 mtu_probe = false
+udp_payload_size = 1472
 autostart = true
 
 [logging]
@@ -3114,6 +3136,7 @@ file = /tmp/client.log
             "tun.tx_queue_len = 2000",
             "mtu = 1380",
             "mtu_probe = false",
+            "udp_payload_size = 1472",
             "autostart = true",
         ];
 

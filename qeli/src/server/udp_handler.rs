@@ -186,11 +186,15 @@ struct UdpEgressSnapshot {
     path_epoch: u64,
     // Local generation: a same-address downgrade must invalidate an older probe ACK.
     budget_revision: u64,
+    /// Operator policy, not a certified path measurement. Preserved across roaming.
+    manual_payload_size: Option<u16>,
 }
 
 impl UdpEgressSnapshot {
     fn safe_payload_budget(&self) -> usize {
-        crate::protocol::data_frag::conservative_udp_payload_budget(self.peer.is_ipv6())
+        let safe = crate::protocol::data_frag::conservative_udp_payload_budget(self.peer.is_ipv6());
+        self.manual_payload_size
+            .map_or(safe, |size| safe.min(size as usize))
     }
 
     fn record_budget(&self, udp_payload_budget: usize) -> Option<usize> {
@@ -341,6 +345,7 @@ impl UdpActiveEgress {
                 framing: UdpEgressFraming::legacy(quic_enabled, connection_id),
                 path_epoch: 0,
                 budget_revision: 0,
+                manual_payload_size: None,
             })),
             #[cfg(feature = "experimental-roaming")]
             Arc::new(std::sync::Mutex::new(None)),
@@ -362,6 +367,7 @@ impl UdpActiveEgress {
                 framing: UdpEgressFraming::RoamingCid(destination_cid),
                 path_epoch: 0,
                 budget_revision: 0,
+                manual_payload_size: None,
             })),
             Arc::new(std::sync::Mutex::new(None)),
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -469,6 +475,32 @@ impl UdpActiveEgress {
         (current.clone(), budget)
     }
 
+    /// Authenticated explicit policy is separate from probe certification. Retransmission
+    /// of the same policy must not undo an EMSGSIZE downgrade on this path.
+    fn set_manual_payload_size(
+        &self,
+        peer: SocketAddr,
+        cell: &std::sync::atomic::AtomicU32,
+        size: u16,
+    ) -> bool {
+        if !(548..=65507).contains(&size) {
+            return false;
+        }
+        let mut current = self
+            .0
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if current.peer != peer {
+            return false;
+        }
+        if current.manual_payload_size != Some(size) {
+            current.manual_payload_size = Some(size);
+            cell.store(size as u32, std::sync::atomic::Ordering::Relaxed);
+            current.budget_revision = current.budget_revision.wrapping_add(1);
+        }
+        true
+    }
+
     /// Certify only the exact path AND local budget generation that sent the probe.
     /// One write lock serializes this publication with EMSGSIZE and roaming changes.
     fn certify_payload_budget(
@@ -483,7 +515,8 @@ impl UdpActiveEgress {
             .0
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if current.path_epoch != path_epoch
+        if current.manual_payload_size.is_some()
+            || current.path_epoch != path_epoch
             || current.peer != peer
             || current.budget_revision != budget_revision
         {
@@ -568,8 +601,10 @@ impl UdpActiveEgress {
                 UdpEgressCommitError::StalePeer,
             ));
         }
-        let safe_payload_budget =
-            crate::protocol::data_frag::conservative_udp_payload_budget(commit.peer.is_ipv6());
+        let safe_payload_budget = current.manual_payload_size.map_or_else(
+            || crate::protocol::data_frag::conservative_udp_payload_budget(commit.peer.is_ipv6()),
+            |size| size as usize,
+        );
         publish(&commit.socket, commit.peer).map_err(UdpEgressPublishError::Publish)?;
         // The writer cannot snapshot the new path until this write guard is released.
         payload_budget.store(
@@ -593,6 +628,7 @@ impl UdpActiveEgress {
             framing: UdpEgressFraming::RoamingCid(commit.destination_cid),
             path_epoch: commit.next_epoch,
             budget_revision: current.budget_revision.wrapping_add(1),
+            manual_payload_size: current.manual_payload_size,
         };
         Ok(())
     }
@@ -846,7 +882,7 @@ async fn schedule_downlink_mtu_probe(
             return;
         };
         let egress = active.snapshot();
-        if egress.peer != addr {
+        if egress.peer != addr || egress.manual_payload_size.is_some() {
             return;
         }
         let target = sanitized_udp_payload_budget(
@@ -916,6 +952,9 @@ async fn schedule_downlink_mtu_probe(
             }
             let (current, current_budget) =
                 active_egress.snapshot_with_payload_budget(&budget_cell);
+            if current.manual_payload_size.is_some() {
+                return;
+            }
             if current.path_epoch != snapshot.path_epoch
                 || current.budget_revision != snapshot.budget_revision
             {
@@ -1140,7 +1179,30 @@ async fn forward_udp_uplink_packet(
         return;
     }
     if crate::protocol::ctrl::is_ctrl(&packet) {
-        if let (Some(cell), Some(mtu)) = (
+        if let (Some(cell), Some(size)) = (
+            udp_payload_budget.as_ref(),
+            crate::protocol::ctrl::parse_udp_manual_payload(&packet),
+        ) {
+            let guard = sessions.read().await;
+            if let Some(client) = guard.get(&addr) {
+                if client.manual_udp_payload_supported
+                    && client.data_frag_enabled
+                    && matches!(client.state, UdpSessionState::Authenticated { .. })
+                    && client
+                        .udp_payload_budget
+                        .as_ref()
+                        .is_some_and(|owned| Arc::ptr_eq(owned, cell))
+                {
+                    if let Some(active) = client.active_egress.as_ref() {
+                        if active.set_manual_payload_size(addr, cell, size) {
+                            *lock_or_recover(&client.downlink_mtu_probe, "udp::manual_payload") =
+                                None;
+                            log::debug!("UDP manual payload limit {size} applied for {addr}; no reverse probe");
+                        }
+                    }
+                }
+            }
+        } else if let (Some(cell), Some(mtu)) = (
             path_mtu.as_ref(),
             crate::protocol::ctrl::parse_mtu_report(&packet),
         ) {
@@ -1479,6 +1541,7 @@ struct UdpClient {
     #[cfg(feature = "experimental-roaming")]
     udp_roaming_candidate: Option<crate::transport_core::udp_roaming::CandidateTicket>,
     data_frag_enabled: bool,
+    manual_udp_payload_supported: bool,
     data_reassembler: crate::protocol::data_frag::DataReassembler,
     /// Authenticated PACKET_MUX_V1 receiver. Empty until negotiation completes,
     /// and permanently empty for legacy/off sessions.
@@ -4809,6 +4872,11 @@ async fn handle_udp_auth(
                 client_ip,
             };
             client.data_frag_enabled = data_frag_enabled;
+            client.manual_udp_payload_supported = capabilities.is_some_and(|caps| {
+                caps.core_bits
+                    & crate::protocol::capabilities::client_capability::UDP_MANUAL_PAYLOAD_V1
+                    != 0
+            });
             client.active_egress = Some(active_egress.clone());
             client.rx_recordizer =
                 negotiated_rx_recordizer.map(crate::protocol::recordizer::Reassembler::new);
@@ -5220,7 +5288,7 @@ async fn handle_udp_auth(
                     )
                     .expect("validated UDP recordizer configuration");
                     mux.raise_runtime(runtime)
-                        .expect("certified UDP PMTU only raises the recordizer budget");
+                        .expect("a wider UDP payload policy only raises the recordizer budget");
                     log::info!(
                         "UDP recordizer widened server payload budget from {} to {} bytes",
                         active_mux_payload_budget,
@@ -5850,6 +5918,7 @@ async fn handle_new_udp_client(
             #[cfg(feature = "experimental-roaming")]
             udp_roaming_candidate: None,
             data_frag_enabled: false,
+            manual_udp_payload_supported: false,
             data_reassembler: crate::protocol::data_frag::DataReassembler::new(),
             rx_recordizer: None,
             state: UdpSessionState::AwaitingAuth,
@@ -5916,6 +5985,10 @@ async fn handle_new_udp_client(
         response,
     ))
 }
+
+#[cfg(test)]
+#[path = "udp_handler/manual_payload_tests.rs"]
+mod manual_payload_tests;
 
 #[cfg(test)]
 mod tests {

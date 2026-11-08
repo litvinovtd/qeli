@@ -439,6 +439,7 @@ final class ConfigHardeningTests: XCTestCase {
                 case "server": value = "vpn.example.com:443"
                 case "pass": value = "secret"
                 case "tun.tx_queue_len": value = "500"
+                case "udp_payload_size": value = "1472"
                 case "pull_routes": value = "false"
                 case "windows_disable_sharing": value = "true"
                 case "windows_persistent_adapter": value = "true"
@@ -453,13 +454,14 @@ final class ConfigHardeningTests: XCTestCase {
         var config = try VPNConfig.fromINI(source)
         config.password = "edited"
         let raw = try XCTUnwrap(ConfigCore.call(["version":1,"op":"import","source":config.toINI()])["raw"] as? [String:[String]])
-        XCTAssertEqual(fields.count,88)
+        XCTAssertEqual(fields.count,89)
         for field in fields { XCTAssertNotNil(raw[field["key"] as! String]) }
         XCTAssertEqual(raw["pass"],["edited"])
         XCTAssertEqual(raw["pull_routes"],["false"])
         XCTAssertEqual(raw["windows_disable_sharing"],["true"])
         XCTAssertEqual(raw["windows_persistent_adapter"],["true"])
         XCTAssertEqual(raw["tun.tx_queue_len"],["500"])
+        XCTAssertEqual(raw["udp_payload_size"],["1472"])
         XCTAssertEqual(raw["logging.file"],["/tmp/coverage.log"])
         XCTAssertEqual(raw["logging.time_format"],["rfc3339"])
     }

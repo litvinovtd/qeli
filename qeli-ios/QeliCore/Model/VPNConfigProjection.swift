@@ -22,6 +22,7 @@ extension VPNConfig {
             "jmax":awgJunkMax,
             "mtu":mtu,
             "mtu_probe":mtuProbe,
+            "udp_payload_size":udpPayloadSize,
             "gateway":addDefaultGateway,
             "pull_routes":pullRoutes,
             "ipv6":ipv6Policy,
@@ -90,6 +91,7 @@ extension VPNConfig {
         c.awgJunkMax=v["jmax"] as! Int
         c.mtu=v["mtu"] as! Int
         c.mtuProbe=v["mtu_probe"] as! Bool
+        c.udpPayloadSize=v["udp_payload_size"] as! Int
         c.addDefaultGateway=v["gateway"] as! Bool
         c.pullRoutes=v["pull_routes"] as! Bool
         c.ipv6Policy=v["ipv6"] as! String
@@ -158,6 +160,7 @@ enum ConfigDefaults {
     static let awgJunkMax: Int = 300
     static let mtu: Int = 0
     static let mtuProbe: Bool = true
+    static let udpPayloadSize: Int = 0
     static let addDefaultGateway: Bool = true
     static let pullRoutes: Bool = true
     static let ipv6Policy: String = "auto"

@@ -58,6 +58,7 @@ public partial class ConfigEditorWindow : Window
             ReconnectBox.IsChecked = true;
             PersistTunBox.IsChecked = false;
             MtuProbeBox.IsChecked = true;
+            UdpPayloadSizeBox.Text = "0";
             KillSwitchBox.IsChecked = false;
             AllowIpv4LeakBox.IsChecked = false;
             AllowIpv6LeakBox.IsChecked = false;
@@ -91,6 +92,7 @@ public partial class ConfigEditorWindow : Window
             ReconnectBox.IsChecked = existing.ReconnectEnabled;
             PersistTunBox.IsChecked = existing.PersistTun;
             MtuProbeBox.IsChecked = existing.MtuProbe;
+            UdpPayloadSizeBox.Text = existing.UdpPayloadSize.ToString();
             AllowIpv4LeakBox.IsChecked = existing.AllowIpv4Leak;
             AllowIpv6LeakBox.IsChecked = existing.AllowIpv6Leak;
             KillSwitchBox.IsChecked = existing.KillSwitch;
@@ -233,6 +235,8 @@ public partial class ConfigEditorWindow : Window
         if (!long.TryParse((TimeoutBox.Text ?? "").Trim(), out long timeout) || timeout is < 1 or > 300)
         { await Warn(Loc.T("BadTimeout")); return; }
         if (!TryParseMtu(MtuBox.Text ?? "", out _)) { await Warn(Loc.T("BadMtu")); return; }
+        if (!int.TryParse((UdpPayloadSizeBox.Text ?? "").Trim(), out int udpSize) || (udpSize != 0 && udpSize is < 548 or > 65507))
+        { await Warn(Loc.T("BadUdpPayloadSize")); return; }
         try {_=UtunSelection.FromEditor(UtunNumberBox.Text);}
         catch(InvalidDataException error) {await Warn(error.Message);return;}
         if ((UserBox.Text ?? "").Trim().Length == 0) { await Warn(Loc.T("NeedLogin")); return; }
@@ -305,6 +309,7 @@ public partial class ConfigEditorWindow : Window
             reconnectMaxRetries: reconnectRetries,
             persistTun: PersistTunBox.IsChecked == true,
             mtuProbe: MtuProbeBox.IsChecked == true,
+            udpPayloadSize: int.TryParse((UdpPayloadSizeBox.Text ?? "").Trim(), out int udpSize) ? udpSize : 0,
             killSwitch: KillSwitchBox.IsChecked == true,
             dnsMode: TagOf(DnsModeBox) ?? "tunnel",
             ipv6Policy: TagOf(Ipv6PolicyBox) ?? "auto",
@@ -364,6 +369,7 @@ public partial class ConfigEditorWindow : Window
         ReconnectBox.IsChecked = parsed.ReconnectEnabled;
         PersistTunBox.IsChecked = parsed.PersistTun;
         MtuProbeBox.IsChecked = parsed.MtuProbe;
+        UdpPayloadSizeBox.Text = parsed.UdpPayloadSize.ToString();
         KillSwitchBox.IsChecked = parsed.KillSwitch;
         SelectByTag(AppsModeBox, NormalizeAppsMode(parsed.AppsMode));
         AllowIpv4LeakBox.IsChecked = parsed.AllowIpv4Leak;

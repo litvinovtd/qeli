@@ -85,6 +85,19 @@ final class ParityHardeningTests: XCTestCase {
         XCTAssertEqual(second.loggingTimeFormat, "rfc3339")
     }
 
+    func testManualUdpPayloadRoundTripAndDefault() throws {
+        let base = "[qeli]\nserver=vpn.example.com:443\nuser=alice\npass=test\n"
+        XCTAssertEqual(try VPNConfig(parsing: base).udpPayloadSize, 0)
+        for size in [548, 1232, 1472, 65507] {
+            let config = try VPNConfig(parsing: base + "proto=udp\nudp_payload_size=\(size)\n")
+            XCTAssertEqual(config.udpPayloadSize, size)
+            XCTAssertEqual(try VPNConfig(parsing: config.toINI()).udpPayloadSize, size)
+        }
+        for value in ["-1", "1", "547", "65508", "abc"] {
+            XCTAssertThrowsError(try VPNConfig(parsing: base + "udp_payload_size=\(value)\n").validate())
+        }
+    }
+
     /// Rust clamps an out-of-range link MTU to auto. This client used to reject the whole
     /// link, so one shared `qeli://` imported on Android and failed here.
     func testOutOfRangeLinkMTUFallsBackToAuto() throws {

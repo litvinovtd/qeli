@@ -652,7 +652,7 @@ session, the inner MTU and the outer datagram size are deliberately independent:
   outer IP fragmentation remains enabled for legacy compatibility. IPv6/dual-stack keeps IPv6's mandatory
   1280-byte interface floor and restores outer fragmentation rather than failing every
   1280-byte IPv6 packet with `EMSGSIZE`.
-- **`mtu_probe = false`** disables startup and live active probing for any `mtu` setting.
+- **With `udp_payload_size = 0` (default), `mtu_probe = false`** disables startup and live active probing for any `mtu` setting.
   The inner TUN retains the explicit value or adopts the authenticated push; a DATA_FRAG session uses the conservative outer UDP-payload floor (548 bytes
   over IPv4 or 1232 over IPv6) until a wider budget has actually been certified. Probing is
   implemented on **Linux/Windows/macOS/Android/iOS**. Linux/Android use `IP_MTU_DISCOVER`,
@@ -678,7 +678,7 @@ Probe behavior and limits to keep in mind:
   retries the complete encrypted record with a new DATA_FRAG record id. The separate
   authenticated inner-MTU report remains in place for PMTU/ICMP handling. Older peers ignore
   the additive control type.
-- **A DATA_FRAG session with `mtu_probe = true` re-probes a wider path every 10 minutes**,
+- **A DATA_FRAG session with `udp_payload_size = 0` and `mtu_probe = true` re-probes a wider path every 10 minutes**,
   including when the inner MTU is explicit. The state machine
   uses the existing socket receive loop (there is no competing reader), tries only rungs above
   the currently certified uplink budget and requires three independently random exact
@@ -704,7 +704,49 @@ diagnosis.
 So the inner MTU is usually set **once in the server profile** (the ceiling), while UDP clients
 refine the outer datagram budget per path. Nothing in client configs/links needs changing (`qeli://`
 links come with `mtu=0`/without it = auto). An explicit `mtu` on the client is needed only
-to forcibly override — it also disables probing.
+to override the inner MTU — it does not disable probing by itself.
+
+#### Manual outer UDP limit without probing (0.8.5)
+
+`udp_payload_size = 0` is the unchanged automatic default. To select an outer size manually
+and disable active probes in both directions:
+
+```ini
+[qeli]
+proto = udp
+mtu = 1408
+udp_payload_size = 1472
+```
+
+This is a client configuration fragment; keep the existing connection credentials.
+`mtu` sets the **inner IP packet** size. `udp_payload_size` caps the **complete outer UDP
+payload**, including Qeli encryption, DATA_FRAG and obfs/QUIC/CID wrappers, but excluding
+UDP/IP and Ethernet headers. For an outer IP MTU of 1500 without IP options/extensions,
+the maximum UDP payload is 1472 over IPv4 or 1452 over IPv6. Extra headers or encapsulation
+can reduce those values.
+
+- Valid values: `0` or `548..65507`. A positive value overrides `mtu_probe`: startup,
+  live and reverse active PMTU probes are disabled. Setting `mtu_probe = false` separately
+  is unnecessary; its saved value is preserved.
+- The limit applies to authenticated session data/control in both directions.
+  Handshake/PQ fragments and pre-handshake AWG junk have separate size policies.
+  It is a ceiling, not a request to pad every datagram to that length.
+- Both **client and server** must support `UDP_MANUAL_PAYLOAD_V1` and `UDP_DATA_FRAG_V1`.
+  An older server causes a clear failure before TUN setup; update it or return to `0`.
+  TCP preserves but ignores the value. It is local policy, not included in `qeli://` links.
+- A manual limit is an operator assumption, **not measured PMTU**. On asymmetric paths
+  choose a size that passes in both directions. The setting survives network changes,
+  but may no longer fit; automatic mode is usually better for mobile networks.
+  Local `EMSGSIZE` may safely reduce the effective budget without actively searching for
+  a larger size; diagnostics show that fallback.
+- DATA_FRAG remains enabled: a large encrypted record can span several outer datagrams
+  within the limit. This is not a switch to disable all fragmentation and does not change
+  the interface MTU.
+
+Windows/macOS: the profile editor's “Outer UDP limit” field or full INI.
+Android/iOS: the profile's INI editor. Linux/OpenWrt/Keenetic and CLI: `[qeli]` in the
+client file. For panel-managed outgoing connections, use “Raw INI”. Reconnect after editing.
+Set `0` or remove the key to return to automatic mode.
 
 ```ini
 # server: centrally sets the MTU for all clients of this profile
@@ -1876,6 +1918,7 @@ failed roam.
 | `tun.tx_queue_len` | `1000` | ✓ | — | — | — | — | Owned Linux TUN/TAP TX queue, in packets (`1..32767`); local `[qeli]` setting, not server-pushed or exported in `qeli://`. No adaptive mode. Set `500` for the previous size. Leave unset with `dev_attach=true`: the external owner controls the queue; an explicit combination is rejected. Other OSes preserve but do not apply it |
 | `mtu` | `0`=auto | ✓ | ✓ | ✓ | ✓ | ✓ | tunnel MTU; `0` = adopt the server push |
 | `mtu_probe` | `true` | ✓\* | ✓\* | ✓\* | ✓\* | ✓\* | active outer UDP path probe with manual or automatic MTU; preserves an explicit inner MTU |
+| `udp_payload_size` | `0` | ✓ | ✓ | ✓ | ✓ | ✓ | `0` automatic; `548..65507` manual outer UDP payload, no active probes in either direction; not the inner MTU |
 | `gateway` | `true` | ✓ | ✓ | ✓ | ✓ | ✓ | full tunnel; common CLI/GUI default `true`; `gateway=false` explicitly selects split tunnel |
 | `pull_routes` | `true` | ✓ | ✓ | ✓ | ✓ | ✓ | Accept server-pushed routes; false preserves local routes, gateway and protected tunnel DNS routes; carried in qeli:// |
 | `windows_disable_sharing` | `false` | — | ✓ | — | — | — | Disable Microsoft sharing and LLDP/LLTD discovery bindings only on the owned Wintun, with GUID/LUID and readback checks; not used by WinDivert |
@@ -4242,10 +4285,11 @@ Older versions do not implement it; do not rely on them honoring a link's
 clients expose the parameter through the INI editor.
 
 Inner `mtu` and the outer UDP payload budget remain separate. Client path diagnostics describe the uplink budget; server reverse-probe logs describe downlink certification. Manual MTU does
-not disable `mtu_probe=true`. With `mtu_probe=false`, the client emits neither
+not disable `mtu_probe=true`. With `udp_payload_size=0` and `mtu_probe=false`, the client emits neither
 its initial nor repeated probes; the safe initial budget is 548 bytes for an
 IPv4 carrier and 1232 for IPv6. Unconfirmed probing and path changes also use
-fallback. Diagnostics expose `estimate=probe|fallback` and `fallback_reason`
+fallback. Diagnostics expose `estimate=manual|probe|fallback`; `udp_payload_size>0` disables
+active probes in both directions. They also expose `fallback_reason`
 (`probe_disabled`, `probe_unconfirmed`, `path_changed`, or `null` after success),
 plus `inner_mtu`, `udp_payload_budget`, `data_frag`, `fragmented_records` and
 `fragments_created`. CLI status JSON places this under

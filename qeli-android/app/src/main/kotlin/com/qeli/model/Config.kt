@@ -34,9 +34,10 @@ data class VpnConfig(
     // 0 = auto: adopt the MTU the server pushes at auth (falls back to 1400 if the
     // server is too old to push one). A value > 0 is an explicit override.
     val mtu: Int = ConfigDefaults.mtu,
-    // Active UDP path-MTU probing when mtu == 0 (default on; kill switch = false). No
-    // effect on TCP transports (the kernel does PMTUD) or when mtu > 0 (explicit).
+    // Active outer UDP path probing, independently of inner mtu. A positive
+    // udpPayloadSize overrides probing; TCP uses the kernel's PMTUD instead.
     val mtuProbe: Boolean = ConfigDefaults.mtuProbe,
+    val udpPayloadSize: Int = ConfigDefaults.udpPayloadSize,
     // ── routing ──
     // Default to full-tunnel: a VPN should carry ALL traffic so nothing leaks
     // outside the encrypted path. No INI key sets this directly — `fromIni` derives it

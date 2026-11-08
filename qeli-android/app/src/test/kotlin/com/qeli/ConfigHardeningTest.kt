@@ -14,6 +14,21 @@ import org.junit.Test
  */
 class ConfigHardeningTest {
 
+    @Test
+    fun `manual UDP payload uses the common parser and survives saving`() {
+        val base="[qeli]\nserver=vpn.example.com:443\nuser=alice\npass=test\n"
+        assertEquals(0,VpnConfig.parse(base).udpPayloadSize)
+        for (size in listOf(548,1232,1472,65507)) {
+            val config=VpnConfig.parse(base+"proto=udp\nudp_payload_size=$size\n")
+            assertEquals(size,config.udpPayloadSize)
+            assertEquals(size,VpnConfig.parse(config.toIni()).udpPayloadSize)
+        }
+        for (value in listOf("-1","1","547","65508","oops")) {
+            try { VpnConfig.parse(base+"udp_payload_size=$value\n"); fail("accepted invalid UDP size $value") }
+            catch (_: IllegalArgumentException) { }
+        }
+    }
+
     private fun profile(
         pass: String = "secret",
         sni: String? = null,
@@ -253,6 +268,7 @@ class ConfigHardeningTest {
                         "server" -> "vpn.example.com:443"
                         "pass" -> "secret"
                         "tun.tx_queue_len" -> "500"
+                        "udp_payload_size" -> "1472"
                         "pull_routes" -> "false"
                         "windows_disable_sharing" -> "true"
                         "windows_persistent_adapter" -> "true"
@@ -267,13 +283,14 @@ class ConfigHardeningTest {
         }
         val saved = VpnConfig.fromIni(source).copy(password="edited").toIni()
         val raw = ConfigCore.call(org.json.JSONObject().put("version",1).put("op","import").put("source",saved)).getJSONObject("raw")
-        assertEquals(88, entries.size)
+        assertEquals(89, entries.size)
         for (field in entries) assertTrue(field.getString("key"), raw.has(field.getString("key")))
         assertEquals("edited", raw.getJSONArray("pass").getString(0))
         assertEquals("false", raw.getJSONArray("pull_routes").getString(0))
         assertEquals("true", raw.getJSONArray("windows_disable_sharing").getString(0))
         assertEquals("true", raw.getJSONArray("windows_persistent_adapter").getString(0))
         assertEquals("500", raw.getJSONArray("tun.tx_queue_len").getString(0))
+        assertEquals("1472", raw.getJSONArray("udp_payload_size").getString(0))
         assertEquals("/tmp/coverage.log", raw.getJSONArray("logging.file").getString(0))
         assertEquals("rfc3339", raw.getJSONArray("logging.time_format").getString(0))
     }

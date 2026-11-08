@@ -25,6 +25,7 @@ internal object ConfigProjection {
             .put("jmax",c.awgJmax)
             .put("mtu",c.mtu)
             .put("mtu_probe",c.mtuProbe)
+            .put("udp_payload_size",c.udpPayloadSize)
             .put("gateway",c.addDefaultGateway)
             .put("pull_routes",c.pullRoutes)
             .put("ipv6",c.ipv6)
@@ -96,6 +97,7 @@ internal object ConfigProjection {
             awgJmax=v.getInt("jmax"),
             mtu=v.getInt("mtu"),
             mtuProbe=v.getBoolean("mtu_probe"),
+            udpPayloadSize=v.getInt("udp_payload_size"),
             addDefaultGateway=v.getBoolean("gateway"),
             pullRoutes=v.getBoolean("pull_routes"),
             ipv6=v.getString("ipv6"),
@@ -163,6 +165,7 @@ internal object ConfigDefaults {
     const val awgJmax: Int = 300
     const val mtu: Int = 0
     const val mtuProbe: Boolean = true
+    const val udpPayloadSize: Int = 0
     const val addDefaultGateway: Boolean = true
     const val pullRoutes: Boolean = true
     const val ipv6: String = "auto"
