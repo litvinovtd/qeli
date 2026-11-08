@@ -18,7 +18,20 @@
 
 ## Содержимое
 
-Повторная релизная пересборка 1 ноября 2026 для 0.8.4: Windows x64, macOS universal2 и
+Квалификация 8 ноября 2026 для 0.8.5 после исправлений аудита: Windows x64,
+macOS universal2 и Android arm64-v8a/x86_64 пересобраны из чистого source cut
+`b4d6f35d9d8a80dc0eac3329efe28d249ccbed46`, source digest
+`1d1933569615cb1000890dc427a5dd85c9a7cf67168fdfaeb389c7cc19ab6f0d`.
+Все четыре независимые A/B-пары совпали побайтово. Проверены полный C ABI 1.17,
+Android JNI, обе macOS-архитектуры, install name/UUID/ad-hoc CodeDirectory,
+canonical/consumed копии и manifest SHA-256. Windows DLL дополнительно прошла
+восемь реальных C ABI импортов TCP/UDP-профилей с `udp_payload_size`.
+Ядра включают согласование ручного UDP-потолка в AUTH, безопасный EMSGSIZE retry
+и исправленный бюджет TCP-пробы. Прямые лабораторные проверки не заменяют
+платформенные сборки/тесты приложений в CI и не являются физическими испытаниями.
+Это пересборка dev; публикация релиза не выполнялась.
+
+Предыдущая релизная пересборка 1 ноября 2026 для 0.8.4: Windows x64, macOS universal2 и
 Android arm64-v8a/x86_64 собраны штатными скриптами из чистого производственного
 source cut `792f4f6c`, source digest
 `aae2ac0d9e50bae45d6550eee327cb74fcc18b43f053eb3d7e19461560c6588b`.
