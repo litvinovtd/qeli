@@ -13168,7 +13168,7 @@ pub(crate) async fn run_udp_tunnel(
                         }
                         crate::transport_core::udp_roaming_client::UdpClientPathAction::CommitReady(commit) => {
                             let candidate = live_udp_candidate
-                                .as_ref()
+                                .as_mut()
                                 .expect("commit action retains live socket");
                             let prepared = candidate.prepared().clone();
                             if commit.candidate_id() != candidate.prepared().candidate_id
@@ -13219,6 +13219,9 @@ pub(crate) async fn run_udp_tunnel(
                                     break 'udp;
                                 }
                             };
+                            // Refresh while the platform still owns the old path. COMMIT_PATH
+                            // may await an OS callback while the new socket is already receiving.
+                            candidate.udp_buffer.warm_start_from(candidate.socket.raw_socket(), &udp_buffer);
                             let platform_commit = match path_controller
                                 .as_deref()
                                 .expect("enabled UDP handover retains path controller")
@@ -13266,10 +13269,9 @@ pub(crate) async fn run_udp_tunnel(
                                     *roaming.active_transmit_cid(),
                                     *roaming.active_receive_cid(),
                                 );
-                            let mut candidate = live_udp_candidate
+                            let candidate = live_udp_candidate
                                 .take()
                                 .expect("committed candidate retains live socket");
-                            candidate.udp_buffer.warm_start_from(candidate.socket.raw_socket(), &udp_buffer);
                             let (prepared, next_socket, next_receive_task, next_udp_buffer) = candidate.into_active();
                             if let Some(mut previous) = draining_udp_path.take() {
                                 previous.receive_task.finish().await;
