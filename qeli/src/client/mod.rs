@@ -12630,6 +12630,29 @@ pub(crate) async fn run_udp_tunnel(
                         if let Err(error) = send_manual_udp_record(&wire_record, &mut data_record_budget, ceiling,
                             &tx_data_frag_key, &mut tx_record_id, &socket, udp_framing, &mut quic_pn,
                             &mut quic_record, &mut udp_send_scratch, &runtime_counters.udp.path).await {
+                            log::warn!("UDP manual data send failed: {error}");
+                            // A failed send at the conservative floor is terminal. Other
+                            // carrier errors retain the same in-session recovery as auto mode.
+                            #[cfg(all(feature = "experimental-roaming", any(unix, windows)))]
+                            if !udp_message_too_large(&error) && udp_handover_enabled {
+                                let path_controller = path_controller
+                                    .as_deref()
+                                    .expect("enabled UDP handover retains path controller");
+                                let candidate_in_flight = live_udp_candidate.is_some()
+                                    || candidate_connect_task.is_some()
+                                    || path_controller.prepared_candidate().is_some();
+                                if begin_udp_carrier_failure_recovery(
+                                    &mut same_network_nat_recovery,
+                                    udp_roaming
+                                        .as_ref()
+                                        .expect("enabled UDP handover retains roaming state"),
+                                    path_controller,
+                                    candidate_in_flight,
+                                    "manual data send",
+                                ) {
+                                    continue 'udp;
+                                }
+                            }
                             result = Err(anyhow::anyhow!("UDP manual data send failed: {error}"));
                             break 'udp;
                         }
