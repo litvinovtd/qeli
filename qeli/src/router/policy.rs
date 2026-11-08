@@ -522,6 +522,49 @@ async fn rules(receipt: &Receipt, add: bool) -> Result<()> {
     }
     Ok(())
 }
+/// Copy a verified non-default main route for an explicit local exception.
+/// A throw would fall into our terminal prohibit rule, not into main. Never
+/// substitute main's WAN default when a local route disappears.
+fn local_route<'a>(prefix: &str, routes: &'a [Value], tunnel: &str) -> Option<&'a Value> {
+    let requested: ipnet::IpNet = prefix.parse().ok()?;
+    routes
+        .iter()
+        .filter(|route| {
+            if !matches!(route["type"].as_str(), None | Some("unicast" | "1")) {
+                return false;
+            }
+            let Some(device) = route["dev"].as_str() else {
+                return false;
+            };
+            if device == tunnel || interface(device).is_err() {
+                return false;
+            }
+            let Some(dst) = route["dst"].as_str() else {
+                return false;
+            };
+            let network = dst
+                .parse::<ipnet::IpNet>()
+                .ok()
+                .or_else(|| dst.parse::<IpAddr>().ok().map(ipnet::IpNet::from));
+            network.is_some_and(|network| {
+                network.prefix_len() > 0
+                    && network.prefix_len() <= requested.prefix_len()
+                    && network.contains(&requested.addr())
+            })
+        })
+        .max_by_key(|route| {
+            let dst = route["dst"].as_str().unwrap_or("");
+            let length = dst
+                .parse::<ipnet::IpNet>()
+                .map(|n| n.prefix_len())
+                .unwrap_or(if dst.contains(':') { 128 } else { 32 });
+            (
+                length,
+                std::cmp::Reverse(route["metric"].as_u64().unwrap_or(0)),
+            )
+        })
+}
+
 async fn tables(
     p: &Policy,
     r: &Receipt,
@@ -562,7 +605,7 @@ async fn tables(
                     }
                 })
             });
-            for c in connected {
+            for c in &connected {
                 let link = c["scope"] == "link"
                     || number(&c["scope"]) == Some(253)
                     || (v6
@@ -586,12 +629,35 @@ async fn tables(
                 }
                 ip(v).await?;
             }
+            let main_routes = connected
+                .iter()
+                .map(|route| (*route).clone())
+                .collect::<Vec<_>>();
             for subnet in p.local_subnets.iter().filter(|s| address_family(s) == v6) {
                 desired.insert(subnet.to_string());
-                ip(args(&[
-                    family, "route", "replace", "table", &table, "throw", subnet,
-                ]))
-                .await?;
+                let mut local = args(&[family, "route", "replace", "table", &table]);
+                if let Some(route) = local_route(subnet, &main_routes, &p.device) {
+                    local.push(subnet.clone());
+                    if let Some(gateway) = route["gateway"].as_str() {
+                        let address: IpAddr =
+                            gateway.parse().context("invalid local route gateway")?;
+                        ensure!(address.is_ipv6() == v6, "local gateway family mismatch");
+                        local.extend(args(&["via", gateway]));
+                    }
+                    local.extend(args(&[
+                        "dev",
+                        route["dev"].as_str().context("local device")?,
+                    ]));
+                    if route["flags"]
+                        .as_array()
+                        .is_some_and(|flags| flags.iter().any(|f| f == "onlink"))
+                    {
+                        local.push("onlink".into());
+                    }
+                } else {
+                    local.extend(args(&["unreachable", subnet]));
+                }
+                ip(local).await?;
             }
             let mut v = args(&[family, "route", "replace", "table", &table]);
             if index == p.uplinks.len()
@@ -1546,6 +1612,32 @@ mod tests {
         assert!(s.contains("-A QELI_R_NAT -j RETURN -m comment --comment qeli-router-v1"));
         assert!(s.contains("-A QELI_R_GUARD -i br-vpn ! -o qeli0 -j DROP"));
     }
+    #[test]
+    fn local_exceptions_copy_connected_and_routed_paths_but_never_the_default() {
+        let routes = vec![
+            json!({"dst":"default","dev":"wan","gateway":"192.0.2.1"}),
+            json!({"dst":"10.71.4.0/24","dev":"clientnet","scope":"link"}),
+            json!({"dst":"192.168.88.0/24","dev":"clientnet","gateway":"10.71.4.2"}),
+            json!({"dst":"fd71:4::/64","dev":"clientnet"}),
+            json!({"dst":"fd88::/64","dev":"clientnet","gateway":"fd71:4::2"}),
+            json!({"dst":"10.0.0.0/8","dev":"qeli0"}),
+        ];
+        for prefix in [
+            "10.71.4.0/24",
+            "192.168.88.0/25",
+            "fd71:4::/64",
+            "fd88::/64",
+        ] {
+            assert_eq!(
+                local_route(prefix, &routes, "qeli0").unwrap()["dev"],
+                "clientnet"
+            );
+        }
+        for prefix in ["203.0.113.0/24", "10.33.0.0/16", "2001:db8::/64"] {
+            assert!(local_route(prefix, &routes, "qeli0").is_none());
+        }
+    }
+
     #[test]
     fn hysteresis_does_not_flap_on_single_failure() {
         let mut s = HealthState::default();

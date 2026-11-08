@@ -7194,7 +7194,7 @@ where
                         // The probe nonce is single-use. Retry only preparation,
                         // never a failed probe or an ambiguous COMMIT.
                         tokio::time::timeout(
-                            crate::protocol::tcp_slot_probe::BUDGET,
+                            crate::protocol::tcp_slot_probe::CLIENT_BUDGET,
                             crate::protocol::tcp_slot_probe::receive(
                                 &mut stream,
                                 pending.framing,
@@ -7206,7 +7206,7 @@ where
                         .await
                         .map_err(|_| anyhow::anyhow!("TCP candidate delivery probe timed out"))??;
                         let (rx, tx) = tokio::time::timeout(
-                            timeout.min(tcp_attach::PREPARE_TIMEOUT),
+                            timeout.min(tcp_attach::PROBE_COMMIT_TIMEOUT),
                             finish_tcp_secondary_handshake(&mut stream, pending, &progress),
                         )
                         .await
@@ -9752,13 +9752,103 @@ async fn flush_client_udp_datagrams(
     Ok(())
 }
 
+fn udp_message_too_large(error: &std::io::Error) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        error.raw_os_error() == Some(10040)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        error.raw_os_error() == Some(libc::EMSGSIZE)
+    }
+}
+
+/// Retry only this complete encrypted record. A partially transmitted DATA_FRAG
+/// attempt gets a fresh ID, so fragments of different sizes cannot be combined.
+#[allow(clippy::too_many_arguments)]
+async fn send_manual_udp_record(
+    record: &[u8],
+    record_budget: &mut usize,
+    ceiling: usize,
+    key: &[u8; 32],
+    record_id: &mut u64,
+    socket: &crate::protocol::obfs::ObfsUdp,
+    framing: crate::transport_core::udp_client_framing::UdpClientFraming,
+    pn: &mut u32,
+    carrier: &mut Vec<u8>,
+    scratch: &mut crate::transport_core::udp_batch::BatchScratch,
+    counters: &crate::transport_core::udp_buffer::UdpPathCounters,
+) -> std::io::Result<()> {
+    let floor = ceiling.min(crate::protocol::data_frag::conservative_udp_payload_budget(
+        socket.peer_is_ipv6(),
+    ));
+    let floor_record = crate::protocol::data_frag::unfragmented_record_budget_with_wrapper(
+        floor,
+        socket.seal_overhead(),
+        framing.wrapper_len(),
+    )
+    .map_err(std::io::Error::other)?;
+    for attempt in 0..2 {
+        let mut datagrams = if record.len() > *record_budget {
+            let id = *record_id;
+            *record_id = record_id.wrapping_add(1);
+            let fragments = crate::protocol::data_frag::fragment_record(
+                record,
+                key,
+                id,
+                *record_budget - crate::protocol::data_frag::HEADER_LEN,
+            )
+            .map_err(std::io::Error::other)?;
+            counters.note_fragmentation(fragments.len());
+            fragments
+                .iter()
+                .map(|fragment| {
+                    crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                        framing, fragment, pn, carrier,
+                    )
+                    .to_vec()
+                })
+                .collect()
+        } else {
+            vec![
+                crate::transport_core::udp_client_framing::wrap_next_udp_record(
+                    framing, record, pn, carrier,
+                )
+                .to_vec(),
+            ]
+        };
+        match flush_client_udp_datagrams(&mut datagrams, socket, scratch).await {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if attempt == 0
+                    && udp_message_too_large(&error)
+                    && floor_record < *record_budget =>
+            {
+                *record_budget = floor_record;
+                let previous = counters.snapshot().path;
+                counters.set(
+                    previous.inner_mtu,
+                    floor,
+                    true,
+                    "fallback",
+                    Some("local_emsgsize"),
+                );
+                log::warn!("UDP manual payload hit EMSGSIZE; retrying complete record at {floor} bytes without probing");
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!()
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn send_client_udp_payloads(
     payloads: &[Vec<u8>],
     client_tx: &mut PacketCodec,
     obfuscation: &crate::config::client::ClientObfuscationConfig,
     payload_budget: usize,
-    data_record_budget: usize,
+    data_record_budget: &mut usize,
+    manual_ceiling: Option<usize>,
     data_frag_enabled: bool,
     tx_data_frag_key: &[u8; 32],
     tx_record_id: &mut u64,
@@ -9819,14 +9909,35 @@ async fn send_client_udp_payloads(
             return ClientUdpPayloadSendOutcome::EncodeFailed;
         }
 
-        if data_frag_enabled && wire_record.len() > data_record_budget {
+        if let Some(ceiling) = manual_ceiling {
+            if let Err(error) = send_manual_udp_record(
+                wire_record,
+                data_record_budget,
+                ceiling,
+                tx_data_frag_key,
+                tx_record_id,
+                socket,
+                framing,
+                quic_pn,
+                quic_record,
+                send_scratch,
+                path_counters,
+            )
+            .await
+            {
+                log::warn!("UDP manual record send failed: {error}");
+                return ClientUdpPayloadSendOutcome::CarrierFailed;
+            }
+            continue;
+        }
+        if data_frag_enabled && wire_record.len() > *data_record_budget {
             let record_id = *tx_record_id;
             *tx_record_id = tx_record_id.wrapping_add(1);
             let fragments = match crate::protocol::data_frag::fragment_record(
                 wire_record,
                 tx_data_frag_key,
                 record_id,
-                data_record_budget - crate::protocol::data_frag::HEADER_LEN,
+                *data_record_budget - crate::protocol::data_frag::HEADER_LEN,
             ) {
                 Ok(fragments) => fragments,
                 Err(error) => {
@@ -9937,7 +10048,8 @@ async fn send_client_udp_control_frame(
     client_tx: &mut PacketCodec,
     obfuscation: &crate::config::client::ClientObfuscationConfig,
     payload_budget: usize,
-    data_record_budget: usize,
+    data_record_budget: &mut usize,
+    manual_ceiling: Option<usize>,
     data_frag_enabled: bool,
     tx_data_frag_key: &[u8; 32],
     tx_record_id: &mut u64,
@@ -9957,6 +10069,7 @@ async fn send_client_udp_control_frame(
         obfuscation,
         payload_budget,
         data_record_budget,
+        manual_ceiling,
         data_frag_enabled,
         tx_data_frag_key,
         tx_record_id,
@@ -10989,7 +11102,7 @@ pub(crate) async fn run_udp_tunnel(
     if manual_udp_payload_size.is_some() {
         anyhow::ensure!(
             crate::protocol::capabilities::manual_udp_payload_negotiated(server_capabilities, negotiated_capabilities),
-            "udp_payload_size requires a server supporting UDP_MANUAL_PAYLOAD_V1 and UDP_DATA_FRAG_V1; update the server or use udp_payload_size=0"
+            "udp_payload_size requires a server supporting authenticated manual UDP payload policy and UDP_DATA_FRAG_V1; update the server or use udp_payload_size=0"
         );
     }
 
@@ -11649,8 +11762,6 @@ pub(crate) async fn run_udp_tunnel(
         && config.tun.udp_probing_enabled())
     .then(|| u16::try_from(uplink_udp_payload_budget).ok())
     .flatten();
-    let manual_udp_payload_frame =
-        manual_udp_payload_size.map(|size| crate::protocol::ctrl::udp_manual_payload(size as u16));
     let client_info_frame = crate::protocol::ctrl::this_build();
     let mut udp_send_scratch = crate::transport_core::udp_batch::BatchScratch::new(
         crate::transport_core::udp_batch::MAX_BATCH,
@@ -11663,7 +11774,8 @@ pub(crate) async fn run_udp_tunnel(
                 &mut client_tx,
                 &eff_obf,
                 mux_payload_budget,
-                data_record_budget,
+                &mut data_record_budget,
+                manual_udp_payload_size,
                 data_frag_enabled,
                 &tx_data_frag_key,
                 &mut tx_record_id,
@@ -11684,16 +11796,12 @@ pub(crate) async fn run_udp_tunnel(
     // socket loss must not leave the server without the path limits or the client build.
     let mut control_report_resends = if mtu_report_value.is_some()
         || udp_payload_budget_report_value.is_some()
-        || manual_udp_payload_frame.is_some()
         || client_info_frame.is_some()
     {
         UDP_CONTROL_REPORT_RESENDS
     } else {
         0
     };
-    if let Some(frame) = manual_udp_payload_frame.as_ref() {
-        let _ = send_udp_control!(frame);
-    }
     if let Some(budget) = udp_payload_budget_report_value {
         let frame = crate::protocol::ctrl::udp_payload_budget_report(budget);
         match send_udp_control!(&frame) {
@@ -11810,6 +11918,17 @@ pub(crate) async fn run_udp_tunnel(
     let mut unsupported_inner_drops = 0u64;
     let mut result = Ok(());
     'udp: loop {
+        if manual_udp_payload_size.is_some() {
+            uplink_udp_payload_budget =
+                data_record_budget + socket.seal_overhead() + udp_framing.wrapper_len();
+            match client_tx.max_padding_for_record_budget(0, data_record_budget) {
+                Ok(padding) => max_empty_record_padding = padding,
+                Err(error) => {
+                    result = Err(anyhow::anyhow!("manual UDP control budget: {error}"));
+                    break 'udp;
+                }
+            }
+        }
         let mux_deadline = udp_tx_recordizer
             .as_ref()
             .and_then(|mux| mux.deadline())
@@ -12123,7 +12242,8 @@ pub(crate) async fn run_udp_tunnel(
                         &mut client_tx,
                         &eff_obf,
                         mux_payload_budget,
-                        data_record_budget,
+                        &mut data_record_budget,
+                        manual_udp_payload_size,
                         data_frag_enabled,
                         &tx_data_frag_key,
                         &mut tx_record_id,
@@ -12413,7 +12533,8 @@ pub(crate) async fn run_udp_tunnel(
                         &mut client_tx,
                         &eff_obf,
                         mux_payload_budget,
-                        data_record_budget,
+                        &mut data_record_budget,
+                        manual_udp_payload_size,
                         data_frag_enabled,
                         &tx_data_frag_key,
                         &mut tx_record_id,
@@ -12505,6 +12626,15 @@ pub(crate) async fn run_udp_tunnel(
                 // allocation before any socket-send await below.
                 drop(ip_packet);
                 if encrypted {
+                    if let Some(ceiling) = manual_udp_payload_size {
+                        if let Err(error) = send_manual_udp_record(&wire_record, &mut data_record_budget, ceiling,
+                            &tx_data_frag_key, &mut tx_record_id, &socket, udp_framing, &mut quic_pn,
+                            &mut quic_record, &mut udp_send_scratch, &runtime_counters.udp.path).await {
+                            result = Err(anyhow::anyhow!("UDP manual data send failed: {error}"));
+                            break 'udp;
+                        }
+                        continue 'udp;
+                    }
                     if data_frag_enabled && wire_record.len() > data_record_budget {
                         let record_id = tx_record_id;
                         tx_record_id = tx_record_id.wrapping_add(1);
@@ -13474,9 +13604,6 @@ pub(crate) async fn run_udp_tunnel(
                 // idempotent, and CLIENT_INFO is self-reported diagnostics rather than policy.
                 if control_report_resends > 0 {
                     control_report_resends -= 1;
-                    if let Some(frame) = manual_udp_payload_frame.as_ref() {
-                        let _ = send_udp_control!(frame);
-                    }
                     if let Some(budget) = udp_payload_budget_report_value {
                         let frame = crate::protocol::ctrl::udp_payload_budget_report(budget);
                         if let Err(error) = send_udp_control!(&frame) {

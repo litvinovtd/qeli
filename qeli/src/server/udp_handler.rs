@@ -1194,6 +1194,13 @@ async fn forward_udp_uplink_packet(
                         .is_some_and(|owned| Arc::ptr_eq(owned, cell))
                 {
                     if let Some(active) = client.active_egress.as_ref() {
+                        let current = active.snapshot();
+                        if current
+                            .manual_payload_size
+                            .is_some_and(|policy| policy != size)
+                        {
+                            return;
+                        }
                         if active.set_manual_payload_size(addr, cell, size) {
                             *lock_or_recover(&client.downlink_mtu_probe, "udp::manual_payload") =
                                 None;
@@ -4934,10 +4941,16 @@ async fn handle_udp_auth(
     let (terminal_management_tx, mut terminal_management_rx) = mpsc::channel(1);
     let writer_egress = active_egress;
     let initial_writer_egress = writer_egress.snapshot();
-    let initial_udp_payload_budget = initial_writer_egress.safe_payload_budget();
     let writer_udp_payload_budget = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(
-        initial_udp_payload_budget as u32,
+        initial_writer_egress.safe_payload_budget() as u32,
     ));
+    if let Some(size) = capabilities.and_then(|caps| caps.udp_payload_size) {
+        // AUTH is AEAD-protected and AuthOK is its retransmitted receipt. Publish
+        // before any data-plane task can send, including an IPv6 path with size 548.
+        assert!(writer_egress.set_manual_payload_size(addr, &writer_udp_payload_budget, size));
+    }
+    let (initial_writer_egress, initial_udp_payload_budget) =
+        writer_egress.snapshot_with_payload_budget(&writer_udp_payload_budget);
     let writer_mtu_activity = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let initial_record_budget = initial_writer_egress
         .record_budget(initial_udp_payload_budget)

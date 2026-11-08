@@ -58,6 +58,7 @@ pub(crate) fn index(name: &str) -> io::Result<Option<u32>> {
 }
 
 /// Link identity and UP flags in the calling namespace, including TUN interfaces.
+#[cfg(any(feature = "client", test))]
 pub(crate) fn state(name: &str) -> io::Result<Option<(u32, u16)>> {
     let query = Query::open()?;
     let index = match query.index(name) {

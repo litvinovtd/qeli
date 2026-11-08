@@ -10,7 +10,7 @@ use crate::protocol::tcp_slot_probe::{Request, REQUEST_TTL};
 
 const TARGET: &str = "qeli::tcp_slot";
 const WINDOW: Duration = Duration::from_millis(1250);
-pub(super) const CONFIRMATION_BUDGET: Duration = Duration::from_millis(1500);
+pub(super) use crate::protocol::tcp_slot_probe::CONFIRMATION_BUDGET;
 const MAX_AGE: Duration = Duration::from_millis(2500);
 const COOLDOWN: Duration = Duration::from_secs(60);
 const RETRY_BACKOFF: Duration = Duration::from_secs(5);

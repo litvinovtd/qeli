@@ -92,6 +92,7 @@ fn manual_udp_capability_is_required_in_both_authenticated_directions() {
     assert!(!manual_udp_payload_negotiated(Some(server), None));
     for bit in [
         server_capability::UDP_MANUAL_PAYLOAD_V1,
+        server_capability::UDP_MANUAL_PAYLOAD_AUTH_V1,
         server_capability::UDP_DATA_FRAG_V1,
     ] {
         assert!(!manual_udp_payload_negotiated(
@@ -103,6 +104,7 @@ fn manual_udp_capability_is_required_in_both_authenticated_directions() {
     }
     for bit in [
         client_capability::UDP_MANUAL_PAYLOAD_V1,
+        client_capability::UDP_MANUAL_PAYLOAD_AUTH_V1,
         client_capability::UDP_DATA_FRAG_V1,
     ] {
         assert!(!manual_udp_payload_negotiated(

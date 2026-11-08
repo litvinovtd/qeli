@@ -41,6 +41,13 @@ for name,local,remote,subnet in [('ispA','uplinkA','a0','10.71.1'),('ispB','upli
         for vip in ['1.1.1.1','1.0.0.1','9.9.9.9']:ip('-n',name,'addr','add',vip+'/32','dev','lo')
         ip('-n',name,'route','add','10.71.4.0/24','via',subnet+'.1')
     else:ip('-n',name,'route','add','default','via',subnet+'.1')
+# Explicit connected and routed local exceptions must survive the terminal prohibit.
+ip('netns','exec','lan','ip','addr','add','192.168.88.8/32','dev','lo')
+ip('route','add','192.168.88.0/24','via','10.71.4.2','dev','clientnet')
+ip('-6','addr','add','fd71:4::1/64','dev','clientnet','nodad')
+ip('-n','lan','-6','addr','add','fd71:4::2/64','dev','l0','nodad')
+ip('-n','lan','-6','addr','add','fd88::8/128','dev','lo','nodad')
+ip('-6','route','add','fd88::/64','via','fd71:4::2','dev','clientnet')
 ip('route','add','default','via','10.71.1.2','dev','uplinkA','metric','10')
 ip('route','add','default','via','10.71.2.2','dev','uplinkB','metric','20')
 # Keep namespace peer replies from reverse-path filtering a policy-selected link.
@@ -65,6 +72,7 @@ p['backend']=BACKEND
 p.update(components={'routing':'client','firewall':'client'},device='qeli-test',client_config=str(conf),status_file=str(statusfile),pid_file=str(pidfile),state_directory=str(state),offload_disabled=True,persistent_guard=True,
     uplinks=[{'device':'uplinkA','probes':['1.1.1.1']},{'device':'uplinkB','probes':['1.1.1.1']}],
     networks=[{'device':'clientnet','subnets':['10.71.4.0/24'],'policy':'vpn_only'}],server_addresses=['192.0.2.1'],health={'interval_secs':1,'timeout_secs':1,'up':1,'down':1,'tunnel_probes':['1.0.0.1']})
+p['local_subnets']=['10.71.4.0/24','192.168.88.0/24','fd71:4::/64','fd88::/64']
 save(policy_file,p)
 baseline_rules=ip('-4','rule','show').stdout
 baseline_routes=ip('-4','route','show','table','main').stdout
@@ -126,6 +134,17 @@ try:
     if worker.poll() is not None:raise AssertionError('worker failed: '+'\n'.join(f.read_text() for f in folder.glob('worker-*.log')))
     wait(lambda:health()['vpn'] and all(u['internet'] for u in health()['uplinks']))
     assert ping();passed('VPN-only delivers with live verified tunnel')
+    receipt=json.loads((state/'receipt.json').read_text())
+    mark=str((len(p['uplinks'])+1)<<receipt['allocation']['shift'])
+    for family,address in [('-4','10.71.4.2'),('-4','192.168.88.8'),('-6','fd71:4::2'),('-6','fd88::8')]:
+        found=ip(family,'route','get',address,'mark',mark).stdout
+        assert 'dev clientnet' in found,(address,found)
+    passed('connected and routed IPv4/IPv6 local exceptions bypass terminal prohibit')
+    ip('route','del','192.168.88.0/24','via','10.71.4.2','dev','clientnet')
+    wait(lambda:ip('-4','route','get','192.168.88.8','mark',mark,check=False).returncode!=0)
+    ip('route','add','192.168.88.0/24','via','10.71.4.2','dev','clientnet')
+    wait(lambda:ip('-4','route','get','192.168.88.8','mark',mark,check=False).returncode==0)
+    passed('missing local route cannot inherit a WAN default and returns after renewal')
     assert inbound('ispA','10.71.1.1') and inbound('ispB','10.71.2.1') and inbound('exit','10.71.3.1')
     passed('router service replies symmetrically through both WANs and TUN')
     cmd('nft','-f','-',input='table ip fixture_dnat {\n chain incoming {\n type nat hook prerouting priority -100;\n tcp dport 18083 dnat to 10.71.4.2:18081\n }\n}\n')

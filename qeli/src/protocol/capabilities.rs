@@ -13,6 +13,8 @@ const CLIENT_MAGIC: &[u8; 4] = b"QCCP";
 const WIRE_VERSION: u8 = 1;
 const SERVER_PAYLOAD_LEN: usize = 8;
 const CLIENT_PAYLOAD_LEN: usize = 17;
+const CLIENT_POLICY_VERSION: u8 = 2;
+const CLIENT_POLICY_PAYLOAD_LEN: usize = 19;
 const HEADER_LEN: usize = 6;
 const CLIENT_MARKER: u8 = 0;
 
@@ -36,6 +38,7 @@ pub mod server_capability {
     pub const MANAGEMENT_V1: u64 = 1 << 11;
     pub const TCP_SLOT_PROBE_V1: u64 = 1 << 12;
     pub const UDP_MANUAL_PAYLOAD_V1: u64 = 1 << 13;
+    pub const UDP_MANUAL_PAYLOAD_AUTH_V1: u64 = 1 << 14;
     pub const ROAMING_RESERVED: u64 =
         UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1 | TCP_RESUME_V2 | TCP_HANDOVER_V2;
 }
@@ -57,6 +60,7 @@ pub mod client_capability {
     pub const MANAGEMENT_V1: u64 = 1 << 10;
     pub const TCP_SLOT_PROBE_V1: u64 = 1 << 11;
     pub const UDP_MANUAL_PAYLOAD_V1: u64 = 1 << 12;
+    pub const UDP_MANUAL_PAYLOAD_AUTH_V1: u64 = 1 << 13;
     pub const ROAMING_RESERVED: u64 =
         UDP_ROAM_V1 | TCP_RESUME_V1 | TCP_HANDOVER_V1 | TCP_RESUME_V2 | TCP_HANDOVER_V2;
 }
@@ -71,11 +75,19 @@ pub fn manual_udp_payload_negotiated(
     client: Option<ClientCapabilities>,
 ) -> bool {
     server.is_some_and(|s| {
-        s.contains(server_capability::UDP_DATA_FRAG_V1 | server_capability::UDP_MANUAL_PAYLOAD_V1)
+        s.contains(
+            server_capability::UDP_DATA_FRAG_V1
+                | server_capability::UDP_MANUAL_PAYLOAD_V1
+                | server_capability::UDP_MANUAL_PAYLOAD_AUTH_V1,
+        )
     }) && client.is_some_and(|c| {
         c.core_bits
-            & (client_capability::UDP_DATA_FRAG_V1 | client_capability::UDP_MANUAL_PAYLOAD_V1)
-            == client_capability::UDP_DATA_FRAG_V1 | client_capability::UDP_MANUAL_PAYLOAD_V1
+            & (client_capability::UDP_DATA_FRAG_V1
+                | client_capability::UDP_MANUAL_PAYLOAD_V1
+                | client_capability::UDP_MANUAL_PAYLOAD_AUTH_V1)
+            == client_capability::UDP_DATA_FRAG_V1
+                | client_capability::UDP_MANUAL_PAYLOAD_V1
+                | client_capability::UDP_MANUAL_PAYLOAD_AUTH_V1
     })
 }
 
@@ -90,6 +102,8 @@ pub struct ClientCapabilities {
     pub core_bits: u64,
     pub platform_bits: u64,
     pub ipv6_policy: ClientIpv6Policy,
+    /// Applied before AuthOK; None preserves the byte-identical legacy extension.
+    pub udp_payload_size: Option<u16>,
 }
 
 impl Default for ClientCapabilities {
@@ -98,6 +112,7 @@ impl Default for ClientCapabilities {
             core_bits: 0,
             platform_bits: 0,
             ipv6_policy: ClientIpv6Policy::Auto,
+            udp_payload_size: None,
         }
     }
 }
@@ -137,7 +152,8 @@ pub const fn server_capabilities_for_profile(roaming_enabled: bool) -> ServerCap
 /// choices rather than separate roaming implementations.
 pub const fn implemented_udp_server_capabilities() -> ServerCapabilities {
     let mut capabilities = implemented_server_capabilities();
-    capabilities.bits |= server_capability::UDP_MANUAL_PAYLOAD_V1;
+    capabilities.bits |=
+        server_capability::UDP_MANUAL_PAYLOAD_V1 | server_capability::UDP_MANUAL_PAYLOAD_AUTH_V1;
     #[cfg(feature = "experimental-roaming")]
     {
         ServerCapabilities {
@@ -235,7 +251,8 @@ pub const fn implemented_client_core_capabilities() -> u64 {
         | client_capability::NETWORK_PLAN_V2
         | client_capability::UDP_DATA_FRAG_V1
         | client_capability::PACKET_MUX_V1
-        | client_capability::UDP_MANUAL_PAYLOAD_V1;
+        | client_capability::UDP_MANUAL_PAYLOAD_V1
+        | client_capability::UDP_MANUAL_PAYLOAD_AUTH_V1;
     // The shared supervisor owns terminal close, management events, TCP resume/handover,
     // and the UDP path actor. Negotiation below strips each migration bit unless this exact
     // transport and platform can use it.
@@ -451,6 +468,14 @@ pub fn negotiate_client_capabilities(
         core_bits,
         platform_bits,
         ipv6_policy: config.routing.ipv6,
+        udp_payload_size: if config.server.protocol == "udp" {
+            config
+                .tun
+                .manual_udp_payload_size()
+                .map(|value| value as u16)
+        } else {
+            None
+        },
     }))
 }
 
@@ -562,8 +587,16 @@ pub fn split_server_capabilities(
 pub fn append_client_capabilities(message: &mut Vec<u8>, capabilities: ClientCapabilities) {
     message.push(CLIENT_MARKER);
     message.extend_from_slice(CLIENT_MAGIC);
-    message.push(WIRE_VERSION);
-    message.push(CLIENT_PAYLOAD_LEN as u8);
+    message.push(if capabilities.udp_payload_size.is_some() {
+        CLIENT_POLICY_VERSION
+    } else {
+        WIRE_VERSION
+    });
+    message.push(if capabilities.udp_payload_size.is_some() {
+        CLIENT_POLICY_PAYLOAD_LEN
+    } else {
+        CLIENT_PAYLOAD_LEN
+    } as u8);
     message.extend_from_slice(&capabilities.core_bits.to_le_bytes());
     message.extend_from_slice(&capabilities.platform_bits.to_le_bytes());
     message.push(match capabilities.ipv6_policy {
@@ -571,6 +604,9 @@ pub fn append_client_capabilities(message: &mut Vec<u8>, capabilities: ClientCap
         ClientIpv6Policy::Required => 1,
         ClientIpv6Policy::Off => 2,
     });
+    if let Some(size) = capabilities.udp_payload_size {
+        message.extend_from_slice(&size.to_be_bytes());
+    }
 }
 
 /// Split the optional capability prefix from the UTF-8 `username:password` bytes.
@@ -585,12 +621,14 @@ pub fn split_client_capabilities(
     }
     let version = bytes[5];
     let payload_len = usize::from(bytes[6]);
-    if version != WIRE_VERSION {
-        anyhow::bail!("unsupported client capability version {version}");
-    }
-    if payload_len != CLIENT_PAYLOAD_LEN {
+    let expected = match version {
+        WIRE_VERSION => CLIENT_PAYLOAD_LEN,
+        CLIENT_POLICY_VERSION => CLIENT_POLICY_PAYLOAD_LEN,
+        _ => anyhow::bail!("unsupported client capability version {version}"),
+    };
+    if payload_len != expected {
         anyhow::bail!(
-            "malformed client capability v1 payload length {payload_len}; expected {CLIENT_PAYLOAD_LEN}"
+            "malformed client capability v{version} payload length {payload_len}; expected {expected}"
         );
     }
     let extension_len = 1 + HEADER_LEN + payload_len;
@@ -610,11 +648,25 @@ pub fn split_client_capabilities(
         2 => ClientIpv6Policy::Off,
         value => anyhow::bail!("invalid client IPv6 policy value {value}"),
     };
+    let udp_payload_size = if version == CLIENT_POLICY_VERSION {
+        let size = u16::from_be_bytes(payload[17..19].try_into().expect("2-byte manual policy"));
+        let required = client_capability::UDP_MANUAL_PAYLOAD_V1
+            | client_capability::UDP_MANUAL_PAYLOAD_AUTH_V1
+            | client_capability::UDP_DATA_FRAG_V1;
+        anyhow::ensure!(
+            (548..=65507).contains(&size) && core_bits & required == required,
+            "invalid authenticated manual UDP payload policy"
+        );
+        Some(size)
+    } else {
+        None
+    };
     Ok((
         Some(ClientCapabilities {
             core_bits,
             platform_bits,
             ipv6_policy,
+            udp_payload_size,
         }),
         &bytes[extension_len..],
     ))
@@ -666,6 +718,7 @@ mod tests {
             core_bits: client_capability::INNER_IPV6 | client_capability::NETWORK_PLAN_V2,
             platform_bits: 0x1234,
             ipv6_policy: ClientIpv6Policy::Required,
+            udp_payload_size: None,
         };
         let mut bytes = Vec::new();
         append_client_capabilities(&mut bytes, capabilities);
@@ -673,6 +726,51 @@ mod tests {
         let (parsed, credentials) = split_client_capabilities(&bytes).unwrap();
         assert_eq!(parsed, Some(capabilities));
         assert_eq!(credentials, b"alice:secret");
+    }
+
+    #[test]
+    fn manual_policy_is_bound_to_auth_and_legacy_auto_bytes_are_unchanged() {
+        let base = ClientCapabilities {
+            core_bits: implemented_client_core_capabilities(),
+            ..Default::default()
+        };
+        let mut legacy = Vec::new();
+        append_client_capabilities(&mut legacy, base);
+        assert_eq!(legacy[5], WIRE_VERSION);
+        assert_eq!(legacy.len(), 1 + HEADER_LEN + CLIENT_PAYLOAD_LEN);
+        for size in [548, 1232, 1472, 65507] {
+            let policy = ClientCapabilities {
+                udp_payload_size: Some(size),
+                ..base
+            };
+            let mut wire = Vec::new();
+            append_client_capabilities(&mut wire, policy);
+            let extension = wire.len();
+            wire.extend_from_slice(b"user:password");
+            let (decoded, credentials) = split_client_capabilities(&wire).unwrap();
+            assert_eq!(decoded, Some(policy));
+            assert_eq!(credentials, b"user:password");
+            for end in 7..extension {
+                assert!(split_client_capabilities(&wire[..end]).is_err());
+            }
+        }
+        for size in [0, 547, 65508, 65535] {
+            let mut wire = Vec::new();
+            append_client_capabilities(
+                &mut wire,
+                ClientCapabilities {
+                    udp_payload_size: Some(size),
+                    ..base
+                },
+            );
+            assert!(split_client_capabilities(&wire).is_err());
+        }
+        let mut unsupported = implemented_udp_server_capabilities();
+        unsupported.bits &= !server_capability::UDP_MANUAL_PAYLOAD_AUTH_V1;
+        assert!(!manual_udp_payload_negotiated(
+            Some(unsupported),
+            Some(base)
+        ));
     }
 
     #[test]

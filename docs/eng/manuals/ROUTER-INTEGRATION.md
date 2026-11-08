@@ -466,3 +466,10 @@ watchdog and secrets. Real fake-TLS clients were tested with ordinary TUN and
 `scripts/router_policy_netns_fixture.py`, `scripts/router_status_netns_fixture.py`.
 These are not throughput, firmware boot, physical router or all-architecture
 musl release qualifications.
+
+
+Explicit `local_subnets` exceptions copy the longest matching non-default route from
+the main table into each owned table, including its gateway and device. Both connected
+and routed IPv4/IPv6 networks are supported. If that local route disappears, the
+exception becomes unreachable until it returns; a WAN default is never substituted.
+The terminal prohibit rule still protects other VPN-only destinations when TUN is absent.

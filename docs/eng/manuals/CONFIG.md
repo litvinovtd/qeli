@@ -731,14 +731,20 @@ can reduce those values.
 - The limit applies to authenticated session data/control in both directions.
   Handshake/PQ fragments and pre-handshake AWG junk have separate size policies.
   It is a ceiling, not a request to pad every datagram to that length.
-- Both **client and server** must support `UDP_MANUAL_PAYLOAD_V1` and `UDP_DATA_FRAG_V1`.
-  An older server causes a clear failure before TUN setup; update it or return to `0`.
+- Both **client and server** must support `UDP_MANUAL_PAYLOAD_V1`,
+  `UDP_MANUAL_PAYLOAD_AUTH_V1` and `UDP_DATA_FRAG_V1`. The manual size is carried
+  inside authenticated AUTH and installed before AuthOK, which confirms its acceptance.
+  Retransmitted AUTH/AuthOK preserves the same policy; no unacknowledged control report
+  is needed. An older server causes a clear failure before TUN setup; update it or return to `0`.
   TCP preserves but ignores the value. It is local policy, not included in `qeli://` links.
 - A manual limit is an operator assumption, **not measured PMTU**. On asymmetric paths
   choose a size that passes in both directions. The setting survives network changes,
   but may no longer fit; automatic mode is usually better for mobile networks.
-  Local `EMSGSIZE` may safely reduce the effective budget without actively searching for
-  a larger size; diagnostics show that fallback.
+  A local `EMSGSIZE` reduces the effective budget to the family-safe floor capped by
+  your manual limit, then retries the complete encrypted record using DATA_FRAG and a
+  fresh fragment ID. This works with Recordizer on or off, without replacing the socket
+  or enabling probes. Diagnostics report `local_emsgsize`; the saved manual ceiling is
+  unchanged. A second failure at the floor remains an explicit transport error.
 - DATA_FRAG remains enabled: a large encrypted record can span several outer datagrams
   within the limit. This is not a switch to disable all fragmentation and does not change
   the interface MTU.

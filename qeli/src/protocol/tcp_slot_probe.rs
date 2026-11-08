@@ -1,9 +1,13 @@
 //! Bounded TCP downlink probe, carried only inside an authenticated resume.
+#[cfg(feature = "client")]
 use crate::protocol::control_v2;
 #[cfg(all(feature = "server", target_os = "linux"))]
 use crate::protocol::control_v2::Frame;
+#[cfg(feature = "client")]
 use crate::protocol::stream_io::WriteAllFlush;
+#[cfg(feature = "client")]
 use crate::protocol::{read_record, Framing, PacketCodec};
+#[cfg(feature = "client")]
 use tokio::io::{AsyncRead, AsyncWrite};
 
 const REQUEST_TYPE: u8 = 0x28;
@@ -12,6 +16,12 @@ pub(crate) const CHUNK: usize = 1024;
 pub(crate) const CHUNKS: usize = 256;
 pub(crate) const REQUEST_TTL: std::time::Duration = std::time::Duration::from_secs(20);
 pub(crate) const BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
+pub(crate) const CONFIRMATION_BUDGET: std::time::Duration = std::time::Duration::from_millis(1500);
+// Shared with the server. The client starts waiting before confirmation and burst preparation.
+#[cfg(feature = "client")]
+pub(crate) const CLIENT_BUDGET: std::time::Duration = BUDGET
+    .saturating_add(CONFIRMATION_BUDGET)
+    .saturating_add(std::time::Duration::from_millis(250));
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Request {
@@ -36,6 +46,7 @@ impl Request {
         .encode()?)
     }
 
+    #[cfg(feature = "client")]
     pub(crate) fn decode(bytes: &[u8]) -> Option<Self> {
         let frame = control_v2::decode(bytes).ok()?;
         if frame.message_type != REQUEST_TYPE || frame.part_count != 1 || frame.flags != 0 {
@@ -48,6 +59,7 @@ impl Request {
         })
     }
 
+    #[cfg(feature = "client")]
     pub(crate) fn probe_message(self) -> Vec<u8> {
         let mut result = PROBE.to_vec();
         result.extend_from_slice(&self.nonce.to_be_bytes());
@@ -62,6 +74,7 @@ pub(crate) fn probe_nonce(bytes: &[u8]) -> Option<u64> {
     ))
 }
 
+#[cfg(feature = "client")]
 pub(crate) async fn receive<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     framing: Framing,
@@ -84,4 +97,46 @@ pub(crate) async fn receive<S: AsyncRead + AsyncWrite + Unpin>(
         .write_all_flush(&tx.encrypt_packet(&receipt[..16], &[])?)
         .await?;
     Ok(())
+}
+
+#[cfg(all(test, feature = "client"))]
+mod budget_tests {
+    use super::*;
+    #[tokio::test]
+    async fn delivery_budget_includes_server_confirmation_before_first_record() {
+        let (mut client, mut server) = tokio::io::duplex(512 * 1024);
+        let request = Request { slot: 1, nonce: 7 };
+        let server_side = async {
+            let mut rx = PacketCodec::new([1; 32]);
+            let mut tx = PacketCodec::new([2; 32]);
+            let nonce = rx
+                .decrypt_packet(&read_record(&mut server, Framing::Tls).await.unwrap())
+                .unwrap();
+            assert_eq!(nonce, request.probe_message());
+            tokio::time::sleep(CONFIRMATION_BUDGET - std::time::Duration::from_millis(100)).await;
+            for index in 0..CHUNKS {
+                if index == CHUNKS / 2 {
+                    tokio::time::sleep(BUDGET - std::time::Duration::from_millis(500)).await;
+                }
+                let record = tx.encrypt_packet(&vec![7; CHUNK], &[]).unwrap();
+                server.write_all_flush(&record).await.unwrap();
+            }
+            let receipt = rx
+                .decrypt_packet(&read_record(&mut server, Framing::Tls).await.unwrap())
+                .unwrap();
+            assert_eq!(receipt, vec![7; 16]);
+        };
+        let client_side = async {
+            let mut tx = PacketCodec::new([1; 32]);
+            let mut rx = PacketCodec::new([2; 32]);
+            tokio::time::timeout(
+                CLIENT_BUDGET,
+                receive(&mut client, Framing::Tls, &mut tx, &mut rx, request),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        };
+        tokio::join!(server_side, client_side);
+    }
 }

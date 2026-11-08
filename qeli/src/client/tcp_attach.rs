@@ -241,16 +241,20 @@ impl Drop for JoinPermit {
 }
 
 pub(super) const PREPARE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+#[cfg(feature = "experimental-roaming")]
+pub(super) const PROBE_COMMIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 const FIRST_PREAUTH_STALL: std::time::Duration = std::time::Duration::from_secs(1);
 const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 const PREPARE_ATTEMPTS: usize = 2;
 
 #[cfg(feature = "experimental-roaming")]
 const _: () = assert!(
-    PREPARE_TIMEOUT.as_secs() * (PREPARE_ATTEMPTS as u64 + 1)
-        + 1
-        + crate::protocol::tcp_slot_probe::BUDGET.as_secs()
-        < crate::protocol::tcp_slot_probe::REQUEST_TTL.as_secs()
+    PREPARE_TIMEOUT.as_millis() * PREPARE_ATTEMPTS as u128
+        + RETRY_DELAY.as_millis()
+        + crate::protocol::tcp_slot_probe::CLIENT_BUDGET.as_millis()
+        + PROBE_COMMIT_TIMEOUT.as_millis()
+        + super::TCP_RESUME_MAINTENANCE_TICK.as_millis()
+        < crate::protocol::tcp_slot_probe::REQUEST_TTL.as_millis()
 );
 
 async fn wait_first_preauth_stall(progress: &AttachProgress, budget: std::time::Duration) {
@@ -444,8 +448,8 @@ mod tests {
         assert!(
             PREPARE_TIMEOUT * PREPARE_ATTEMPTS as u32
                 + RETRY_DELAY
-                + crate::protocol::tcp_slot_probe::BUDGET
-                + PREPARE_TIMEOUT
+                + crate::protocol::tcp_slot_probe::CLIENT_BUDGET
+                + PROBE_COMMIT_TIMEOUT
                 < crate::protocol::tcp_slot_probe::REQUEST_TTL
         );
     }
