@@ -152,8 +152,8 @@ impl Recordizer {
     ///
     /// A pending record keeps its original random target so changing the path
     /// budget cannot split, discard, or suddenly enlarge queued traffic. The
-    /// next record is sampled from the new ceiling. PMTU fallback stays in the
-    /// outer data-fragment layer; callers must not lower this value at runtime.
+    /// next record is sampled from the new ceiling. To lower the budget, use
+    /// `lower_runtime` and send its pending envelope through DATA_FRAG first.
     pub fn raise_runtime(&mut self, config: RuntimeConfig) -> Result<(), RecordizerError> {
         if config.max_payload_bytes < self.config.max_payload_bytes {
             return Err(RecordizerError::InvalidConfig(

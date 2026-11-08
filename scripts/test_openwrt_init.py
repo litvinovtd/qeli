@@ -295,6 +295,23 @@ sync_firewall_device
         self.assertIn('mtu_probe = false\n', content)
         self.assertIn('udp_payload_size = 1452\n', content)
 
+    def test_udp_policy_defaults_boundaries_and_probe_switch(self):
+        for size in ('0', '548', '65507'):
+            for probe in ('0', '1'):
+                with self.subTest(size=size, probe=probe):
+                    result = self.run_shell('render_conf', proto='udp',
+                        udp_payload_size=size, mtu_probe=probe)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual('mtu_probe = false\n' in self.config(), probe == '0')
+                    if size == '0':
+                        self.assertNotIn('udp_payload_size =', self.config())
+                    else:
+                        self.assertIn('udp_payload_size = ' + size + '\n', self.config())
+        result = self.run_shell('render_conf', proto='udp')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('udp_payload_size =', self.config())
+        self.assertNotIn('mtu_probe =', self.config())
+
     def test_invalid_udp_policy_keeps_previous_runtime_configuration(self):
         for option, value in [('udp_payload_size', '547'), ('udp_payload_size', '65508'),
                 ('udp_payload_size', '1452\npost_down=bad'), ('mtu_probe', 'true'),

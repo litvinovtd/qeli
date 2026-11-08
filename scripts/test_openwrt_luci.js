@@ -13,8 +13,15 @@ function deferred() {
 function fixture(options = {}) {
     const events = [];
     let staged = '0', committed = '0';
+    const fields = new Map();
+    function FormMap() {}
+    FormMap.prototype.section = function () { return { option(kind, name) {
+        const value = { dependencies: [], value() {}, depends(...args) { this.dependencies.push(args); } };
+        fields.set(name, value); return value;
+    } }; };
+    FormMap.prototype.render = function () { return fields; };
     const context = vm.createContext({
-        view: { extend: v => v }, form: {}, poll: {},
+        view: { extend: v => v }, form: { Map: FormMap }, poll: {},
         ui: { addNotification() {} }, E: () => ({}), _: v => v,
         rpc: { declare: spec => async (action, value) => {
             if (spec.method === 'service_status') {
@@ -40,8 +47,8 @@ function fixture(options = {}) {
         }
     });
     vm.runInContext("String.prototype.format = function(v) { return this.replace('%s',v); };", context);
-    vm.runInContext('(function(){' + source.replace('return view.extend({', 'globalThis.audit = { controlService, getTunnelStatus, statusText, setSecret, tunnelText, tunnelColor }; return view.extend({') + '\n})()', context);
-    return { control: context.audit.controlService, status: async () => {
+    const view = vm.runInContext('(function(){' + source.replace('return view.extend({', 'globalThis.audit = { controlService, getTunnelStatus, statusText, setSecret, tunnelText, tunnelColor }; return view.extend({') + '\n})()', context);
+    return { fields: () => view.render([{}, {}]), control: context.audit.controlService, status: async () => {
         const value = await context.audit.getTunnelStatus();
         return typeof value.enabled === 'boolean' ? value.enabled : null;
     }, text: context.audit.statusText, secret: context.audit.setSecret, events, tunnelText: context.audit.tunnelText, tunnelColor: context.audit.tunnelColor };
@@ -50,6 +57,18 @@ async function flush() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
 (async () => {
     let passed = 0;
     async function test(name, run) { await run(); console.log(`PASS ${name}`); passed++; }
+    await test('UDP size controls expose boundaries, default probing and UDP-only visibility', async () => {
+        const fields = fixture().fields();
+        const size = fields.get('udp_payload_size'), probe = fields.get('mtu_probe');
+        for (const value of ['', '0', '548', '1452', '65507'])
+            assert.equal(size.validate('main', value), true);
+        for (const value of ['547', '65508', '-1', '1.5', '1452\npost_down=bad', 'NaN'])
+            assert.notEqual(size.validate('main', value), true);
+        assert.deepEqual(size.dependencies, [['proto', 'udp']]);
+        assert.deepEqual(probe.dependencies, [['proto', 'udp']]);
+        assert.equal(probe.default, '1');
+        assert.equal(probe.rmempty, false);
+    });
     await test('connect waits for confirmed UCI before enable/start', async () => {
         const apply = deferred(), f = fixture({ apply });
         const request = f.control('connect'); await flush();
