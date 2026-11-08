@@ -166,6 +166,23 @@ impl Recordizer {
         Ok(())
     }
 
+    /// Finish the old envelope before lowering future record targets. The
+    /// caller sends this complete payload through DATA_FRAG at the new budget;
+    /// queued inner packets and packet identifiers are preserved.
+    pub fn lower_runtime(
+        &mut self,
+        config: RuntimeConfig,
+    ) -> Result<Option<Vec<u8>>, RecordizerError> {
+        if config.max_payload_bytes > self.config.max_payload_bytes {
+            return Err(RecordizerError::InvalidConfig(
+                "lower_runtime cannot raise the payload budget",
+            ));
+        }
+        let pending = self.flush();
+        self.config = config;
+        Ok(pending)
+    }
+
     pub fn is_pending(&self) -> bool {
         !self.current.is_empty()
     }
@@ -878,5 +895,31 @@ mod tests {
         let mut rx = Reassembler::new(widened);
         assert_eq!(rx.decode(&queued).unwrap(), vec![b"queued".to_vec()]);
         assert_eq!(rx.decode(&widened_record).unwrap(), vec![packet]);
+    }
+    #[test]
+    fn lowering_runtime_preserves_old_pending_envelope_and_limits_new_records() {
+        let mut initial = config(256);
+        initial.delay_min = Duration::from_millis(5);
+        initial.delay_max = Duration::from_millis(5);
+        initial.full_probability = 1.0;
+        let mut tx = Recordizer::new(initial.clone());
+        let packet = vec![0x44; 180];
+        assert!(tx.push(&packet, Instant::now()).unwrap().is_empty());
+        let mut smaller = initial.clone();
+        smaller.max_payload_bytes = 80;
+        let old = tx.lower_runtime(smaller.clone()).unwrap().unwrap();
+        assert!(old.len() > 80);
+        assert!(!tx.is_pending());
+        let mut records = tx.push(&packet, Instant::now()).unwrap();
+        if let Some(last) = tx.flush() {
+            records.push(last);
+        }
+        assert!(records.iter().all(|r| r.len() <= 80));
+        let mut rx = Reassembler::new(initial);
+        let mut got = rx.decode(&old).unwrap();
+        for record in records {
+            got.extend(rx.decode(&record).unwrap());
+        }
+        assert_eq!(got, vec![packet.clone(), packet]);
     }
 }

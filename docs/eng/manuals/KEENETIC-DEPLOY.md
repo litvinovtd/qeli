@@ -586,3 +586,13 @@ directory: do not remove an active or unknown owner's lock.
 After independently verifying that the client and hook have stopped, review the
 saved/pending addresses, then remove only the empty stale publication directory
 with `rmdir`. Never discard the plan or recovery receipts to bypass this check.
+
+### UDP recovery after a PMTU change
+
+Keenetic shares the common core's EMSGSIZE recovery and candidate receive-buffer
+preparation. With negotiated DATA_FRAG, lowering the outer budget retries the sealed
+record on the active socket. This applies to ordinary Entware TUN and OpkgTun; NDM
+retains address/route ownership in OpkgTun. Set `udp_payload_size` and `mtu_probe` in
+client `[qeli]`, independently of the inner `mtu` and external/client policy ownership.
+See [CONFIG](CONFIG.md) for modes and limits. OpenWrt hardware qualification does not
+replace tests on the actual Keenetic model and KeeneticOS version.

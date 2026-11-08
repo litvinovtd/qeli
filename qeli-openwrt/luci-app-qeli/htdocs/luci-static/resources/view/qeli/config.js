@@ -349,6 +349,23 @@ return view.extend({
 				: _('MTU must be 0 (auto) or between 576 and 16602.');
 		}; // mirrors config/server.rs MTU_MIN..=MTU_MAX
 
+		o = s.option(form.Value, 'udp_payload_size', _('Outer UDP payload limit'),
+			_('0 = automatic. A manual limit includes QUIC and obfuscation wrappers, excludes IP/UDP headers, and disables active probing. It is independent of the inner MTU.'));
+		o.depends('proto', 'udp');
+		o.datatype = 'uinteger';
+		o.placeholder = '0';
+		o.validate = function(section_id, value) {
+			if (value === '' || value === '0') return true;
+			var size = Number(value);
+			return Number.isInteger(size) && size >= 548 && size <= 65507
+				? true : _('UDP payload must be 0 (auto) or between 548 and 65507.');
+		};
+		o = s.option(form.Flag, 'mtu_probe', _('Automatic UDP path probing'),
+			_('Used only with an automatic outer payload limit. Turning it off retains the conservative family budget.'));
+		o.depends('proto', 'udp');
+		o.default = '1';
+		o.rmempty = false;
+
 		o = s.option(form.Flag, 'kill_switch', _('Kill-switch'),
 			_('Firewall lock for host traffic and, in full-tunnel router mode, forwarded LAN traffic: block egress except the tunnel while connected or reconnecting.'));
 

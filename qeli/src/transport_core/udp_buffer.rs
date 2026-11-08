@@ -426,6 +426,56 @@ impl UdpBufferController {
         feature = "experimental-roaming",
         any(unix, windows)
     ))]
+    pub(crate) fn configure_candidate(
+        socket: &UdpSocket,
+        policy: UdpBufferPolicy,
+        counters: Arc<UdpBufferCounters>,
+        label: impl Into<String>,
+        previous: &Self,
+    ) -> Self {
+        let mut controller = Self::configure(socket, policy, counters, label);
+        controller.warm_start_from(socket, previous);
+        controller
+    }
+
+    /// Seed before receive/BIND and refresh immediately before COMMIT. Explicit
+    /// fixed/OS-default policies stay unchanged. The overlap request is bounded
+    /// by the shared process memory budget and never shrinks the working queue.
+    #[cfg(all(
+        feature = "client",
+        feature = "experimental-roaming",
+        any(unix, windows)
+    ))]
+    pub(crate) fn warm_start_from(&mut self, socket: &UdpSocket, previous: &Self) {
+        if !self.policy.automatic_receive || !previous.policy.automatic_receive {
+            return;
+        }
+        let desired = previous
+            .granted_recv_bytes
+            .max(self.requested_recv_bytes)
+            .min(self.policy.max_receive_bytes);
+        let reference = socket2::SockRef::from(socket);
+        if desired > self.granted_recv_bytes {
+            if let Some(requested) =
+                self.receive_request
+                    .request_handover(&reference, desired, &self.label)
+            {
+                self.requested_recv_bytes = requested;
+            }
+        }
+        self.smoothed_bytes_per_second = self
+            .smoothed_bytes_per_second
+            .max(previous.smoothed_bytes_per_second);
+        self.refresh_diagnostics(&reference);
+        log::info!("{}: UDP candidate warm start requested {} KiB, granted {} KiB before path commit (active {} KiB)",
+            self.label, desired / 1024, self.granted_recv_bytes / 1024, previous.granted_recv_bytes / 1024);
+    }
+
+    #[cfg(all(
+        feature = "client",
+        feature = "experimental-roaming",
+        any(unix, windows)
+    ))]
     pub(crate) fn relabel(&mut self, socket: &UdpSocket, label: &str) {
         self.label = label.to_owned();
         self.refresh_diagnostics(&socket2::SockRef::from(socket));

@@ -4473,3 +4473,34 @@ recovers its L3 state, verifies ownership and uninstalls only that device, retai
 the shared driver. Busy/failed cleanup retains the receipt for retry. Turning the
 setting off or deleting a GUI profile does **not** uninstall the device. Remove it
 explicitly before deleting the profile/app if it is no longer wanted.
+
+### UDP: recover from PMTU reduction on the active socket
+
+With negotiated `UDP_DATA_FRAG_V1`, automatic-mode `EMSGSIZE` reduces the outer
+payload budget on the current socket. The client first uses a smaller kernel PMTU
+hint for that socket; if the hint cannot reduce the budget or sending fails again,
+it uses the conservative family floor. Retries are bounded. The complete sealed
+record is retained and refragmented with a fresh DATA_FRAG record ID; records in a
+batch prefix already accepted by the kernel are not replayed. Other carrier errors
+retain the ordinary path-recovery mechanism.
+
+The reduction synchronizes DATA, recordizer, padding and control budgets, invalidates
+stale PMTU challenges and defers growth. A pending mux envelope is preserved and
+sent through DATA_FRAG; subsequent envelopes use the smaller ceiling. The TUN,
+assigned address and UDP port stay in place when the reduced send succeeds.
+Legacy peers without DATA_FRAG retain their compatibility behavior.
+
+PMTU is directional. An ICMP ping or a fresh UDP source port is not proof of the
+active Qeli flow's PMTU: policy routing, marks, route tables and the upstream gateway
+may differ. IPv4 PMTU1480 allows1452 UDP payload bytes; PMTU1500 allows1472. The
+payload includes QUIC/obfs wrappers but excludes IP/UDP headers. The inner TUN MTU
+is a separate setting.
+
+An automatic candidate receive queue is seeded from the active path before BIND
+and refreshed before COMMIT. Fixed sizes and `recv_buffer_size = 0` retain their
+operator-selected behavior. Linux reservations remain process-wide: normal growth
+uses at most one eighth of `MemAvailable`; preparation of overlapping paths uses at
+most one quarter, for that preparation request only. The draining controller keeps
+its reservation until drain ends; cancellation releases the candidate reservation.
+No global `rmem_max`/`wmem_max` is changed. Diagnostics report the actual OS grant
+and permission failures.

@@ -715,3 +715,32 @@ removed after evidence verification. Original CI404, GCC OOM and bounded
 partial outcomes retain their dates. Public source pin/hosted release
 qualification remain open; physical router USER_EXCLUDED.
 See the [qualified source compiler and SDK result](../reports/audit-0.8.2/AUDIT-Q31-OPENWRT-CONTROLS.md).
+
+### Outer UDP budget in UCI and LuCI
+
+LuCI exposes **Outer UDP payload limit** and **Automatic UDP path probing**.
+The init wrapper passes the UCI options into the runtime INI:
+
+```sh
+uci set qeli.main.udp_payload_size='0'
+uci set qeli.main.mtu_probe='1'
+uci commit qeli
+/etc/init.d/qeli restart
+```
+
+For a measured conservative ceiling, set for example
+`uci set qeli.main.udp_payload_size='1452'`, commit UCI and restart. A nonzero
+`548..65507` size disables active probes regardless of `mtu_probe`. It includes
+QUIC/obfs wrappers and excludes IP/UDP headers; `mtu` still controls the inner TUN.
+`udp_payload_size=0` with `mtu_probe=0` selects the conservative548/1232-byte
+family budget, not a1452-byte ceiling. See [CONFIG](CONFIG.md) for DATA_FRAG behavior.
+
+Update both the client and init wrapper: an older wrapper may omit these UCI
+options. Invalid numbers, overflows and invalid `mtu_probe` values are rejected
+without replacing the previous runtime config. UDP sizing does not change the
+choice between external hotplug/mwan3 scripts and built-in routing/firewall ownership.
+
+For remote installation, save the previous executable, init and config, verify an
+independent administrative path and arm an on-device rollback timer first. Confirm
+after a fresh SSH login, useful transfers and an induced PMTU reduction. Preserve
+existing monitor/hotplug contracts, including the PID-file format.

@@ -287,6 +287,23 @@ sync_firewall_device
         self.assertFalse(any(line.startswith(('post_up =', 'post_down =', 'password_command =')) for line in lines))
         self.assertNotIn('\x7f', self.config())
 
+    def test_udp_policy_is_rendered_and_manual_size_stays_independent_of_inner_mtu(self):
+        result = self.run_shell('render_conf', proto='udp', mtu='1400', mtu_probe='0', udp_payload_size='1452')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        content = (self.root / 'run/client.conf').read_text()
+        self.assertIn('mtu = 1400\n', content)
+        self.assertIn('mtu_probe = false\n', content)
+        self.assertIn('udp_payload_size = 1452\n', content)
+
+    def test_invalid_udp_policy_keeps_previous_runtime_configuration(self):
+        for option, value in [('udp_payload_size', '547'), ('udp_payload_size', '65508'),
+                ('udp_payload_size', '1452\npost_down=bad'), ('mtu_probe', 'true'),
+                ('udp_payload_size', '99999999999999999999999999')]:
+            with self.subTest(option=option, value=value):
+                result = self.run_shell('render_conf', **{option: value})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((self.root / 'run/client.conf').read_text(), 'previous-config\n')
+
     def test_failed_render_preserves_previous_config(self):
         for mtu in ('abc', '575', '16603', '999999999999999999999999999999999'):
             with self.subTest(mtu=mtu):

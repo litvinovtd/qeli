@@ -140,13 +140,22 @@ impl ClientReservation {
     /// Reserve before setsockopt. Existing queues never shrink under memory pressure.
     /// Unknown memory authorizes no increase. Linux's raw receive accounting is twice the request.
     fn reserve_growth(&mut self, desired: u32, available: Option<u64>) -> Option<u32> {
+        self.reserve_growth_with_divisor(desired, available, 8)
+    }
+
+    fn reserve_growth_with_divisor(
+        &mut self,
+        desired: u32,
+        available: Option<u64>,
+        divisor: u64,
+    ) -> Option<u32> {
         let available = available?;
         let mut budget = self
             .budget
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let others = budget.reserved_kernel_bytes.saturating_sub(self.reserved);
-        let receive_allowance = (available / 8)
+        let receive_allowance = (available / divisor)
             .saturating_sub(others)
             .saturating_sub(self.send_kernel_bytes)
             / 2;
@@ -255,12 +264,45 @@ impl ReceiveBufferRequest {
         self.request_with_memory(socket, desired, label, available)
     }
 
+    /// A make-before-break candidate may briefly overlap the active/draining
+    /// queue. All reservations combined stay below one quarter of MemAvailable;
+    /// ordinary tuning still uses one eighth. This exception applies only to
+    /// this preparation request, not to future auto-growth of the active socket.
+    #[cfg(all(
+        feature = "client",
+        feature = "experimental-roaming",
+        any(unix, windows)
+    ))]
+    pub(super) fn request_handover(
+        &mut self,
+        socket: &socket2::SockRef<'_>,
+        desired: u32,
+        label: &str,
+    ) -> Option<u32> {
+        let available = self
+            .reservation
+            .as_ref()
+            .and_then(|_| available_memory_bytes());
+        self.request_with_memory_limit(socket, desired, label, available, 4)
+    }
+
     fn request_with_memory<S: ReceiveSocket>(
         &mut self,
         socket: &S,
         desired: u32,
         label: &str,
         available: Option<u64>,
+    ) -> Option<u32> {
+        self.request_with_memory_limit(socket, desired, label, available, 8)
+    }
+
+    fn request_with_memory_limit<S: ReceiveSocket>(
+        &mut self,
+        socket: &S,
+        desired: u32,
+        label: &str,
+        available: Option<u64>,
+        divisor: u64,
     ) -> Option<u32> {
         let desired = if self.automatic {
             desired.min(super::AUTO_MAX_RECV_BYTES)
@@ -282,7 +324,12 @@ impl ReceiveBufferRequest {
             return Some(desired);
         }
         let target = if let Some(reservation) = self.reservation.as_mut() {
-            match reservation.reserve_growth(desired, available) {
+            let reserved = if divisor == 8 {
+                reservation.reserve_growth(desired, available)
+            } else {
+                reservation.reserve_growth_with_divisor(desired, available, divisor)
+            };
+            match reserved {
                 Some(target) => {
                     self.budget_limited = target < desired;
                     target
@@ -622,6 +669,67 @@ mod tests {
         assert_eq!(
             parse_available_memory("MemAvailable: 18446744073709551615 kB\n"),
             None
+        );
+    }
+    #[test]
+    fn handover_seed_uses_bounded_overlap_and_returns_to_normal_after_drain() {
+        let budget = Arc::new(Mutex::new(ClientMemoryBudget::default()));
+        let available = 96 * u64::from(MIB);
+        let old = Socket::new();
+        let new = Socket::new();
+        let mut active = request(&old, budget.clone());
+        active.request_with_memory(&old, 5 * MIB, "active", Some(available));
+        let mut candidate = request(&new, budget.clone());
+        candidate.request_with_memory_limit(
+            &new,
+            old.received.get(),
+            "candidate",
+            Some(available),
+            4,
+        );
+        assert_eq!(new.received.get(), old.received.get());
+        assert!(budget.lock().unwrap().reserved_kernel_bytes <= available / 4);
+        let third = Socket::new();
+        let mut competing = request(&third, budget.clone());
+        competing.request_with_memory_limit(
+            &third,
+            16 * MIB,
+            "other candidate",
+            Some(available),
+            4,
+        );
+        assert!(budget.lock().unwrap().reserved_kernel_bytes <= available / 4);
+        assert!(third.received.get() < 16 * MIB);
+        drop(competing);
+        drop(active);
+        assert!(budget.lock().unwrap().reserved_kernel_bytes <= available / 8);
+        let before = new.received.get();
+        candidate.request_with_memory(&new, 16 * MIB, "active again", Some(available));
+        assert!(new.received.get() >= before);
+        assert!(budget.lock().unwrap().reserved_kernel_bytes <= available / 8);
+        drop(candidate);
+        assert_eq!(budget.lock().unwrap().reserved_kernel_bytes, 0);
+    }
+
+    #[test]
+    fn handover_memory_unknown_or_force_denied_cannot_invent_a_grant() {
+        let socket = Socket::new();
+        socket.force_denied.set(true);
+        let mut setter = request(&socket, Default::default());
+        setter.request_with_memory_limit(&socket, 8 * MIB, "candidate", None, 4);
+        assert_eq!(socket.received.get(), 106496);
+        setter.request_with_memory_limit(&socket, 8 * MIB, "candidate", memory(), 4);
+        assert_eq!(socket.received.get(), socket.limit);
+        assert!(setter.force_blocked);
+        assert!(!setter.forced);
+        assert_eq!(
+            socket
+                .calls
+                .borrow()
+                .iter()
+                .filter(|(kind, _)| *kind == "force")
+                .count(),
+            1
         );
     }
 }

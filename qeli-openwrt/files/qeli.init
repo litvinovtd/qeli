@@ -213,7 +213,7 @@ append_dns_server() {
 # Render the UCI `main` section into the flat-INI the binary expects.
 render_conf_file() {
 	local server proto user key bind_static mode sni obfs_key front quic \
-	      reality_sid gateway ipv6 dns dns_mode dns_servers dev mtu route_local kill_switch allow_ipv4_leak allow_ipv6_leak log_level \
+	      reality_sid gateway ipv6 dns dns_mode dns_servers dev mtu mtu_probe udp_payload_size route_local kill_switch allow_ipv4_leak allow_ipv6_leak log_level \
 	      log_time_format
 
 	config_get server     main server
@@ -239,6 +239,8 @@ render_conf_file() {
 		return 1
 	}
 	config_get mtu        main mtu        0
+	config_get mtu_probe main mtu_probe 1
+	config_get udp_payload_size main udp_payload_size 0
 	config_get_bool route_local main route_local 0
 	config_get_bool kill_switch main kill_switch 0
 	config_get_bool allow_ipv4_leak main allow_ipv4_leak 0
@@ -309,6 +311,16 @@ render_conf_file() {
 		}
 		printf 'mtu = %s\n' "$mtu" >> "$CONF" || return 1
 	fi
+	case "$mtu_probe" in 0|1) ;; *) logger -t qeli "ERROR: mtu_probe must be 0 or 1"; return 1 ;; esac
+	case "$udp_payload_size" in *[!0-9]*|"") logger -t qeli "ERROR: invalid UDP payload size"; return 1 ;; esac
+	if [ "$udp_payload_size" != 0 ]; then
+		[ "$udp_payload_size" -ge 548 ] 2>/dev/null && [ "$udp_payload_size" -le 65507 ] 2>/dev/null || {
+			logger -t qeli "ERROR: UDP payload size must be 0 or 548..65507"
+			return 1
+		}
+		printf 'udp_payload_size = %s\n' "$udp_payload_size" >> "$CONF" || return 1
+	fi
+	if [ "$mtu_probe" = 0 ]; then echo "mtu_probe = false" >> "$CONF" || return 1; fi
 	if [ "$route_local" = 1 ]; then echo "route_local = true" >> "$CONF" || return 1; fi
 	if [ "$kill_switch" = 1 ]; then echo "kill_switch = true" >> "$CONF" || return 1; fi
 	# OpenWrt owns NAT through its qeli firewall zone, but the core must know this is a
