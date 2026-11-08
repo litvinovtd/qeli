@@ -4490,6 +4490,14 @@ sent through DATA_FRAG; subsequent envelopes use the smaller ceiling. The TUN,
 assigned address and UDP port stay in place when the reduced send succeeds.
 Legacy peers without DATA_FRAG retain their compatibility behavior.
 
+An ICMP error for a larger PMTU probe can arrive asynchronously through `recv`
+or the next `send` on the same UDP socket. That `EMSGSIZE` does not stop the
+receive pump. If the actual datagram already fits this socket's PMTU, the client
+retries it at the unchanged budget, including the conservative floor, with a
+bounded retry count. It does not recreate the TUN for that advisory. Genuinely
+oversized records are still reduced and fragmented; repeated failure remains
+an error.
+
 PMTU is directional. An ICMP ping or a fresh UDP source port is not proof of the
 active Qeli flow's PMTU: policy routing, marks, route tables and the upstream gateway
 may differ. IPv4 PMTU1480 allows1452 UDP payload bytes; PMTU1500 allows1472. The

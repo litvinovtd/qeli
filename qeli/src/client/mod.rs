@@ -9868,6 +9868,44 @@ fn lower_client_udp_record_budget(
     true
 }
 
+// An ICMP response to a larger live probe may be delivered by a later
+// send/receive on this same connected UDP socket. A fitting record is not
+// proof that the conservative budget failed. The caller bounds retry count.
+fn prepare_client_udp_size_retry(
+    record_budget: &mut usize,
+    manual_ceiling: Option<usize>,
+    socket: &crate::protocol::obfs::ObfsUdp,
+    framing: crate::transport_core::udp_client_framing::UdpClientFraming,
+    failed_datagram_bytes: usize,
+    counters: &crate::transport_core::udp_buffer::UdpPathCounters,
+) -> bool {
+    let current = *record_budget + socket.seal_overhead() + framing.wrapper_len();
+    let mtu = crate::protocol::pmtu::socket_path_mtu(socket.raw_socket(), socket.peer_is_ipv6());
+    let hint = mtu.and_then(|value| {
+        (value as usize).checked_sub(if socket.peer_is_ipv6() { 48 } else { 28 })
+    });
+    if failed_datagram_bytes <= current
+        && hint.is_some_and(|budget| failed_datagram_bytes <= budget)
+    {
+        log::debug!("UDP asynchronous size advisory: datagram {} bytes fits kernel PMTU {:?}; retrying at unchanged {}-byte budget", failed_datagram_bytes, mtu, current);
+        return true;
+    }
+    if lower_client_udp_record_budget(
+        record_budget,
+        manual_ceiling,
+        socket,
+        framing,
+        failed_datagram_bytes,
+        counters,
+    ) {
+        return true;
+    }
+    // Apple/BSD may not expose a connected-socket PMTU hint. At the floor,
+    // consume a one-shot advisory with the same bounded retry policy; a
+    // genuinely unusable floor still fails after the caller's final attempt.
+    failed_datagram_bytes <= current
+}
+
 #[allow(clippy::too_many_arguments)]
 fn client_udp_record_datagrams(
     record: &[u8],
@@ -9946,7 +9984,7 @@ async fn send_client_udp_record(
             Err(failure)
                 if attempt < 2
                     && udp_message_too_large(&failure.error)
-                    && lower_client_udp_record_budget(
+                    && prepare_client_udp_size_retry(
                         record_budget,
                         manual_ceiling,
                         socket,
@@ -9986,7 +10024,7 @@ async fn flush_client_udp_records(
         Err(failure) => {
             if !data_frag_enabled
                 || !udp_message_too_large(&failure.error)
-                || !lower_client_udp_record_budget(
+                || !prepare_client_udp_size_retry(
                     record_budget,
                     None,
                     socket,
@@ -10670,6 +10708,14 @@ fn spawn_client_udp_receive_pump(
 
             let received = match socket.recv_batch(&mut slots, None, &mut scratch).await {
                 Ok(received) => received,
+                Err(error) if udp_message_too_large(&error) => {
+                    // A connected socket also receives asynchronous ICMP PMTU
+                    // errors for outgoing probes. This is not receive EOF.
+                    // Keeping the pump alive lets the owner handle the next
+                    // send using the kernel's updated PMTU without losing RX.
+                    log::debug!("UDP receive PMTU advisory; keeping receive pump: {error}");
+                    continue;
+                }
                 Err(error) => {
                     log::debug!("UDP receive pump stopped: {error}");
                     return;

@@ -171,3 +171,178 @@ fn size_failure_is_not_a_carrier_failure() {
         ClientUdpPayloadSendOutcome::CarrierFailed
     );
 }
+
+#[cfg(target_os = "linux")]
+fn inject_size_advisory(socket: &UdpSocket) {
+    use socket2::{Domain, Protocol, Socket, Type};
+    fn checksum(data: &[u8]) -> u16 {
+        let mut sum = 0u32;
+        for pair in data.chunks(2) {
+            sum += u32::from(u16::from_be_bytes([pair[0], *pair.get(1).unwrap_or(&0)]));
+        }
+        while sum >> 16 != 0 {
+            sum = (sum & 0xffff) + (sum >> 16);
+        }
+        !(sum as u16)
+    }
+    let std::net::SocketAddr::V4(local) = socket.local_addr().unwrap() else {
+        panic!()
+    };
+    let std::net::SocketAddr::V4(peer) = socket.peer_addr().unwrap() else {
+        panic!()
+    };
+    let mut packet = [0u8; 44];
+    packet[0] = 3; // ICMP destination unreachable / fragmentation needed.
+    packet[1] = 4;
+    packet[6..8].copy_from_slice(&1280u16.to_be_bytes());
+    let ip = &mut packet[8..28];
+    ip[0] = 0x45;
+    ip[2..4].copy_from_slice(&1500u16.to_be_bytes());
+    ip[6] = 0x40;
+    ip[8] = 64;
+    ip[9] = 17;
+    ip[12..16].copy_from_slice(&local.ip().octets());
+    ip[16..20].copy_from_slice(&peer.ip().octets());
+    let check = checksum(ip);
+    ip[10..12].copy_from_slice(&check.to_be_bytes());
+    packet[28..30].copy_from_slice(&local.port().to_be_bytes());
+    packet[30..32].copy_from_slice(&peer.port().to_be_bytes());
+    packet[32..34].copy_from_slice(&1480u16.to_be_bytes());
+    let check = checksum(&packet);
+    packet[2..4].copy_from_slice(&check.to_be_bytes());
+    let raw = Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4)).unwrap();
+    raw.send_to(
+        &packet,
+        &std::net::SocketAddr::new((*local.ip()).into(), 0).into(),
+    )
+    .unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "requires private Linux netns and CAP_NET_RAW, QELI_ASYNC_PMTU_FIXTURE=1"]
+async fn asynchronous_pmtu_error_preserves_receive_pump_and_fitting_floor_record() {
+    assert_eq!(std::env::var("QELI_ASYNC_PMTU_FIXTURE").as_deref(), Ok("1"));
+    let a = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let b = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    a.connect(b.local_addr().unwrap()).await.unwrap();
+    b.connect(a.local_addr().unwrap()).await.unwrap();
+    let socket = Arc::new(crate::protocol::obfs::ObfsUdp::new(a, None));
+    assert!(begin_mtu_probe(&socket));
+    // First prove this fixture produces a real pending kernel EMSGSIZE.
+    inject_size_advisory(socket.raw_socket());
+    let advisory = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Some(error) = socket2::SockRef::from(socket.raw_socket())
+                .take_error()
+                .unwrap()
+            {
+                break error;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(udp_message_too_large(&advisory), "{advisory}");
+
+    let mut tasks = crate::transport_core::tasks::TaskGroup::default();
+    let (tx, mut rx) = mpsc::channel(4);
+    let queue =
+        crate::transport_core::receive_queue::ReceiveQueue::new(Default::default(), "PMTU fixture");
+    inject_size_advisory(socket.raw_socket());
+    let mut pump = spawn_client_udp_receive_pump(socket.clone(), 7, tx, &tasks.spawner(), queue);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    b.send(b"after-ICMP").await.unwrap();
+    let batch = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let batch = batch.into_inner();
+    assert_eq!(batch.len(), 1);
+    assert_eq!(batch[0].path_epoch, 7);
+    assert_eq!(&*batch[0].datagram, b"after-ICMP");
+    drop(batch);
+    pump.finish().await;
+    tasks.finish().await;
+
+    // A second advisory belongs to a larger probe, not the current floor record.
+    inject_size_advisory(socket.raw_socket());
+    let framing = UdpClientFraming::legacy(false, [0; 4]);
+    let mut budget = 548;
+    let counters = crate::transport_core::udp_buffer::UdpPathCounters::default();
+    let mut scratch = crate::transport_core::udp_batch::BatchScratch::new(32);
+    let mut pn = 0;
+    let mut record_id = 0;
+    let mut carrier = vec![];
+    send_client_udp_record(
+        &[0x42; 300],
+        &mut budget,
+        None,
+        &[3; 32],
+        &mut record_id,
+        &socket,
+        framing,
+        &mut pn,
+        &mut carrier,
+        &mut scratch,
+        &counters,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        budget, 548,
+        "a fitting floor record must not force a reconnect or size reduction"
+    );
+    let mut received = [0u8; 512];
+    let n = tokio::time::timeout(Duration::from_secs(2), b.recv(&mut received))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(&received[..n], &[0x42; 300]);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "requires private Linux netns, lo MTU400, QELI_SMALL_PMTU_FIXTURE=1"]
+async fn permanently_unusable_floor_fails_with_bounded_retries() {
+    assert_eq!(std::env::var("QELI_SMALL_PMTU_FIXTURE").as_deref(), Ok("1"));
+    let a = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let b = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    a.connect(b.local_addr().unwrap()).await.unwrap();
+    let socket = crate::protocol::obfs::ObfsUdp::new(a, None);
+    assert!(begin_mtu_probe(&socket));
+    assert_eq!(
+        crate::protocol::pmtu::socket_path_mtu(socket.raw_socket(), false),
+        Some(400)
+    );
+    let original = socket.raw_socket().local_addr().unwrap();
+    let mut budget = 548;
+    let counters = crate::transport_core::udp_buffer::UdpPathCounters::default();
+    let mut scratch = crate::transport_core::udp_batch::BatchScratch::new(32);
+    let mut pn = 0;
+    let mut record_id = 0;
+    let mut carrier = vec![];
+    let error = tokio::time::timeout(
+        Duration::from_secs(1),
+        send_client_udp_record(
+            &[0x42; 548],
+            &mut budget,
+            None,
+            &[3; 32],
+            &mut record_id,
+            &socket,
+            UdpClientFraming::legacy(false, [0; 4]),
+            &mut pn,
+            &mut carrier,
+            &mut scratch,
+            &counters,
+        ),
+    )
+    .await
+    .expect("permanent errors must not spin")
+    .unwrap_err();
+    assert!(udp_message_too_large(&error));
+    assert_eq!(budget, 548);
+    assert_eq!(socket.raw_socket().local_addr().unwrap(), original);
+}
