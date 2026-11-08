@@ -437,7 +437,9 @@ mod imp {
         Ok(filled)
     }
 
-    #[cfg(any(feature = "client", test))]
+    // Production portable clients preserve partial-send progress one datagram at a time.
+    // Keep the generic backend for its direct batch compatibility tests only.
+    #[cfg(test)]
     pub(crate) fn send_batch(
         socket: &tokio::net::UdpSocket,
         datagrams: &[&[u8]],
@@ -479,7 +481,12 @@ mod imp {
 }
 
 #[cfg(any(feature = "client", test))]
-pub(crate) use imp::{recv_batch, send_batch};
+pub(crate) use imp::recv_batch;
+#[cfg(any(
+    test,
+    all(feature = "client", any(target_os = "linux", target_os = "android"))
+))]
+pub(crate) use imp::send_batch;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 #[allow(unused_imports)] // Linux server builds own source-pinned replies.
 pub(crate) use imp::{recv_batch_local, send_batch_from};

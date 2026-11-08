@@ -1512,7 +1512,10 @@ impl ObfsUdp {
     /// Returns how many datagrams the kernel accepted; a short count is normal under pressure
     /// and the caller must retry the remainder. Sealing still happens per datagram, so keyed
     /// `obfs` behaves exactly as on the single-datagram path.
-    #[cfg(any(feature = "client", test))]
+    #[cfg(any(
+        test,
+        all(feature = "client", any(target_os = "linux", target_os = "android"))
+    ))]
     pub(crate) async fn send_batch(
         &self,
         datagrams: &[&[u8]],
