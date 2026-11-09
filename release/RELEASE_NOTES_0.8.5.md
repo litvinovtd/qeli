@@ -30,6 +30,9 @@
   допустимом зависании подготовки, backoff и дренирование старого канала.
   Для отключения — `QELI_EXPERIMENTAL_TCP_SLOT_PROBE=0`. Не обещаем
   одинаковое восстановление или скорость на всех сетях.
+- При быстром обратном TCP-переключении сервер ограниченно ждёт, пока
+  предыдущий канал освободит слот, вместо немедленного отказа JOIN.
+  Проверки подлинности и свежести остаются обязательными, сетевой формат не меняется.
 
 ### Клиенты и сервер
 
@@ -87,7 +90,7 @@ manual routing and firewall ownership remain the defaults.
   sets the complete outer UDP-payload ceiling including Qeli wrappers,
   excluding UDP/IP headers. It is independent of inner TUN MTU, disables
   active probes in both directions, and keeps DATA_FRAG. A nonzero value
-  requires updated peers: authenticated AUTH/ AuthOK negotiates the mode,
+  requires updated peers: authenticated AUTH/AuthOK negotiates the mode,
   and an older server is refused before network setup. Windows/macOS have
   editor fields, all clients preserve INI settings, and OpenWrt UCI/LuCI
   keep payload/probing controls separate from TUN MTU.
@@ -102,6 +105,9 @@ manual routing and firewall ownership remain the defaults.
   backoffs are bounded; uncertain legacy JOIN, identity decisions, probes
   and COMMIT are not replayed. Set `QELI_EXPERIMENTAL_TCP_SLOT_PROBE=0`
   to disable quality-triggered replacement.
+- During a rapid TCP switch back, the server briefly waits for the previous
+  carrier to release its slot rather than immediately rejecting JOIN.
+  Authentication and replay protection remain unchanged; no new wire message is needed.
 - **Routers:** separate process and tunnel status; opt-in routing/firewall
   ownership, per-network direct/VPN-only/fallback, WAN priority and
   confirmation with rollback. Use matching client and package/templates.

@@ -41,6 +41,9 @@ const TCP_RESUME_COMMIT_TIMEOUT: Duration =
     Duration::from_secs(crate::protocol::roaming::TCP_RESUME_SERVER_COMMIT_TIMEOUT_SECS);
 #[cfg(feature = "experimental-roaming")]
 const TCP_CARRIER_DRAIN_TIMEOUT: Duration = Duration::from_secs(3);
+#[cfg(feature = "experimental-roaming")]
+const TCP_CARRIER_DRAIN_WAIT: Duration =
+    TCP_CARRIER_DRAIN_TIMEOUT.saturating_add(Duration::from_secs(2));
 
 /// Per-session encrypted-record budget for server→client traffic. The pool is shared by
 /// every bonded stream, so multipath cannot multiply queued memory by its stream count.
@@ -243,6 +246,8 @@ async fn wait_for_tcp_carrier_drain(
 #[cfg(feature = "experimental-roaming")]
 pub(crate) struct TcpRoamingSession {
     lifecycle: std::sync::Mutex<SessionLifecycle>,
+    drain_changed: tokio::sync::watch::Sender<()>,
+    drain_waiter: tokio::sync::Mutex<()>,
     resume_secret: zeroize::Zeroizing<[u8; 32]>,
     limiter: Arc<std::sync::Mutex<OrphanLimiter>>,
     initial_transport_attached: std::sync::atomic::AtomicBool,
@@ -279,6 +284,8 @@ impl TcpRoamingSession {
                 policy.grace,
                 primary_transport,
             )?),
+            drain_changed: tokio::sync::watch::Sender::new(()),
+            drain_waiter: tokio::sync::Mutex::new(()),
             resume_secret,
             limiter,
             initial_transport_attached: std::sync::atomic::AtomicBool::new(false),
@@ -335,6 +342,44 @@ impl TcpRoamingSession {
         lifecycle.commit_resume(reservation, transport_id, &mut limiter)
     }
 
+    async fn begin_resume_after_drain(
+        &self,
+        join: &crate::protocol::roaming::TcpResumeJoin,
+        transcript_hash: &[u8; 32],
+        budget: Duration,
+    ) -> Result<ResumeReservation, LifecycleError> {
+        // Subscribe before checking admission: a detach between SlotDraining
+        // and changed().await must not leave the authenticated JOIN asleep.
+        let mut changed = self.drain_changed.subscribe();
+        match self.begin_resume(join, transcript_hash) {
+            Err(LifecycleError::SlotDraining) => {}
+            result => return result,
+        }
+
+        // SlotDraining is reported only after proof, slot and epoch validation.
+        // Park at most one JOIN per session without burning its epoch or
+        // reserving a stream. No lifecycle/registry lock spans this await.
+        let _waiter = self
+            .drain_waiter
+            .try_lock()
+            .map_err(|_| LifecycleError::ResumeBusy)?;
+        tokio::time::timeout(budget, async {
+            loop {
+                match self.begin_resume(join, transcript_hash) {
+                    Err(LifecycleError::SlotDraining) => {
+                        changed
+                            .changed()
+                            .await
+                            .map_err(|_| LifecycleError::Terminal)?;
+                    }
+                    result => return result,
+                }
+            }
+        })
+        .await
+        .unwrap_or(Err(LifecycleError::SlotDraining))
+    }
+
     fn abort_resume(&self, reservation: ResumeReservation) -> Option<ReapTicket> {
         lock_or_recover(&self.lifecycle, "TcpRoamingSession::abort_resume")
             .abort_resume(reservation)
@@ -348,27 +393,37 @@ impl TcpRoamingSession {
         reason: DetachReason,
         now: Instant,
     ) -> Result<DetachOutcome, LifecycleError> {
-        let mut lifecycle = lock_or_recover(&self.lifecycle, "TcpRoamingSession::detach");
-        let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::detach_limiter");
-        lifecycle.detach(transport_id, reason, now, self.retained_bytes, &mut limiter)
+        let outcome = {
+            let mut lifecycle = lock_or_recover(&self.lifecycle, "TcpRoamingSession::detach");
+            let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::detach_limiter");
+            lifecycle.detach(transport_id, reason, now, self.retained_bytes, &mut limiter)
+        };
+        self.drain_changed.send_replace(());
+        outcome
     }
 
     fn reap(&self, ticket: ReapTicket, now: Instant) -> bool {
         let mut lifecycle = lock_or_recover(&self.lifecycle, "TcpRoamingSession::reap");
         let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::reap_limiter");
-        lifecycle.reap(ticket, now, &mut limiter)
+        let reaped = lifecycle.reap(ticket, now, &mut limiter);
+        if reaped {
+            self.drain_changed.send_replace(());
+        }
+        reaped
     }
 
     fn revoke(&self) {
         let mut lifecycle = lock_or_recover(&self.lifecycle, "TcpRoamingSession::revoke");
         let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::revoke_limiter");
         lifecycle.revoke(&mut limiter);
+        self.drain_changed.send_replace(());
     }
 
     fn close(&self) {
         let mut lifecycle = lock_or_recover(&self.lifecycle, "TcpRoamingSession::close");
         let mut limiter = lock_or_recover(&self.limiter, "TcpRoamingSession::close_limiter");
         lifecycle.close(&mut limiter);
+        self.drain_changed.send_replace(());
     }
 }
 
@@ -930,7 +985,7 @@ impl SessionShared {
     }
 
     #[cfg(feature = "experimental-roaming")]
-    fn begin_tcp_resume(
+    async fn begin_tcp_resume(
         &self,
         join: &crate::protocol::roaming::TcpResumeJoin,
         transcript_hash: &[u8; 32],
@@ -938,7 +993,8 @@ impl SessionShared {
         self.tcp_roaming
             .as_ref()
             .ok_or(LifecycleError::Terminal)?
-            .begin_resume(join, transcript_hash)
+            .begin_resume_after_drain(join, transcript_hash, TCP_CARRIER_DRAIN_WAIT)
+            .await
     }
 
     /// Remove a stream by id; returns true if NO streams remain (session empty).
@@ -1716,7 +1772,7 @@ where
             }
             .ok_or_else(|| anyhow::anyhow!("resume JOIN with unknown locator from {addr}"))?;
             profile.tcp_roaming_metrics.note_attempt();
-            let reservation = match session.begin_tcp_resume(&join, &transcript_hash) {
+            let reservation = match session.begin_tcp_resume(&join, &transcript_hash).await {
                 Ok(reservation) => reservation,
                 Err(error) => {
                     profile.tcp_roaming_metrics.note_failure();
@@ -1966,6 +2022,127 @@ mod tcp_resume_handler_tests {
             ResumeProofInput::new(transcript, LOCATOR, epoch, 0, handover),
             &SECRET,
         )
+    }
+
+    fn session_with_draining_slot() -> TcpRoamingSession {
+        let session = TcpRoamingSession::new(
+            9,
+            LOCATOR,
+            1,
+            90,
+            zeroize::Zeroizing::new(SECRET),
+            Arc::new(Mutex::new(OrphanLimiter::new(1, 4 * 1024 * 1024))),
+            TcpRoamingPolicy {
+                grace: Duration::from_secs(30),
+                handover_enabled: true,
+            },
+        )
+        .unwrap();
+        session.mark_initial_transport_attached();
+        let transcript = [0x44; 32];
+        let first = session
+            .begin_resume(&resume(transcript, 1, true), &transcript)
+            .unwrap();
+        assert_eq!(
+            session.commit_resume(first, 91).unwrap().drain_transport,
+            Some(90)
+        );
+        session
+    }
+
+    async fn assert_pending<T>(
+        mut future: std::pin::Pin<&mut impl std::future::Future<Output = T>>,
+    ) {
+        std::future::poll_fn(|cx| {
+            assert!(future.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn rapid_reverse_join_waits_for_exact_old_carrier_then_commits_once() {
+        let session = session_with_draining_slot();
+        let transcript = [0x55; 32];
+        let join = resume(transcript, 2, true);
+        let budget = Duration::from_secs(5);
+        let mut waiting =
+            std::pin::pin!(session.begin_resume_after_drain(&join, &transcript, budget));
+        assert_pending(waiting.as_mut()).await;
+        assert_eq!(
+            session
+                .begin_resume_after_drain(&join, &[0x56; 32], budget)
+                .await,
+            Err(LifecycleError::InvalidProof),
+        );
+        assert_eq!(
+            session
+                .begin_resume_after_drain(&resume(transcript, 3, true), &transcript, budget)
+                .await,
+            Err(LifecycleError::ResumeBusy),
+        );
+        assert_eq!(
+            session
+                .detach(999, DetachReason::Unexpected, Instant::now())
+                .unwrap(),
+            DetachOutcome::StreamRemains,
+        );
+        assert_pending(waiting.as_mut()).await;
+
+        session
+            .detach(90, DetachReason::Unexpected, Instant::now())
+            .unwrap();
+        let reservation = waiting.await.unwrap();
+        assert_eq!(
+            session
+                .commit_resume(reservation, 92)
+                .unwrap()
+                .drain_transport,
+            Some(91)
+        );
+        assert_eq!(
+            session.begin_resume(&join, &transcript),
+            Err(LifecycleError::StaleEpoch)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn drain_wait_timeout_and_cancellation_do_not_burn_epoch_or_hold_waiter() {
+        let session = session_with_draining_slot();
+        let transcript = [0x55; 32];
+        let join = resume(transcript, 2, true);
+        let budget = Duration::from_secs(5);
+        {
+            let mut waiting =
+                std::pin::pin!(session.begin_resume_after_drain(&join, &transcript, budget));
+            assert_pending(waiting.as_mut()).await;
+        }
+        assert_eq!(
+            session
+                .begin_resume_after_drain(&join, &transcript, budget)
+                .await,
+            Err(LifecycleError::SlotDraining),
+        );
+        session
+            .detach(90, DetachReason::Unexpected, Instant::now())
+            .unwrap();
+        assert!(session
+            .begin_resume_after_drain(&join, &transcript, budget)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn revocation_wakes_a_waiting_join_without_reopening_the_session() {
+        let session = session_with_draining_slot();
+        let transcript = [0x55; 32];
+        let join = resume(transcript, 2, true);
+        let budget = Duration::from_secs(5);
+        let mut waiting =
+            std::pin::pin!(session.begin_resume_after_drain(&join, &transcript, budget));
+        assert_pending(waiting.as_mut()).await;
+        session.revoke();
+        assert_eq!(waiting.await, Err(LifecycleError::Terminal));
     }
 
     #[test]
@@ -3133,12 +3310,7 @@ async fn run_stream<R, W>(
                 // downlink behind the old carrier's final records. Otherwise a
                 // healthy new socket overtakes the old tail and triggers inner
                 // TCP retransmission/recovery even when the tail is delivered.
-                if !wait_for_tcp_carrier_drain(
-                    previous,
-                    TCP_CARRIER_DRAIN_TIMEOUT + Duration::from_secs(2),
-                )
-                .await
-                {
+                if !wait_for_tcp_carrier_drain(previous, TCP_CARRIER_DRAIN_WAIT).await {
                     log::error!(
                         "TCP slot handoff could not retire its old carrier; fencing session {}",
                         session.session_id
