@@ -2727,12 +2727,15 @@ As on desktop, split-tunnel does not engage this key and the client logs that fa
 
 <!-- normative-sync: android-platform-restart-q29-v1 -->
 
-System blocking and automatic VPN restart are separate properties. On the tested
-Android14/API34 image,external SIGKILL prevented automatic restart even for a
-minimal Java VpnService without Qeli core;negative IPv4 UDP probes remained
-blocked under lockdown. This is a boundary of that fixture,not established behavior
-for every device. Details and exact fingerprint:
-[Android system lifecycle audit](../reports/audit-0.8.2/AUDIT-Q29-ANDROID-SYSTEM.md).
+System blocking and automatic VPN restart are separate properties. In the older
+Android 14/API34 control, a minimal Java VpnService did not restart after external
+SIGKILL, while lockdown still blocked negative IPv4 UDP probes. Later, the ordinary
+R8 Qeli APK restored authenticated connectivity on the tested image through guarded
+sticky recovery. Explicit Disconnect, force stop and VPN revocation did not
+restart the tunnel in the control windows. Generic/null DNS ENONET remains an
+accepted fixture limitation, separate from process recovery. This is not an OEM-wide
+guarantee: [old control](../reports/audit-0.8.2/AUDIT-Q29-ANDROID-SYSTEM.md),
+[qualified recovery and limits](../reports/audit-0.8.2/AUDIT-Q29-ANDROID-RECOVERY.md).
 
 On iOS `kill_switch` is **not supported**; the system on-demand plays the fail-closed role
 (see the iOS footnotes in the client-keys table above).

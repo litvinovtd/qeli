@@ -4,9 +4,9 @@
 
 Experimental integration entered `dev` in commit `33805e96`. Install matching
 **client binary and package/templates**. A `0.8.5` version string alone does not
-prove support: check `qeli-client router --help`. The current public OpenWrt feed
-pin/hash still selects older sources; updating it and publishing packages are
-separate release steps. A server upgrade does not add these local client commands.
+prove support: check `qeli-client router --help`. The 0.8.5 OpenWrt feed pin/hash
+includes this integration and the UDP fixes; the SDK source export was verified,
+not an IPK build. A server upgrade does not add these local client commands.
 
 Base installation: [OpenWrt](OPENWRT-INSTALL.md), [Keenetic](KEENETIC-DEPLOY.md),
 [OpkgTun registration](../../../release/keenetic/opkgtun/README.md).
