@@ -1083,7 +1083,7 @@
       'Memory usage': 'Использование памяти',
       'Disk usage': 'Использование диска',
       'Tunnel throughput': 'Пропускная способность',
-      'load avg': 'ср. нагрузка',
+      'Average load': 'Средняя нагрузка',
       'qeli proc': 'процесс qeli',
       'memory': 'память',
       'disk': 'диск',

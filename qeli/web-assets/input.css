@@ -470,11 +470,17 @@ tr:hover .tbl-td{ background:rgba(74,158,255,.04); }
   border-left:1px solid var(--line-soft);
   border-right:1px solid var(--line-soft);
 }
-.host-load-average,.host-resource-meta{
+.host-load-average{
+  display:grid;
+  gap:.25rem;
+  min-width:0;
+}
+.host-load-average-heading,.host-resource-meta{
   display:flex;
-  align-items:flex-end;
+  flex-wrap:wrap;
+  align-items:baseline;
   justify-content:space-between;
-  gap:.75rem;
+  gap:.25rem .5rem;
 }
 .host-load-label{
   color:var(--txt-dim);
@@ -484,16 +490,17 @@ tr:hover .tbl-td{ background:rgba(74,158,255,.04); }
   line-height:1.2;
   text-transform:uppercase;
 }
-.host-load-hint{ margin-top:.18rem; color:var(--txt-dim); font-size:.6rem; }
+.host-load-hint{ color:var(--txt-dim); font-size:.6rem; }
 .host-load-average-value,.host-resource-value{
-  overflow:hidden;
   color:var(--txt);
   font-family:'JetBrains Mono',ui-monospace,monospace;
   font-size:.72rem;
   line-height:1.25;
+  overflow-wrap:anywhere;
+}
+.host-resource-value{
+  margin-inline-start:auto;
   text-align:right;
-  text-overflow:ellipsis;
-  white-space:nowrap;
 }
 .host-resource-meter{
   height:.3rem;
@@ -531,28 +538,27 @@ tr:hover .tbl-td{ background:rgba(74,158,255,.04); }
   background:var(--bg-2);
 }
 .host-runtime-item dt{
-  overflow:hidden;
   color:var(--txt-dim);
   font-size:.625rem;
   font-weight:600;
   letter-spacing:.055em;
   line-height:1.2;
-  text-overflow:ellipsis;
   text-transform:uppercase;
-  white-space:nowrap;
+  overflow-wrap:anywhere;
 }
 .host-runtime-item dd{
   display:flex;
+  flex-wrap:wrap;
   align-items:baseline;
-  gap:.45rem;
+  gap:.25rem .5rem;
   min-width:0;
   margin:.38rem 0 0;
   color:var(--txt-mut);
   font-family:'JetBrains Mono',ui-monospace,monospace;
   font-size:.68rem;
-  white-space:nowrap;
+  overflow-wrap:anywhere;
 }
-.host-runtime-item dd strong{ overflow:hidden; color:var(--txt); font-weight:600; text-overflow:ellipsis; }
+.host-runtime-item dd strong{ color:var(--txt); font-weight:600; }
 .host-runtime-unit{ color:var(--txt-dim); font-size:.6rem; }
 .host-network-down{ color:var(--blue-2)!important; }
 .host-network-up{ color:var(--green-2); }
