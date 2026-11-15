@@ -150,7 +150,7 @@ tokio-util = { version = "0.7", features = ["io"], optional = true }
 # HTTPS for the panel on a public bind. `tls-rustls-no-provider` (NOT `tls-rustls`)
 # so it does NOT pull aws-lc-rs (needs cmake — the lab has none); we supply the
 # `ring` provider ourselves via the existing rustls `ring` feature.
-axum-server = { version = "0.8", features = ["tls-rustls-no-provider"], optional = true }
+axum-server = { version = "0.9", features = ["tls-rustls-no-provider"], optional = true }
 # CIDR parsing is part of the base config validation surface: even no-feature parser/fuzz
 # builds validate client LAN CIDRs, while server builds also use it for panel allowlists.
 ipnet = "2"
