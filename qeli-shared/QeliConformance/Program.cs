@@ -41,6 +41,16 @@ public static class Program
 
         Console.WriteLine("qeli managed conformance self-test");
 
+        var application = typeof(Program).Assembly;
+        string applicationVersion = application.GetCustomAttributes(false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().Single().InformationalVersion;
+        string buildLog = ClientApplicationLog.BuildDescription(application);
+        Check("session log identifies running application, not shared library",
+            buildLog.Contains("application=QeliConformance ")
+            && buildLog.Contains($"version={applicationVersion} ")
+            && buildLog.Contains("platform="));
+        Check("session log defaults to entry assembly", ClientApplicationLog.BuildDescription() == buildLog);
+
         var exchange = new KeyExchange();
         var alice = exchange.GenerateKeyPair();
         var bob = exchange.GenerateKeyPair();

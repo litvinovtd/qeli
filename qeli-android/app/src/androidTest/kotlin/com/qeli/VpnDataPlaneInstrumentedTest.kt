@@ -137,6 +137,18 @@ class VpnDataPlaneInstrumentedTest {
             waitFor("authenticated dual TUN did not enter CONNECTED", 25_000) {
                 service()?.foreground == true && VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_CONNECTED
             }
+            val journal = kotlinx.coroutines.runBlocking {
+                AndroidDiagnosticJournal.get(context.noBackupFilesDir).read().await()
+            }.entries.map { it.message }
+            @Suppress("DEPRECATION")
+            val installed = context.packageManager.getPackageInfo(context.packageName, 0)
+            assertTrue("connection journal must identify the installed APK", journal.contains(
+                androidApplicationBuildLog(installed.versionName ?: "unknown", installed.longVersionCode,
+                    android.os.Build.VERSION.SDK_INT)))
+            assertTrue("ready journal must retain the MTU observed by the publication gate",
+                journal.any { it.startsWith("Android VPN publication ready:") &&
+                    it.contains("expected_mtu=") && it.contains("reported_mtu=") &&
+                    it.contains("links_match=true") })
             val cm = context.getSystemService(ConnectivityManager::class.java)
             val connectedObserved = System.nanoTime()
             if (!explicitNetwork) {

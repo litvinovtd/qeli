@@ -777,6 +777,7 @@ class VpnServiceImpl : VpnService() {
         val createNew = existing.isBlank() || (!redelivered && !hasLiveController)
         if (!createNew) {
             diagnosticJournal.beginSession(existing)
+            logApplicationBuild()
             return
         }
         val sessionId = UUID.randomUUID().toString().substring(0, 8)
@@ -785,6 +786,21 @@ class VpnServiceImpl : VpnService() {
         prefs.edit().putString(MainActivity.PREF_DIAGNOSTIC_SESSION_ID, sessionId).apply()
         diagnosticSessionEndingLogged = false
         broadcastLog("=== VPN session $sessionId started ($origin) ===")
+        logApplicationBuild()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun logApplicationBuild() {
+        try {
+            val installed = packageManager.getPackageInfo(packageName, 0)
+            broadcastLog(androidApplicationBuildLog(
+                installed.versionName ?: "unknown", installed.longVersionCode, Build.VERSION.SDK_INT
+            ))
+        } catch (error: Exception) {
+            // Diagnostic metadata must not prevent a connection if an OEM PackageManager fails.
+            broadcastLog("Qeli Android version=unavailable api=${Build.VERSION.SDK_INT} " +
+                "package_info_error=${error.javaClass.simpleName}")
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -1715,7 +1731,9 @@ class VpnServiceImpl : VpnService() {
         }.build()
         cm.registerNetworkCallback(request, callback)
         try {
-            return withTimeoutOrNull(timeoutMs) {
+            broadcastLog("Android VPN publication waiting: generation=${plan.generation} " +
+                "timeout_ms=$timeoutMs ${publication.diagnostics()}")
+            val readyNetwork = withTimeoutOrNull(timeoutMs) {
                 var ready: Long? = null
                 while (ready == null) {
                     changes.receive()
@@ -1723,6 +1741,9 @@ class VpnServiceImpl : VpnService() {
                 }
                 ready
             }
+            broadcastLog("Android VPN publication ${if (readyNetwork == null) "timeout" else "ready"}: " +
+                "generation=${plan.generation} ${publication.diagnostics()}")
+            return readyNetwork
         } finally {
             runCatching { cm.unregisterNetworkCallback(callback) }
             changes.close()

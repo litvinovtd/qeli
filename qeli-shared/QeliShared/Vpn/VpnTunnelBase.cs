@@ -232,6 +232,7 @@ public abstract class VpnTunnelBase
             _cts = new CancellationTokenSource();
             var ct = _cts.Token;
             Status(VpnStatus.Connecting);
+            Log(ClientApplicationLog.BuildDescription());
             Log($"Service started: {config.Protocol.ToUpperInvariant()}/{config.WireMode}" +
                 (config.IsUdp && config.QuicEnabled ? "+QUIC" : ""));
             Log($"Connecting to {LogValue(config.ServerAddress)}:{config.Port} " +

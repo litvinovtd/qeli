@@ -193,6 +193,10 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         sharedStore.updateCarrierDiagnostics(nil)
         let transportName = config.protocolName.uppercased() + "/" + config.wireMode
             + (config.isUDP && config.quicEnabled ? "+QUIC" : "")
+        sharedStore.appendLog(
+            "Qeli iOS version=\(AppConstants.version) build=\(AppConstants.build) "
+                + "platform=\(ProcessInfo.processInfo.operatingSystemVersionString)"
+        )
         sharedStore.appendLog("Service started: \(transportName)")
         sharedStore.appendLog(
             "Connecting to \(Self.logValue(config.serverAddress)):\(config.port) "

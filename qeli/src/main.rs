@@ -419,6 +419,7 @@ async fn run_cli(cli: Cli) -> anyhow::Result<()> {
         }
 
         Commands::Client { config } => {
+            log::info!("Qeli client version={}", env!("CARGO_PKG_VERSION"));
             log::info!("Starting client with config: {}", config.display());
             #[cfg(target_os = "linux")]
             {

@@ -94,6 +94,16 @@ nested causes appear as `  <- …` lines.
 
 ### 1.3 Android client
 
+Each connection starts with `Qeli Android version=… build=… api=…`, identifying the
+installed APK and Android API. For `Android VPN publication timed out`, send the
+complete log, including `Android VPN publication waiting/ready/timeout`: these lines
+show the expected/reported MTU, interface, addresses and VPN callback readiness.
+`reported_mtu=0(not_reported)` means Android supplied no MTU information, not an
+interface with zero MTU; this alone no longer blocks readiness. A positive reported
+MTU different from the expected value still needs investigation.
+`Native NetworkPlan … APPLIED` confirms adapter configuration, not Android network
+publication or working internet connectivity.
+
 The VPN service keeps a private persistent journal even while the Activity is closed or its
 process UI is recreated. The newest 1,000 events are retained, capped at 512 KiB, and restored
 into the **in-app Log tab** (index 3) when Qeli opens. The file is held in Android's private
