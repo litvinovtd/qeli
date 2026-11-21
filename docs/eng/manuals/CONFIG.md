@@ -4145,6 +4145,20 @@ and QR codes stay absolute in either mode.
 
 ## Logging
 
+In server logs, `listener` is the socket bind endpoint (possibly `0.0.0.0:443`
+or `[::]:443`), `local` is the actual local IP and port, and `peer` is the client
+endpoint as seen by Qeli, including when NAT or a proxy is in use.
+`ingress_ifindex` is the incoming interface index from UDP packet metadata
+(`ip -o link show` on the server). TCP logs `unknown` because the accepted socket
+does not report the ingress interface. `tun` is the tunnel interface, not the
+physical ingress interface. Within a process lifetime, `pid` and `conn` correlate
+a TCP accept with authentication or failure. `session` ties accepted TCP streams
+to the same session and is also logged on successful UDP authentication.
+
+Successful connection and TCP JOIN records show the **real login** in `user`,
+without an additional setting. Control characters are escaped; passwords and
+keys are not logged. Remove usernames and addresses before sharing logs publicly.
+
 <!-- normative-sync: logging-rotation-format-issue69-v1 -->
 
 The `[logging]` section: `level`, `file`, `time_format` apply to Linux server/client;

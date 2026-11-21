@@ -1937,7 +1937,7 @@ pub(crate) async fn run_udp_server(
                     }
                     continue;
                 }
-                let Some(source) = scratch.local_address(index) else {
+                let Some(packet_info) = scratch.packet_info(index) else {
                     log::error!(
                         "UDP local destination missing on profile '{}'",
                         receive_profile
@@ -1947,6 +1947,7 @@ pub(crate) async fn run_udp_server(
                     }
                     continue;
                 };
+                let source = packet_info.destination;
                 let reply_socket = if let Some(socket) = reply_sockets
                     .iter()
                     .find(|socket| socket.has_source(source))
@@ -1969,10 +1970,11 @@ pub(crate) async fn run_udp_server(
                     ),
                     addrs[index],
                     reply_socket,
+                    packet_info.ifindex,
                 ));
             }
             if !batch.is_empty() {
-                let bytes = batch.iter().map(|(packet, _, _)| packet.len()).sum();
+                let bytes = batch.iter().map(|(packet, _, _, _)| packet.len()).sum();
                 let batch = pump_receive_queue.batch(batch, bytes, received_at).await;
                 if received_tx.send(batch).await.is_err() {
                     return;
@@ -2037,6 +2039,7 @@ pub(crate) async fn run_udp_server(
         crate::transport::udp::PooledUdpDatagram,
         std::net::SocketAddr,
         Arc<crate::protocol::obfs::ObfsUdp>,
+        u32,
     )>::new();
     loop {
         tokio::select! {
@@ -2072,7 +2075,7 @@ pub(crate) async fn run_udp_server(
                     }
                 }
             } => {
-                let Some((recv_buf, addr, socket)) = received else {
+                let Some((recv_buf, addr, socket, ingress_ifindex)) = received else {
                     return receive_pump_stopped(&profile.name, &tasks);
                 };
                 let n = recv_buf.len();
@@ -2180,6 +2183,7 @@ pub(crate) async fn run_udp_server(
                     &mut frag_pending,
                     &socket,
                     addr,
+                    ingress_ifindex,
                     &recv_buf[..n],
                     worker_id,
                     &tun_tx,
@@ -3475,6 +3479,7 @@ async fn handle_udp_datagram(
     frag_pending: &mut HashMap<SocketAddr, crate::protocol::udp_frag::Reassembler>,
     socket: &Arc<crate::protocol::obfs::ObfsUdp>,
     addr: SocketAddr,
+    ingress_ifindex: u32,
     data: &[u8],
     worker_id: usize,
     tun_tx: &TunIngress,
@@ -3950,6 +3955,7 @@ async fn handle_udp_datagram(
                         &sessions,
                         &socket,
                         addr,
+                        ingress_ifindex,
                         &plaintext,
                         worker_id,
                         &raw,
@@ -4206,6 +4212,7 @@ async fn handle_udp_auth(
     sessions: &Arc<RwLock<UdpSessionDirectory>>,
     socket: &Arc<crate::protocol::obfs::ObfsUdp>,
     addr: SocketAddr,
+    ingress_ifindex: u32,
     plaintext: &[u8],
     _worker_id: usize,
     // The RAW (post-unwrap, pre-decrypt) AUTH datagram — cached on success so a
@@ -5247,11 +5254,23 @@ async fn handle_udp_auth(
     // and its first client-visible AuthOK. UDP sends are bounded to the already-built
     // fragment list, so this does not place an unbounded operation under the admission lock.
     drop(admission_guard);
-    log::info!(
-        "UDP client {} authenticated on profile '{}', IP: {}",
+    super::connection_log::ConnectionLog::new(
+        "udp",
         addr,
-        profile.name,
-        client_ip
+        socket.raw_socket().local_addr().ok(),
+        socket.local_addr().ok(),
+        ingress_ifindex,
+    )
+    .authenticated(
+        format_args!(
+            "UDP client {addr} authenticated on profile '{}'",
+            profile.name
+        ),
+        &profile.name,
+        &pcfg.tun.name,
+        session_id,
+        &writer_session.username,
+        client_ip,
     );
 
     // Notify (opt-in, off by default): a new UDP session came up.

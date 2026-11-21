@@ -58,7 +58,7 @@ mod imp {
         iovecs: Vec<libc::iovec>,
         names: Vec<libc::sockaddr_storage>,
         controls: Vec<super::super::udp_source::Control>,
-        local: Vec<Option<super::super::udp_source::LocalAddress>>,
+        local: Vec<Option<super::super::udp_source::PacketInfo>>,
     }
 
     impl BatchScratch {
@@ -80,10 +80,10 @@ mod imp {
         }
 
         #[allow(dead_code)] // Linux server receive context.
-        pub(crate) fn local_address(
+        pub(crate) fn packet_info(
             &self,
             index: usize,
-        ) -> Option<super::super::udp_source::LocalAddress> {
+        ) -> Option<super::super::udp_source::PacketInfo> {
             self.local.get(index).copied().flatten()
         }
 

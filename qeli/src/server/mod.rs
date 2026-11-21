@@ -1,5 +1,6 @@
 pub mod acl;
 pub mod client_manager;
+mod connection_log;
 pub mod control;
 mod control_socket;
 pub mod dhcp;
@@ -7340,6 +7341,7 @@ async fn run_profile_generation(
                     let _ = listener_ready_tx.try_send(Ok(()));
                     drop(listener_ready_tx);
                     log::info!("Profile '{}' listening on {} (TCP)", name, bind_addr);
+                    let listener_endpoint = listener.local_addr().ok();
                     loop {
                         let (stream, addr) = match listener.accept().await {
                             Ok(v) => v,
@@ -7388,7 +7390,10 @@ async fn run_profile_generation(
                             }
                         };
 
-                        log::info!("New TCP connection from {} on profile '{}'", addr, name);
+                        let context = connection_log::ConnectionLog::new(
+                            "tcp", addr, listener_endpoint, stream.local_addr().ok(), 0,
+                        );
+                        log::info!("New TCP connection from {addr} on profile '{name}' {context}");
                         let state_clone = state.clone();
                         let profile_clone = profile.clone();
                         // Per-CONNECTION clones: the outer bindings are per-listener, and
@@ -7459,10 +7464,7 @@ async fn run_profile_generation(
                                 .await
                                 {
                                     log::debug!(
-                                        "REALITY {} disconnected on profile '{}': {}",
-                                        addr,
-                                        name_conn,
-                                        e
+                                        "REALITY {addr} disconnected on profile '{name_conn}': {e} [{context}]"
                                     );
                                 }
                             } else if let Some(key) = obfs_key {
@@ -7486,18 +7488,12 @@ async fn run_profile_generation(
                                         .await
                                         {
                                             log::debug!(
-                                                "Client {} disconnected on profile '{}': {}",
-                                                addr,
-                                                name_conn,
-                                                e
+                                                "Client {addr} disconnected on profile '{name_conn}': {e} [{context}]"
                                             );
                                         }
                                     }
                                     Err(e) => log::debug!(
-                                        "obfs accept failed for {} on profile '{}': {}",
-                                        addr,
-                                        name_conn,
-                                        e
+                                        "obfs accept failed for {addr} on profile '{name_conn}': {e} [{context}]"
                                     ),
                                 }
                             } else {
@@ -7512,10 +7508,7 @@ async fn run_profile_generation(
                                 .await
                                 {
                                     log::debug!(
-                                        "Client {} disconnected on profile '{}': {}",
-                                        addr,
-                                        name_conn,
-                                        e
+                                        "Client {addr} disconnected on profile '{name_conn}': {e} [{context}]"
                                     );
                                 }
                             }
@@ -7523,7 +7516,7 @@ async fn run_profile_generation(
                         #[cfg(target_os = "linux")]
                         let connection = tcp_slot::SOCKET
                             .scope(std::cell::RefCell::new(observation), connection);
-                        profile_tasks.spawn(connection);
+                        profile_tasks.spawn(connection_log::TCP_CONNECTION_LOG.scope(context, connection));
                     }
                 }
                 TransportProtocol::Udp => {

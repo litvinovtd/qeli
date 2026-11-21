@@ -33,6 +33,7 @@ fn received_control(ip: Ipv4Addr) -> (Control, libc::msghdr) {
     unsafe {
         let info = libc::CMSG_DATA(libc::CMSG_FIRSTHDR(&header)).cast::<libc::in_pktinfo>();
         (*info).ipi_addr = (*info).ipi_spec_dst;
+        (*info).ipi_ifindex = 42;
     }
     // Header addresses are not used by decode; do not carry a dangling pointer.
     header.msg_control = std::ptr::null_mut();
@@ -43,9 +44,15 @@ fn received_control(ip: Ipv4Addr) -> (Control, libc::msghdr) {
 fn ancillary_rejects_duplicate_address_and_broadcast_destination() {
     let ip = Ipv4Addr::new(127, 0, 0, 3);
     let (mut control, mut header) = received_control(ip);
+    let packet_info = control.decode(&header).unwrap();
     assert_eq!(
-        control.decode(&header).unwrap().socket_addr(7),
+        packet_info.destination.socket_addr(7),
         SocketAddr::from((ip, 7))
+    );
+    assert_eq!(packet_info.ifindex, 42);
+    assert_eq!(
+        packet_info.destination,
+        LocalAddress::new(ip.into(), 0).unwrap()
     );
     #[allow(clippy::unnecessary_cast)] // Native libc ABI field width.
     let size = header.msg_controllen as usize;
@@ -121,7 +128,9 @@ async fn interleaved(bind: SocketAddr, destinations: [IpAddr; 2], key: Option<[u
         .unwrap();
         for i in 0..n {
             let marker = slots[i][0];
-            let local = scratch.local_address(i).unwrap();
+            let info = scratch.packet_info(i).unwrap();
+            assert_ne!(info.ifindex, 0);
+            let local = info.destination;
             assert_eq!(
                 local.socket_addr(port).ip(),
                 destinations[usize::from(marker - 1)]
@@ -199,7 +208,7 @@ async fn missing_pktinfo_fails_without_reusing_an_old_source() {
             .unwrap(),
         1
     );
-    assert!(scratch.local_address(0).is_some());
+    assert!(scratch.packet_info(0).is_some());
     slots[0].clear();
     let disabled: libc::c_int = 0;
     assert_eq!(
@@ -219,7 +228,7 @@ async fn missing_pktinfo_fails_without_reusing_an_old_source() {
         .recv_batch_local(&mut slots, &mut peers, &mut scratch)
         .await
         .is_err());
-    assert!(scratch.local_address(0).is_none());
+    assert!(scratch.packet_info(0).is_none());
 }
 
 #[tokio::test]

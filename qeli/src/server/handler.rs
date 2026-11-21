@@ -1714,14 +1714,16 @@ where
             drop(admission_guard);
             crate::server::notify::fire_connect(&username, &profile.name, addr);
 
-            log::info!(
-                "Client {} ({}) connected on profile '{}', IP: {}, bandwidth_limit: {} Mbps, streams<={}",
-                addr,
-                crate::util::log_identity(&username),
-                profile.name,
+            super::connection_log::authenticated_tcp(
+                format_args!(
+                    "TCP client connected on profile '{}' bandwidth_limit_mbps={initial_bandwidth_mbps} max_streams={max_streams}",
+                    profile.name
+                ),
+                &profile.name,
+                &pcfg.tun.name,
+                session.session_id,
+                &username,
                 client_ip,
-                initial_bandwidth_mbps,
-                max_streams
             );
             (session, StreamAttach::Primary)
         }
@@ -3023,13 +3025,13 @@ async fn run_stream<R, W>(
             );
         }
 
-        log::info!(
-            "Stream #{} JOINed session for user '{}' (IP {}) on profile '{}' from {}",
-            stream_index,
-            crate::util::log_identity(&session.username),
+        super::connection_log::authenticated_tcp(
+            format_args!("TCP stream JOINed session stream_index={stream_index}"),
+            &profile.name,
+            &pcfg.tun.name,
+            session.session_id,
+            &session.username,
             session.client_ip,
-            profile.name,
-            addr
         );
     }
 

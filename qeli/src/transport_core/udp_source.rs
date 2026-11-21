@@ -9,6 +9,14 @@ pub(crate) struct LocalAddress {
     ip: IpAddr,
     scope: u32,
 }
+
+/// Ingress metadata must not change reply-source/path identity: an interface
+/// index is only part of the latter for IPv6 link-local scope.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PacketInfo {
+    pub(crate) destination: LocalAddress,
+    pub(crate) ifindex: u32,
+}
 impl LocalAddress {
     fn new(ip: IpAddr, interface: u32) -> io::Result<Self> {
         if ip.is_unspecified() || ip.is_multicast() || ip == IpAddr::V4(Ipv4Addr::BROADCAST) {
@@ -42,7 +50,7 @@ impl Control {
         header.msg_control = self.0.as_mut_ptr().cast();
         header.msg_controllen = std::mem::size_of_val(&self.0) as _;
     }
-    pub(crate) fn decode(&self, header: &libc::msghdr) -> io::Result<LocalAddress> {
+    pub(crate) fn decode(&self, header: &libc::msghdr) -> io::Result<PacketInfo> {
         #[allow(clippy::unnecessary_cast)] // msghdr field types differ across libc targets.
         let length = header.msg_controllen as usize;
         if header.msg_flags & libc::MSG_CTRUNC != 0 || length > std::mem::size_of_val(&self.0) {
@@ -75,10 +83,15 @@ impl Control {
                     if info.ipi_addr.s_addr != info.ipi_spec_dst.s_addr {
                         return Err(invalid("UDP destination is not a local unicast address"));
                     }
-                    Some(LocalAddress::new(
-                        Ipv4Addr::from(info.ipi_addr.s_addr.to_ne_bytes()).into(),
-                        0,
-                    )?)
+                    let ifindex = u32::try_from(info.ipi_ifindex)
+                        .map_err(|_| invalid("invalid IPv4 packet info interface"))?;
+                    Some(PacketInfo {
+                        destination: LocalAddress::new(
+                            Ipv4Addr::from(info.ipi_addr.s_addr.to_ne_bytes()).into(),
+                            ifindex,
+                        )?,
+                        ifindex,
+                    })
                 }
                 (libc::IPPROTO_IPV6, libc::IPV6_PKTINFO) => {
                     if payload != std::mem::size_of::<libc::in6_pktinfo>() {
@@ -95,10 +108,13 @@ impl Control {
                         .ipi6_ifindex
                         .try_into()
                         .map_err(|_| invalid("invalid IPv6 packet info interface"))?;
-                    Some(LocalAddress::new(
-                        Ipv6Addr::from(info.ipi6_addr.s6_addr).into(),
-                        interface,
-                    )?)
+                    Some(PacketInfo {
+                        destination: LocalAddress::new(
+                            Ipv6Addr::from(info.ipi6_addr.s6_addr).into(),
+                            interface,
+                        )?,
+                        ifindex: interface,
+                    })
                 }
                 _ => None,
             };
