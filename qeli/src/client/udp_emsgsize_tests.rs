@@ -1,6 +1,114 @@
 use super::*;
 use crate::transport_core::udp_client_framing::UdpClientFraming;
 
+/// Exercise real DF datagrams and connected-socket IP_MTU without changing
+/// the host network. The loopback link stays at 1500 throughout the fixture.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "requires private Linux netns, lo up at MTU 1500, QELI_LIVE_PMTU_FIXTURE=1"]
+async fn live_pmtu_ceiling_survives_kernel_route_refresh() {
+    assert_eq!(std::env::var("QELI_LIVE_PMTU_FIXTURE").as_deref(), Ok("1"));
+    assert_ne!(
+        std::fs::read_link("/proc/self/ns/net").unwrap(),
+        std::fs::read_link("/proc/1/ns/net").unwrap(),
+    );
+    let link = std::process::Command::new("ip")
+        .args(["-o", "link", "show", "dev", "lo"])
+        .output()
+        .unwrap();
+    assert!(link.status.success());
+    assert!(String::from_utf8(link.stdout)
+        .unwrap()
+        .contains(" mtu 1500 "));
+
+    fn set_route_mtu(mtu: &str) {
+        assert!(std::process::Command::new("ip")
+            .args([
+                "route",
+                "replace",
+                "local",
+                "127.0.0.1/32",
+                "dev",
+                "lo",
+                "table",
+                "local",
+                "mtu",
+                mtu,
+            ])
+            .status()
+            .unwrap()
+            .success());
+    }
+
+    async fn send_probe(
+        sender: &crate::protocol::obfs::ObfsUdp,
+        receiver: &crate::protocol::obfs::ObfsUdp,
+        state: &mut LiveUdpMtuProbe,
+        expected_budget: usize,
+    ) {
+        let framing = UdpClientFraming::legacy(true, [1; 4]);
+        let wrapper = sender.seal_overhead() + framing.wrapper_len();
+        let candidate = crate::protocol::pmtu::probe_ceiling(
+            1400,
+            UDP_RECORD_PROBE_OVERHEAD + wrapper + 28,
+            state.observe_socket_mtu(sender),
+        );
+        let record_size = candidate as usize + UDP_RECORD_PROBE_OVERHEAD;
+        let probe = crate::protocol::udp_frag::mtu_probe_v2_datagram(7, record_size).unwrap();
+        let mut wire = Vec::new();
+        let datagram = framing.wrap_into(&probe, 0, &mut wire);
+        assert!(begin_mtu_probe(sender));
+        assert_eq!(sender.send(datagram).await.unwrap(), expected_budget);
+        let mut received = [0; 1600];
+        let (n, _) =
+            tokio::time::timeout(Duration::from_secs(1), receiver.recv_from(&mut received))
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(n + receiver.seal_overhead(), expected_budget);
+        assert_eq!(
+            crate::protocol::udp_frag::parse_mtu_probe_v2_request(
+                framing.unwrap(&received[..n]).unwrap()
+            ),
+            Some((7, record_size as u16))
+        );
+    }
+
+    let key = crate::protocol::obfs::derive_obfs_key("live-pmtu-fixture");
+    let listener = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let peer = listener.local_addr().unwrap();
+    let receiver = crate::protocol::obfs::ObfsUdp::new(listener, Some(key));
+    let connected_sender = || async move {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        socket.connect(peer).await.unwrap();
+        crate::protocol::obfs::ObfsUdp::new(socket, Some(key))
+    };
+    let mut state = LiveUdpMtuProbe::default();
+
+    set_route_mtu("1480");
+    let first = connected_sender().await;
+    send_probe(&first, &receiver, &mut state, 1452).await;
+    let original_addr = first.raw_socket().local_addr().unwrap();
+
+    set_route_mtu("1500");
+    first.raw_socket().connect(peer).await.unwrap();
+    assert_eq!(first.raw_socket().local_addr().unwrap(), original_addr);
+    assert_eq!(
+        crate::protocol::pmtu::socket_path_mtu(first.raw_socket(), false),
+        Some(1500)
+    );
+    send_probe(&first, &receiver, &mut state, 1452).await;
+
+    state.reset_path();
+    let second = connected_sender().await;
+    send_probe(&second, &receiver, &mut state, 1472).await;
+
+    set_route_mtu("1480");
+    state.reset_path();
+    let third = connected_sender().await;
+    send_probe(&third, &receiver, &mut state, 1452).await;
+}
+
 /// Actual Linux EMSGSIZE on a connected carrier, including a successfully sent
 /// prefix record. Run only with lo MTU1280 in a private network namespace.
 #[tokio::test]

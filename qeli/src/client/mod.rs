@@ -133,9 +133,31 @@ struct LiveUdpMtuProbe {
     path_epoch: u64,
     budget_revision: u64,
     confirmation: bool,
+    // Linux can forget an ICMP-learned PMTU when its route exception expires.
+    // Keep the lower limit for this connected carrier, including between searches.
+    path_mtu_ceiling: Option<u32>,
 }
 
 impl LiveUdpMtuProbe {
+    fn remember_path_mtu(&mut self, observed: Option<u32>) -> Option<u32> {
+        if let Some(mtu) = observed {
+            self.path_mtu_ceiling = Some(self.path_mtu_ceiling.map_or(mtu, |saved| saved.min(mtu)));
+        }
+        self.path_mtu_ceiling
+    }
+
+    fn observe_socket_mtu(&mut self, socket: &crate::protocol::obfs::ObfsUdp) -> Option<u32> {
+        self.remember_path_mtu(crate::protocol::pmtu::socket_path_mtu(
+            socket.raw_socket(),
+            socket.peer_is_ipv6(),
+        ))
+    }
+
+    fn reset_path(&mut self) {
+        self.clear();
+        self.path_mtu_ceiling = None;
+    }
+
     fn start(&mut self, candidates: impl IntoIterator<Item = i32>) {
         let mut candidates = candidates
             .into_iter()
@@ -8315,9 +8337,8 @@ impl Drop for TunGuard {
     }
 }
 
-/// Set the family-matched `IP*_MTU_DISCOVER` option. `PROBE` sets DF and ignores the
-/// kernel's cached PMTU (so we can probe freely); `DO` keeps DF for the data plane;
-/// `DONT` allows fragmentation (the behaviour we restore if probing can't complete).
+/// Set the family-matched `IP*_MTU_DISCOVER` option. Active probes and certified
+/// data use `DO` to enforce DF and respect the kernel PMTU. `DONT` allows fragmentation.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn set_pmtudisc(socket: &crate::protocol::obfs::ObfsUdp, mode: libc::c_int) -> bool {
     // Linux uapi: IPV6_MTU_DISCOVER has the same modes as IP_MTU_DISCOVER. libc does not
@@ -9117,6 +9138,31 @@ mod mtu_ladder_tests {
         probe.start([500]);
         probe.next_send(tokio::time::Instant::now()).unwrap();
         assert!(!probe.matches(token, size, 7, 4));
+    }
+
+    #[test]
+    fn live_probe_keeps_lower_kernel_pmtu_until_path_replacement() {
+        let mut probe = super::LiveUdpMtuProbe::default();
+        let wrapper_len = 13;
+        let payload = |mtu| {
+            let overhead = super::UDP_RECORD_PROBE_OVERHEAD + wrapper_len + 28;
+            let rung = crate::protocol::pmtu::probe_ceiling(1400, overhead, mtu);
+            super::udp_payload_budget_for_probe(rung, 0, wrapper_len)
+        };
+
+        assert_eq!(payload(probe.remember_path_mtu(Some(1480))), 1452);
+        probe.start([1391]);
+        probe.clear();
+        assert_eq!(payload(probe.remember_path_mtu(None)), 1452);
+        assert_eq!(payload(probe.remember_path_mtu(Some(1500))), 1452);
+
+        probe.reset_path();
+        assert_eq!(payload(probe.remember_path_mtu(Some(1500))), 1472);
+        assert_eq!(payload(probe.remember_path_mtu(Some(1480))), 1452);
+        assert_eq!(payload(probe.remember_path_mtu(Some(1500))), 1452);
+
+        probe.reset_path();
+        assert_eq!(payload(probe.remember_path_mtu(Some(1480))), 1452);
     }
 }
 
@@ -12055,6 +12101,9 @@ pub(crate) async fn run_udp_tunnel(
     let mut previous_path_diagnostic = runtime_counters.udp.path.snapshot();
     let live_mtu_reprobe_enabled = data_frag_enabled && config.tun.udp_probing_enabled();
     let mut live_mtu_probe = LiveUdpMtuProbe::default();
+    if live_mtu_reprobe_enabled {
+        live_mtu_probe.observe_socket_mtu(&socket);
+    }
     let mut udp_budget_revision = 0u64;
     let mut next_mtu_growth = tokio::time::Instant::now() + crate::protocol::pmtu::GROW_INTERVAL;
     let mut last_pmtu_data_activity = tokio::time::Instant::now();
@@ -12150,6 +12199,12 @@ pub(crate) async fn run_udp_tunnel(
         if send_budget_changed || next_mux_budget < mux_payload_budget {
             let previous = uplink_udp_payload_budget;
             if send_budget_changed {
+                if live_mtu_reprobe_enabled && effective_payload_budget < previous {
+                    let ip_udp_overhead = if socket.peer_is_ipv6() { 48 } else { 28 };
+                    live_mtu_probe.remember_path_mtu(
+                        u32::try_from(effective_payload_budget + ip_udp_overhead).ok(),
+                    );
+                }
                 uplink_udp_payload_budget = effective_payload_budget;
                 udp_budget_revision = udp_budget_revision.wrapping_add(1);
                 live_mtu_probe.clear();
@@ -12622,13 +12677,14 @@ pub(crate) async fn run_udp_tunnel(
                 let wrapper = socket.seal_overhead() + udp_framing.wrapper_len();
                 let now = tokio::time::Instant::now();
                 let mut grow = now >= next_mtu_growth;
+                let path_mtu_ceiling = live_mtu_probe.observe_socket_mtu(&socket);
                 let mut candidates: Vec<i32> = if grow {
                     next_mtu_growth = now + crate::protocol::pmtu::GROW_INTERVAL;
                     let outer_overhead = UDP_RECORD_PROBE_OVERHEAD + wrapper + 8
                         + if socket.peer_is_ipv6() { 40 } else { 20 };
                     let ceiling = crate::protocol::pmtu::probe_ceiling(
                         base_mtu, outer_overhead,
-                        crate::protocol::pmtu::socket_path_mtu(socket.raw_socket(), socket.peer_is_ipv6()),
+                        path_mtu_ceiling,
                     );
                     mtu_probe_ladder(ceiling, outer_overhead, socket.peer_is_ipv6())
                         .into_iter()
@@ -13307,7 +13363,7 @@ pub(crate) async fn run_udp_tunnel(
                             max_empty_record_padding = next_padding_budget;
                             udp_payload_budget_report_value = None;
                             keep_df_after_live_probe = manual_udp_payload_size.is_some();
-                            live_mtu_probe.clear();
+                            live_mtu_probe.reset_path();
                             if manual_udp_payload_size.is_some() && !begin_mtu_probe(&socket) {
                                 result = Err(anyhow::anyhow!("cannot enforce DF for manual UDP payload after path change"));
                                 break 'udp;
@@ -13407,6 +13463,18 @@ pub(crate) async fn run_udp_tunnel(
                                 socket.seal_overhead(),
                                 udp_framing.wrapper_len(),
                             );
+                            let ip_udp_overhead = if socket.peer_is_ipv6() { 48 } else { 28 };
+                            let path_mtu_ceiling = live_mtu_probe.observe_socket_mtu(&socket);
+                            if path_mtu_ceiling
+                                .is_some_and(|mtu| new_payload_budget + ip_udp_overhead > mtu as usize)
+                            {
+                                finish_mtu_probe(&socket, keep_df_after_live_probe);
+                                log::debug!(
+                                    "UDP live PMTU result exceeds the active path ceiling; keeping {}-byte budget",
+                                    uplink_udp_payload_budget,
+                                );
+                                continue;
+                            }
                             let new_record_budget =
                                 crate::protocol::data_frag::unfragmented_record_budget_with_wrapper(
                                     new_payload_budget,

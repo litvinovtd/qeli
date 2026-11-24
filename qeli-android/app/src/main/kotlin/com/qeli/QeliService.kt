@@ -74,7 +74,6 @@ class VpnServiceImpl : VpnService() {
     @Volatile private var attemptConnectedAt = -1L
     @Volatile private var attemptEndedAt = -1L
     private var wakeLock: PowerManager.WakeLock? = null
-    private var wakeLockRenewalJob: Job? = null
     // Watches the physical network (Wi-Fi <-> LTE switch). A feature TCP core receives a
     // generation-scoped candidate path; unsupported/default builds retain the immediate full
     // reconnect fallback instead of waiting for their dead-connection timeout.
@@ -167,10 +166,8 @@ class VpnServiceImpl : VpnService() {
 
     companion object {
         private const val MAX_CARRIER_DNS_REQUESTS = 2
-        // A finite lease is renewed while the foreground tunnel is alive. If every
-        // cleanup callback is skipped by an OEM/service bug, Android still releases it.
-        private const val WAKE_LOCK_LEASE_MS = 10 * 60 * 1000L
-        private const val WAKE_LOCK_RENEW_MS = 5 * 60 * 1000L
+        // Safety cap for DNS, handshake and Android VPN publication during one attempt.
+        private const val TRANSITION_WAKE_LOCK_TIMEOUT_MS = 60_000L
         const val ACTION_CONNECT = "com.qeli.CONNECT"
         const val ACTION_RECONFIGURE = "com.qeli.RECONFIGURE"
         const val ACTION_DISCONNECT = "com.qeli.DISCONNECT"
@@ -569,28 +566,14 @@ class VpnServiceImpl : VpnService() {
 
     @Synchronized
     private fun acquireTunnelWakeLock() {
+        if (stopping) return
         releaseTunnelWakeLock()
         try {
             val pm = getSystemService(POWER_SERVICE) as PowerManager
             val lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Qeli::TunnelLock")
-            // Renewal must not increase a reference count: one lifecycle release has to be
-            // sufficient even after many leases on a long-lived VPN session.
             lock.setReferenceCounted(false)
-            lock.acquire(WAKE_LOCK_LEASE_MS)
+            lock.acquire(TRANSITION_WAKE_LOCK_TIMEOUT_MS)
             wakeLock = lock
-            wakeLockRenewalJob = teardownScope.launch {
-                while (currentCoroutineContext().isActive) {
-                    delay(WAKE_LOCK_RENEW_MS)
-                    synchronized(this@VpnServiceImpl) {
-                        if (wakeLock !== lock) return@launch
-                        try {
-                            lock.acquire(WAKE_LOCK_LEASE_MS)
-                        } catch (error: Exception) {
-                            Log.e("VpnSvc", "WakeLock renewal failed: ${error.message}", error)
-                        }
-                    }
-                }
-            }
         } catch (error: Exception) {
             releaseTunnelWakeLock()
             Log.e("VpnSvc", "WakeLock failed: ${error.message}", error)
@@ -599,8 +582,6 @@ class VpnServiceImpl : VpnService() {
 
     @Synchronized
     private fun releaseTunnelWakeLock() {
-        wakeLockRenewalJob?.cancel()
-        wakeLockRenewalJob = null
         val lock = wakeLock
         wakeLock = null
         try {
@@ -1217,8 +1198,6 @@ class VpnServiceImpl : VpnService() {
                 level = "warn",
             )
         }
-        acquireTunnelWakeLock()
-
         supervisor = SupervisorJob()
         coroutineScope = CoroutineScope(supervisor!! + Dispatchers.IO)
         transportCore?.let { core -> launchTransportCoreEventPump(core, initialCoreEvents) }
@@ -1652,6 +1631,7 @@ class VpnServiceImpl : VpnService() {
                         plan.tunnelGateway,
                         plan.addresses.joinToString { "${it.address}/${it.prefixLength}" },
                     )
+                    releaseTunnelWakeLock()
                     broadcastLog(
                         "Android VPN CONNECTED: generation=${plan.generation} " +
                             "network=$network device_ms=${liveConnectedAt}"
@@ -2084,7 +2064,14 @@ class VpnServiceImpl : VpnService() {
                     nativeFatalError = null
                     throw fatal
                 }
-                runNativeTransport(config, carrierGeneration++)
+                // Only an active connection attempt needs a wake lock. Carrier
+                // waits and retry backoff above can last indefinitely.
+                acquireTunnelWakeLock()
+                try {
+                    runNativeTransport(config, carrierGeneration++)
+                } finally {
+                    releaseTunnelWakeLock()
+                }
                 broadcastLog("Connection closed cleanly")
                 if (userRequestedDisconnect) break
                 val forced = forcedReconnectInFlight
@@ -2783,8 +2770,8 @@ class VpnServiceImpl : VpnService() {
     }
 
     /** Wait for the physical link to be usable after screen-on, then replace the native
-     * generation while retaining the fail-closed TUN. The PARTIAL_WAKE_LOCK keeps the CPU
-     * running, so Rust's suspend-clock detector alone cannot observe every Wi-Fi/NAT sleep. */
+     * generation while retaining the fail-closed TUN. A screen-off interval can age
+     * the carrier or its NAT state even when no CPU suspend was detected. */
     private fun scheduleWakeReconnect(screenOffMs: Long) {
         // Wake also helps a reconnect already waiting for the same physical Network.
         carrierGate.signalChange()
