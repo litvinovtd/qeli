@@ -883,7 +883,23 @@ SDK и глобальные настройки не изменялись.
 feed. CI точного среза, проверки архитектур и строгая проверка архива обязательны.
 
 
-### Current 0.8.5 source cut — 8 November 2026
+### Current 0.8.5 source cut — 24 November 2026
+
+The recipe pins `4f46379e5a8241a2f4c1029c199b6e677f6e799e`, the dev snapshot used for the
+standalone OpenWrt clients. It includes the TCP JOIN fix and the refreshed UDP
+PMTU ceiling and wake-lock handling. Two stock OpenWrt SDK 24.10.4 Git exports
+with empty download caches and distinct private mirror URLs produced the same
+`qeli-0.8.5.tar.zst` (29620869 bytes, SHA-256
+`4218bb865ceb821b9af1722f790a4519148a8b5af85d25c53d465ed3e2d9edb2`). All 3838 tracked files were checked
+against the pinned tree, including bytes and file modes after SDK prepare.
+The public feed URL is unchanged. This qualifies source export and prepare,
+not a full SDK package build or an in-device upgrade.
+
+Рецепт закреплён на указанном срезе dev. SHA-256 подтверждён двумя выгрузками
+штатного SDK 24.10.4; содержимое и права файлов сверены после prepare.
+Это проверка исходного архива, а не готового IPK или обновления на роутере.
+
+### Previous 0.8.5 source cut — 8 November 2026
 
 The recipe pins `724d24a493fbaba7aff29c526cf54ea3c39c7485` and includes the UDP PMTU recovery, candidate queue
 preparation before platform COMMIT_PATH, and current UCI/LuCI UDP settings.
