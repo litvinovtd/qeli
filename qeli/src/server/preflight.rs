@@ -50,6 +50,14 @@ pub struct HostNet {
     pub ipv6_routes: Vec<(String, Ipv6Net)>,
 }
 
+/// Identity of a device created by a live profile, as reported by its worker.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct LiveTun {
+    pub profile: String,
+    pub name: String,
+    pub index: u32,
+}
+
 /// Do two CIDR blocks share any address? Two blocks overlap iff one contains the
 /// other's network address (the smaller is then fully inside the larger).
 fn overlaps(a: &Ipv4Net, b: &Ipv4Net) -> bool {
@@ -418,8 +426,54 @@ pub fn check(config: &ServerConfig, host: &HostNet) -> anyhow::Result<()> {
         .filter(|profile| profile.enabled)
         .map(|p| p.tun.name.as_str())
         .collect();
-    let is_own = |ifname: &str| own_ifs.contains(&ifname);
+    check_except_owned(config, host, |ifname| own_ifs.contains(&ifname))
+}
 
+/// Validate a panel edit against the network before the old worker is stopped.
+/// Neither a name from disk nor a proposed name proves ownership of a live link.
+pub(crate) fn check_panel_transition(
+    config: &ServerConfig,
+    host: Option<&HostNet>,
+    live_tuns: &[LiveTun],
+    mut interface_index: impl FnMut(&str) -> std::io::Result<Option<u32>>,
+) -> anyhow::Result<()> {
+    let mut owned = std::collections::HashSet::new();
+    for profile in config.profiles.iter().filter(|profile| profile.enabled) {
+        let name = profile.tun.name.as_str();
+        let live = live_tuns.iter().find(|tun| tun.profile == profile.name);
+        let current_index = interface_index(name)?;
+        if current_index.is_some()
+            && !live.is_some_and(|tun| tun.name == name && Some(tun.index) == current_index)
+        {
+            anyhow::bail!(
+                "profile '{}': interface '{name}' already exists and is not owned by this profile",
+                profile.name,
+            );
+        }
+        if let Some(live) = live {
+            let old_index = if live.name == name {
+                current_index
+            } else {
+                interface_index(&live.name)?
+            };
+            if old_index == Some(live.index) {
+                owned.insert(live.name.as_str());
+            }
+        }
+    }
+    match host {
+        Some(host) => check_except_owned(config, host, |name| owned.contains(name)),
+        // Preserve the existing diagnostic for hosts without a usable ip tool,
+        // but still enforce the live link-name check above.
+        None => check_observed(config, None),
+    }
+}
+
+fn check_except_owned(
+    config: &ServerConfig,
+    host: &HostNet,
+    is_own: impl Fn(&str) -> bool,
+) -> anyhow::Result<()> {
     // Host addressing, minus anything on our own TUNs.
     let host_addrs: Vec<&(String, Ipv4Addr)> =
         host.addrs.iter().filter(|(i, _)| !is_own(i)).collect();
@@ -643,6 +697,100 @@ mod tests {
 
     fn cfg(profiles: &[String]) -> ServerConfig {
         crate::config::parse_server_config(&profiles.concat()).expect("fixture INI must parse")
+    }
+
+    fn tun_rename_fixture() -> (ServerConfig, HostNet, [LiveTun; 1]) {
+        let mut profile = profile_ini("tcp", 443, "vpn-new", "10.9.0.1", "10.9.0.0/24");
+        profile.push_str(
+            "tun.ip_mode = dual\n\
+             tun.ipv6_address = fd71:e1:1234:1::1\n\
+             pool.ipv6.cidr = fd71:e1:1234:1::/64\n",
+        );
+        let host = HostNet {
+            addrs: vec![("vpn-old".into(), "10.9.0.1".parse().unwrap())],
+            routes: vec![("vpn-old".into(), "10.9.0.0/24".parse().unwrap())],
+            ipv6_addrs: vec![("vpn-old".into(), "fd71:e1:1234:1::1".parse().unwrap())],
+            ipv6_routes: vec![("vpn-old".into(), "fd71:e1:1234:1::/64".parse().unwrap())],
+            ..Default::default()
+        };
+        let live = LiveTun {
+            profile: "tcp".into(),
+            name: "vpn-old".into(),
+            index: 7,
+        };
+        (cfg(&[profile]), host, [live])
+    }
+
+    #[test]
+    fn panel_accepts_rename_before_restart_and_checks_the_new_link_afterwards() {
+        let (candidate, mut host, mut live) = tun_rename_fixture();
+        assert!(check(&candidate, &host).is_err());
+        // Save and Apply & Restart both run this preflight while the old worker is up.
+        check_panel_transition(&candidate, Some(&host), &live, |name| {
+            Ok((name == "vpn-old").then_some(7))
+        })
+        .unwrap();
+        for name in [
+            &mut host.addrs[0].0,
+            &mut host.routes[0].0,
+            &mut host.ipv6_addrs[0].0,
+            &mut host.ipv6_routes[0].0,
+        ] {
+            *name = "vpn-new".into();
+        }
+        live[0].name = "vpn-new".into();
+        live[0].index = 8;
+        check_panel_transition(&candidate, Some(&host), &live, |name| {
+            Ok((name == "vpn-new").then_some(8))
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn panel_rename_still_rejects_foreign_links_addresses_and_routes() {
+        let (candidate, host, live) = tun_rename_fixture();
+        let occupied = check_panel_transition(&candidate, None, &live, |name| {
+            Ok(Some(if name == "vpn-old" { 7 } else { 12 }))
+        })
+        .unwrap_err();
+        assert!(occupied.to_string().contains("vpn-new"));
+
+        let existing = |name: &str| Ok((name == "vpn-old").then_some(7));
+        let mut ipv4 = host.clone();
+        ipv4.addrs
+            .push(("wan0".into(), "10.9.0.1".parse().unwrap()));
+        assert!(
+            check_panel_transition(&candidate, Some(&ipv4), &live, existing)
+                .unwrap_err()
+                .to_string()
+                .contains("wan0")
+        );
+
+        let mut ipv6 = host;
+        ipv6.ipv6_routes
+            .push(("wan6".into(), "fd71:e1:1234:1::/64".parse().unwrap()));
+        assert!(
+            check_panel_transition(&candidate, Some(&ipv6), &live, existing)
+                .unwrap_err()
+                .to_string()
+                .contains("wan6")
+        );
+    }
+
+    #[test]
+    fn panel_rename_cannot_ignore_an_unverified_old_link() {
+        let (candidate, host, mut live) = tun_rename_fixture();
+        let stale = check_panel_transition(&candidate, Some(&host), &live, |name| {
+            Ok((name == "vpn-old").then_some(19))
+        })
+        .unwrap_err();
+        assert!(stale.to_string().contains("vpn-old"));
+        live[0].profile = "another-profile".into();
+        let different = check_panel_transition(&candidate, Some(&host), &live, |name| {
+            Ok((name == "vpn-old").then_some(7))
+        })
+        .unwrap_err();
+        assert!(different.to_string().contains("vpn-old"));
     }
 
     /// The real lockout this module exists for, with the exact shape of the VPS that

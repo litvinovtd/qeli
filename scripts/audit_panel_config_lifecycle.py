@@ -153,11 +153,28 @@ obf.mode = fake-tls
   refused=request('/api/server/restart','POST',{})[1];check('worker restart refuses startup-only web change',refused.get('kind')=='full_restart_required' and worker_pid()==initial_pid,refused)
   rollback=restore(v,getraw()['revision']);check('history restore applies live and clears full restart',rollback.get('ok') and rollback['web_settings_applied'] and not rollback['needs_full_restart'],rollback)
   check('history requires current revision',request('/api/config/history/'+snapshot_id(v)+'/restore','POST',{})[1].get('kind')=='config_revision_required')
+  code,form=request('/api/config')
+  candidate=copy.deepcopy(form['config'])
+  tcp=next(p for p in candidate['profiles'] if p['name']=='mixeda')
+  tcp['tun']['name']='wan0'
+  current_bytes=cfg.read_bytes()
+  code,v=request('/api/config','PUT',dict(config=candidate,expected_revision=form['revision']))
+  check('form refuses rename to foreign interface',not v.get('ok') and 'wan0' in v.get('error','') and cfg.read_bytes()==current_bytes,v)
+  tcp['tun']['name']='qrenamed'
+  code,v=request('/api/config','PUT',dict(config=candidate,expected_revision=form['revision']))
+  check('form saves rename while the old TUN still owns the addresses',v.get('ok') and 'qmixeda' in network()['links'] and 'qrenamed' not in network()['links'],v)
   raw=getraw();changed=re.sub(r'(?m)^bind\.port\s*=\s*24443$', 'bind.port = 24445',raw['raw']);check('fixture targets exactly one TCP bind',changed!=raw['raw'])
   saved=save(changed,raw['revision']);check('profile save is deferred until worker restart',saved.get('ok') and not saved['needs_full_restart'] and worker_pid()==initial_pid and ':24443' in run(['ss','-lnt']).stdout,saved)
+  run(['ip','link','add','qrenamed','type','dummy'])
+  try:
+   rejected=request('/api/server/restart','POST',{})[1]
+   check('restart refuses a newly occupied target name without stopping its worker',not rejected.get('ok') and 'qrenamed' in rejected.get('error','') and worker_pid()==initial_pid,rejected)
+  finally:run(['ip','link','del','qrenamed'])
   check('worker restart accepted',request('/api/server/restart','POST',{})[1].get('ok'))
   until(lambda:worker_pid() not in [None,initial_pid] and ':24445' in run(['ss','-lnt']).stdout,'new worker not ready')
   new_pid=worker_pid();check('restart applies TCP bind and preserves supervisor',sup.poll() is None and ':24443' not in run(['ss','-lnt']).stdout)
+  links=network()['links']
+  check('restart removes the old TUN and carries its address to the renamed one','qmixeda' not in links and 'qrenamed' in links and '10.73.0.1/24' in run(['ip','-4','-o','addr','show','dev','qrenamed']).stdout)
   good=cfg.read_text();manual_write(good+'tun.mtu = broken\n');os.kill(new_pid,signal.SIGHUP);time.sleep(.3)
   refused=request('/api/server/restart','POST',{})[1];check('bad hand edit preserves active worker',not refused.get('ok') and worker_pid()==new_pid and ':24445' in run(['ss','-lnt']).stdout,refused)
   manual_write(good);os.kill(new_pid,signal.SIGHUP);time.sleep(.2)

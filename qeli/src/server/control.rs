@@ -501,6 +501,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
         && req.cmd != "roaming-stats"
         && req.cmd != "queue-stats"
         && req.cmd != "tun-stats"
+        && req.cmd != "preflight-tun-owners"
     {
         log::info!(
             "CONTROL action='{}' user='{}' profile='{}' mbps={} ip='{}'",
@@ -512,6 +513,19 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
         );
     }
     match req.cmd.as_str() {
+        "preflight-tun-owners" => {
+            let profiles = state.profiles.read().await;
+            let tuns: Vec<_> = profiles
+                .values()
+                .filter_map(|profile| profile.preflight_tun.as_ref())
+                .collect();
+            Response {
+                ok: true,
+                error: None,
+                clients: None,
+                message: Some(serde_json::json!(tuns).to_string()),
+            }
+        }
         "list-clients" => {
             let profiles = state.profiles.read().await;
             let mut clients = Vec::new();
@@ -1131,6 +1145,29 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
 }
 
 pub async fn send_command(socket_path: &str, cmd_json: &str) -> anyhow::Result<String> {
+    send_command_to(socket_path, cmd_json, None).await
+}
+
+pub(crate) async fn query_live_tuns(worker_pid: i32) -> Option<Vec<super::preflight::LiveTun>> {
+    let reply = send_command_to(
+        &control_socket_path(),
+        r#"{"cmd":"preflight-tun-owners"}"#,
+        Some(worker_pid),
+    )
+    .await
+    .ok()?;
+    let response: serde_json::Value = serde_json::from_str(&reply).ok()?;
+    if response.get("ok")?.as_bool() != Some(true) {
+        return None;
+    }
+    serde_json::from_str(response.get("message")?.as_str()?).ok()
+}
+
+async fn send_command_to(
+    socket_path: &str,
+    cmd_json: &str,
+    worker_pid: Option<i32>,
+) -> anyhow::Result<String> {
     let mut stream = tokio::time::timeout(IO_TIMEOUT, tokio::net::UnixStream::connect(socket_path))
         .await
         .map_err(|_| anyhow::anyhow!("Timed out connecting to control socket {socket_path}"))?
@@ -1139,6 +1176,12 @@ pub async fn send_command(socket_path: &str, cmd_json: &str) -> anyhow::Result<S
                 "Cannot connect to control socket {socket_path}: {error}\nIs the server running?"
             )
         })?;
+    if let Some(worker_pid) = worker_pid {
+        anyhow::ensure!(
+            stream.peer_cred()?.pid() == Some(worker_pid),
+            "control socket does not belong to the supervised worker"
+        );
+    }
     control_io::write_line(&mut stream, cmd_json, MAX_REQUEST, IO_TIMEOUT).await?;
     let response = control_io::read_line(&mut stream, MAX_RESPONSE, RESPONSE_TIMEOUT)
         .await

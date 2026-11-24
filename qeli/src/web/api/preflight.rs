@@ -1,5 +1,6 @@
 //! Observe networking before serializing a config edit; re-read config/users under the lock.
 use crate::server::{preflight, ServerState};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::OwnedMutexGuard;
@@ -14,6 +15,13 @@ pub(super) struct Snapshot {
     pub host: Option<preflight::HostNet>,
     pub ipv6_firewall_available: bool,
     valid_until: Instant,
+    worker: Option<WorkerTuns>,
+}
+
+struct WorkerTuns {
+    metrics: Arc<crate::server::metrics::MetricsState>,
+    pid: i32,
+    tuns: Vec<preflight::LiveTun>,
 }
 
 impl Snapshot {
@@ -23,11 +31,33 @@ impl Snapshot {
                 "network preflight expired while preparing the config; retry the operation"
             );
         }
-        preflight::check_observed(config, self.host.as_ref())
+        if let Some(worker) = &self.worker {
+            let tuns = if worker.pid == worker.metrics.worker_pid.load(Ordering::Acquire) {
+                &worker.tuns[..]
+            } else {
+                // A snapshot queued behind another writer may cross a worker restart.
+                &[]
+            };
+            preflight::check_panel_transition(
+                config,
+                self.host.as_ref(),
+                tuns,
+                crate::tun::open::interface_index,
+            )
+        } else {
+            preflight::check_observed(config, self.host.as_ref())
+        }
     }
 }
 
 pub(super) async fn observe(quickstart: bool) -> Result<Snapshot, String> {
+    observe_with_worker(quickstart, None).await
+}
+
+async fn observe_with_worker(
+    quickstart: bool,
+    state: Option<&ServerState>,
+) -> Result<Snapshot, String> {
     let until = Instant::now() + preflight::PROBE_BUDGET;
     let _permit = tokio::time::timeout_at(until, OBSERVATIONS.acquire())
         .await
@@ -36,7 +66,23 @@ pub(super) async fn observe(quickstart: bool) -> Result<Snapshot, String> {
     if Instant::now() >= until {
         return Err("network preflight expired in the probe queue; retry the operation".into());
     }
-    let host = preflight::gather_host_net_async(until).await;
+    let (host, worker) = tokio::join!(preflight::gather_host_net_async(until), async {
+        let metrics = state?.metrics.clone();
+        let pid = metrics.worker_pid.load(Ordering::Acquire);
+        let tuns = if pid > 0 {
+            tokio::time::timeout_at(
+                until.min(Instant::now() + Duration::from_secs(1)),
+                crate::server::control::query_live_tuns(pid),
+            )
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        Some(WorkerTuns { metrics, pid, tuns })
+    });
     let ipv6_firewall_available = quickstart
         && crate::server::nat::ip6tables_path_async(until)
             .await
@@ -45,6 +91,7 @@ pub(super) async fn observe(quickstart: bool) -> Result<Snapshot, String> {
         host,
         ipv6_firewall_available,
         valid_until: Instant::now() + FRESHNESS,
+        worker,
     })
 }
 
@@ -52,7 +99,11 @@ pub(super) async fn lock(
     state: &Arc<ServerState>,
     quickstart: bool,
 ) -> Result<(OwnedMutexGuard<()>, Snapshot), String> {
-    lock_after_observation(state.config_write_lock.clone(), observe(quickstart)).await
+    lock_after_observation(
+        state.config_write_lock.clone(),
+        observe_with_worker(quickstart, Some(state)),
+    )
+    .await
 }
 
 async fn lock_after_observation(
@@ -91,6 +142,7 @@ mod tests {
             host: None,
             ipv6_firewall_available: false,
             valid_until,
+            worker: None,
         }
     }
 

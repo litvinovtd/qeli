@@ -872,6 +872,8 @@ mod client_route_tests {
 pub struct ProfileRuntime {
     pub name: String,
     pub config: ProfileConfig,
+    /// Captured after exclusive creation, never inferred from a proposed config.
+    preflight_tun: Option<preflight::LiveTun>,
     /// Parsed once per generation: never route the server's TUN endpoints into a
     /// client's exit default, or let a client claim these reserved source addresses.
     tun_addresses: Vec<std::net::IpAddr>,
@@ -5724,6 +5726,7 @@ mod deferred_profile_tests {
 struct ProfileTunSetup {
     queues: Vec<TunInterface>,
     ifname: String,
+    ifindex: Option<u32>,
     dev_type: DeviceType,
     profile_subnet: Option<crate::config::server::PoolSubnet>,
     queue_count: usize,
@@ -5848,6 +5851,7 @@ fn setup_profile_tun(pcfg: &ProfileConfig) -> anyhow::Result<ProfileTunSetup> {
 
     Ok(ProfileTunSetup {
         queues,
+        ifindex: crate::tun::open::interface_index(&ifname).ok().flatten(),
         ifname,
         dev_type,
         profile_subnet,
@@ -5991,6 +5995,7 @@ async fn run_profile_generation(
     let ProfileTunSetup {
         queues: created_queues,
         ifname,
+        ifindex,
         dev_type,
         profile_subnet,
         queue_count: nq,
@@ -6313,6 +6318,11 @@ async fn run_profile_generation(
     let profile = Arc::new(ProfileRuntime {
         name: name.clone(),
         config: pcfg.clone(),
+        preflight_tun: ifindex.map(|index| preflight::LiveTun {
+            profile: name.clone(),
+            name: ifname.clone(),
+            index,
+        }),
         tun_addresses: handler::configured_tun_addresses(&pcfg),
         tasks: tasks.clone(),
         pool: Arc::new(Mutex::new(pool)),
