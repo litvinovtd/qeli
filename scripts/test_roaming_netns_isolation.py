@@ -24,6 +24,7 @@ class IsolationAdmissionTests(unittest.TestCase):
         self.env["PATH"] = str(self.commands) + ":" + self.env["PATH"]
         shutil.copy2(ROOT / "roaming_netns_isolation.sh", self.work)
         shutil.copy2(ROOT / "roaming_netns_supervisor.py", self.work)
+        shutil.copy2(ROOT / "roaming_process_probe.sh", self.work)
         self.command("unshare", 'printf "%s\\n" "$@" > "$QELI_TEST_TRACE"; exit 23')
         for name in ("mktemp", "ip", "mount"):
             self.command(name, 'echo MUTATION >> "$QELI_TEST_TRACE"; exit 24')
