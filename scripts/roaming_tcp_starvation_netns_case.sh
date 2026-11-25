@@ -32,7 +32,7 @@ run_bonded_starvation_direction() {
 run_tcp_starvation_case() {
   local port
   [ "$MULTIPATH_MODE" = fixed ] || return 2
-  port=$(sed -n 's/.*Stream #1 JOINed session.*from 10\.40\.1\.2:\([0-9][0-9]*\).*/\1/p' "$WORK/server.log" | tail -n1)
+  port=$(roaming_tcp_last_join_port "$WORK/server.log" 1 10.40.1.2) || return 2
   case "$port" in ''|*[!0-9]*) return 2;; esac
   run_bonded_starvation_direction upload "$port" || return 1
   run_bonded_starvation_direction download "$port" || return 1

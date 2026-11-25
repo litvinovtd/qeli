@@ -138,7 +138,10 @@ run_tcp_soak_case() {
   local server_commits server_joins auth_count client_fd_after server_fd_after client_rss_after server_rss_after
   local client_socket_after server_socket_after client_start_after server_start_after
   server_commits=$(grep -c 'ROAMING transport=tcp event=commit' "$WORK/server.log" || true)
-  server_joins=$(grep -c 'Stream #0 JOINed session' "$WORK/server.log" || true)
+  server_joins=$(roaming_tcp_join_count "$WORK/server.log" 0) || {
+    bad "TCP soak could not read authenticated slot-zero JOIN records"
+    return
+  }
   auth_count=$(grep -c "connected on profile 'roam'" "$WORK/server.log" || true)
   client_start_after=$(awk '{ print $22 }' "/proc/$CLIENT_PID/stat" 2>/dev/null || true)
   server_start_after=$(awk '{ print $22 }' "/proc/$server_pid/stat" 2>/dev/null || true)
@@ -149,6 +152,7 @@ run_tcp_soak_case() {
   client_rss_after=$(awk '/^VmRSS:/ { print $2 }' "/proc/$CLIENT_PID/status")
   server_rss_after=$(awk '/^VmRSS:/ { print $2 }' "/proc/$server_pid/status")
   echo "  RESOURCE final transport=tcp client_rss_kib=$client_rss_after server_rss_kib=$server_rss_after client_rss_delta_kib=$((client_rss_after - client_rss_before)) server_rss_delta_kib=$((server_rss_after - server_rss_before)) client_rss_peak_delta_kib=$((client_rss_max - client_rss_before)) server_rss_peak_delta_kib=$((server_rss_max - server_rss_before)) client_fd=$client_fd_after server_fd=$server_fd_after client_sockets=$client_socket_after server_sockets=$server_socket_after"
+  echo "  TCP soak final transactions expected=$iterations client_commits=$commit_count server_commits=$server_commits server_slot0_joins=$server_joins"
 
   check "TCP soak committed every requested client/server path transaction exactly once" "test '$commit_count' -eq '$iterations' && test '$server_commits' -eq '$iterations' && test '$server_joins' -eq '$iterations'"
   check "TCP soak retained one authenticated session without reconnect or grace" "test '$auth_count' -eq 1 && ! grep -Eq 'Connection error|Reconnecting in' $WORK/client.log && ! grep -Eq 'retaining session|grace expired' $WORK/server.log"

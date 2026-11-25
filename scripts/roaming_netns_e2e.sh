@@ -57,6 +57,8 @@ if [ ! -r "$SCRIPT_DIR/roaming_netns_isolation.sh" ]; then
   exit 2
 fi
 source "$SCRIPT_DIR/roaming_netns_isolation.sh" || exit 2
+# shellcheck source=roaming_process_probe.sh
+source "$SCRIPT_DIR/roaming_process_probe.sh" || exit 2
 roaming_netns_isolate "${BASH_SOURCE[0]}" "$@" || exit 2
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/qeli-roaming-netns-XXXXXX") || exit 2
 # Each test creates new namespaces; never reuse the host or another case's journal.
@@ -562,7 +564,7 @@ check "carrier bypass moved to path B" \
 check "no stale carrier bypass remains on path A" \
   "! ip netns exec $CLI_NS ip route show 10.40.3.2 | grep -q 'dev qrm-a'"
 check "server accepted and attached the replacement carrier from path B" \
-  "grep 'Stream #0 JOINed session' $WORK/server.log | grep -q 'from 10.40.2.2:'"
+  "test \"\$(roaming_tcp_join_count '$WORK/server.log' 0 10.40.2.2)\" -ge 1"
 
 # Remove the old physical path only after COMMIT. Traffic must continue on the candidate.
 ip netns exec "$CLI_NS" ip link set qrm-a down
@@ -578,17 +580,17 @@ if [ "$MULTIPATH_MODE" = fixed ]; then
     bad "fixed multipath did not restore all logical slots on path B"
   fi
   check "fixed multipath secondary slots were reattached from path B" \
-    "test \"\$(grep -Ec 'Stream #[12] JOINed session.*from 10.40.2.2:' $WORK/server.log)\" -ge 2"
+    "test \"\$(roaming_tcp_join_count '$WORK/server.log' '[12]' 10.40.2.2)\" -ge 2"
 elif [ "$MULTIPATH_MODE" = adaptive ]; then
   check "adaptive multipath retained at least one authenticated path-B carrier" \
-    "grep -q 'Stream #0 JOINed session.*from 10.40.2.2:' $WORK/server.log"
+    "test \"\$(roaming_tcp_join_count '$WORK/server.log' 0 10.40.2.2)\" -ge 1"
   if wait_for 100 "grep -Eq 'TCP stream slot [0-9]+ resumed; (2/2|3/3) stream' $WORK/client.log"; then
     ok "adaptive multipath restored its learned width on path B"
   else
     bad "adaptive multipath did not restore its learned width on path B"
   fi
   check "adaptive multipath reattached a secondary slot from path B" \
-    "grep -Eq 'Stream #[12] JOINed session.*from 10.40.2.2:' $WORK/server.log"
+    "test \"\$(roaming_tcp_join_count '$WORK/server.log' '[12]' 10.40.2.2)\" -ge 1"
 fi
 check "the same tunnel device instance survived handover" \
   "test -n '$TUN_IFINDEX' && test \"\$(ip netns exec $CLI_NS cat /sys/class/net/qrm0/ifindex)\" = '$TUN_IFINDEX'"

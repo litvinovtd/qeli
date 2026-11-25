@@ -12,6 +12,7 @@ import unittest
 
 
 SCRIPT = Path(__file__).with_name("roaming_resource_release_gate.sh")
+PROBE = SCRIPT.with_name("roaming_process_probe.sh")
 CHILDREN = (
     "roaming_tcp_all_modes_netns_e2e.sh",
     "roaming_udp_all_modes_netns_e2e.sh",
@@ -62,6 +63,48 @@ case "$name" in
     echo '=== RESULT: 1 passed, 0 failed ===' ;;
 esac
 """
+
+
+@unittest.skipUnless(shutil.which("bash") and shutil.which("awk"), "bash and awk required")
+class TcpJoinLogTests(unittest.TestCase):
+    def parse(self, func: str, log: str, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", "-c", 'source "$1" && shift && "$@"', "bash", str(PROBE),
+             func, "/dev/stdin", *args],
+            input=log, text=True, capture_output=True, timeout=10, check=False,
+        )
+
+    @staticmethod
+    def structured(slot: int, peer: str, *, transport: str = "tcp") -> str:
+        return (f"INFO qeli_core::server::connection_log: TCP stream JOINed session "
+                f"stream_index={slot} pid=51 conn=10 transport={transport} peer={peer} "
+                'listener=0.0.0.0:4443 profile="roam" session=7\n')
+
+    def test_exact_hundred_counts_legacy_and_structured_records_without_dedup(self) -> None:
+        legacy = "INFO Stream #0 JOINed session for user 'a' (IP 10.88.0.2) on profile 'roam' from 10.40.1.2:10001\n"
+        log = legacy * 50 + self.structured(0, "10.40.2.2:10002") * 50
+        for suffix, expected in (("", "100"), (legacy, "101")):
+            result = self.parse("roaming_tcp_join_count", log + suffix, "0")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), expected)
+
+    def test_slot_peer_and_transport_filters_remain_exact(self) -> None:
+        log = (self.structured(0, "10.40.2.20:44000") + self.structured(10, "10.40.2.2:44001")
+               + self.structured(1, "10.40.2.2:44002", transport="udp")
+               + self.structured(1, "10.40.2.2:44003") + self.structured(2, "10.40.2.2:44004"))
+        for slots, expected in (("0", "0"), ("[12]", "2")):
+            result = self.parse("roaming_tcp_join_count", log, slots, "10.40.2.2")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), expected)
+
+    def test_last_port_uses_the_right_peer_and_fails_for_missing_peer(self) -> None:
+        log = (self.structured(1, "10.40.1.2:10101") + self.structured(1, "10.40.1.2:10102")
+               + self.structured(1, "10.40.1.20:10103"))
+        result = self.parse("roaming_tcp_last_join_port", log, "1", "10.40.1.2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "10102")
+        missing = self.parse("roaming_tcp_last_join_port", log, "1", "10.40.1.3")
+        self.assertNotEqual(missing.returncode, 0)
 
 
 @unittest.skipUnless(shutil.which("bash") and shutil.which("sha256sum"), "bash tools required")

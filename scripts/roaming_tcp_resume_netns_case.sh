@@ -69,7 +69,7 @@ run_tcp_resume_case() {
     check "grace expiry entered the top-level reconnect loop" \
       "grep -q 'Reconnecting in' $WORK/client.log"
     check "no authenticated resume JOIN committed after locator expiry" \
-      "! grep -q 'Stream #0 JOINed session' $WORK/server.log"
+      "test \"\$(roaming_tcp_join_count '$WORK/server.log' 0)\" -eq 0"
     check "full reconnect restored tunnel traffic" \
       "ip netns exec $CLI_NS ping -c5 -W1 10.88.0.1"
   else
@@ -84,7 +84,7 @@ run_tcp_resume_case() {
       bad "hard resume did not restore the original bonded width"
     fi
     check "server attached exactly one authenticated resume carrier" \
-      "test \"\$(grep -c 'Stream #0 JOINed session' $WORK/server.log || true)\" -eq 1"
+      "test \"\$(roaming_tcp_join_count '$WORK/server.log' 0)\" -eq 1"
     check "hard resume did not repeat full AUTH" \
       "test \"\$(grep -c 'bandwidth_limit: .*streams<=' $WORK/server.log || true)\" -eq 1"
     check "hard resume preserved the client process and TUN instance" \

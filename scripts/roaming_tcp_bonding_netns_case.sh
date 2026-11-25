@@ -44,16 +44,16 @@ run_tcp_bonding_case() {
     expected_streams=${expected_streams:-1}
   fi
   if [ "$expected_streams" -gt 1 ]; then
-    port=$(sed -n 's/.*Stream #1 JOINed session.*from 10\.40\.1\.2:\([0-9][0-9]*\).*/\1/p' "$WORK/server.log" | tail -n1)
+    port=$(roaming_tcp_last_join_port "$WORK/server.log" 1 10.40.1.2) || return 1
     case "$port" in ''|*[!0-9]*) bad "secondary socket tuple was identified"; return 1;; esac
-    before_joins=$(grep -c 'Stream #1 JOINed session' "$WORK/server.log")
+    before_joins=$(roaming_tcp_join_count "$WORK/server.log" 1) || return 1
     check "secondary socket tuple exists in the private server namespace" \
       "ip netns exec $SRV_NS ss -Htn state established '( sport = :4443 and dport = :$port )' | grep -q '10.40.1.2:$port'"
     check "only the selected secondary socket was reset" \
       "ip netns exec $SRV_NS ss -K dst 10.40.1.2 dport = :$port sport = :4443"
     check "healthy carriers keep bidirectional traffic during secondary replacement" \
       "ip netns exec $CLI_NS ping -c5 -W1 10.88.0.1 && ip netns exec $SRV_NS ping -c5 -W1 10.88.0.2"
-    if wait_for 100 "test \"\$(grep -c 'Stream #1 JOINed session' $WORK/server.log)\" -gt '$before_joins'"; then
+    if wait_for 100 "test \"\$(roaming_tcp_join_count '$WORK/server.log' 1)\" -gt '$before_joins'"; then
       ok "failed secondary logical slot was authenticated again"
     else
       bad "failed secondary logical slot was not restored"
@@ -71,7 +71,7 @@ run_tcp_bonding_case() {
   # Make one carrier lossy; delay the reverse link to model asymmetric RTT.
   # Other carriers retain their own independent TCP congestion/record state.
   if [ "$expected_streams" -gt 1 ]; then
-    port=$(sed -n 's/.*Stream #1 JOINed session.*from 10\.40\.1\.2:\([0-9][0-9]*\).*/\1/p' "$WORK/server.log" | tail -n1)
+    port=$(roaming_tcp_last_join_port "$WORK/server.log" 1 10.40.1.2) || return 1
     ip netns exec "$RTR_NS" iptables -I FORWARD -i qrm-ar -o qrm-sr -p tcp --sport "$port" --dport 4443 \
       -m statistic --mode random --probability 0.15 -j DROP || return 1
     check "loss affects only the selected secondary carrier" \
