@@ -87,7 +87,59 @@ async fn live_pmtu_ceiling_survives_kernel_route_refresh() {
 
     set_route_mtu("1480");
     let first = connected_sender().await;
-    send_probe(&first, &receiver, &mut state, 1452).await;
+    let framing = UdpClientFraming::legacy(true, [1; 4]);
+    let overhead = UDP_RECORD_PROBE_OVERHEAD + first.seal_overhead() + framing.wrapper_len() + 28;
+    // Start with a stale upper bound while the real socket already enforces
+    // 1480. Run the production startup ladder and retain what it learns.
+    let ceiling = crate::protocol::pmtu::probe_ceiling(1400, overhead, Some(1500));
+    let responder = async {
+        let mut bytes = [0; 1600];
+        loop {
+            let (len, peer) = receiver.recv_from(&mut bytes).await.unwrap();
+            let Ok(record) = framing.unwrap(&bytes[..len]) else {
+                continue;
+            };
+            let Some((token, size)) = crate::protocol::udp_frag::parse_mtu_probe_v2_request(record)
+            else {
+                continue;
+            };
+            let ack = crate::protocol::udp_frag::mtu_probe_v2_ack_datagram(token, size);
+            let mut wire = Vec::new();
+            receiver
+                .send_to(framing.wrap_into(&ack, 0, &mut wire), peer)
+                .await
+                .unwrap();
+        }
+    };
+    let mut rx = PacketCodec::new([1; 32]);
+    let mut tx = PacketCodec::new([2; 32]);
+    let management = std::sync::Mutex::new(crate::protocol::control_v2::Reassembler::new());
+    let (management_sender, _) = tokio::sync::watch::channel(None);
+    let mut pn = 0;
+    let startup = probe_udp_mtu(
+        &first,
+        &mut state,
+        framing,
+        &mut pn,
+        &mut rx,
+        &mut tx,
+        false,
+        &management,
+        &management_sender,
+        ceiling,
+        true,
+    );
+    let certified = tokio::select! {
+        result = tokio::time::timeout(Duration::from_secs(5), startup) => {
+            result.expect("startup search finished").unwrap().unwrap()
+        },
+        _ = responder => unreachable!("PMTU echo loop terminated"),
+    };
+    assert_eq!(
+        udp_payload_budget_for_probe(certified, first.seal_overhead(), framing.wrapper_len()),
+        1452
+    );
+    assert_eq!(state.path_mtu_ceiling, Some(1480));
     let original_addr = first.raw_socket().local_addr().unwrap();
 
     set_route_mtu("1500");

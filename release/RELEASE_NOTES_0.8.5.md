@@ -24,6 +24,9 @@
   снижения бюджета. Ручной предел и запрет probes сохраняются; обычные ошибки
   carrier по-прежнему допускают восстановление пути. Автоочередь кандидата
   прогревается до платформенного COMMIT с учётом общей резервации памяти.
+  Потолок, обнаруженный на старте, сохраняется при последующих пробах
+  на том же сокете, даже если ядро затем сообщает больший MTU.
+  Для нового носителя бюджет определяется заново.
 - Совместимые TCP-профили проверяют доставку на кандидате перед заменой слота.
   Подготовка может идти одновременно с подтверждением сильного ухудшения,
   но не заменяет это подтверждение. Есть ограниченная свежая попытка при
@@ -55,9 +58,23 @@
   Quick Start использует серверный preflight. Состояние, трафик и план
   остаются у каждого исходящего профиля; журнал можно скопировать или
   скачать потоком и после отключения. Устаревший снимок не заменяется нулями.
+  Можно переименовать интерфейс этого профиля без ложного конфликта с его
+  собственными адресами и маршрутами; чужие интерфейсы по-прежнему защищены.
+  Средняя нагрузка за 1, 5 и 15 минут видна целиком на узком экране.
+- **Серверный журнал:** запись подключения показывает профиль, клиентский
+  адрес, адрес прослушивания, фактический локальный IP:порт и идентификатор
+  соединения; для UDP — также индекс входного интерфейса, когда его сообщает
+  ядро. Логин появляется после авторизации; пароли и ключи не записываются.
+- **Android:** отсутствие опубликованного системой MTU больше не вызывает
+  ложный таймаут готовности VPN. Явно несовпадающий MTU отклоняется.
+  Частичный wake lock держится только во время попытки подключения, не дольше
+  60 секунд, и снимается, когда VPN готов или попытка закончилась.
+  Журнал показывает параметры готовности, версию приложения и номер сборки.
 - Обновлены модели Android/iOS/Windows/macOS, исходные лицензии и их
   проверяемый каталог; Windows/macOS/Android поставляются с согласованными
   нативными ядрами. Эксперимент прогрева и освобождения TUN-пулов не вошёл.
+  Обновлены Rust-зависимости, Android Gradle 9.9.1 и lock Kotlin-зависимостей
+  для 2.4.21. Подробности — в changelog.
 
 ### Установка и границы проверки
 
@@ -99,6 +116,8 @@ manual routing and firewall ownership remain the defaults.
   accepted batch prefix. Asynchronous PMTU advisories do not stop reception.
   The manual ceiling and probe prohibition are retained. Candidate RX queues
   warm before platform COMMIT under the shared memory budget.
+  The ceiling learned during startup is retained on the same UDP socket
+  even if a route refresh reports a higher MTU; a new carrier starts afresh.
 - **TCP:** prepare a candidate while confirming severe loaded-carrier
   degradation, validate authenticated delivery, recheck evidence, then
   commit and drain the old carrier. Fresh-socket preparation retries and
@@ -120,6 +139,20 @@ manual routing and firewall ownership remain the defaults.
 - **Server panel:** explicit full tunnel, unified INI preview/save, preserved
   drafts and independent quota/expiry edits; server-side Quick Start
   preflight and per-profile diagnostics with copy and streaming log download.
+  A profile can rename its owned VPN interface without conflicts against its
+  own routes; unrelated interfaces remain protected. Load averages no longer
+  truncate on narrow screens.
+- **Server connection logs:** include the profile, remote and actual local
+  endpoint, listen address and connection ID; UDP also logs the ingress
+  interface index when available. Usernames appear after authentication;
+  passwords and keys are not logged.
+- **Android:** an unreported system VPN MTU no longer causes a false
+  readiness timeout; explicit mismatches still fail. The partial wake lock
+  is limited to each connection attempt (60 seconds maximum) and is
+  released once VPN is ready or the attempt ends. Logs include the readiness
+  inputs, version and build number.
+- **Dependencies and builds:** refreshed locked Rust dependencies, Android
+  Gradle 9.9.1 and Kotlin dependency locks for 2.4.21.
   Client models, legal bindings/catalogue and matched native cores were updated.
   The experimental server TUN-pool warmup/idle trim was reverted.
 

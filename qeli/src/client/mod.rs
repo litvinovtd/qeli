@@ -8478,6 +8478,7 @@ fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
 ))]
 async fn probe_udp_mtu(
     socket: &crate::protocol::obfs::ObfsUdp,
+    probe_state: &mut LiveUdpMtuProbe,
     framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     quic_pn: &mut u32,
     client_rx: &mut PacketCodec,
@@ -8539,8 +8540,11 @@ async fn probe_udp_mtu(
                     );
                     let mut ok = false;
                     for _ in 0..2u8 {
-                        // EMSGSIZE = the local link is smaller than this probe → size fails.
-                        if socket.send(&pkt).await.is_err() {
+                        // Keep PMTU learned during startup, including an asynchronous
+                        // ICMP update delivered while waiting for the probe echo.
+                        let sent = socket.send(pkt).await;
+                        probe_state.observe_socket_mtu(socket);
+                        if sent.is_err() {
                             break;
                         }
                         // Cover, heartbeat, a delayed ACK for an older rung, or any other
@@ -8611,11 +8615,14 @@ async fn probe_udp_mtu(
                                 _ => break,
                             }
                         }
+                        probe_state.observe_socket_mtu(socket);
                         if ok {
                             break;
                         }
                     }
-                    ok
+                    ok && !probe_state
+                        .path_mtu_ceiling
+                        .is_some_and(|mtu| m as usize + outer_overhead > mtu as usize)
                 }
             }
         }};
@@ -9086,6 +9093,7 @@ mod mtu_ladder_tests {
             std::time::Duration::from_secs(12),
             super::probe_udp_mtu(
                 &client,
+                &mut super::LiveUdpMtuProbe::default(),
                 UdpClientFraming::legacy(false, [0; 4]),
                 &mut pn,
                 &mut rx,
@@ -9176,6 +9184,7 @@ mod mtu_ladder_tests {
 )))]
 async fn probe_udp_mtu(
     _socket: &crate::protocol::obfs::ObfsUdp,
+    _probe_state: &mut LiveUdpMtuProbe,
     _framing: crate::transport_core::udp_client_framing::UdpClientFraming,
     _quic_pn: &mut u32,
     _client_rx: &mut PacketCodec,
@@ -11598,6 +11607,10 @@ pub(crate) async fn run_udp_tunnel(
         std::sync::Mutex::new(crate::protocol::control_v2::Reassembler::new());
     let (management_tx, mut management_rx) = tokio::sync::watch::channel(None);
     let base_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
+    // The startup ladder and live searches belong to the same connected carrier.
+    // Initialize this before the first IP_MTU read, so configuring the inner
+    // network cannot discard an MTU that was already observed on that carrier.
+    let mut live_mtu_probe = LiveUdpMtuProbe::default();
     let probe_ceiling = crate::protocol::pmtu::probe_ceiling(
         base_mtu,
         UDP_RECORD_PROBE_OVERHEAD
@@ -11605,7 +11618,7 @@ pub(crate) async fn run_udp_tunnel(
             + udp_framing.wrapper_len()
             + 8
             + if socket.peer_is_ipv6() { 40 } else { 20 },
-        crate::protocol::pmtu::socket_path_mtu(socket.raw_socket(), socket.peer_is_ipv6()),
+        live_mtu_probe.observe_socket_mtu(&socket),
     );
     let mut uplink_udp_payload_budget = manual_udp_payload_size.unwrap_or_else(|| {
         crate::protocol::data_frag::conservative_udp_payload_budget(socket.peer_is_ipv6())
@@ -11623,6 +11636,7 @@ pub(crate) async fn run_udp_tunnel(
     } else if config.tun.udp_probing_enabled() {
         match probe_udp_mtu(
             &socket,
+            &mut live_mtu_probe,
             udp_framing,
             &mut quic_pn,
             &mut client_rx,
@@ -11657,11 +11671,12 @@ pub(crate) async fn run_udp_tunnel(
                     config.tun.mtu > 0,
                 );
                 log::info!(
-                    "UDP path probe: inner MTU {}, uplink UDP payload budget {} (probe rung {}, DATA_FRAG_V1={})",
+                    "UDP path probe: inner MTU {}, uplink UDP payload budget {} (probe rung {}, DATA_FRAG_V1={}, path MTU ceiling {:?})",
                     inner_mtu,
                     uplink_udp_payload_budget,
                     m,
-                    data_frag_enabled
+                    data_frag_enabled,
+                    live_mtu_probe.path_mtu_ceiling,
                 );
                 inner_mtu
             }
@@ -12100,7 +12115,6 @@ pub(crate) async fn run_udp_tunnel(
     let mut last_path_diagnostic = std::time::Instant::now();
     let mut previous_path_diagnostic = runtime_counters.udp.path.snapshot();
     let live_mtu_reprobe_enabled = data_frag_enabled && config.tun.udp_probing_enabled();
-    let mut live_mtu_probe = LiveUdpMtuProbe::default();
     if live_mtu_reprobe_enabled {
         live_mtu_probe.observe_socket_mtu(&socket);
     }
@@ -12677,7 +12691,10 @@ pub(crate) async fn run_udp_tunnel(
                 let wrapper = socket.seal_overhead() + udp_framing.wrapper_len();
                 let now = tokio::time::Instant::now();
                 let mut grow = now >= next_mtu_growth;
-                let path_mtu_ceiling = live_mtu_probe.observe_socket_mtu(&socket);
+                let socket_mtu = crate::protocol::pmtu::socket_path_mtu(
+                    socket.raw_socket(), socket.peer_is_ipv6(),
+                );
+                let path_mtu_ceiling = live_mtu_probe.remember_path_mtu(socket_mtu);
                 let mut candidates: Vec<i32> = if grow {
                     next_mtu_growth = now + crate::protocol::pmtu::GROW_INTERVAL;
                     let outer_overhead = UDP_RECORD_PROBE_OVERHEAD + wrapper + 8
@@ -12699,6 +12716,12 @@ pub(crate) async fn run_udp_tunnel(
                             .and_then(|value| i32::try_from(value).ok())
                     }).collect()
                 };
+                if grow && candidates.is_empty() {
+                    log::info!(
+                        "UDP live PMTU growth found no larger candidate: keeping {}-byte payload (socket MTU {:?}, path MTU ceiling {:?})",
+                        uplink_udp_payload_budget, socket_mtu, path_mtu_ceiling,
+                    );
+                }
                 if grow && !candidates.is_empty() {
                     // The current certified size closes the bottom of the growth bracket.
                     if let Some(current) = uplink_udp_payload_budget.checked_sub(wrapper + UDP_RECORD_PROBE_OVERHEAD)
@@ -12746,6 +12769,9 @@ pub(crate) async fn run_udp_tunnel(
                                 &mut quic_record,
                             );
                         if let Err(error) = socket.send(send_data).await {
+                            if udp_message_too_large(&error) {
+                                live_mtu_probe.observe_socket_mtu(&socket);
+                            }
                             log::trace!("UDP live PMTU probe send failed: {error}");
                         }
                     }
