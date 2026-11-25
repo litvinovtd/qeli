@@ -883,7 +883,17 @@ SDK и глобальные настройки не изменялись.
 feed. CI точного среза, проверки архитектур и строгая проверка архива обязательны.
 
 
-### Current 0.8.5 source cut — 24 November 2026
+### Current 0.8.5 release source cut
+
+Source commit: `e1706f977e1d27e9dfd7075c702ab9857f0ddbce`.
+Two stock OpenWrt SDK 24.10.4 Git exports match at SHA-256
+`5887652bfdc44b9af298e542d40ec41d48099d6e7b872caca87531943c0040fd`; archive and prepared content and modes match the pinned tree.
+This qualifies source download and prepare. It is not an IPK or device runtime result.
+
+Два экспорта штатного SDK совпадают; содержимое и права файлов сверены с коммитом.
+Это проверка исходного архива, а не готового IPK или обновления на роутере.
+
+### Standalone test source cut — 24 November 2026
 
 The recipe pins `4f46379e5a8241a2f4c1029c199b6e677f6e799e`, the dev snapshot used for the
 standalone OpenWrt clients. It includes the TCP JOIN fix and the refreshed UDP
