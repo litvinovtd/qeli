@@ -389,13 +389,28 @@ class WorkflowTests(unittest.TestCase):
     def test_docker_release_uses_exact_tag_version_ci_admission_before_login(self):
         source=(Path(__file__).resolve().parent.parent/'.github/workflows/docker-publish.yml').read_text(encoding='utf-8')
         self.assertIn('actions: read',source)
-        self.assertIn('ref: ${{ github.ref }}',source)
+        self.assertIn('ref: ${{ inputs.recover_085 && github.sha || github.ref }}',source)
         self.assertIn('fetch-depth: 0',source)
-        self.assertIn("if: steps.ref.outputs.release_tag == 'true'",source)
+        self.assertIn("if: ${{ !inputs.recover_085 && steps.ref.outputs.release_tag == 'true' }}",source)
         command='python3 scripts/release_tag.py --tag "$GITHUB_REF_NAME" --require-ci'
         self.assertLess(source.index('python3 -B scripts/docker_publish_ref.py'),source.index(command))
         self.assertLess(source.index(command),source.index('docker/login-action@'))
         self.assertIn('GH_TOKEN: ${{ github.token }}',source)
+
+    def test_beta_recovery_uses_original_source_and_publishes_only_after_attestation(self):
+        source=(Path(__file__).resolve().parent.parent/'.github/workflows/docker-publish.yml').read_text(encoding='utf-8')
+        admission=source.index('python3 -B scripts/docker_recover_085.py')
+        certification=source.index('python3 -B scripts/release_tag.py --tag v0.8.5 --require-certification')
+        self.assertLess(admission,certification)
+        self.assertLess(certification,source.index('docker/login-action@'))
+        self.assertIn("format('https://github.com/{0}.git#{1}', github.repository, steps.recovery.outputs.source)",source)
+        self.assertIn("if: ${{ !inputs.recover_085 && steps.ref.outputs.latest_release == 'true' }}",source)
+        self.assertIn("printf 'release_tag=false\\nlatest_release=false\\n'",source)
+        smoke=source.index('Run exact published image on all three architectures')
+        attest=source.index('uses: actions/attest-build-provenance')
+        publish=source.index('Publish the verified v0.8.5 Beta version only')
+        self.assertLess(smoke,attest)
+        self.assertLess(attest,publish)
 
     def test_ci_covers_every_workflow_change(self):
         s=(Path(__file__).resolve().parent.parent/'.github/workflows/ci.yml').read_text(encoding='utf-8')
