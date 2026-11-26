@@ -25,6 +25,8 @@ commits, but the local jemalloc gate stayed green and nobody looked at CI):
   4. Evidence  — every mandatory automated IPv6/roaming case must be recorded
                  against this source tree and an exact artifact SHA-256. Physical
                  checks are advisory when unavailable; a recorded failure blocks.
+  5. Versions  — guides and package commands must already target the planned release;
+                 ordinary dev CI also permits guides for the previous public package.
 
 One clean commit is required before the gates and checked between them.
 A commit/worktree change refuses admission instead of combining different sources.
@@ -171,6 +173,20 @@ def main(argv=None, root=ROOT):
             )
     except (OSError, subprocess.SubprocessError) as error:
         failures.append(f"certification execution failed: {error}")
+
+    if not stable():
+        return verdict(failures)
+
+    print("\n=== Gate 5: documentation and package versions in release mode ===")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-B", os.path.join(ROOT, "scripts", "sync_version.py"), "--releasing"],
+            cwd=ROOT, timeout=60, check=False,
+        )
+        if result.returncode:
+            failures.append("documentation is not staged for this release; see Gate 5 details above")
+    except (OSError, subprocess.SubprocessError) as error:
+        failures.append(f"release version check failed: {error}")
 
     stable()
     return verdict(failures)

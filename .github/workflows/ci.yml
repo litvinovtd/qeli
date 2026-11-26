@@ -131,6 +131,7 @@ jobs:
           python3 -B -m unittest discover -s scripts -p 'test_roaming_resource_release_gate.py'
           python3 -m unittest discover -s scripts -p 'test_fuzz_targets.py'
           python3 -m unittest discover -s scripts -p 'test_docker_publish_ref.py'
+          python3 -m unittest discover -s scripts -p 'test_docker_recover_085.py'
           python3 -m unittest discover -s scripts -p 'test_rebuild_apk.py'
           python3 -m unittest discover -s scripts -p 'test_android_apk_input.py'
           python3 -m unittest discover -s scripts -p 'test_release_preflight.py'

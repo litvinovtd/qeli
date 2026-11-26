@@ -12,6 +12,11 @@ on:
   push:
     tags: ['v*']            # v0.7.3, v0.8.0, …
   workflow_dispatch:        # manual run to (re)publish the current ref
+    inputs:
+      recover_085:
+        description: 'Recover the immutable v0.8.5 Beta from dev; never promote latest'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,17 +37,39 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.recover_085 && github.sha || github.ref }}
           fetch-depth: 0
+
+      - name: Admit immutable v0.8.5 Beta recovery and corrected documentation
+        id: recovery
+        if: inputs.recover_085
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/docker_recover_085.py
+
+      - name: Check out and certify only the original release source
+        if: inputs.recover_085
+        env:
+          RELEASE_SOURCE: ${{ steps.recovery.outputs.source }}
+        run: |
+          git checkout --detach "$RELEASE_SOURCE"
+          python3 -B scripts/release_tag.py --tag v0.8.5 --require-certification
 
       - name: Validate publication ref
         id: ref
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 -B scripts/docker_publish_ref.py --require-published-stable
+          RECOVER_085: ${{ inputs.recover_085 || false }}
+        shell: bash
+        run: |
+          if [ "$RECOVER_085" = 'true' ]; then
+            printf 'release_tag=false\nlatest_release=false\n' >> "$GITHUB_OUTPUT"
+          else
+            python3 -B scripts/docker_publish_ref.py --require-published-stable
+          fi
 
       - name: Admit release tag, runtime certification and exact-commit CI
-        if: steps.ref.outputs.release_tag == 'true'
+        if: ${{ !inputs.recover_085 && steps.ref.outputs.release_tag == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         # A tag starts CI and publication together. Wait for that exact CI;
@@ -70,9 +97,11 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           flavor: latest=false
+          labels: ${{ inputs.recover_085 && format('org.opencontainers.image.revision={0}', steps.recovery.outputs.source) || '' }}
           tags: |
+            type=raw,value=${{ steps.recovery.outputs.version || 'unused' }},enable=${{ inputs.recover_085 || false }}
             type=semver,pattern={{version}},enable=${{ steps.ref.outputs.release_tag }}
-            type=sha,format=long
+            type=sha,format=long,enable=${{ !inputs.recover_085 }}
             # Old stable versions, branches and RCs cannot overwrite latest.
             # Numeric comparison is independent of workflow queue ordering.
             type=raw,value=latest,enable=${{ steps.ref.outputs.latest_release }}
@@ -82,10 +111,17 @@ jobs:
         id: version_tags
         env:
           METADATA_TAGS: ${{ steps.meta.outputs.tags }}
+          RECOVERY_SOURCE: ${{ steps.recovery.outputs.source }}
+          IMAGE: ghcr.io/${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          tags=$(printf '%s\n' "$METADATA_TAGS" | grep -v ':latest$')
+          if [ -n "$RECOVERY_SOURCE" ]; then
+            # Do not expose the version tag until runtime smoke and attestation pass.
+            tags="$IMAGE:sha-$RECOVERY_SOURCE"
+          else
+            tags=$(printf '%s\n' "$METADATA_TAGS" | grep -v ':latest$')
+          fi
           test -n "$tags"
           {
             echo 'tags<<QELI_IMAGE_TAGS'
@@ -96,7 +132,8 @@ jobs:
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
-          context: .                              # repo root (the build context)
+          # The remote Git context records the immutable release SHA in recovery provenance.
+          context: ${{ inputs.recover_085 && format('https://github.com/{0}.git#{1}', github.repository, steps.recovery.outputs.source) || '.' }}
           file: release/docker/Dockerfile
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
@@ -157,8 +194,22 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+      - name: Publish the verified v0.8.5 Beta version only
+        if: inputs.recover_085
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          VERSION: ${{ steps.recovery.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$VERSION" = '0.8.5'
+          docker buildx imagetools create --tag "$IMAGE:$VERSION" "$IMAGE@$DIGEST"
+          actual=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          test "$actual" = "$DIGEST"
+
       - name: Promote verified latest
-        if: steps.ref.outputs.latest_release == 'true'
+        if: ${{ !inputs.recover_085 && steps.ref.outputs.latest_release == 'true' }}
         env:
           IMAGE: ghcr.io/${{ github.repository }}
           DIGEST: ${{ steps.build.outputs.digest }}

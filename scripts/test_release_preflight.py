@@ -69,6 +69,11 @@ class PreflightTests(unittest.TestCase):
                     self.assertEqual(kwargs.get("timeout"), 120)
                 return subprocess.CompletedProcess(args, 1 if (errors or {}).get("certification") else 0,
                                                    "controlled evidence", "")
+            if len(args) == 4 and str(args[2]).endswith("sync_version.py"):
+                event("versions")
+                self.assertEqual(Path(kwargs["cwd"]), self.root)
+                self.assertEqual(args[-1], "--releasing")
+                return subprocess.CompletedProcess(args, 1 if (errors or {}).get("versions") else 0)
             return real_run(args, **kwargs)
         connection = Mock()
         connection.close.side_effect = close_error
@@ -105,7 +110,7 @@ class PreflightTests(unittest.TestCase):
     def test_unchanged_clean_source_and_optional_lab_skip_pass(self):
         rc, text, events, connect, _ = self.execute()
         self.assertEqual(rc, 0, text)
-        self.assertEqual(events, ["ci", "source", "certification"])
+        self.assertEqual(events, ["ci", "source", "certification", "versions"])
         connect.assert_not_called()
 
     def test_commit_change_after_ci_refuses_before_other_gates(self):
@@ -126,6 +131,12 @@ class PreflightTests(unittest.TestCase):
             change=lambda: self.git("checkout", "--quiet", self.second))
         self.assertEqual(rc, 1, text)
         self.assertNotIn("PASS — safe to release", text)
+
+    def test_stale_package_guides_prevent_release_even_if_dev_ci_passes(self):
+        rc, text, events, _, _ = self.execute(errors={"versions": True})
+        self.assertEqual(rc, 1, text)
+        self.assertIn("documentation is not staged", text)
+        self.assertEqual(events[-1], "versions")
 
     def test_tracked_edit_after_source_gate_refuses_before_certification(self):
         rc, text, events, _, _ = self.execute(phase="source",
@@ -161,7 +172,7 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("CI refused", text)
         self.assertIn("archive refused", text)
         self.assertIn("certification is incomplete", text)
-        self.assertEqual(events, ["ci", "source", "certification"])
+        self.assertEqual(events, ["ci", "source", "certification", "versions"])
 
     def test_snapshot_mismatch_refuses_before_connecting(self):
         rc, text, _, connect, _ = self.execute(credential="fixture-only", snapshot_commit=self.second)
@@ -183,7 +194,7 @@ class PreflightTests(unittest.TestCase):
     def test_configured_lab_and_close_failure_remain_release_blocking(self):
         rc, text, events, connect, connection = self.execute(credential="fixture-only", close_error=OSError("close fault"))
         self.assertEqual(rc, 1, text)
-        self.assertEqual(events, ["ci", "lab", "source", "certification"])
+        self.assertEqual(events, ["ci", "lab", "source", "certification", "versions"])
         connect.assert_called_once()
         connection.close.assert_called_once()
 

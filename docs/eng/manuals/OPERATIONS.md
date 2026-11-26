@@ -5,7 +5,7 @@ with a startup section and checks of each server's own Internet access. Repeated
 hooks, restarts and reboots passed [17 scenarios](../reports/CHAINED-SERVERS-HOOKS-2026-10-30.md).
 
 > **Documentation status:** current development tree **0.8.5**; planned full-IPv6 release **0.8.5**;
-> package version covered by this guide **0.8.4**.
+> package version covered by this guide **0.8.5**.
 > `qeli --version` reports the version of the binary actually installed.
 > See [GitHub Releases](https://github.com/litvinovtd/qeli/releases) for package availability and publication status.
 > Links to this version's files work after its publication.
@@ -133,7 +133,7 @@ SHA256SUMS from the same release establish integrity against its metadata, not i
 To verify a downloaded amd64 package before manual installation, use GitHub CLI against this repository. The filename below refers to the version covered by this guide; availability depends on publication. Failed verification means the package has not passed this provenance check.
 
 ```bash
-gh attestation verify qeli_0.8.4_amd64.deb --repo litvinovtd/qeli
+gh attestation verify qeli_0.8.5_amd64.deb --repo litvinovtd/qeli
 ```
 
 The 0.8.4 prerelease preserves its qualified candidate package without a new
