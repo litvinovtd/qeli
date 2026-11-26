@@ -104,6 +104,8 @@ General analysis, the security model and published benchmarks. Detailed release-
 | Document | What it covers |
 |---|---|
 | [AUDIT.md](reports/AUDIT.md) | Current security model and audit status |
+| [0.8.5: throughput across 12 profiles, 25 November 2026](reports/RELEASE-085-SPEED12-2026-11-25.md) | 96 TCP windows, 48 confirmed UDP cells, and a separate UDP-QUIC IPv6 download A/B; lab limits |
+| [Android: app exclusions, issue #161](reports/ANDROID-APP-EXCLUSION-ISSUE-161-2026-11-25.md) | Passive TUN visibility, HTTPS and socket checks, and Android 14 lockdown behavior |
 | [0.8.4: all 12 profiles, 1 November 2026](reports/RELEASE-084-SPEED12-2026-11-01.md) | Earlier amd64 candidate SHA2a527ccd, required/opportunistic: TCP P4 and UDP600 IPv4/IPv6 up/down, n=1; raw, loss, retransmits and VM restoration |
 | [0.8.4: timed versus opportunistic, 1 November 2026](reports/RELEASE-084-TIMED-COMPARISON-2026-11-01.md) | Same SHA, required, 12 profiles; speed, loss, retransmits/TUN drops and limits of continuation after VM shutdown |
 | [Three buffer-aware repeats, 31 October 2026](reports/RELEASE-SHORT-BUFFERS-REFERENCE-2026-10-31.md) | 120 windows; complete-matrix reference not accepted |

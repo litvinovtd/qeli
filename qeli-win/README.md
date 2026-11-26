@@ -264,7 +264,7 @@ RID и publish-параметрами; изменённые lockfiles прове
 Подробнее: [SDK и dependency locks](../docs/ru/reports/audit-0.8.2/AUDIT-Q34-SDK-LOCKS.md).
 
 ```powershell
-# нужен .NET SDK 10.0.401: точная версия закреплена в ../global.json
+# нужен .NET SDK 10.0.404: точная версия закреплена в ../global.json
 # установка SDK: https://dotnet.microsoft.com/download/dotnet/10.0
 dotnet build QeliWin\QeliWin.csproj -c Debug
 

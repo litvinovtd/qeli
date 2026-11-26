@@ -251,7 +251,7 @@ Linux-host Skia assets. Отсутствующий lock не создаётся 
 
 Что нужно на хосте сборки:
 
-- **.NET SDK 10.0.401** — точная версия в корневом `global.json`; публикует self-contained payload (`dotnet publish -r osx-arm64`).
+- **.NET SDK 10.0.404** — точная версия в корневом `global.json`; публикует self-contained payload на .NET 10.0.15 (`dotnet publish -r osx-arm64`).
 - **Подписант кода** — на Mac это `codesign` (встроен); в лабе на Linux —
   **`rcodesign`** (`cargo install apple-codesign`). Ad-hoc подпись **обязательна**:
   ядро macOS на Apple Silicon не запускает неподписанный arm64-бинарь.

@@ -1,5 +1,7 @@
 # Qeli на Android. Проверка RKNHardering и изоляции приложений
 
+[English version](../../eng/reports/ANDROID-APP-EXCLUSION-ISSUE-161-2026-11-25.md)
+
 На Android 14 **RKNHardering 2.11.0 видел интерфейс `tun0` даже из списка исключений Qeli**. На стенде с двумя разными публичными IPv4 обычный HTTPS-запрос исключённого приложения получил прямой адрес при выключенном системном kill switch. При включённом kill switch запрос был заблокирован. Адрес VPS показал контрольный запрос из приложения, работающего через Qeli. [Обсуждение Qeli №161](https://github.com/litvinovtd/qeli/issues/161#issuecomment-7159527650) · [RKNHardering 2.11.0](https://github.com/xtclovver/RKNHardering/releases/tag/v2.11.0)
 
 ## Пассивная проверка RKNHardering
@@ -107,7 +109,7 @@ Android 14 подключался к действующему Qeli 0.8.5 на в
 | Отбрасывать трафик исключённых и неизвестных UID | Это потенциальная дополнительная проверка в Qeli. Сейчас список приложений применяет Android, а Qeli получает из TUN IP-пакет без UID. |
 | Перенести Xray TUN, `routeOnly` и правила доменной маршрутизации | Эти параметры относятся к архитектуре v2rayNG. Дополнительную проверку права приложения можно спроектировать на входе в существующий TUN Qeli. |
 
-[Android VPN в Qeli](https://github.com/litvinovtd/qeli/blob/74312bf858430ca5318611f49e977c1cd409ea6e/qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt#L2640) · [Чтение пакетов TUN](https://github.com/litvinovtd/qeli/blob/74312bf858430ca5318611f49e977c1cd409ea6e/qeli/src/transport_core/linux_tun.rs#L507)
+[Android VPN в Qeli](https://github.com/litvinovtd/qeli/blob/74312bf858430ca5318611f49e977c1cd409ea6e/qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt) · [Чтение пакетов TUN](https://github.com/litvinovtd/qeli/blob/74312bf858430ca5318611f49e977c1cd409ea6e/qeli/src/transport_core/linux_tun.rs)
 
 ### Вариант без новых зависимостей
 

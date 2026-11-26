@@ -104,6 +104,8 @@
 | Документ | О чём |
 |---|---|
 | [AUDIT.md](reports/AUDIT.md) | Актуальная модель безопасности и статус аудита |
+| [0.8.5: скорость 12 профилей, 25 ноября 2026](reports/RELEASE-085-SPEED12-2026-11-25.md) | 96 TCP-окон, 48 подтверждённых UDP-ступеней и отдельный A/B UDP-QUIC IPv6 download; границы стенда |
+| [Android: исключения приложений, проверка #161](reports/ANDROID-APP-EXCLUSION-ISSUE-161-2026-11-25.md) | Пассивная видимость TUN, проверка HTTPS/сокетов и действие системной блокировки на Android 14 |
 | [0.8.4: скорость всех 12 профилей, 1 ноября 2026](reports/RELEASE-084-SPEED12-2026-11-01.md) | Ранний кандидат amd64 SHA2a527ccd, required/opportunistic: TCP P4 и UDP600 IPv4/IPv6 up/down, n=1; raw, потери, retransmits и восстановление ВМ |
 | [0.8.4: timed против opportunistic, 1 ноября 2026](reports/RELEASE-084-TIMED-COMPARISON-2026-11-01.md) | Тот же SHA, required, 12 профилей; скорость, потери, retransmits/TUN drops и ограничения продолжения после остановки ВМ |
 | [Три повтора с буферами, 31 октября 2026](reports/RELEASE-SHORT-BUFFERS-REFERENCE-2026-10-31.md) | 120 окон; эталон всей матрицы не принят |

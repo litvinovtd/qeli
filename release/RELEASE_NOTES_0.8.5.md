@@ -52,6 +52,9 @@
   которое могло вызвать Win32 87. Проверки GUID, readback и отмена сохранены.
   В Linux/Keenetic gateway NAT уточнены ошибки и безопасный повтор при
   временной блокировке xtables. Спасибо **@Singijeon** и **@alviv** за [#69](https://github.com/litvinovtd/qeli/issues/69).
+- **Десктопная сборка:** для Windows и macOS закреплён .NET **10.0.15**
+  с исправлениями безопасности (SDK 10.0.404). Для `net-required` обновите
+  установленный .NET 10 Runtime; автономная сборка использует свой runtime.
 - **Web-панель сервера:** импорт по умолчанию раздельный, full-tunnel явный.
   Предпросмотр и сохранение используют один сериализатор; скрытые параметры
   и сетевые черновики не теряются, квота не сбрасывает срок действия.
@@ -75,6 +78,28 @@
   нативными ядрами. Эксперимент прогрева и освобождения TUN-пулов не вошёл.
   Обновлены Rust-зависимости, Android Gradle 9.9.1 и lock Kotlin-зависимостей
   для 2.4.21. Подробности — в changelog.
+
+### Скорость в лаборатории
+
+Бинарник Linux amd64 `e5821a1c…` прошёл **96 TCP-замеров** P1/P4 и
+**48 двукратно подтверждённых UDP-ступеней** по всем 12 профилям
+(IPv4/IPv6 внутри туннеля, upload/download). Стенд: по 2 vCPU / 2 ГиБ,
+Recordizer `required`, batching `opportunistic`.
+
+TCP достиг **2,10 Гбит/с P1** и **1,99 Гбит/с P4**. Пик полезной скорости
+UDP-трафика **внутри TCP-туннеля** (`tcp-plain-raw`) — **1,861 Гбит/с**
+при заданных **1,875 Гбит/с**, с потерями **0,7180% / 0,7230%** в двух окнах.
+На внешнем UDP-транспорте максимум — **1,124 Гбит/с** при заданных
+**1,125 Гбит/с** (`udp-padding`, IPv6 upload).
+Средний TCP P4 на 1,9% ниже ранней 0.8.4; пик UDP практически совпал с
+предыдущей 0.8.5. Это раздельные прогоны, не версионный A/B.
+
+В отдельном A/B для UDP-QUIC IPv6 download обе сборки стабильно прошли
+нагрузку **1 000 Мбит/с (3/3)**. При 1 125 Мбит/с обе прошли 1/3, при
+1 150 Мбит/с — 0/3 и 1/3 соответственно. В этом профиле и направлении
+**регрессия не подтверждена**; эквивалентность сборок тест не доказывает.
+
+[Отчёт: матрицы, SHA, параметры стенда и сравнение версий](https://github.com/litvinovtd/qeli/blob/v0.8.5/docs/ru/reports/RELEASE-085-SPEED12-2026-11-25.md)
 
 ### Установка и границы проверки
 
@@ -111,9 +136,10 @@ manual routing and firewall ownership remain the defaults.
   and an older server is refused before network setup. Windows/macOS have
   editor fields, all clients preserve INI settings, and OpenWrt UCI/LuCI
   keep payload/probing controls separate from TUN MTU.
-- **PMTU recovery:** bounded retry of an unfinished encrypted record can
-  lower the effective budget on the live socket without resending the
-  accepted batch prefix. Asynchronous PMTU advisories do not stop reception.
+- **PMTU recovery:** a local `EMSGSIZE` can lower the effective budget on
+  the live socket and trigger a bounded retry of an unfinished encrypted
+  record without resending the accepted batch prefix. Asynchronous PMTU
+  advisories do not stop reception.
   The manual ceiling and probe prohibition are retained. Candidate RX queues
   warm before platform COMMIT under the shared memory budget.
   The ceiling learned during startup is retained on the same UDP socket
@@ -136,6 +162,9 @@ manual routing and firewall ownership remain the defaults.
   IPv6 registration reads; preserve active NUD to avoid Win32 87.
   Linux/Keenetic NAT retains the original iptables error and only retries
   a verified transient lock safely. Thanks to **@Singijeon** and **@alviv** for [#69](https://github.com/litvinovtd/qeli/issues/69).
+- **Desktop build:** Windows and macOS are pinned to the .NET **10.0.15**
+  security update (SDK 10.0.404). Update the installed .NET 10 Runtime for
+  `net-required` builds; standalone builds use their bundled runtime.
 - **Server panel:** explicit full tunnel, unified INI preview/save, preserved
   drafts and independent quota/expiry edits; server-side Quick Start
   preflight and per-profile diagnostics with copy and streaming log download.
@@ -155,6 +184,30 @@ manual routing and firewall ownership remain the defaults.
   Gradle 9.9.1 and Kotlin dependency locks for 2.4.21.
   Client models, legal bindings/catalogue and matched native cores were updated.
   The experimental server TUN-pool warmup/idle trim was reverted.
+
+### Lab throughput
+
+The Linux amd64 build (`e5821a1c…`) completed **96 TCP P1/P4 measurements**
+and **48 UDP cells confirmed twice** across all 12 profiles (inner IPv4/IPv6,
+upload/download). Each VM had 2 vCPUs / 2 GiB, with Recordizer required and
+opportunistic batching.
+
+TCP reached **2.10 Gbit/s P1** and **1.99 Gbit/s P4**. UDP traffic **inside a
+TCP tunnel** (`tcp-plain-raw`) peaked at **1.861 Gbit/s** at **1.875 Gbit/s**
+offered load, with **0.7180% / 0.7230%** loss in the two windows. On an
+outer UDP transport, the best goodput was **1.124 Gbit/s** at **1.125 Gbit/s**
+offered load (`udp-padding`, IPv6 upload). Mean TCP P4 was 1.9% below the
+early 0.8.4 candidate; peak UDP goodput
+was effectively unchanged from the previous 0.8.5 build. These were separate
+lab runs, not an interleaved version A/B.
+
+In a separate UDP-QUIC IPv6 download A/B, both builds passed
+**1,000 Mbit/s of offered load in all three repeats**. Both passed 1/3 at
+1,125 Mbit/s; at 1,150 Mbit/s the older and newer builds passed 0/3 and
+1/3. No regression was confirmed for this profile and direction; the test
+does not establish equivalence.
+
+[Report: matrices, SHA, lab settings and version comparisons](https://github.com/litvinovtd/qeli/blob/v0.8.5/docs/eng/reports/RELEASE-085-SPEED12-2026-11-25.md)
 
 Choose Linux amd64/arm64 ELF or .deb (glibc 2.28, jemalloc), Windows x64 GUI
 and complete CLI ZIPs in .NET/standalone variants, macOS 15+ Apple Silicon
