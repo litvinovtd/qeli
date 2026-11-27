@@ -404,7 +404,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(admission,certification)
         self.assertLess(certification,source.index('docker/login-action@'))
         self.assertIn("format('https://github.com/{0}.git#{1}', github.repository, steps.recovery.outputs.source)",source)
-        self.assertIn("if: ${{ !inputs.recover_085 && steps.ref.outputs.latest_release == 'true' }}",source)
+        self.assertIn("!cancelled() && github.repository == 'litvinovtd/qeli' && !inputs.recover_085",source)
         self.assertIn("printf 'release_tag=false\\nlatest_release=false\\n'",source)
         smoke=source.index('Run exact published image on all three architectures')
         attest=source.index('uses: actions/attest-build-provenance')

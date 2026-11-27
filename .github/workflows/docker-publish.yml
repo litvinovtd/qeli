@@ -1,8 +1,9 @@
 name: docker-publish
 
 # Build the multi-arch qeli image (both roles, all deps) and publish it to GHCR
-# on release tags. Only the highest stable Git version may update `latest`.
-# Manual runs (workflow_dispatch) build from the selected branch/tag.
+# on release tags. The highest published prerelease owns `latest` only until
+# the first stable release; afterwards only the highest published stable can.
+# Release events and the opt-in manual promotion never rebuild an image.
 #
 # Result: users never rebuild — `docker pull ghcr.io/litvinovtd/qeli:latest`.
 # The Dockerfile itself is version-agnostic (it builds whatever source is checked
@@ -11,10 +12,16 @@ name: docker-publish
 on:
   push:
     tags: ['v*']            # v0.7.3, v0.8.0, …
+  release:
+    types: [published, released]
   workflow_dispatch:        # manual run to (re)publish the current ref
     inputs:
       recover_085:
         description: 'Recover the immutable v0.8.5 Beta from dev; never promote latest'
+        type: boolean
+        default: false
+      latest_only:
+        description: 'Promote an already published and verified version; never build'
         type: boolean
         default: false
 
@@ -25,15 +32,15 @@ permissions:
   id-token: write           # OIDC token for the signed build attestation (R-02)
   attestations: write       # record the attestation against this repo (R-02)
 
-# Serialize publication across refs; per-ref groups would still race on latest.
-# GitHub may replace a pending run; an executing publication is never cancelled.
-concurrency:
-  group: docker-publish
-  cancel-in-progress: false
-
 jobs:
   publish:
+    if: ${{ github.event_name != 'release' && !inputs.latest_only }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: docker-publish
+      cancel-in-progress: false
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -91,7 +98,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Keep version/SHA tags; latest requires the highest stable Git version.
+      # Push only version/SHA tags before the smoke tests and attestation.
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
@@ -102,9 +109,6 @@ jobs:
             type=raw,value=${{ steps.recovery.outputs.version || 'unused' }},enable=${{ inputs.recover_085 || false }}
             type=semver,pattern={{version}},enable=${{ steps.ref.outputs.release_tag }}
             type=sha,format=long,enable=${{ !inputs.recover_085 }}
-            # Old stable versions, branches and RCs cannot overwrite latest.
-            # Numeric comparison is independent of workflow queue ordering.
-            type=raw,value=latest,enable=${{ steps.ref.outputs.latest_release }}
 
       # Publish immutable/version tags first; latest stays unchanged until checks pass.
       - name: Exclude latest from the initial image push
@@ -208,14 +212,42 @@ jobs:
           actual=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')
           test "$actual" = "$DIGEST"
 
-      - name: Promote verified latest
-        if: ${{ !inputs.recover_085 && steps.ref.outputs.latest_release == 'true' }}
+  latest:
+    name: Promote verified latest without a build
+    needs: publish
+    if: >-
+      ${{ !cancelled() && github.repository == 'litvinovtd/qeli' && !inputs.recover_085 &&
+          ((needs.publish.result == 'skipped' && (github.event_name == 'release' || inputs.latest_only)) ||
+           (needs.publish.result == 'success' && github.ref_type == 'tag')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    # Promotions reconcile the current release inventory, so replacing a
+    # pending check cannot cause a lost update or cancel a queued build.
+    concurrency:
+      group: docker-latest
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify eligibility, OCI index and signature, then move only latest
         env:
-          IMAGE: ghcr.io/${{ github.repository }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$DIGEST"
-          actual=$(docker buildx imagetools inspect "$IMAGE:latest" --format '{{json .Manifest.Digest}}' | tr -d '"')
-          test "$actual" = "$DIGEST"
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          MODE: ${{ inputs.latest_only && 'manual' || github.event_name == 'release' && 'release' || 'build' }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+        run: python3 -B scripts/docker_latest.py --tag "$REQUESTED_TAG" --mode "$MODE" --digest "$DIGEST"

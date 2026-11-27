@@ -54,9 +54,11 @@ class RefTests(unittest.TestCase):
         self.assertIn("flavor: latest=false", workflow)
         self.assertIn("type=semver,pattern={{version}},enable=${{ steps.ref.outputs.release_tag }}", workflow)
         self.assertIn("type=sha,format=long", workflow)
-        self.assertIn("type=raw,value=latest,enable=${{ steps.ref.outputs.latest_release }}", workflow)
+        self.assertNotIn("type=raw,value=latest", workflow)
+        self.assertIn("github.event_name != 'release' && !inputs.latest_only", workflow)
         self.assertNotIn("!contains(github.ref_name, '-')", workflow)
-        self.assertIn("concurrency:\n  group: docker-publish\n  cancel-in-progress: false", workflow)
+        self.assertIn("concurrency:\n      group: docker-publish\n      cancel-in-progress: false", workflow)
+        self.assertIn("concurrency:\n      group: docker-latest\n      cancel-in-progress: false", workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertIn("scripts/docker_publish_ref.py --require-published-stable", workflow)
 
