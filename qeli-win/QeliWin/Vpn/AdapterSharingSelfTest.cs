@@ -32,6 +32,10 @@ internal static class AdapterSharingSelfTest
                     [pscustomobject]@{ComponentID='third_party';Enabled=$true;InterfaceDescription='Owned Wintun'})
                 function Get-NetAdapter {
                     param([switch]$IncludeHidden,$ErrorAction)
+                    if($script:scenario -in @('owned','binding_error')) {
+                        Write-Progress -Activity 'Adapter sharing fixture progress' -PercentComplete 50
+                        Write-Progress -Activity 'Adapter sharing fixture progress' -Completed
+                    }
                     if($script:scenario -eq 'missing') {return $script:foreign}
                     if($script:scenario -eq 'duplicate') {return @($script:owned,$script:owned)}
                     if($script:scenario -eq 'replaced' -and $script:changed -gt 0) {return $script:foreign}
@@ -83,6 +87,15 @@ internal static class AdapterSharingSelfTest
                 AdapterSharing.Run(start, CancellationToken.None, evidence.Enqueue);
                 check("owned adapter bindings: "+scenario,
                     scenario is "owned" or "slow" || evidence.Any(line => line.Contains("QELI_ADAPTER_ERROR") && line.Contains("hresult=0x") && line.Contains("category=")));
+                if (scenario is "owned" or "binding_error") {
+                    check("adapter log keeps stages without CLIXML progress: " + scenario,
+                        evidence.Any(line => line.Contains("QELI_ADAPTER_STAGE " + (scenario == "owned" ? "verified" : "disable-ms_msclient"))) &&
+                        !evidence.Any(line => line.Contains("S=\"progress\"") || line.Contains("Adapter sharing fixture progress")));
+                }
+                if (scenario == "binding_error") {
+                    check("adapter log keeps the original binding error",
+                        evidence.Any(line => line.Contains("QELI_ADAPTER_ERROR") && line.Contains("Access denied by fixture")));
+                }
             } catch(Exception error) {
                 Console.WriteLine(error.Message);
                 check("owned adapter bindings: "+scenario, false);

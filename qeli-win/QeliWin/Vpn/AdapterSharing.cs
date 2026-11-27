@@ -113,7 +113,9 @@ internal static class AdapterSharing
     internal static string BuildScript(Guid guid)
     {
         if (guid == Guid.Empty) throw new ArgumentException("Adapter GUID is empty", nameof(guid));
-        return "$ErrorActionPreference='Stop'; $expected=[guid]'" + guid.ToString("D") + "';" + """
+        // Windows PowerShell serializes progress as CLIXML on redirected stderr.
+        // Suppress it at the source; leave the error stream and exit handling intact.
+        return "$ProgressPreference='SilentlyContinue'; $ErrorActionPreference='Stop'; $expected=[guid]'" + guid.ToString("D") + "';" + """
             function Stage($name) {
                 [Console]::Out.WriteLine('QELI_ADAPTER_STAGE ' + $name)
                 [Console]::Out.Flush()
